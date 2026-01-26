@@ -2,8 +2,6 @@ const express = require("express");
 const router = express.Router();
 const { run, all, get } = require("../db");
 
-
-
 // Convert datetime-local (no timezone) into ISO with your local timezone offset
 function toLocalISOWithOffset(dtLocal) {
   // dtLocal example: "2026-01-30T18:00"
@@ -29,20 +27,25 @@ function toLocalISOWithOffset(dtLocal) {
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
 }
 
-// GET /admin -> shows a simple HTML form
-router.get("/", async (req, res) => { const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
-let editEvent = null;
-
-if (editId) {
-  editEvent = await get(
-    "SELECT * FROM events WHERE id = ?",
-    [editId]
-  );
+// Convert ISO-with-offset to datetime-local value for the form
+function toDateTimeLocalValue(isoWithOffset) {
+  if (!isoWithOffset) return "";
+  // "2026-01-30T18:00:00-08:00" -> "2026-01-30T18:00"
+  return String(isoWithOffset).slice(0, 16);
 }
-const events = await all(
-  "SELECT id, title, startDateTime, location FROM events ORDER BY startDateTime DESC LIMIT 20"
-);
 
+// GET /admin -> shows a simple HTML form + list
+router.get("/", async (req, res) => {
+  const events = await all(
+    "SELECT id, title, startDateTime, location FROM events ORDER BY startDateTime DESC LIMIT 20"
+  );
+
+  const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
+  let editEvent = null;
+
+  if (editId) {
+    editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
+  }
 
   res.send(`
     <!doctype html>
@@ -54,13 +57,15 @@ const events = await all(
         <style>
           body { font-family: Arial, sans-serif; padding: 24px; max-width: 720px; margin: 0 auto; }
           h1 { margin: 0 0 12px; }
+          h2 { margin: 0 0 12px; }
           p { margin: 0 0 16px; color: #444; }
           label { display: block; margin: 12px 0 6px; font-weight: 600; }
           input, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
           textarea { min-height: 120px; }
-          button { margin-top: 16px; padding: 12px 14px; border: 0; border-radius: 10px; cursor: pointer; }
+          button { margin-top: 16px; padding: 10px 12px; border: 0; border-radius: 10px; cursor: pointer; }
           .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
           .note { font-size: 12px; color: #666; margin-top: 8px; }
+          a { color: #0b6; }
         </style>
       </head>
       <body>
@@ -69,77 +74,80 @@ const events = await all(
         <p><a href="/events" target="_blank">View all events (JSON)</a></p>
 
         <form method="POST" action="/admin/events">
+          ${editEvent ? `<input type="hidden" name="id" value="${editEvent.id}" />` : ""}
+
           <label>City</label>
           <input name="city" value="${editEvent?.city || "Enumclaw"}" />
-
 
           <label>Title</label>
           <input name="title" value="${editEvent?.title || ""}" required />
 
-
           <label>Description</label>
           <textarea name="description" required>${editEvent?.description || ""}</textarea>
-
 
           <div class="row">
             <div>
               <label>Start Date/Time</label>
-              <input id="startDateTime" type="datetime-local" name="startDateTime" required />
+              <input id="startDateTime" type="datetime-local" name="startDateTime"
+                value="${toDateTimeLocalValue(editEvent?.startDateTime)}" required />
             </div>
             <div>
               <label>End Date/Time</label>
-              <input id="endDateTime" type="datetime-local" name="endDateTime" required />
+              <input id="endDateTime" type="datetime-local" name="endDateTime"
+                value="${toDateTimeLocalValue(editEvent?.endDateTime)}" required />
             </div>
           </div>
 
           <label>Location</label>
           <input name="location" value="${editEvent?.location || ""}" required />
 
-
           <label>Organizer</label>
           <input name="organizer" value="${editEvent?.organizer || ""}" required />
 
-
-          <button type="submit">Save Event</button>
+          <button type="submit">${editEvent ? "Update Event" : "Save Event"}</button>
+          ${
+            editEvent
+              ? `<a href="/admin" style="margin-left:10px;">Cancel</a>`
+              : ""
+          }
           <div class="note">Dates are saved with your local timezone automatically.</div>
         </form>
-<hr style="margin: 24px 0;" />
 
-<h2 style="margin: 0 0 12px;">Existing Events (latest 20)</h2>
+        <hr style="margin: 24px 0;" />
 
-<div style="display: grid; gap: 10px;">
-  ${
-    events.length
-      ? events
-          .map(
-            (e) => `
-              <div style="border: 1px solid #ddd; border-radius: 10px; padding: 12px;">
-                <div style="font-weight: 700; margin-bottom: 4px;">
-                  #${e.id} — ${e.title}
-                </div>
-                <div style="color: #444; font-size: 14px;">
-                  <div><strong>Start:</strong> ${e.startDateTime}</div>
-                  <div><strong>Location:</strong> ${e.location}</div>
-                </div>
-                <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
-  <a href="/events/${e.id}" target="_blank">View JSON</a>
-              <a href="/admin?edit=${e.id}">Edit</a>
+        <h2>Existing Events (latest 20)</h2>
 
+        <div style="display: grid; gap: 10px;">
+          ${
+            events.length
+              ? events
+                  .map(
+                    (e) => `
+                      <div style="border: 1px solid #ddd; border-radius: 10px; padding: 12px;">
+                        <div style="font-weight: 700; margin-bottom: 4px;">
+                          #${e.id} — ${e.title}
+                        </div>
+                        <div style="color: #444; font-size: 14px;">
+                          <div><strong>Start:</strong> ${e.startDateTime}</div>
+                          <div><strong>Location:</strong> ${e.location}</div>
+                        </div>
+                        <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+                          <a href="/events/${e.id}" target="_blank">View JSON</a>
+                          <a href="/admin?edit=${e.id}">Edit</a>
 
-  <form method="POST" action="/admin/events/${e.id}/delete" style="margin:0;">
-    <button type="submit" onclick="return confirm('Delete event #${e.id}?');">
-      Delete
-    </button>
-  </form>
-</div>
-
-              </div>
-            `
-          )
-          .join("")
-      : `<div style="color:#666;">No events yet.</div>`
-  }
-</div>
+                          <form method="POST" action="/admin/events/${e.id}/delete" style="margin:0;">
+                            <button type="submit" onclick="return confirm('Delete event #${e.id}?');">
+                              Delete
+                            </button>
+                          </form>
+                        </div>
+                      </div>
+                    `
+                  )
+                  .join("")
+              : `<div style="color:#666;">No events yet.</div>`
+          }
+        </div>
 
         <script>
           const startEl = document.getElementById("startDateTime");
@@ -155,7 +163,7 @@ const events = await all(
 
               // Convert back to "YYYY-MM-DDTHH:MM" for datetime-local
               const pad = (n) => String(n).padStart(2, "0");
-              const v = \`\${d.getFullYear()}-\${pad(d.getMonth() + 1)}-\${pad(d.getDate())}T\${pad(d.getHours())}:\${pad(d.getMinutes())}\`;
+              const v = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
               endEl.value = v;
             }
@@ -166,10 +174,10 @@ const events = await all(
   `);
 });
 
-// POST /admin/events -> receives the form and inserts into DB
+// POST /admin/events -> create OR update depending on hidden id
 router.post("/events", async (req, res) => {
   try {
-    let { city = "Enumclaw", title, description, startDateTime, endDateTime, location, organizer } = req.body;
+    let { id, city = "Enumclaw", title, description, startDateTime, endDateTime, location, organizer } = req.body;
 
     // Convert datetime-local values to ISO with timezone offset
     startDateTime = toLocalISOWithOffset(startDateTime);
@@ -191,6 +199,21 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
+    // If an ID is present, update. Otherwise insert.
+    if (id) {
+      const eventId = parseInt(id, 10);
+      if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
+
+      await run(
+        `UPDATE events
+         SET city=?, title=?, description=?, startDateTime=?, endDateTime=?, location=?, organizer=?, updatedAt=datetime('now')
+         WHERE id=?`,
+        [city, title, description, startDateTime, endDateTime, location, organizer, eventId]
+      );
+
+      return res.redirect(`/events/${eventId}`);
+    }
+
     const result = await run(
       `INSERT INTO events (city, title, description, startDateTime, endDateTime, location, organizer, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
@@ -204,6 +227,7 @@ router.post("/events", async (req, res) => {
     res.status(500).send("Server error.");
   }
 });
+
 // POST /admin/events/:id/delete -> deletes an event
 router.post("/events/:id/delete", async (req, res) => {
   try {
