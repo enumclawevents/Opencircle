@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
-const { run, all } = require("../db");
+const { run, all, get } = require("../db");
+
 
 
 // Convert datetime-local (no timezone) into ISO with your local timezone offset
@@ -29,7 +30,16 @@ function toLocalISOWithOffset(dtLocal) {
 }
 
 // GET /admin -> shows a simple HTML form
-router.get("/", async (req, res) => { const events = await all(
+router.get("/", async (req, res) => { const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
+let editEvent = null;
+
+if (editId) {
+  editEvent = await get(
+    "SELECT * FROM events WHERE id = ?",
+    [editId]
+  );
+}
+const events = await all(
   "SELECT id, title, startDateTime, location FROM events ORDER BY startDateTime DESC LIMIT 20"
 );
 
@@ -108,6 +118,8 @@ router.get("/", async (req, res) => { const events = await all(
                 </div>
                 <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
   <a href="/events/${e.id}" target="_blank">View JSON</a>
+              <a href="/admin?edit=${e.id}">Edit</a>
+
 
   <form method="POST" action="/admin/events/${e.id}/delete" style="margin:0;">
     <button type="submit" onclick="return confirm('Delete event #${e.id}?');">
