@@ -3,9 +3,14 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "engines": {
+  "node": "20.x"
+},
+
   "scripts": {
   "dev": "nodemon server.js",
-  "start": "node server.js"
+  "start": "node server.js",
+  "postinstall": "npm rebuild sqlite3 --build-from-source"
 }
 ,
   "keywords": [],
