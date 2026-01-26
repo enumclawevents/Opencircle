@@ -51,7 +51,8 @@ function requireAdmin(req, res, next) {
 
 
 // Start the server on port 3000
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`OpenCircle API running at http://localhost:${PORT}`);
+  console.log(`OpenCircle API running on port ${PORT}`);
 });
+
