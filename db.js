@@ -9,6 +9,13 @@ const db = new sqlite3.Database(DB_PATH);
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS events (
+    // Add imageUrl column if it doesn't exist yet (safe to run on every startup)
+try {
+  await run(`ALTER TABLE events ADD COLUMN imageUrl TEXT`);
+} catch (e) {
+  // Ignore "duplicate column name" errors
+}
+
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       city TEXT NOT NULL DEFAULT 'Enumclaw',
       title TEXT NOT NULL,
