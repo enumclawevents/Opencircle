@@ -70,13 +70,16 @@ const events = await all(
 
         <form method="POST" action="/admin/events">
           <label>City</label>
-          <input name="city" value="Enumclaw" />
+          <input name="city" value="${editEvent?.city || "Enumclaw"}" />
+
 
           <label>Title</label>
-          <input name="title" required />
+          <input name="title" value="${editEvent?.title || ""}" required />
+
 
           <label>Description</label>
-          <textarea name="description" required></textarea>
+          <textarea name="description" required>${editEvent?.description || ""}</textarea>
+
 
           <div class="row">
             <div>
@@ -90,10 +93,12 @@ const events = await all(
           </div>
 
           <label>Location</label>
-          <input name="location" required />
+          <input name="location" value="${editEvent?.location || ""}" required />
+
 
           <label>Organizer</label>
-          <input name="organizer" required />
+          <input name="organizer" value="${editEvent?.organizer || ""}" required />
+
 
           <button type="submit">Save Event</button>
           <div class="note">Dates are saved with your local timezone automatically.</div>
