@@ -23,21 +23,9 @@ function toLocalISOWithOffset(dtLocal) {
   const offM = pad(abs % 60);
 
   return (
-    year +
-    "-" +
-    month +
-    "-" +
-    day +
-    "T" +
-    hours +
-    ":" +
-    minutes +
-    ":" +
-    seconds +
-    sign +
-    offH +
-    ":" +
-    offM
+    year + "-" + month + "-" + day +
+    "T" + hours + ":" + minutes + ":" + seconds +
+    sign + offH + ":" + offM
   );
 }
 
@@ -47,7 +35,7 @@ function toDateTimeLocalValue(isoWithOffset) {
   return String(isoWithOffset).slice(0, 16);
 }
 
-// GET /admin -> shows a simple HTML form + list
+// GET /admin
 router.get("/", async (req, res) => {
   const events = await all(
     "SELECT id, title, startDateTime, location FROM events ORDER BY startDateTime DESC LIMIT 20"
@@ -60,34 +48,28 @@ router.get("/", async (req, res) => {
     editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
   }
 
-  // ✅ SAFE cards HTML (this is what fixes your Render SyntaxError)
-  const cardsHtml = events.length
-    ? events
-        .map(
-          (e) => `
-        <div style="border: 1px solid #ddd; border-radius: 10px; padding: 12px;">
-          <div style="font-weight: 700; margin-bottom: 4px;">
-            #${e.id} — ${e.title}
+  const listHtml = events.length
+    ? events.map((e) => {
+        return `
+          <div style="border: 1px solid #ddd; border-radius: 10px; padding: 12px;">
+            <div style="font-weight: 700; margin-bottom: 4px;">
+              #${e.id} — ${e.title}
+            </div>
+            <div style="color: #444; font-size: 14px;">
+              <div><strong>Start:</strong> ${e.startDateTime}</div>
+              <div><strong>Location:</strong> ${e.location}</div>
+            </div>
+            <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+              <a href="/events/${e.id}" target="_blank">View JSON</a>
+              <a href="/admin?edit=${e.id}">Edit</a>
+              <form method="POST" action="/admin/events/${e.id}/delete" style="margin:0;"
+                onsubmit="return confirm('Delete event #${e.id}?');">
+                <button type="submit">Delete</button>
+              </form>
+            </div>
           </div>
-          <div style="color: #444; font-size: 14px;">
-            <div><strong>Start:</strong> ${e.startDateTime}</div>
-            <div><strong>Location:</strong> ${e.location}</div>
-          </div>
-          <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
-            <a href="/events/${e.id}" target="_blank">View JSON</a>
-            <a href="/admin?edit=${e.id}">Edit</a>
-
-            <form method="POST"
-                  action="/admin/events/${e.id}/delete"
-                  style="margin:0;"
-                  onsubmit="return confirm('Delete event #${e.id}?');">
-              <button type="submit">Delete</button>
-            </form>
-          </div>
-        </div>
-      `
-        )
-        .join("")
+        `;
+      }).join("")
     : `<div style="color:#666;">No events yet.</div>`;
 
   res.send(`
@@ -98,7 +80,7 @@ router.get("/", async (req, res) => {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>OpenCircle Admin</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 24px; max-width: 720px; margin: 0 auto; }
+          body { font-family: Arial, sans-serif; padding: 24px; max-width: 820px; margin: 0 auto; }
           h1 { margin: 0 0 12px; }
           h2 { margin: 0 0 12px; }
           p { margin: 0 0 16px; color: #444; }
@@ -113,7 +95,7 @@ router.get("/", async (req, res) => {
       </head>
       <body>
         <h1>OpenCircle Admin</h1>
-        <p>Add an event to the API (stored in SQLite).</p>
+        <p>Add or edit an event (stored in SQLite).</p>
         <p><a href="/events" target="_blank">View all events (JSON)</a></p>
 
         <form method="POST" action="/admin/events">
@@ -149,7 +131,13 @@ router.get("/", async (req, res) => {
 
           <label>Image URL (flyer)</label>
           <input name="imageUrl" value="${editEvent?.imageUrl || ""}" placeholder="https://..." />
-          <div class="note">Paste a direct image link (jpg/png/webp). Later we can add Media Library upload.</div>
+
+          <label>Ticket Button Text</label>
+          <input name="ticketLabel" value="${editEvent?.ticketLabel || "Tickets"}" placeholder="Tickets / Reserve / Buy Tickets..." />
+
+          <label>Ticket Link (URL)</label>
+          <input name="ticketUrl" value="${editEvent?.ticketUrl || ""}" placeholder="https://..." />
+          <div class="note">If provided, a ticket button will show on the event page.</div>
 
           <label>Location</label>
           <input name="location" value="${editEvent?.location || ""}" required />
@@ -158,7 +146,8 @@ router.get("/", async (req, res) => {
           <input name="organizer" value="${editEvent?.organizer || ""}" required />
 
           <button type="submit">${editEvent ? "Update Event" : "Save Event"}</button>
-          ${editEvent ? '<a href="/admin" style="margin-left:10px;">Cancel</a>' : ""}
+          ${editEvent ? `<a href="/admin" style="margin-left:10px;">Cancel</a>` : ""}
+
           <div class="note">Dates are saved with your local timezone automatically.</div>
         </form>
 
@@ -166,7 +155,7 @@ router.get("/", async (req, res) => {
 
         <h2>Existing Events (latest 20)</h2>
         <div style="display: grid; gap: 10px;">
-          ${cardsHtml}
+          ${listHtml}
         </div>
 
         <script>
@@ -175,20 +164,16 @@ router.get("/", async (req, res) => {
 
           startEl.addEventListener("change", () => {
             if (!startEl.value) return;
-
             if (!endEl.value) {
               const d = new Date(startEl.value);
               d.setHours(d.getHours() + 2);
-
               const pad = (n) => String(n).padStart(2, "0");
-              const v =
+              endEl.value =
                 d.getFullYear() + "-" +
                 pad(d.getMonth() + 1) + "-" +
                 pad(d.getDate()) + "T" +
                 pad(d.getHours()) + ":" +
                 pad(d.getMinutes());
-
-              endEl.value = v;
             }
           });
         </script>
@@ -212,6 +197,8 @@ router.post("/events", async (req, res) => {
       location,
       organizer,
       imageUrl,
+      ticketUrl,
+      ticketLabel
     } = req.body;
 
     // Convert datetime-local values to ISO with timezone offset
@@ -222,14 +209,19 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("Missing required fields.");
     }
 
+    if (ticketUrl && !/^https?:\/\//i.test(ticketUrl)) {
+      return res.status(400).send("Ticket link must start with http:// or https://");
+    }
+
+    const finalTicketLabel =
+      (ticketLabel && String(ticketLabel).trim()) ? String(ticketLabel).trim() : "Tickets";
+
     // Validate: end must be after start
     const startMs = Date.parse(startDateTime);
     const endMs = Date.parse(endDateTime);
-
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
       return res.status(400).send("Invalid date/time.");
     }
-
     if (endMs <= startMs) {
       return res.status(400).send("End time must be after start time.");
     }
@@ -246,6 +238,8 @@ router.post("/events", async (req, res) => {
              description=?,
              eventDetails=?,
              goodToKnow=?,
+             ticketUrl=?,
+             ticketLabel=?,
              startDateTime=?,
              endDateTime=?,
              location=?,
@@ -259,12 +253,14 @@ router.post("/events", async (req, res) => {
           description,
           eventDetails || null,
           goodToKnow || null,
+          ticketUrl || null,
+          finalTicketLabel,
           startDateTime,
           endDateTime,
           location,
           organizer,
           imageUrl || null,
-          eventId,
+          eventId
         ]
       );
 
@@ -275,43 +271,38 @@ router.post("/events", async (req, res) => {
       return res.redirect(`/events/${eventId}`);
     }
 
-    // ✅ FIXED: column list + EXACT placeholder count (11 columns => 11 ?)
     const result = await run(
       `INSERT INTO events (
-        city,
-        title,
-        description,
-        eventDetails,
-        goodToKnow,
-        startDateTime,
-        endDateTime,
-        location,
-        organizer,
-        imageUrl,
-        updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        city, title, description, eventDetails, goodToKnow,
+        ticketUrl, ticketLabel,
+        startDateTime, endDateTime, location, organizer,
+        imageUrl, updatedAt
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         city,
         title,
         description,
         eventDetails || null,
         goodToKnow || null,
+        ticketUrl || null,
+        finalTicketLabel,
         startDateTime,
         endDateTime,
         location,
         organizer,
-        imageUrl || null,
+        imageUrl || null
       ]
     );
 
     res.redirect(`/events/${result.lastID}`);
   } catch (err) {
-    console.error("POST /admin/events error:", err);
+    console.error(err);
     res.status(500).send("Server error.");
   }
 });
 
-// POST /admin/events/:id/delete -> deletes an event
+// POST /admin/events/:id/delete
 router.post("/events/:id/delete", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);

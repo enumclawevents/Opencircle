@@ -12,7 +12,9 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
   }
 });
 
-// Helpers (promise-based)
+/**
+ * Helpers (promise-based)
+ */
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
@@ -40,7 +42,9 @@ function get(sql, params = []) {
   });
 }
 
-// Initialize tables + safe migrations
+/**
+ * Initialize tables + safe migrations
+ */
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS events (
@@ -50,6 +54,8 @@ db.serialize(() => {
       description TEXT NOT NULL,
       eventDetails TEXT,
       goodToKnow TEXT,
+      ticketUrl TEXT,
+      ticketLabel TEXT,
       startDateTime TEXT NOT NULL,
       endDateTime TEXT NOT NULL,
       location TEXT NOT NULL,
@@ -74,9 +80,12 @@ db.serialize(() => {
     });
   };
 
+  // In case DB existed before these columns
   safeAddColumn("ALTER TABLE events ADD COLUMN imageUrl TEXT");
   safeAddColumn("ALTER TABLE events ADD COLUMN eventDetails TEXT");
   safeAddColumn("ALTER TABLE events ADD COLUMN goodToKnow TEXT");
+  safeAddColumn("ALTER TABLE events ADD COLUMN ticketUrl TEXT");
+  safeAddColumn("ALTER TABLE events ADD COLUMN ticketLabel TEXT");
 });
 
 module.exports = {

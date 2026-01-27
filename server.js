@@ -8,13 +8,13 @@ const app = express();
 // Allows other websites/apps to call this API
 app.use(cors());
 
-// Lets the API understand JSON bodies in POST/PUT requests
+// Body parsers (JSON + form posts)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- Simple Admin Password (Basic Auth) ---
-const ADMIN_USER = "admin";
-const ADMIN_PASS = "opencircle";
+const ADMIN_USER = process.env.ADMIN_USER || "admin";
+const ADMIN_PASS = process.env.ADMIN_PASS || "opencircle";
 
 function requireAdmin(req, res, next) {
   const header = req.headers.authorization || "";
@@ -34,22 +34,22 @@ function requireAdmin(req, res, next) {
   return res.status(401).send("Invalid credentials.");
 }
 
-// Admin routes (protected)
-app.use("/admin", requireAdmin, adminRouter);
-
-// A simple test route so you can confirm the API is running
+// Home test route
 app.get("/", (req, res) => {
   res.json({
     name: "OpenCircle API",
     status: "ok",
-    endpoints: ["/events", "/events/:id", "/admin"],
+    endpoints: ["/events", "/events/:id", "/admin"]
   });
 });
 
-// Public events endpoints
+// Public API
 app.use("/events", eventsRouter);
 
-// Start the server on port 3000
+// Admin (protected)
+app.use("/admin", requireAdmin, adminRouter);
+
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`OpenCircle API running on port ${PORT}`);
