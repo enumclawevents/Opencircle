@@ -13,7 +13,7 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
 });
 
 /**
- * Initialize tables
+ * Initialize tables + safe migrations
  */
 db.serialize(() => {
   db.run(`
@@ -22,6 +22,8 @@ db.serialize(() => {
       city TEXT NOT NULL,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
+      eventDetails TEXT,
+      goodToKnow TEXT,
       startDateTime TEXT NOT NULL,
       endDateTime TEXT NOT NULL,
       location TEXT NOT NULL,
@@ -31,15 +33,26 @@ db.serialize(() => {
     )
   `);
 
-  // Safe migration: add imageUrl if it didn't exist before
-  db.run(
-    "ALTER TABLE events ADD COLUMN imageUrl TEXT",
-    (err) => {
-      if (err && !err.message.includes("duplicate column")) {
-        console.error("Migration error:", err.message);
+  // Safe migration helper (SQLite throws if column exists)
+  const safeAddColumn = (sql) => {
+    db.run(sql, (err) => {
+      if (err) {
+        const msg = String(err.message || "").toLowerCase();
+        // SQLite errors vary; cover common cases
+        const isDup =
+          msg.includes("duplicate column") ||
+          msg.includes("already exists") ||
+          msg.includes("duplicate") ||
+          msg.includes("exists");
+        if (!isDup) console.error("Migration error:", err.message);
       }
-    }
-  );
+    });
+  };
+
+  // If your DB was created before these fields existed, add them:
+  safeAddColumn("ALTER TABLE events ADD COLUMN imageUrl TEXT");
+  safeAddColumn("ALTER TABLE events ADD COLUMN eventDetails TEXT");
+  safeAddColumn("ALTER TABLE events ADD COLUMN goodToKnow TEXT");
 });
 
 /**
