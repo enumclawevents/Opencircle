@@ -131,12 +131,13 @@ router.get("/", async (req, res) => {
                       '<div><strong>Location:</strong> ' + e.location + '</div>' +
                     '</div>' +
                     '<div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">' +
-                      '<a href="/events/' + e.id + '" target="_blank">View JSON</a>' +
-                      '<a href="/admin?edit=' + e.id + '">Edit</a>' +
-                      '<form method="POST" action="/admin/events/' + e.id + '/delete" style="margin:0;">' +
-                        '<button type="submit" onclick="return confirm(\\'Delete event #' + e.id + '?\\');">' +
-                          'Delete' +
-                        '</button>' +
+  '<a href="/events/' + e.id + '" target="_blank">View JSON</a>' +
+  '<a href="/admin?edit=' +
+
+                      '<form method="POST" action="/admin/events/' + e.id + '/delete" style="margin:0;" onsubmit="return confirm(\'Delete event #' + e.id + '?\');">'
+ +
+                        '<button type="submit">Delete</button>'
+ +
                       '</form>' +
                     '</div>' +
                   '</div>'
