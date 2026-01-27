@@ -23,11 +23,10 @@ function toLocalISOWithOffset(dtLocal) {
   const offM = pad(abs % 60);
 
   return (
-  year + "-" + month + "-" + day +
-  "T" + hours + ":" + minutes + ":" + seconds +
-  sign + offH + ":" + offM
-);
-
+    year + "-" + month + "-" + day +
+    "T" + hours + ":" + minutes + ":" + seconds +
+    sign + offH + ":" + offM
+  );
 }
 
 // Convert ISO-with-offset to datetime-local value for the form
@@ -76,7 +75,7 @@ router.get("/", async (req, res) => {
         <p><a href="/events" target="_blank">View all events (JSON)</a></p>
 
         <form method="POST" action="/admin/events">
-          ${editEvent ? '<input type="hidden" name="id" value="${editEvent.id}" />' : ""}
+          ${editEvent ? `<input type="hidden" name="id" value="${editEvent.id}" />` : ""}
 
           <label>City</label>
           <input name="city" value="${editEvent?.city || "Enumclaw"}" />
@@ -127,28 +126,26 @@ router.get("/", async (req, res) => {
           ${
             events.length
               ? events.map((e) =>
-  '<div style="border: 1px solid #ddd; border-radius: 10px; padding: 12px;">' +
-    '<div style="font-weight: 700; margin-bottom: 4px;">' +
-      '#' + e.id + ' — ' + e.title +
-    '</div>' +
-    '<div style="color: #444; font-size: 14px;">' +
-      '<div><strong>Start:</strong> ' + e.startDateTime + '</div>' +
-      '<div><strong>Location:</strong> ' + e.location + '</div>' +
-    '</div>' +
-    '<div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">' +
-      '<a href="/events/' + e.id + '" target="_blank">View JSON</a>' +
-      '<a href="/admin?edit=' + e.id + '">Edit</a>' +
-      '<form method="POST" action="/admin/events/' + e.id + '/delete" style="margin:0;">' +
-        '<button type="submit" onclick="return confirm(\'Delete event #' + e.id + '?\');">' +
-          'Delete' +
-        '</button>' +
-      '</form>' +
-    '</div>' +
-  '</div>'
-).join("")
-
-             : '<div style="color:#666;">No events yet.</div>'
-
+                  '<div style="border: 1px solid #ddd; border-radius: 10px; padding: 12px;">' +
+                    '<div style="font-weight: 700; margin-bottom: 4px;">' +
+                      '#' + e.id + ' — ' + e.title +
+                    '</div>' +
+                    '<div style="color: #444; font-size: 14px;">' +
+                      '<div><strong>Start:</strong> ' + e.startDateTime + '</div>' +
+                      '<div><strong>Location:</strong> ' + e.location + '</div>' +
+                    '</div>' +
+                    '<div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">' +
+                      '<a href="/events/' + e.id + '" target="_blank">View JSON</a>' +
+                      '<a href="/admin?edit=' + e.id + '">Edit</a>' +
+                      '<form method="POST" action="/admin/events/' + e.id + '/delete" style="margin:0;">' +
+                        '<button type="submit" onclick="return confirm(\\'Delete event #' + e.id + '?\\');">' +
+                          'Delete' +
+                        '</button>' +
+                      '</form>' +
+                    '</div>' +
+                  '</div>'
+                ).join("")
+              : '<div style="color:#666;">No events yet.</div>'
           }
         </div>
 
@@ -159,20 +156,17 @@ router.get("/", async (req, res) => {
           startEl.addEventListener("change", () => {
             if (!startEl.value) return;
 
-            // If end time is empty, set it to +2 hours
             if (!endEl.value) {
               const d = new Date(startEl.value);
               d.setHours(d.getHours() + 2);
 
-              // Convert back to "YYYY-MM-DDTHH:MM" for datetime-local
               const pad = (n) => String(n).padStart(2, "0");
               const v =
-  d.getFullYear() + "-" +
-  pad(d.getMonth() + 1) + "-" +
-  pad(d.getDate()) + "T" +
-  pad(d.getHours()) + ":" +
-  pad(d.getMinutes());
-
+                d.getFullYear() + "-" +
+                pad(d.getMonth() + 1) + "-" +
+                pad(d.getDate()) + "T" +
+                pad(d.getHours()) + ":" +
+                pad(d.getMinutes());
 
               endEl.value = v;
             }
@@ -198,7 +192,6 @@ router.post("/events", async (req, res) => {
       imageUrl
     } = req.body;
 
-    // Convert datetime-local values to ISO with timezone offset
     startDateTime = toLocalISOWithOffset(startDateTime);
     endDateTime = toLocalISOWithOffset(endDateTime);
 
@@ -206,7 +199,6 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("Missing required fields.");
     }
 
-    // Validate: end must be after start
     const startMs = Date.parse(startDateTime);
     const endMs = Date.parse(endDateTime);
 
@@ -218,7 +210,6 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
-    // If an ID is present, update. Otherwise insert.
     if (id) {
       const eventId = parseInt(id, 10);
       if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
@@ -239,7 +230,6 @@ router.post("/events", async (req, res) => {
       [city, title, description, startDateTime, endDateTime, location, organizer, imageUrl || null]
     );
 
-    // Redirect to the JSON for the newly created event
     res.redirect(`/events/${result.lastID}`);
   } catch (err) {
     console.error(err);
