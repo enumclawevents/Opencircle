@@ -5,6 +5,20 @@ const adminRouter = require("./routes/admin");
 
 const app = express();
 
+const { run } = require("./db");
+
+async function migrate() {
+  try {
+    await run(`ALTER TABLE events ADD COLUMN eventDetails TEXT`);
+  } catch (e) {}
+
+  try {
+    await run(`ALTER TABLE events ADD COLUMN goodToKnow TEXT`);
+  } catch (e) {}
+}
+
+migrate();
+
 // Allows other websites/apps to call this API
 app.use(cors());
 
