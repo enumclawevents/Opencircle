@@ -26,7 +26,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-
+app.use("/admin", adminRouter);
 // A simple test route so you can confirm the API is running
 app.get("/", (req, res) => {
   res.json({
