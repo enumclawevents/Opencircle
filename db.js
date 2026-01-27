@@ -1,73 +1,11 @@
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
 
-// Use a persistent file (Render-compatible)
 const DB_PATH = path.join(__dirname, "opencircle.db");
 
 const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error("Failed to connect to SQLite:", err.message);
-  } else {
-    console.log("Connected to SQLite database");
-  }
-});
-
-/**
- * Initialize tables + safe migrations
- */
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      city TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      eventDetails TEXT,
-      goodToKnow TEXT,
-      startDateTime TEXT NOT NULL,
-      endDateTime TEXT NOT NULL,
-      location TEXT NOT NULL,
-      organizer TEXT NOT NULL,
-      imageUrl TEXT,
-      updatedAt TEXT
-    )
-  `);
-
-async function migrate() {
-  // Add eventDetails column if missing
-  await run(`
-    ALTER TABLE events ADD COLUMN eventDetails TEXT
-  `).catch(() => {});
-
-  // Add goodToKnow column if missing
-  await run(`
-    ALTER TABLE events ADD COLUMN goodToKnow TEXT
-  `).catch(() => {});
-}
-
-
-  // Safe migration helper (SQLite throws if column exists)
-  const safeAddColumn = (sql) => {
-    db.run(sql, (err) => {
-      if (err) {
-        const msg = String(err.message || "").toLowerCase();
-        // SQLite errors vary; cover common cases
-        const isDup =
-          msg.includes("duplicate column") ||
-          msg.includes("already exists") ||
-          msg.includes("duplicate") ||
-          msg.includes("exists");
-        if (!isDup) console.error("Migration error:", err.message);
-      }
-    });
-  };
-
-migrate();
-
-  // If your DB was created before these fields existed, add them:
-  safeAddColumn("ALTER TABLE events ADD COLUMN imageUrl TEXT");
-  safeAddColumn("ALTER TABLE events ADD COLUMN eventDetails TEXT");
-  safeAddColumn("ALTER TABLE events ADD COLUMN goodToKnow TEXT");
+  if (err) console.error("Failed to connect to SQLite:", err.message);
+  else console.log("Connected to SQLite database");
 });
 
 /**
@@ -100,9 +38,43 @@ function get(sql, params = []) {
   });
 }
 
-module.exports = {
-  db,
-  run,
-  all,
-  get,
-};
+// Safe migration helper (SQLite throws if column exists)
+function safeAddColumn(sql) {
+  db.run(sql, (err) => {
+    if (!err) return;
+    const msg = String(err.message || "").toLowerCase();
+    const isDup =
+      msg.includes("duplicate column") ||
+      msg.includes("already exists") ||
+      msg.includes("duplicate") ||
+      msg.includes("exists");
+    if (!isDup) console.error("Migration error:", err.message);
+  });
+}
+
+/**
+ * Initialize table + safe migrations
+ */
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      startDateTime TEXT NOT NULL,
+      endDateTime TEXT NOT NULL,
+      location TEXT NOT NULL,
+      organizer TEXT NOT NULL,
+      imageUrl TEXT,
+      updatedAt TEXT
+    )
+  `);
+
+  // migrations for older DBs
+  safeAddColumn("ALTER TABLE events ADD COLUMN imageUrl TEXT");
+  safeAddColumn("ALTER TABLE events ADD COLUMN eventDetails TEXT");
+  safeAddColumn("ALTER TABLE events ADD COLUMN goodToKnow TEXT");
+});
+
+module.exports = { db, run, all, get };

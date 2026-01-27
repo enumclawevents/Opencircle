@@ -86,12 +86,11 @@ router.get("/", async (req, res) => {
           <label>Description</label>
           <textarea name="description" required>${editEvent?.description || ""}</textarea>
 
-<label>Event Details</label>
-<textarea name="eventDetails">${editEvent?.eventDetails || ""}</textarea>
+          <label>Event Details</label>
+          <textarea name="eventDetails">${editEvent?.eventDetails || ""}</textarea>
 
-<label>Good to Know</label>
-<textarea name="goodToKnow">${editEvent?.goodToKnow || ""}</textarea>
-
+          <label>Good to Know</label>
+          <textarea name="goodToKnow">${editEvent?.goodToKnow || ""}</textarea>
 
           <div class="row">
             <div>
@@ -108,7 +107,7 @@ router.get("/", async (req, res) => {
 
           <label>Image URL (flyer)</label>
           <input name="imageUrl" value="${editEvent?.imageUrl || ""}" placeholder="https://..." />
-          <div class="note">Paste a direct image link (jpg/png/webp). Later we can add Media Library upload.</div>
+          <div class="note">Paste a direct image link (jpg/png/webp).</div>
 
           <label>Location</label>
           <input name="location" value="${editEvent?.location || ""}" required />
@@ -138,13 +137,10 @@ router.get("/", async (req, res) => {
                       '<div><strong>Location:</strong> ' + e.location + '</div>' +
                     '</div>' +
                     '<div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">' +
-  '<a href="/events/' + e.id + '" target="_blank">View JSON</a>' +
-  '<a href="/admin?edit=' +
-
-                      '<form method="POST" action="/admin/events/' + e.id + '/delete" style="margin:0;" onsubmit="return confirm(\'Delete event #' + e.id + '?\');">'
- +
-                        '<button type="submit">Delete</button>'
- +
+                      '<a href="/events/' + e.id + '" target="_blank">View JSON</a>' +
+                      '<a href="/admin?edit=' + e.id + '">Edit</a>' +
+                      '<form method="POST" action="/admin/events/' + e.id + '/delete" style="margin:0;" onsubmit="return confirm(\\'Delete event #' + e.id + '?\\');">' +
+                        '<button type="submit">Delete</button>' +
                       '</form>' +
                     '</div>' +
                   '</div>'
@@ -184,9 +180,6 @@ router.get("/", async (req, res) => {
 // POST /admin/events -> create OR update depending on hidden id
 router.post("/events", async (req, res) => {
   try {
-    // Debug: remove later if you want
-    console.log("POST /admin/events body:", req.body);
-
     let {
       id,
       city = "Enumclaw",
@@ -201,7 +194,6 @@ router.post("/events", async (req, res) => {
       imageUrl
     } = req.body;
 
-    // Convert datetime-local values to ISO with timezone offset
     startDateTime = toLocalISOWithOffset(startDateTime);
     endDateTime = toLocalISOWithOffset(endDateTime);
 
@@ -209,7 +201,6 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("Missing required fields.");
     }
 
-    // Validate: end must be after start
     const startMs = Date.parse(startDateTime);
     const endMs = Date.parse(endDateTime);
 
@@ -221,7 +212,7 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
-    // If an ID is present, update. Otherwise insert.
+    // Update
     if (id !== undefined && id !== null && String(id).trim() !== "") {
       const eventId = parseInt(String(id).trim(), 10);
       if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
@@ -229,35 +220,32 @@ router.post("/events", async (req, res) => {
       const result = await run(
         `UPDATE events
          SET city=?,
-    title=?,
-    description=?,
-    eventDetails=?,
-    goodToKnow=?,
-    startDateTime=?,
-    endDateTime=?,
-    location=?,
-    organizer=?,
-    imageUrl=?,
-    updatedAt=datetime('now')
-
+             title=?,
+             description=?,
+             eventDetails=?,
+             goodToKnow=?,
+             startDateTime=?,
+             endDateTime=?,
+             location=?,
+             organizer=?,
+             imageUrl=?,
+             updatedAt=datetime('now')
          WHERE id=?`,
         [
-  city,
-  title,
-  description,
-  eventDetails || null,
-  goodToKnow || null,
-  startDateTime,
-  endDateTime,
-  location,
-  organizer,
-  imageUrl || null,
-  eventId
-]
-
+          city,
+          title,
+          description,
+          eventDetails || "",
+          goodToKnow || "",
+          startDateTime,
+          endDateTime,
+          location,
+          organizer,
+          imageUrl || null,
+          eventId
+        ]
       );
 
-      // If your run() returns changes (sqlite usually does), enforce existence:
       if (result && typeof result.changes === "number" && result.changes === 0) {
         return res.status(404).send("Event not found (ID does not exist).");
       }
@@ -265,41 +253,30 @@ router.post("/events", async (req, res) => {
       return res.redirect(`/events/${eventId}`);
     }
 
+    // Insert
     const result = await run(
       `INSERT INTO events (
-  city,
-  title,
-  description,
-  eventDetails,
-  goodToKnow,
-  startDateTime,
-  endDateTime,
-  location,
-  organizer,
-  imageUrl,
-  updatedAt
-)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+         city, title, description, eventDetails, goodToKnow,
+         startDateTime, endDateTime, location, organizer, imageUrl, updatedAt
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
-  city,
-  title,
-  description,
-  eventDetails || null,
-  goodToKnow || null,
-  startDateTime,
-  endDateTime,
-  location,
-  organizer,
-  imageUrl || null
-]
-
+        city,
+        title,
+        description,
+        eventDetails || "",
+        goodToKnow || "",
+        startDateTime,
+        endDateTime,
+        location,
+        organizer,
+        imageUrl || null
+      ]
     );
 
-    // Redirect to the JSON for the newly created event
-    res.redirect(`/events/${result.lastID}`);
+    return res.redirect(`/events/${result.lastID}`);
   } catch (err) {
-    console.error(err);
-    res.status(500).send("Server error.");
+    console.error("ADMIN SAVE ERROR:", err);
+    return res.status(500).send("Server error: " + (err?.message || "unknown"));
   }
 });
 
@@ -314,7 +291,7 @@ router.post("/events/:id/delete", async (req, res) => {
     res.redirect("/admin");
   } catch (err) {
     console.error(err);
-    res.status(500).send("Server error.");
+    res.status(500).send("Server error: " + (err?.message || "unknown"));
   }
 });
 

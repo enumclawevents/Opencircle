@@ -5,41 +5,9 @@ const adminRouter = require("./routes/admin");
 
 const app = express();
 
-const { run } = require("./db");
-
-async function migrate() {
-  try {
-    await run(`ALTER TABLE events ADD COLUMN eventDetails TEXT`);
-  } catch (e) {}
-
-  try {
-    await run(`ALTER TABLE events ADD COLUMN goodToKnow TEXT`);
-  } catch (e) {}
-}
-
-migrate();
-
-// Allows other websites/apps to call this API
 app.use(cors());
-
-// Lets the API understand JSON bodies in POST/PUT requests
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-app.use("/admin", adminRouter);
-// A simple test route so you can confirm the API is running
-app.get("/", (req, res) => {
-  res.json({
-    name: "OpenCircle API",
-    status: "ok",
-    endpoints: ["/events", "/events/:id"]
-  });
-});
-
-// This connects /events to the routes we made in routes/events.js
-app.use("/events", eventsRouter);
-
-app.use("/admin", requireAdmin, adminRouter);
 
 // --- Simple Admin Password (Basic Auth) ---
 const ADMIN_USER = "admin";
@@ -63,10 +31,20 @@ function requireAdmin(req, res, next) {
   return res.status(401).send("Invalid credentials.");
 }
 
+// Routes
+app.get("/", (req, res) => {
+  res.json({
+    name: "OpenCircle API",
+    status: "ok",
+    endpoints: ["/events", "/events/:id", "/admin"]
+  });
+});
 
-// Start the server on port 3000
+app.use("/events", eventsRouter);
+app.use("/admin", requireAdmin, adminRouter);
+
+// Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`OpenCircle API running on port ${PORT}`);
 });
-
