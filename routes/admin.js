@@ -86,6 +86,13 @@ router.get("/", async (req, res) => {
           <label>Description</label>
           <textarea name="description" required>${editEvent?.description || ""}</textarea>
 
+<label>Event Details</label>
+<textarea name="eventDetails">${editEvent?.eventDetails || ""}</textarea>
+
+<label>Good to Know</label>
+<textarea name="goodToKnow">${editEvent?.goodToKnow || ""}</textarea>
+
+
           <div class="row">
             <div>
               <label>Start Date/Time</label>
@@ -185,6 +192,8 @@ router.post("/events", async (req, res) => {
       city = "Enumclaw",
       title,
       description,
+      eventDetails,
+      goodToKnow,
       startDateTime,
       endDateTime,
       location,
@@ -219,9 +228,33 @@ router.post("/events", async (req, res) => {
 
       const result = await run(
         `UPDATE events
-         SET city=?, title=?, description=?, startDateTime=?, endDateTime=?, location=?, organizer=?, imageUrl=?, updatedAt=datetime('now')
+         SET city=?,
+    title=?,
+    description=?,
+    eventDetails=?,
+    goodToKnow=?,
+    startDateTime=?,
+    endDateTime=?,
+    location=?,
+    organizer=?,
+    imageUrl=?,
+    updatedAt=datetime('now')
+
          WHERE id=?`,
-        [city, title, description, startDateTime, endDateTime, location, organizer, imageUrl || null, eventId]
+        [
+  city,
+  title,
+  description,
+  eventDetails || null,
+  goodToKnow || null,
+  startDateTime,
+  endDateTime,
+  location,
+  organizer,
+  imageUrl || null,
+  eventId
+]
+
       );
 
       // If your run() returns changes (sqlite usually does), enforce existence:
@@ -233,9 +266,33 @@ router.post("/events", async (req, res) => {
     }
 
     const result = await run(
-      `INSERT INTO events (city, title, description, startDateTime, endDateTime, location, organizer, imageUrl, updatedAt)
+      `INSERT INTO events (
+  city,
+  title,
+  description,
+  eventDetails,
+  goodToKnow,
+  startDateTime,
+  endDateTime,
+  location,
+  organizer,
+  imageUrl,
+  updatedAt
+)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-      [city, title, description, startDateTime, endDateTime, location, organizer, imageUrl || null]
+      [
+  city,
+  title,
+  description,
+  eventDetails || null,
+  goodToKnow || null,
+  startDateTime,
+  endDateTime,
+  location,
+  organizer,
+  imageUrl || null
+]
+
     );
 
     // Redirect to the JSON for the newly created event
