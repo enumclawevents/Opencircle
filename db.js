@@ -33,6 +33,19 @@ db.serialize(() => {
     )
   `);
 
+async function migrate() {
+  // Add eventDetails column if missing
+  await run(`
+    ALTER TABLE events ADD COLUMN eventDetails TEXT
+  `).catch(() => {});
+
+  // Add goodToKnow column if missing
+  await run(`
+    ALTER TABLE events ADD COLUMN goodToKnow TEXT
+  `).catch(() => {});
+}
+
+
   // Safe migration helper (SQLite throws if column exists)
   const safeAddColumn = (sql) => {
     db.run(sql, (err) => {
@@ -48,6 +61,8 @@ db.serialize(() => {
       }
     });
   };
+
+migrate();
 
   // If your DB was created before these fields existed, add them:
   safeAddColumn("ALTER TABLE events ADD COLUMN imageUrl TEXT");
