@@ -110,11 +110,7 @@ router.get("/", async (req, res) => {
           <input name="organizer" value="${editEvent?.organizer || ""}" required />
 
           <button type="submit">${editEvent ? "Update Event" : "Save Event"}</button>
-          ${
-            editEvent
-              ? '<a href="/admin" style="margin-left:10px;">Cancel</a>'
-              : ""
-          }
+          ${editEvent ? '<a href="/admin" style="margin-left:10px;">Cancel</a>' : ""}
           <div class="note">Dates are saved with your local timezone automatically.</div>
         </form>
 
@@ -180,6 +176,9 @@ router.get("/", async (req, res) => {
 // POST /admin/events -> create OR update depending on hidden id
 router.post("/events", async (req, res) => {
   try {
+    // Debug: remove later if you want
+    console.log("POST /admin/events body:", req.body);
+
     let {
       id,
       city = "Enumclaw",
@@ -192,6 +191,7 @@ router.post("/events", async (req, res) => {
       imageUrl
     } = req.body;
 
+    // Convert datetime-local values to ISO with timezone offset
     startDateTime = toLocalISOWithOffset(startDateTime);
     endDateTime = toLocalISOWithOffset(endDateTime);
 
@@ -199,6 +199,7 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("Missing required fields.");
     }
 
+    // Validate: end must be after start
     const startMs = Date.parse(startDateTime);
     const endMs = Date.parse(endDateTime);
 
@@ -210,16 +211,22 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
-    if (id) {
-      const eventId = parseInt(id, 10);
+    // If an ID is present, update. Otherwise insert.
+    if (id !== undefined && id !== null && String(id).trim() !== "") {
+      const eventId = parseInt(String(id).trim(), 10);
       if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
 
-      await run(
+      const result = await run(
         `UPDATE events
          SET city=?, title=?, description=?, startDateTime=?, endDateTime=?, location=?, organizer=?, imageUrl=?, updatedAt=datetime('now')
          WHERE id=?`,
         [city, title, description, startDateTime, endDateTime, location, organizer, imageUrl || null, eventId]
       );
+
+      // If your run() returns changes (sqlite usually does), enforce existence:
+      if (result && typeof result.changes === "number" && result.changes === 0) {
+        return res.status(404).send("Event not found (ID does not exist).");
+      }
 
       return res.redirect(`/events/${eventId}`);
     }
@@ -230,6 +237,7 @@ router.post("/events", async (req, res) => {
       [city, title, description, startDateTime, endDateTime, location, organizer, imageUrl || null]
     );
 
+    // Redirect to the JSON for the newly created event
     res.redirect(`/events/${result.lastID}`);
   } catch (err) {
     console.error(err);
