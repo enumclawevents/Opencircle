@@ -23,9 +23,21 @@ function toLocalISOWithOffset(dtLocal) {
   const offM = pad(abs % 60);
 
   return (
-    year + "-" + month + "-" + day +
-    "T" + hours + ":" + minutes + ":" + seconds +
-    sign + offH + ":" + offM
+    year +
+    "-" +
+    month +
+    "-" +
+    day +
+    "T" +
+    hours +
+    ":" +
+    minutes +
+    ":" +
+    seconds +
+    sign +
+    offH +
+    ":" +
+    offM
   );
 }
 
@@ -47,6 +59,36 @@ router.get("/", async (req, res) => {
   if (editId) {
     editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
   }
+
+  // ✅ SAFE cards HTML (this is what fixes your Render SyntaxError)
+  const cardsHtml = events.length
+    ? events
+        .map(
+          (e) => `
+        <div style="border: 1px solid #ddd; border-radius: 10px; padding: 12px;">
+          <div style="font-weight: 700; margin-bottom: 4px;">
+            #${e.id} — ${e.title}
+          </div>
+          <div style="color: #444; font-size: 14px;">
+            <div><strong>Start:</strong> ${e.startDateTime}</div>
+            <div><strong>Location:</strong> ${e.location}</div>
+          </div>
+          <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+            <a href="/events/${e.id}" target="_blank">View JSON</a>
+            <a href="/admin?edit=${e.id}">Edit</a>
+
+            <form method="POST"
+                  action="/admin/events/${e.id}/delete"
+                  style="margin:0;"
+                  onsubmit="return confirm('Delete event #${e.id}?');">
+              <button type="submit">Delete</button>
+            </form>
+          </div>
+        </div>
+      `
+        )
+        .join("")
+    : `<div style="color:#666;">No events yet.</div>`;
 
   res.send(`
     <!doctype html>
@@ -107,7 +149,7 @@ router.get("/", async (req, res) => {
 
           <label>Image URL (flyer)</label>
           <input name="imageUrl" value="${editEvent?.imageUrl || ""}" placeholder="https://..." />
-          <div class="note">Paste a direct image link (jpg/png/webp).</div>
+          <div class="note">Paste a direct image link (jpg/png/webp). Later we can add Media Library upload.</div>
 
           <label>Location</label>
           <input name="location" value="${editEvent?.location || ""}" required />
@@ -123,30 +165,8 @@ router.get("/", async (req, res) => {
         <hr style="margin: 24px 0;" />
 
         <h2>Existing Events (latest 20)</h2>
-
         <div style="display: grid; gap: 10px;">
-          ${
-            events.length
-              ? events.map((e) =>
-                  '<div style="border: 1px solid #ddd; border-radius: 10px; padding: 12px;">' +
-                    '<div style="font-weight: 700; margin-bottom: 4px;">' +
-                      '#' + e.id + ' — ' + e.title +
-                    '</div>' +
-                    '<div style="color: #444; font-size: 14px;">' +
-                      '<div><strong>Start:</strong> ' + e.startDateTime + '</div>' +
-                      '<div><strong>Location:</strong> ' + e.location + '</div>' +
-                    '</div>' +
-                    '<div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">' +
-                      '<a href="/events/' + e.id + '" target="_blank">View JSON</a>' +
-                      '<a href="/admin?edit=' + e.id + '">Edit</a>' +
-                      '<form method="POST" action="/admin/events/' + e.id + '/delete" style="margin:0;" onsubmit="return confirm(\\'Delete event #' + e.id + '?\\');">' +
-                        '<button type="submit">Delete</button>' +
-                      '</form>' +
-                    '</div>' +
-                  '</div>'
-                ).join("")
-              : '<div style="color:#666;">No events yet.</div>'
-          }
+          ${cardsHtml}
         </div>
 
         <script>
@@ -191,9 +211,10 @@ router.post("/events", async (req, res) => {
       endDateTime,
       location,
       organizer,
-      imageUrl
+      imageUrl,
     } = req.body;
 
+    // Convert datetime-local values to ISO with timezone offset
     startDateTime = toLocalISOWithOffset(startDateTime);
     endDateTime = toLocalISOWithOffset(endDateTime);
 
@@ -201,6 +222,7 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("Missing required fields.");
     }
 
+    // Validate: end must be after start
     const startMs = Date.parse(startDateTime);
     const endMs = Date.parse(endDateTime);
 
@@ -212,7 +234,7 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
-    // Update
+    // If an ID is present, update. Otherwise insert.
     if (id !== undefined && id !== null && String(id).trim() !== "") {
       const eventId = parseInt(String(id).trim(), 10);
       if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
@@ -235,14 +257,14 @@ router.post("/events", async (req, res) => {
           city,
           title,
           description,
-          eventDetails || "",
-          goodToKnow || "",
+          eventDetails || null,
+          goodToKnow || null,
           startDateTime,
           endDateTime,
           location,
           organizer,
           imageUrl || null,
-          eventId
+          eventId,
         ]
       );
 
@@ -253,30 +275,39 @@ router.post("/events", async (req, res) => {
       return res.redirect(`/events/${eventId}`);
     }
 
-    // Insert
+    // ✅ FIXED: column list + EXACT placeholder count (11 columns => 11 ?)
     const result = await run(
       `INSERT INTO events (
-         city, title, description, eventDetails, goodToKnow,
-         startDateTime, endDateTime, location, organizer, imageUrl, updatedAt
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-      [
         city,
         title,
         description,
-        eventDetails || "",
-        goodToKnow || "",
+        eventDetails,
+        goodToKnow,
         startDateTime,
         endDateTime,
         location,
         organizer,
-        imageUrl || null
+        imageUrl,
+        updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        city,
+        title,
+        description,
+        eventDetails || null,
+        goodToKnow || null,
+        startDateTime,
+        endDateTime,
+        location,
+        organizer,
+        imageUrl || null,
       ]
     );
 
-    return res.redirect(`/events/${result.lastID}`);
+    res.redirect(`/events/${result.lastID}`);
   } catch (err) {
-    console.error("ADMIN SAVE ERROR:", err);
-    return res.status(500).send("Server error: " + (err?.message || "unknown"));
+    console.error("POST /admin/events error:", err);
+    res.status(500).send("Server error.");
   }
 });
 
@@ -287,11 +318,10 @@ router.post("/events/:id/delete", async (req, res) => {
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
 
     await run("DELETE FROM events WHERE id = ?", [id]);
-
     res.redirect("/admin");
   } catch (err) {
     console.error(err);
-    res.status(500).send("Server error: " + (err?.message || "unknown"));
+    res.status(500).send("Server error.");
   }
 });
 

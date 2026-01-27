@@ -1,16 +1,18 @@
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
 
+// Use a persistent file (Render-compatible)
 const DB_PATH = path.join(__dirname, "opencircle.db");
 
 const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) console.error("Failed to connect to SQLite:", err.message);
-  else console.log("Connected to SQLite database");
+  if (err) {
+    console.error("Failed to connect to SQLite:", err.message);
+  } else {
+    console.log("Connected to SQLite database");
+  }
 });
 
-/**
- * Helpers (promise-based)
- */
+// Helpers (promise-based)
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
@@ -38,23 +40,7 @@ function get(sql, params = []) {
   });
 }
 
-// Safe migration helper (SQLite throws if column exists)
-function safeAddColumn(sql) {
-  db.run(sql, (err) => {
-    if (!err) return;
-    const msg = String(err.message || "").toLowerCase();
-    const isDup =
-      msg.includes("duplicate column") ||
-      msg.includes("already exists") ||
-      msg.includes("duplicate") ||
-      msg.includes("exists");
-    if (!isDup) console.error("Migration error:", err.message);
-  });
-}
-
-/**
- * Initialize table + safe migrations
- */
+// Initialize tables + safe migrations
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS events (
@@ -62,6 +48,8 @@ db.serialize(() => {
       city TEXT NOT NULL,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
+      eventDetails TEXT,
+      goodToKnow TEXT,
       startDateTime TEXT NOT NULL,
       endDateTime TEXT NOT NULL,
       location TEXT NOT NULL,
@@ -71,10 +59,29 @@ db.serialize(() => {
     )
   `);
 
-  // migrations for older DBs
+  // Safe migration helper (SQLite throws if column exists)
+  const safeAddColumn = (sql) => {
+    db.run(sql, (err) => {
+      if (err) {
+        const msg = String(err.message || "").toLowerCase();
+        const isDup =
+          msg.includes("duplicate column") ||
+          msg.includes("already exists") ||
+          msg.includes("duplicate") ||
+          msg.includes("exists");
+        if (!isDup) console.error("Migration error:", err.message);
+      }
+    });
+  };
+
   safeAddColumn("ALTER TABLE events ADD COLUMN imageUrl TEXT");
   safeAddColumn("ALTER TABLE events ADD COLUMN eventDetails TEXT");
   safeAddColumn("ALTER TABLE events ADD COLUMN goodToKnow TEXT");
 });
 
-module.exports = { db, run, all, get };
+module.exports = {
+  db,
+  run,
+  all,
+  get,
+};
