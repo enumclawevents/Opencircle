@@ -49,12 +49,40 @@ function all(sql, params = []) {
   });
 }
 
+// ---------- SLUG HELPERS ----------
+function slugify(input) {
+  return String(input || "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+async function ensureUniqueSlug(baseSlug, excludeId = null) {
+  let slug = baseSlug || "event";
+  let i = 2;
+
+  while (true) {
+    const row = excludeId
+      ? await get("SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1", [slug, excludeId])
+      : await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [slug]);
+
+    if (!row) return slug;
+    slug = `${baseSlug}-${i++}`;
+  }
+}
+
 // ---------- INIT / MIGRATIONS ----------
 async function init() {
   // Base events table (canonical schema)
   await run(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+      slug TEXT, -- NEW: public identifier
+
       city TEXT,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
@@ -85,6 +113,7 @@ async function init() {
 
   // ---- SAFE MIGRATIONS (NO DATA LOSS) ----
   const migrations = [
+    `ALTER TABLE events ADD COLUMN slug TEXT`,
     `ALTER TABLE events ADD COLUMN eventDetails TEXT`,
     `ALTER TABLE events ADD COLUMN goodToKnow TEXT`,
     `ALTER TABLE events ADD COLUMN ticketUrl TEXT`,
@@ -107,7 +136,6 @@ async function init() {
   }
 
   // ---- OPTIONAL COMPAT MIGRATION ----
-  // If you previously used older column names, copy them forward once.
   try {
     await run(`
       UPDATE events
@@ -124,6 +152,20 @@ async function init() {
     `);
   } catch (_) {}
 
+  // ---- BACKFILL SLUGS (once) ----
+  try {
+    const rows = await all("SELECT id, title, slug FROM events", []);
+    for (const r of rows) {
+      if (r.slug && String(r.slug).trim() !== "") continue;
+
+      const base = slugify(r.title) || `event-${r.id}`;
+      const unique = await ensureUniqueSlug(base);
+      await run("UPDATE events SET slug = ? WHERE id = ?", [unique, r.id]);
+    }
+  } catch (e) {
+    console.error("[DB] Slug backfill failed:", e);
+  }
+
   console.log("[DB] Initialized & migrated");
 }
 
@@ -131,4 +173,4 @@ init().catch((err) => {
   console.error("[DB] Init failed:", err);
 });
 
-module.exports = { db, run, get, all };
+module.exports = { db, run, get, all, slugify };

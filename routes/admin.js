@@ -3,63 +3,7 @@
 
 const express = require("express");
 const router = express.Router();
-const path = require("path");
-const fs = require("fs");
-const multer = require("multer");
-const { run, all, get } = require("../db");
-
-/**
- * Uploads directory (match server.js logic)
- */
-const UPLOADS_DIR =
-  process.env.UPLOADS_DIR ||
-  (process.env.RENDER_DISK_PATH
-    ? path.join(process.env.RENDER_DISK_PATH, "uploads")
-    : path.join(__dirname, "..", "uploads"));
-
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-
-function safeFileBase(name) {
-  const base = String(name || "upload")
-    .toLowerCase()
-    .replace(/[^a-z0-9-_\.]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^\-+|\-+$/g, "");
-  return base.slice(0, 80) || "upload";
-}
-
-const storage = multer.diskStorage({
-  destination: function (_req, _file, cb) {
-    cb(null, UPLOADS_DIR);
-  },
-  filename: function (_req, file, cb) {
-    const ext = path.extname(file.originalname || "").toLowerCase();
-    const base = safeFileBase(path.basename(file.originalname || "image", ext));
-    const stamp = Date.now();
-    cb(null, `${base}-${stamp}${ext || ""}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
-  fileFilter: function (_req, file, cb) {
-    const ok = /^image\//i.test(file.mimetype || "");
-    cb(ok ? null : new Error("Only image uploads are allowed."), ok);
-  },
-});
-
-/**
- * Build public base URL for uploaded files.
- * You can force it via env var PUBLIC_BASE_URL (recommended).
- */
-function getPublicBaseUrl(req) {
-  const forced = String(process.env.PUBLIC_BASE_URL || "").trim();
-  if (forced) return forced.replace(/\/+$/, "");
-  const proto = req.protocol || "https";
-  const host = req.get("host");
-  return `${proto}://${host}`;
-}
+const { run, all, get, slugify } = require("../db");
 
 /**
  * Fixed category list (12 total)
@@ -109,7 +53,10 @@ function parseStoredCategories(stored) {
   const parsed = safeParseJson(stored, null);
   if (Array.isArray(parsed)) return parsed;
   if (!stored) return [];
-  return String(stored).split(",").map((x) => x.trim()).filter(Boolean);
+  return String(stored)
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
 function parseStoredDates(stored) {
@@ -145,9 +92,21 @@ function toLocalISOWithOffset(dtLocal) {
   const offM = pad(abs % 60);
 
   return (
-    year + "-" + month + "-" + day +
-    "T" + hours + ":" + minutes + ":" + seconds +
-    sign + offH + ":" + offM
+    year +
+    "-" +
+    month +
+    "-" +
+    day +
+    "T" +
+    hours +
+    ":" +
+    minutes +
+    ":" +
+    seconds +
+    sign +
+    offH +
+    ":" +
+    offM
   );
 }
 
@@ -164,10 +123,25 @@ function esc(s) {
     .replaceAll('"', "&quot;");
 }
 
+// Ensure slugs are unique
+async function ensureUniqueSlug(baseSlug, excludeId = null) {
+  let slug = baseSlug || "event";
+  let i = 2;
+
+  while (true) {
+    const row = excludeId
+      ? await get("SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1", [slug, excludeId])
+      : await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [slug]);
+
+    if (!row) return slug;
+    slug = `${baseSlug}-${i++}`;
+  }
+}
+
 // GET /admin
 router.get("/", async (req, res) => {
   const events = await all(
-    "SELECT id, title, startDateTime, location FROM events ORDER BY startDateTime DESC LIMIT 50"
+    "SELECT id, slug, title, startDateTime, location FROM events ORDER BY startDateTime DESC LIMIT 50"
   );
 
   const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
@@ -178,9 +152,11 @@ router.get("/", async (req, res) => {
   }
 
   const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
+
   const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
   const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
   const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
+
   const customDates = parseStoredDates(editEvent?.recurrenceDates);
 
   // Category dropdowns (3)
@@ -198,15 +174,19 @@ router.get("/", async (req, res) => {
   };
 
   const listHtml = events.length
-    ? events.map((e) => `
+    ? events
+        .map(
+          (e) => `
         <div class="event-card">
           <div class="event-title">#${e.id} — ${esc(e.title)}</div>
           <div class="event-meta">
+            <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
             <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
             <div><strong>Location:</strong> ${esc(e.location)}</div>
           </div>
           <div class="event-actions">
-            <a href="/events/${e.id}" target="_blank" rel="noopener">View JSON</a>
+            <a href="/events/${e.id}" target="_blank" rel="noopener">View JSON (id)</a>
+            ${e.slug ? `<a href="/events/slug/${esc(e.slug)}" target="_blank" rel="noopener">View JSON (slug)</a>` : ""}
             <a href="/admin?edit=${e.id}">Edit</a>
             <form method="POST" action="/admin/events/${e.id}/delete" class="inline"
               onsubmit="return confirm('Delete event #${e.id}?');">
@@ -214,7 +194,9 @@ router.get("/", async (req, res) => {
             </form>
           </div>
         </div>
-      `).join("")
+      `
+        )
+        .join("")
     : `<div class="muted">No events yet.</div>`;
 
   res.send(`
@@ -225,6 +207,7 @@ router.get("/", async (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/assets/brand/favicon.ico" />
     <title>OpenCircle Admin</title>
+
     <style>
       :root{
         --bg:#f3f4f6;
@@ -405,7 +388,7 @@ router.get("/", async (req, res) => {
           <a href="/events" target="_blank" rel="noopener">View all events (JSON)</a>
         </p>
 
-        <form method="POST" action="/admin/events" enctype="multipart/form-data">
+        <form method="POST" action="/admin/events">
           ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
 
           <label>City</label>
@@ -477,10 +460,14 @@ router.get("/", async (req, res) => {
               <div>
                 <label style="margin-top:0;">Interval</label>
                 <select id="recurrenceInterval" name="recurrenceInterval" class="ctrl">
-                  ${[1,2,3,4].map((n) => {
-                    const sel = Number(rule.interval || 1) === n ? "selected" : "";
-                    return `<option value="${n}" ${sel}>Every ${n} ${ruleType === "monthly" ? "month(s)" : "week(s)"}</option>`;
-                  }).join("")}
+                  ${[1, 2, 3, 4]
+                    .map((n) => {
+                      const sel = Number(rule.interval || 1) === n ? "selected" : "";
+                      return `<option value="${n}" ${sel}>Every ${n} ${
+                        ruleType === "monthly" ? "month(s)" : "week(s)"
+                      }</option>`;
+                    })
+                    .join("")}
                 </select>
                 <div class="note">Used for Weekly/Monthly only.</div>
               </div>
@@ -489,16 +476,18 @@ router.get("/", async (req, res) => {
             <div id="weeklyBox" style="margin-top:12px;">
               <label style="margin-top:0;">Weekly: Which days?</label>
               <div class="row" style="grid-template-columns: repeat(7, 1fr); gap:10px;">
-                ${["SU","MO","TU","WE","TH","FR","SA"].map((d) => {
-                  const byDay = Array.isArray(rule.byDay) ? rule.byDay : [];
-                  const checked = byDay.includes(d) ? "checked" : "";
-                  return `
-                    <label class="checkbox" style="justify-content:center; margin:0; font-weight:900;">
-                      <input type="checkbox" name="weeklyByDay" value="${d}" ${checked}/>
-                      <span>${d}</span>
-                    </label>
-                  `;
-                }).join("")}
+                ${["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
+                  .map((d) => {
+                    const byDay = Array.isArray(rule.byDay) ? rule.byDay : [];
+                    const checked = byDay.includes(d) ? "checked" : "";
+                    return `
+                      <label class="checkbox" style="justify-content:center; margin:0; font-weight:900;">
+                        <input type="checkbox" name="weeklyByDay" value="${d}" ${checked}/>
+                        <span>${d}</span>
+                      </label>
+                    `;
+                  })
+                  .join("")}
               </div>
               <div class="note">Example: Every Wednesday = select WE.</div>
             </div>
@@ -521,32 +510,36 @@ router.get("/", async (req, res) => {
                     <label>Nth</label>
                     <select class="ctrl" name="setPos">
                       ${[
-                        ["1","First"],
-                        ["2","Second"],
-                        ["3","Third"],
-                        ["4","Fourth"],
-                        ["-1","Last"]
-                      ].map(([v, label]) => {
-                        const sel = String(rule.setPos ?? "1") === v ? "selected" : "";
-                        return `<option value="${v}" ${sel}>${label}</option>`;
-                      }).join("")}
+                        ["1", "First"],
+                        ["2", "Second"],
+                        ["3", "Third"],
+                        ["4", "Fourth"],
+                        ["-1", "Last"],
+                      ]
+                        .map(([v, label]) => {
+                          const sel = String(rule.setPos ?? "1") === v ? "selected" : "";
+                          return `<option value="${v}" ${sel}>${label}</option>`;
+                        })
+                        .join("")}
                     </select>
                   </div>
                   <div>
                     <label>Weekday</label>
                     <select class="ctrl" name="monthlyByDay">
                       ${[
-                        ["SU","Sunday"],
-                        ["MO","Monday"],
-                        ["TU","Tuesday"],
-                        ["WE","Wednesday"],
-                        ["TH","Thursday"],
-                        ["FR","Friday"],
-                        ["SA","Saturday"]
-                      ].map(([v, label]) => {
-                        const sel = String(rule.byDay || "") === v ? "selected" : "";
-                        return `<option value="${v}" ${sel}>${label}</option>`;
-                      }).join("")}
+                        ["SU", "Sunday"],
+                        ["MO", "Monday"],
+                        ["TU", "Tuesday"],
+                        ["WE", "Wednesday"],
+                        ["TH", "Thursday"],
+                        ["FR", "Friday"],
+                        ["SA", "Saturday"],
+                      ]
+                        .map(([v, label]) => {
+                          const sel = String(rule.byDay || "") === v ? "selected" : "";
+                          return `<option value="${v}" ${sel}>${label}</option>`;
+                        })
+                        .join("")}
                     </select>
                   </div>
                 </div>
@@ -556,18 +549,23 @@ router.get("/", async (req, res) => {
 
             <div id="customBox" style="margin-top:12px;">
               <label style="margin-top:0;">Custom dates (pick specific dates)</label>
+
               <div class="actions" style="margin-top:8px;">
                 <button type="button" id="addCustomDate" class="btn">+ Add date</button>
               </div>
 
               <div id="customDatesWrap" class="chips">
-                ${(customDates.length ? customDates : []).map((d, i) => `
-                  <span class="chip">
-                    <input class="ctrl" style="width: 160px; padding:6px 8px; border-radius:10px;"
-                      type="date" name="recurrenceDates" value="${esc(d)}" />
-                    <button type="button" data-remove-date="${i}" aria-label="Remove">×</button>
-                  </span>
-                `).join("")}
+                ${(customDates.length ? customDates : [])
+                  .map(
+                    (d, i) => `
+                    <span class="chip">
+                      <input class="ctrl" style="width: 160px; padding:6px 8px; border-radius:10px;"
+                        type="date" name="recurrenceDates" value="${esc(d)}" />
+                      <button type="button" data-remove-date="${i}" aria-label="Remove">×</button>
+                    </span>
+                  `
+                  )
+                  .join("")}
               </div>
 
               <div class="note">
@@ -576,13 +574,8 @@ router.get("/", async (req, res) => {
             </div>
           </div>
 
-          <label>Upload Flyer Image</label>
-          <input class="ctrl" type="file" name="imageFile" accept="image/*" />
-          <div class="note">Optional. Uploading a file will set the Image URL automatically.</div>
-
-          <label>Image URL (optional override)</label>
+          <label>Image URL (flyer)</label>
           <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
-          <div class="note">Leave blank if you want to keep the existing uploaded image when editing.</div>
 
           <div class="row">
             <div>
@@ -620,6 +613,7 @@ router.get("/", async (req, res) => {
     </div>
 
     <script>
+      // Auto-fill end time +2 hours if empty
       const startEl = document.getElementById("startDateTime");
       const endEl = document.getElementById("endDateTime");
 
@@ -640,6 +634,7 @@ router.get("/", async (req, res) => {
         });
       }
 
+      // Recurrence UI logic
       const hasRecEl = document.getElementById("hasRecurrence");
       const typeEl = document.getElementById("recurrenceType");
       const intervalRow = document.getElementById("intervalRow");
@@ -686,6 +681,7 @@ router.get("/", async (req, res) => {
       if (monthlyModeEl) monthlyModeEl.addEventListener("change", syncRecurrenceUI);
       syncRecurrenceUI();
 
+      // Custom dates add/remove
       const addBtn = document.getElementById("addCustomDate");
       const wrap = document.getElementById("customDatesWrap");
 
@@ -721,8 +717,8 @@ router.get("/", async (req, res) => {
   `);
 });
 
-// POST /admin/events -> create OR update (multipart for image upload)
-router.post("/events", upload.single("imageFile"), async (req, res) => {
+// POST /admin/events -> create OR update depending on hidden id
+router.post("/events", async (req, res) => {
   try {
     let {
       id,
@@ -735,7 +731,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       endDateTime,
       location,
       organizer,
-      imageUrl, // optional override
+      imageUrl,
       ticketUrl,
       ticketLabel,
       categories,
@@ -752,7 +748,6 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       recurrenceDates,
     } = req.body;
 
-    // Convert datetime-local values to ISO with timezone offset
     startDateTime = toLocalISOWithOffset(startDateTime);
     endDateTime = toLocalISOWithOffset(endDateTime);
 
@@ -765,9 +760,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     }
 
     const finalTicketLabel =
-      (ticketLabel && String(ticketLabel).trim()) ? String(ticketLabel).trim() : "Tickets";
+      ticketLabel && String(ticketLabel).trim() ? String(ticketLabel).trim() : "Tickets";
 
-    // Validate end after start
     const startMs = Date.parse(startDateTime);
     const endMs = Date.parse(endDateTime);
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
@@ -777,7 +771,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
-    // Categories
+    // Slug (auto from title)
+    const baseSlug = slugify ? slugify(title) : String(title || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const cats = normalizeCategories(categories);
     const catsJson = JSON.stringify(cats);
 
@@ -792,7 +787,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       if (t === "custom") {
         let arr = [];
         if (Array.isArray(recurrenceDates)) arr = recurrenceDates;
-        else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "") arr = [recurrenceDates];
+        else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "")
+          arr = [recurrenceDates];
 
         const uniq = [];
         for (const d of arr) {
@@ -811,7 +807,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         if (Array.isArray(weeklyByDay)) days = weeklyByDay;
         else if (typeof weeklyByDay === "string" && weeklyByDay.trim() !== "") days = [weeklyByDay];
 
-        const allowed = new Set(["SU","MO","TU","WE","TH","FR","SA"]);
+        const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
         const uniq = [];
         for (const d of days.map((x) => String(x).trim()).filter(Boolean)) {
           if (!allowed.has(d)) continue;
@@ -839,28 +835,17 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
 
-    // ---- IMAGE URL RESOLUTION (upload wins) ----
-    let finalImageUrl = (imageUrl && String(imageUrl).trim()) ? String(imageUrl).trim() : "";
-
-    if (req.file && req.file.filename) {
-      const base = getPublicBaseUrl(req);
-      finalImageUrl = `${base}/uploads/${encodeURIComponent(req.file.filename)}`;
-    }
-
     // Update vs Insert
     if (id !== undefined && id !== null && String(id).trim() !== "") {
       const eventId = parseInt(String(id).trim(), 10);
       if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
 
-      // Preserve existing image if user didn’t upload AND didn’t provide URL
-      if (!finalImageUrl) {
-        const prev = await get("SELECT imageUrl FROM events WHERE id = ?", [eventId]);
-        if (prev && prev.imageUrl) finalImageUrl = prev.imageUrl;
-      }
+      const finalSlug = await ensureUniqueSlug(baseSlug, eventId);
 
       const result = await run(
         `UPDATE events
          SET city=?,
+             slug=?,
              title=?,
              description=?,
              eventDetails=?,
@@ -880,6 +865,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
          WHERE id=?`,
         [
           city,
+          finalSlug,
           title,
           description,
           eventDetails || null,
@@ -890,7 +876,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
           endDateTime,
           location,
           organizer,
-          finalImageUrl || null,
+          imageUrl || null,
           catsJson,
           hasRec,
           recurrenceRuleJson,
@@ -906,18 +892,21 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       return res.redirect(`/events/${eventId}`);
     }
 
+    const finalSlug = await ensureUniqueSlug(baseSlug);
+
     const result = await run(
       `INSERT INTO events (
-        city, title, description, eventDetails, goodToKnow,
+        city, slug, title, description, eventDetails, goodToKnow,
         ticketUrl, ticketLabel,
         startDateTime, endDateTime, location, organizer,
         imageUrl, categories,
         hasRecurrence, recurrenceRule, recurrenceDates,
         updatedAt
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         city,
+        finalSlug,
         title,
         description,
         eventDetails || null,
@@ -928,7 +917,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         endDateTime,
         location,
         organizer,
-        finalImageUrl || null,
+        imageUrl || null,
         catsJson,
         hasRec,
         recurrenceRuleJson,
