@@ -102,22 +102,16 @@ router.get("/", async (req, res) => {
   const selectedCats = parseStoredCategories(editEvent?.categories);
 
   const categoriesHtml = `
-    <div class="catsWrap">
-      <div class="catsTitle">Categories (pick up to 3)</div>
-      <div class="catsGrid">
-        ${ALLOWED_CATEGORIES.map((c) => {
-          const checked = selectedCats.includes(c) ? "checked" : "";
-          return `
-            <label class="catItem">
-              <input type="checkbox" name="categories" value="${c}" ${checked} />
-              <span>${c}</span>
-            </label>
-          `;
-        }).join("")}
-      </div>
-      <div class="note">Only these 12 categories are allowed. Max 3 per event.</div>
-    </div>
-  `;
+  <label>Categories (pick up to 3)</label>
+  <select id="categoriesSelect" name="categories" multiple>
+    ${ALLOWED_CATEGORIES.map((c) => {
+      const selected = selectedCats.includes(c) ? "selected" : "";
+      return `<option value="${c}" ${selected}>${c}</option>`;
+    }).join("")}
+  </select>
+  <div class="note">Hold Cmd (Mac) / Ctrl (Windows) to select multiple. Max 3.</div>
+`;
+
 
   const listHtml = events.length
     ? events.map((e) => {
@@ -180,6 +174,21 @@ router.get("/", async (req, res) => {
     }
     button.danger { background: #d9534f; }
     .muted { color:#666; }
+
+    select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  box-sizing: border-box;
+  font-size: 14px;
+  background: #fff;
+}
+
+select[multiple]{
+  min-height: 140px;
+}
+
 
     .catsWrap {
       margin-top: 6px;
@@ -303,19 +312,22 @@ router.get("/", async (req, res) => {
       }
     });
 
-    // Enforce max 3 categories
-    const boxes = Array.from(document.querySelectorAll('input[type="checkbox"][name="categories"]'));
-    function enforceMax() {
-      const checked = boxes.filter(b => b.checked);
-      if (checked.length >= 3) {
-        boxes.forEach(b => { if (!b.checked) b.disabled = true; });
-      } else {
-        boxes.forEach(b => { b.disabled = false; });
+// Enforce max 3 categories for <select multiple>
+  const catSelect = document.getElementById("categoriesSelect");
+  if (catSelect) {
+    const MAX = 3;
+
+    catSelect.addEventListener("change", () => {
+      const selected = Array.from(catSelect.selectedOptions);
+
+      if (selected.length > MAX) {
+        // Unselect the last option the user just selected
+        // (best effort: revert to first MAX)
+        selected.slice(MAX).forEach(opt => (opt.selected = false));
       }
-    }
-    boxes.forEach(b => b.addEventListener("change", enforceMax));
-    enforceMax();
-  </script>
+    });
+  }
+</script>
 
 </body>
 </html>
