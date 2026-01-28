@@ -147,7 +147,7 @@ router.get("/", async (req, res) => {
         <img
   src="/assets/brand/oc-logo.svg"
   alt="OpenCircle API"
-  style="height:32px;"
+  style="height:64px;"
 />
         <style>
           body { font-family: Arial, sans-serif; padding: 24px; max-width: 820px; margin: 0 auto; }
@@ -164,7 +164,6 @@ router.get("/", async (req, res) => {
         </style>
       </head>
       <body>
-        <h1>OpenCircle Admin</h1>
         <p>Add or edit an event (stored in SQLite).</p>
         <p><a href="/events" target="_blank">View all events (JSON)</a></p>
 
