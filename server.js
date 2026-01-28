@@ -5,6 +5,10 @@ const adminRouter = require("./routes/admin");
 
 const app = express();
 
+const path = require("path");
+
+app.use("/assets", express.static(path.join(__dirname, "public")));
+
 // Allows other websites/apps to call this API
 app.use(cors());
 

@@ -141,9 +141,14 @@ router.get("/", async (req, res) => {
     <!doctype html>
     <html>
       <head>
+        <link rel="icon" href="/assets/brand/favicon.ico">
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>OpenCircle Admin</title>
+        <img
+  src="/assets/brand/oc-logo.svg"
+  alt="OpenCircle API"
+  style="height:32px;"
+/>
         <style>
           body { font-family: Arial, sans-serif; padding: 24px; max-width: 820px; margin: 0 auto; }
           h1 { margin: 0 0 12px; }
