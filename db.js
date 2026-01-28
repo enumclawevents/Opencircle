@@ -1,16 +1,14 @@
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
 
-// Use a persistent file (Render-compatible)
-const DB_PATH = path.join(__dirname, "opencircle.db");
+// Prefer a persistent disk path (Render), fallback locally
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, "opencircle.db");
 
 const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error("Failed to connect to SQLite:", err.message);
-  } else {
-    console.log("Connected to SQLite database");
-  }
+  if (err) console.error("Failed to connect to SQLite:", err.message);
+  else console.log("Connected to SQLite database at:", DB_PATH);
 });
+
 
 /**
  * Helpers (promise-based)
