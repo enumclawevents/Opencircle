@@ -13,37 +13,36 @@ const app = express();
 // Serve static assets from /public at /assets/*
 app.use("/assets", express.static(path.join(__dirname, "public")));
 
-// Allows other websites/apps to call this API
+// Allow cross-origin requests
 app.use(cors());
 
-// Body parsers (JSON + form posts)
+// Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Simple Admin Password (Basic Auth) ---
+// ---- Simple Admin Auth (Basic Auth) ----
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "opencircle";
 
 function requireAdmin(req, res, next) {
   const header = req.headers.authorization || "";
-  const [type, token] = header.split(" ");
+  const parts = header.split(" ");
 
-  if (type !== "Basic" || !token) {
+  if (parts.length !== 2 || parts[0] !== "Basic") {
     res.setHeader("WWW-Authenticate", 'Basic realm="OpenCircle Admin"');
     return res.status(401).send("Authentication required.");
   }
 
-  let decoded = "";
+  let decoded;
   try {
-    decoded = Buffer.from(token, "base64").toString("utf8");
-  } catch (e) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="OpenCircle Admin"');
+    decoded = Buffer.from(parts[1], "base64").toString("utf8");
+  } catch {
     return res.status(401).send("Invalid authorization header.");
   }
 
   const idx = decoded.indexOf(":");
-  const user = idx >= 0 ? decoded.slice(0, idx) : "";
-  const pass = idx >= 0 ? decoded.slice(idx + 1) : "";
+  const user = decoded.slice(0, idx);
+  const pass = decoded.slice(idx + 1);
 
   if (user === ADMIN_USER && pass === ADMIN_PASS) return next();
 
@@ -51,24 +50,22 @@ function requireAdmin(req, res, next) {
   return res.status(401).send("Invalid credentials.");
 }
 
-// Home test route
+// Root
 app.get("/", (req, res) => {
   res.json({
     name: "OpenCircle API",
     status: "ok",
-    endpoints: ["/events", "/events/:id", "/admin", "/assets/brand/*"]
+    endpoints: ["/events", "/events/:id", "/admin"]
   });
 });
 
-// (Optional) Health check endpoint
+// Health check (Render-friendly)
 app.get("/health", (req, res) => {
   res.status(200).send("ok");
 });
 
-// Public API
+// Routes
 app.use("/events", eventsRouter);
-
-// Admin (protected)
 app.use("/admin", requireAdmin, adminRouter);
 
 // Start server
