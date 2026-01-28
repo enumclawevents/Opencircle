@@ -17,8 +17,8 @@ app.use("/assets", express.static(path.join(__dirname, "public")));
 app.use(cors());
 
 // Body parsers (JSON + form posts)
-app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true, limit: "2mb" }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // --- Simple Admin Password (Basic Auth) ---
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
@@ -36,7 +36,7 @@ function requireAdmin(req, res, next) {
   let decoded = "";
   try {
     decoded = Buffer.from(token, "base64").toString("utf8");
-  } catch (e) {
+  } catch {
     res.setHeader("WWW-Authenticate", 'Basic realm="OpenCircle Admin"');
     return res.status(401).send("Invalid authorization header.");
   }
@@ -60,10 +60,7 @@ app.get("/", (req, res) => {
   });
 });
 
-// Optional health check endpoint (useful on Render)
-app.get("/health", (req, res) => {
-  res.status(200).send("ok");
-});
+app.get("/health", (req, res) => res.status(200).send("ok"));
 
 // Public API
 app.use("/events", eventsRouter);
