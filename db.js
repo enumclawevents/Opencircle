@@ -51,7 +51,7 @@ function all(sql, params = []) {
 
 // ---------- INIT / MIGRATIONS ----------
 async function init() {
-  // Base events table
+  // Base events table (canonical schema)
   await run(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,13 +71,12 @@ async function init() {
       ticketUrl TEXT,
       ticketLabel TEXT,
 
-      categories TEXT, -- JSON array
+      categories TEXT, -- JSON array of strings
 
-      -- Recurrence
-      hasOccurrences INTEGER DEFAULT 0,
-      recurrenceType TEXT,     -- none | weekly | monthly | custom
-      recurrenceRule TEXT,     -- JSON (weekly/monthly rules)
-      customDates TEXT,        -- JSON array of ISO strings
+      -- Recurrence (canonical names used by admin.js + events.js)
+      hasRecurrence INTEGER DEFAULT 0,
+      recurrenceRule TEXT,     -- JSON rule object {type, interval,...}
+      recurrenceDates TEXT,    -- JSON array of "YYYY-MM-DD" for custom dates
 
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
@@ -85,40 +84,53 @@ async function init() {
   `);
 
   // ---- SAFE MIGRATIONS (NO DATA LOSS) ----
+  // Add any missing columns if table existed previously.
   const migrations = [
-    `ALTER TABLE events ADD COLUMN categories TEXT`,
     `ALTER TABLE events ADD COLUMN eventDetails TEXT`,
     `ALTER TABLE events ADD COLUMN goodToKnow TEXT`,
     `ALTER TABLE events ADD COLUMN ticketUrl TEXT`,
     `ALTER TABLE events ADD COLUMN ticketLabel TEXT`,
     `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
+    `ALTER TABLE events ADD COLUMN categories TEXT`,
 
-    // Recurrence columns
-    `ALTER TABLE events ADD COLUMN hasOccurrences INTEGER DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN recurrenceType TEXT`,
+    // Recurrence (canonical)
+    `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
-    `ALTER TABLE events ADD COLUMN customDates TEXT`,
+    `ALTER TABLE events ADD COLUMN recurrenceDates TEXT`,
   ];
 
   for (const sql of migrations) {
     try {
       await run(sql);
     } catch (_) {
-      // column already exists — ignore
+      // Column already exists — ignore
     }
   }
+
+  // ---- OPTIONAL COMPAT MIGRATION ----
+  // If you previously used older column names, copy them forward once.
+  // These will no-op if the old columns don't exist.
+  try {
+    await run(`
+      UPDATE events
+      SET hasRecurrence = COALESCE(hasRecurrence, hasOccurrences, 0)
+      WHERE hasRecurrence IS NULL
+    `);
+  } catch (_) {}
+
+  try {
+    await run(`
+      UPDATE events
+      SET recurrenceDates = COALESCE(recurrenceDates, customDates)
+      WHERE recurrenceDates IS NULL
+    `);
+  } catch (_) {}
 
   console.log("[DB] Initialized & migrated");
 }
 
-// Run init immediately
 init().catch((err) => {
   console.error("[DB] Init failed:", err);
 });
 
-module.exports = {
-  db,
-  run,
-  get,
-  all,
-};
+module.exports = { db, run, get, all };
