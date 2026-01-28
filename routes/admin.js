@@ -43,7 +43,10 @@ function parseStoredCategories(stored) {
     const parsed = JSON.parse(stored);
     return Array.isArray(parsed) ? parsed : [];
   } catch (_) {
-    return String(stored).split(",").map((x) => x.trim()).filter(Boolean);
+    return String(stored)
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
   }
 }
 
@@ -68,9 +71,21 @@ function toLocalISOWithOffset(dtLocal) {
   const offM = pad(abs % 60);
 
   return (
-    year + "-" + month + "-" + day +
-    "T" + hours + ":" + minutes + ":" + seconds +
-    sign + offH + ":" + offM
+    year +
+    "-" +
+    month +
+    "-" +
+    day +
+    "T" +
+    hours +
+    ":" +
+    minutes +
+    ":" +
+    seconds +
+    sign +
+    offH +
+    ":" +
+    offM
   );
 }
 
@@ -78,6 +93,16 @@ function toLocalISOWithOffset(dtLocal) {
 function toDateTimeLocalValue(isoWithOffset) {
   if (!isoWithOffset) return "";
   return String(isoWithOffset).slice(0, 16);
+}
+
+// Basic HTML escaping for values injected into attributes/text
+function escHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 // GET /admin
@@ -95,137 +120,290 @@ router.get("/", async (req, res) => {
 
   const selectedCats = parseStoredCategories(editEvent?.categories);
 
+  // ✅ fixed styles: 3-column grid, checkbox + label tied together, clean spacing
   const categoriesHtml = `
-    <div style="margin-top: 6px; border: 1px solid #ddd; border-radius: 10px; padding: 12px;">
-      <div style="font-weight: 700; margin-bottom: 8px;">Categories (pick up to 3)</div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+    <fieldset class="oc-fieldset">
+      <legend>Categories (pick up to 3)</legend>
+
+      <div class="oc-cat-grid">
         ${ALLOWED_CATEGORIES.map((c) => {
           const checked = selectedCats.includes(c) ? "checked" : "";
           return `
-            <label style="display:flex; gap:8px; align-items:center; margin:0; font-weight: 400;">
-              <input type="checkbox" name="categories" value="${c}" ${checked} />
-              <span>${c}</span>
+            <label class="oc-cat-option">
+              <input type="checkbox" name="categories" value="${escHtml(c)}" ${checked} />
+              <span>${escHtml(c)}</span>
             </label>
           `;
         }).join("")}
       </div>
+
       <div class="note">Only these 12 categories are allowed. Max 3 per event.</div>
-    </div>
+    </fieldset>
   `;
 
   const listHtml = events.length
-    ? events.map((e) => {
-        return `
-          <div style="border: 1px solid #ddd; border-radius: 10px; padding: 12px;">
-            <div style="font-weight: 700; margin-bottom: 4px;">
-              #${e.id} — ${e.title}
+    ? events
+        .map((e) => {
+          return `
+          <div class="oc-event-card">
+            <div class="oc-event-card__title">#${e.id} — ${escHtml(e.title)}</div>
+            <div class="oc-event-card__meta">
+              <div><strong>Start:</strong> ${escHtml(e.startDateTime)}</div>
+              <div><strong>Location:</strong> ${escHtml(e.location)}</div>
             </div>
-            <div style="color: #444; font-size: 14px;">
-              <div><strong>Start:</strong> ${e.startDateTime}</div>
-              <div><strong>Location:</strong> ${e.location}</div>
-            </div>
-            <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
-              <a href="/events/${e.id}" target="_blank">View JSON</a>
+            <div class="oc-event-card__actions">
+              <a href="/events/${e.id}" target="_blank" rel="noopener">View JSON</a>
               <a href="/admin?edit=${e.id}">Edit</a>
-              <form method="POST" action="/admin/events/${e.id}/delete" style="margin:0;"
+              <form method="POST" action="/admin/events/${e.id}/delete" class="oc-inline-form"
                 onsubmit="return confirm('Delete event #${e.id}?');">
-                <button type="submit">Delete</button>
+                <button type="submit" class="oc-btn oc-btn--danger">Delete</button>
               </form>
             </div>
           </div>
         `;
-      }).join("")
+        })
+        .join("")
     : `<div style="color:#666;">No events yet.</div>`;
 
   res.send(`
     <!doctype html>
     <html>
       <head>
-        <link rel="icon" href="/assets/brand/favicon.ico">
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <img
-  src="/assets/brand/oc-logo.svg"
-  alt="OpenCircle API"
-  style="height:64px;"
-/>
+        <link rel="icon" href="/assets/brand/favicon.ico">
+
+        <title>OpenCircle API Admin</title>
+
         <style>
-          body { font-family: Arial, sans-serif; padding: 24px; max-width: 820px; margin: 0 auto; }
-          h1 { margin: 0 0 12px; }
-          h2 { margin: 0 0 12px; }
-          p { margin: 0 0 16px; color: #444; }
-          label { display: block; margin: 12px 0 6px; font-weight: 600; }
-          input, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
-          textarea { min-height: 120px; resize: vertical; }
-          button { margin-top: 16px; padding: 10px 12px; border: 0; border-radius: 10px; cursor: pointer; }
-          .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-          .note { font-size: 12px; color: #666; margin-top: 8px; }
+          :root{
+            --text: #111;
+            --muted: rgba(0,0,0,.65);
+            --border: rgba(0,0,0,.12);
+            --card: #fff;
+            --bg: #f6f7f9;
+            --brand: #3fabd1;
+            --radius: 10px;
+          }
+
+          html, body { height: 100%; }
+          body {
+            font-family: Arial, sans-serif;
+            padding: 24px;
+            max-width: 900px;
+            margin: 0 auto;
+            color: var(--text);
+            background: var(--bg);
+          }
+
+          .oc-brand{
+            display:flex;
+            align-items:flex-end;
+            gap: 14px;
+            margin-bottom: 10px;
+          }
+          .oc-brand img{
+            height: 64px;
+            width: auto;
+            display:block;
+          }
+          .oc-sub{
+            margin: 0 0 16px;
+            color: var(--muted);
+          }
+
           a { color: #0b6; }
+          a:hover{ opacity: .9; }
+
+          h2 { margin: 0 0 12px; }
+
+          form{
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px;
+          }
+
+          label { display: block; margin: 12px 0 6px; font-weight: 700; }
+          input, textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-sizing: border-box;
+            background: #fff;
+          }
+          textarea { min-height: 120px; resize: vertical; }
+
+          .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+          @media (max-width: 700px){
+            .row{ grid-template-columns: 1fr; }
+          }
+
+          .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+          .oc-btn{
+            margin-top: 16px;
+            padding: 10px 14px;
+            border: 0;
+            border-radius: var(--radius);
+            cursor: pointer;
+            background: var(--brand);
+            color: #fff;
+            font-weight: 700;
+          }
+          .oc-btn:hover{ opacity: .95; }
+
+          .oc-btn--danger{
+            background: #e34b4b;
+          }
+
+          .oc-inline-form{ margin: 0; display:inline; }
+
+          hr { margin: 24px 0; border: 0; border-top: 1px solid var(--border); }
+
+          /* ===== Categories (fixed layout) ===== */
+          .oc-fieldset{
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 14px 10px;
+            margin: 12px 0 4px;
+            background: #fff;
+          }
+          .oc-fieldset > legend{
+            font-weight: 800;
+            font-size: 16px;
+            padding: 0 8px;
+          }
+          .oc-cat-grid{
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px 18px;
+            margin-top: 10px;
+          }
+          @media (max-width: 900px){
+            .oc-cat-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          }
+          @media (max-width: 560px){
+            .oc-cat-grid{ grid-template-columns: 1fr; }
+          }
+          .oc-cat-option{
+            display:flex;
+            align-items:center;
+            gap: 10px;
+            justify-content:flex-start;
+            padding: 8px 10px;
+            border-radius: var(--radius);
+            cursor:pointer;
+            user-select:none;
+          }
+          .oc-cat-option:hover{ background: rgba(0,0,0,.04); }
+          .oc-cat-option input[type="checkbox"]{
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            flex: 0 0 auto;
+          }
+          .oc-cat-option span{
+            font-weight: 600;
+            color: var(--text);
+            line-height: 1.2;
+          }
+
+          /* Existing events list */
+          .oc-events-list{ display:grid; gap: 10px; }
+          .oc-event-card{
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px 14px;
+          }
+          .oc-event-card__title{
+            font-weight: 800;
+            margin-bottom: 6px;
+          }
+          .oc-event-card__meta{
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.35;
+          }
+          .oc-event-card__actions{
+            margin-top: 10px;
+            display:flex;
+            flex-wrap:wrap;
+            gap: 10px;
+            align-items:center;
+          }
         </style>
       </head>
+
       <body>
-        <p>Add or edit an event (stored in SQLite).</p>
-        <p><a href="/events" target="_blank">View all events (JSON)</a></p>
+        <div class="oc-brand">
+          <img src="/assets/brand/oc-logo.svg" alt="OpenCircle API">
+        </div>
+
+        <p class="oc-sub">Add or edit an event (stored in SQLite).</p>
+        <p><a href="/events" target="_blank" rel="noopener">View all events (JSON)</a></p>
 
         <form method="POST" action="/admin/events">
-          ${editEvent ? `<input type="hidden" name="id" value="${editEvent.id}" />` : ""}
+          ${editEvent ? `<input type="hidden" name="id" value="${escHtml(editEvent.id)}" />` : ""}
 
           <label>City</label>
-          <input name="city" value="${editEvent?.city || "Enumclaw"}" />
+          <input name="city" value="${escHtml(editEvent?.city || "Enumclaw")}" />
 
           ${categoriesHtml}
 
           <label>Title</label>
-          <input name="title" value="${editEvent?.title || ""}" required />
+          <input name="title" value="${escHtml(editEvent?.title || "")}" required />
 
           <label>Description</label>
-          <textarea name="description" required>${editEvent?.description || ""}</textarea>
+          <textarea name="description" required>${escHtml(editEvent?.description || "")}</textarea>
 
           <label>Event Details</label>
-          <textarea name="eventDetails">${editEvent?.eventDetails || ""}</textarea>
+          <textarea name="eventDetails">${escHtml(editEvent?.eventDetails || "")}</textarea>
 
           <label>Good to Know</label>
-          <textarea name="goodToKnow">${editEvent?.goodToKnow || ""}</textarea>
+          <textarea name="goodToKnow">${escHtml(editEvent?.goodToKnow || "")}</textarea>
 
           <div class="row">
             <div>
               <label>Start Date/Time</label>
               <input id="startDateTime" type="datetime-local" name="startDateTime"
-                value="${toDateTimeLocalValue(editEvent?.startDateTime)}" required />
+                value="${escHtml(toDateTimeLocalValue(editEvent?.startDateTime))}" required />
             </div>
             <div>
               <label>End Date/Time</label>
               <input id="endDateTime" type="datetime-local" name="endDateTime"
-                value="${toDateTimeLocalValue(editEvent?.endDateTime)}" required />
+                value="${escHtml(toDateTimeLocalValue(editEvent?.endDateTime))}" required />
             </div>
           </div>
 
           <label>Image URL (flyer)</label>
-          <input name="imageUrl" value="${editEvent?.imageUrl || ""}" placeholder="https://..." />
+          <input name="imageUrl" value="${escHtml(editEvent?.imageUrl || "")}" placeholder="https://..." />
 
           <label>Ticket Button Text</label>
-          <input name="ticketLabel" value="${editEvent?.ticketLabel || "Tickets"}" placeholder="Tickets / Reserve / Buy Tickets..." />
+          <input name="ticketLabel" value="${escHtml(editEvent?.ticketLabel || "Tickets")}" placeholder="Tickets / Reserve / Buy Tickets..." />
 
           <label>Ticket Link (URL)</label>
-          <input name="ticketUrl" value="${editEvent?.ticketUrl || ""}" placeholder="https://..." />
+          <input name="ticketUrl" value="${escHtml(editEvent?.ticketUrl || "")}" placeholder="https://..." />
           <div class="note">If provided, a ticket button will show on the event page.</div>
 
           <label>Location</label>
-          <input name="location" value="${editEvent?.location || ""}" required />
+          <input name="location" value="${escHtml(editEvent?.location || "")}" required />
 
           <label>Organizer</label>
-          <input name="organizer" value="${editEvent?.organizer || ""}" required />
+          <input name="organizer" value="${escHtml(editEvent?.organizer || "")}" required />
 
-          <button type="submit">${editEvent ? "Update Event" : "Save Event"}</button>
+          <button type="submit" class="oc-btn">${editEvent ? "Update Event" : "Save Event"}</button>
           ${editEvent ? `<a href="/admin" style="margin-left:10px;">Cancel</a>` : ""}
 
           <div class="note">Dates are saved with your local timezone automatically.</div>
         </form>
 
-        <hr style="margin: 24px 0;" />
+        <hr />
 
         <h2>Existing Events (latest 20)</h2>
-        <div style="display: grid; gap: 10px;">
+        <div class="oc-events-list">
           ${listHtml}
         </div>
 
@@ -234,20 +412,22 @@ router.get("/", async (req, res) => {
           const startEl = document.getElementById("startDateTime");
           const endEl = document.getElementById("endDateTime");
 
-          startEl.addEventListener("change", () => {
-            if (!startEl.value) return;
-            if (!endEl.value) {
-              const d = new Date(startEl.value);
-              d.setHours(d.getHours() + 2);
-              const pad = (n) => String(n).padStart(2, "0");
-              endEl.value =
-                d.getFullYear() + "-" +
-                pad(d.getMonth() + 1) + "-" +
-                pad(d.getDate()) + "T" +
-                pad(d.getHours()) + ":" +
-                pad(d.getMinutes());
-            }
-          });
+          if (startEl && endEl) {
+            startEl.addEventListener("change", () => {
+              if (!startEl.value) return;
+              if (!endEl.value) {
+                const d = new Date(startEl.value);
+                d.setHours(d.getHours() + 2);
+                const pad = (n) => String(n).padStart(2, "0");
+                endEl.value =
+                  d.getFullYear() + "-" +
+                  pad(d.getMonth() + 1) + "-" +
+                  pad(d.getDate()) + "T" +
+                  pad(d.getHours()) + ":" +
+                  pad(d.getMinutes());
+              }
+            });
+          }
 
           // Enforce max 3 categories
           const boxes = Array.from(document.querySelectorAll('input[type="checkbox"][name="categories"]'));
@@ -321,7 +501,7 @@ router.post("/events", async (req, res) => {
       if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
 
       const result = await run(
-        `UPDATE events
+        \`UPDATE events
          SET city=?,
              title=?,
              description=?,
@@ -336,7 +516,7 @@ router.post("/events", async (req, res) => {
              imageUrl=?,
              categories=?,
              updatedAt=datetime('now')
-         WHERE id=?`,
+         WHERE id=?\`,
         [
           city,
           title,
@@ -359,17 +539,17 @@ router.post("/events", async (req, res) => {
         return res.status(404).send("Event not found (ID does not exist).");
       }
 
-      return res.redirect(`/events/${eventId}`);
+      return res.redirect(\`/events/\${eventId}\`);
     }
 
     const result = await run(
-      `INSERT INTO events (
+      \`INSERT INTO events (
         city, title, description, eventDetails, goodToKnow,
         ticketUrl, ticketLabel,
         startDateTime, endDateTime, location, organizer,
         imageUrl, categories, updatedAt
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))\`,
       [
         city,
         title,
@@ -387,7 +567,7 @@ router.post("/events", async (req, res) => {
       ]
     );
 
-    res.redirect(`/events/${result.lastID}`);
+    res.redirect(\`/events/\${result.lastID}\`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error.");
