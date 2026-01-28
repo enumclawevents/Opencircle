@@ -9,13 +9,18 @@ const { all, get } = require("../db");
  * Helpers
  */
 function safeParseJson(val, fallback) {
-  if (!val) return fallback;
+  if (val === null || val === undefined || val === "") return fallback;
+
+  // ✅ If it's already an object/array, return as-is
+  if (typeof val === "object") return val;
+
   try {
     return JSON.parse(val);
   } catch {
     return fallback;
   }
 }
+
 
 function pad2(n) {
   return String(n).padStart(2, "0");
