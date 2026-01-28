@@ -2,6 +2,71 @@ const express = require("express");
 const router = express.Router();
 const { all, get, run } = require("../db");
 
+/**
+ * Fixed category list (12 total)
+ * Admin must choose from these; API will reject anything else.
+ */
+const ALLOWED_CATEGORIES = [
+  "Music",
+  "Food & Drink",
+  "Arts & Culture",
+  "Community",
+  "Family & Kids",
+  "Sports & Fitness",
+  "Nightlife",
+  "Markets & Shopping",
+  "Classes & Workshops",
+  "Outdoors",
+  "Business & Networking",
+  "Charity & Fundraising"
+];
+
+function normalizeCategories(input) {
+  // input can be: undefined, string, array (from form or JSON)
+  let arr = [];
+
+  if (Array.isArray(input)) arr = input;
+  else if (typeof input === "string" && input.trim() !== "") {
+    // Could be JSON, or comma-separated, or a single value
+    const s = input.trim();
+    if (s.startsWith("[") && s.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) arr = parsed;
+      } catch (_) {}
+    }
+    if (!arr.length) {
+      arr = s.split(",").map((x) => x.trim()).filter(Boolean);
+    }
+  }
+
+  // sanitize + unique + allowed only + max 3
+  const uniq = [];
+  for (const c of arr) {
+    const v = String(c || "").trim();
+    if (!v) continue;
+    if (!ALLOWED_CATEGORIES.includes(v)) continue;
+    if (!uniq.includes(v)) uniq.push(v);
+    if (uniq.length >= 3) break;
+  }
+
+  return uniq;
+}
+
+function rowToApi(row) {
+  if (!row) return row;
+  let cats = [];
+  if (row.categories) {
+    try {
+      const parsed = JSON.parse(row.categories);
+      if (Array.isArray(parsed)) cats = parsed;
+    } catch (_) {
+      cats = String(row.categories).split(",").map((x) => x.trim()).filter(Boolean);
+    }
+  }
+  return { ...row, categories: cats };
+}
+
 // GET /events?city=Enumclaw
 router.get("/", async (req, res) => {
   try {
@@ -12,7 +77,7 @@ router.get("/", async (req, res) => {
       [city]
     );
 
-    res.json({ data: rows });
+    res.json({ data: rows.map(rowToApi) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -28,7 +93,7 @@ router.get("/:id", async (req, res) => {
     const row = await get("SELECT * FROM events WHERE id = ?", [id]);
     if (!row) return res.status(404).json({ error: "Event not found" });
 
-    res.json({ data: row });
+    res.json({ data: rowToApi(row) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -50,7 +115,8 @@ router.post("/", async (req, res) => {
       endDateTime,
       location,
       organizer,
-      imageUrl
+      imageUrl,
+      categories
     } = req.body;
 
     if (!title || !description || !startDateTime || !endDateTime || !location || !organizer) {
@@ -64,14 +130,17 @@ router.post("/", async (req, res) => {
     const finalTicketLabel =
       (ticketLabel && String(ticketLabel).trim()) ? String(ticketLabel).trim() : "Tickets";
 
+    const cats = normalizeCategories(categories);
+    const catsJson = JSON.stringify(cats);
+
     const result = await run(
       `INSERT INTO events (
         city, title, description, eventDetails, goodToKnow,
         ticketUrl, ticketLabel,
         startDateTime, endDateTime, location, organizer,
-        imageUrl, updatedAt
+        imageUrl, categories, updatedAt
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         city,
         title,
@@ -84,12 +153,13 @@ router.post("/", async (req, res) => {
         endDateTime,
         location,
         organizer,
-        imageUrl || null
+        imageUrl || null,
+        catsJson
       ]
     );
 
     const created = await get("SELECT * FROM events WHERE id = ?", [result.lastID]);
-    res.status(201).json({ data: created });
+    res.status(201).json({ data: rowToApi(created) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -119,7 +189,8 @@ router.put("/:id", async (req, res) => {
       endDateTime: patch.endDateTime ?? existing.endDateTime,
       location: patch.location ?? existing.location,
       organizer: patch.organizer ?? existing.organizer,
-      imageUrl: patch.imageUrl ?? existing.imageUrl
+      imageUrl: patch.imageUrl ?? existing.imageUrl,
+      categories: patch.categories ?? existing.categories
     };
 
     if (updated.ticketUrl && !/^https?:\/\//i.test(updated.ticketUrl)) {
@@ -131,12 +202,15 @@ router.put("/:id", async (req, res) => {
         ? String(updated.ticketLabel).trim()
         : "Tickets";
 
+    const cats = normalizeCategories(updated.categories);
+    const catsJson = JSON.stringify(cats);
+
     await run(
       `UPDATE events
        SET city=?, title=?, description=?, eventDetails=?, goodToKnow=?,
            ticketUrl=?, ticketLabel=?,
            startDateTime=?, endDateTime=?, location=?, organizer=?,
-           imageUrl=?, updatedAt=datetime('now')
+           imageUrl=?, categories=?, updatedAt=datetime('now')
        WHERE id=?`,
       [
         updated.city,
@@ -151,12 +225,13 @@ router.put("/:id", async (req, res) => {
         updated.location,
         updated.organizer,
         updated.imageUrl || null,
+        catsJson,
         id
       ]
     );
 
     const row = await get("SELECT * FROM events WHERE id = ?", [id]);
-    res.json({ data: row });
+    res.json({ data: rowToApi(row) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });

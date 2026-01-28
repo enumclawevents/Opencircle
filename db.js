@@ -61,6 +61,7 @@ db.serialize(() => {
       location TEXT NOT NULL,
       organizer TEXT NOT NULL,
       imageUrl TEXT,
+      categories TEXT,                 -- JSON string (array), ex: ["Music","Food & Drink"]
       updatedAt TEXT
     )
   `);
@@ -86,6 +87,7 @@ db.serialize(() => {
   safeAddColumn("ALTER TABLE events ADD COLUMN goodToKnow TEXT");
   safeAddColumn("ALTER TABLE events ADD COLUMN ticketUrl TEXT");
   safeAddColumn("ALTER TABLE events ADD COLUMN ticketLabel TEXT");
+  safeAddColumn("ALTER TABLE events ADD COLUMN categories TEXT"); // NEW
 });
 
 module.exports = {

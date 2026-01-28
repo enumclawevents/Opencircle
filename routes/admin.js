@@ -2,6 +2,51 @@ const express = require("express");
 const router = express.Router();
 const { run, all, get } = require("../db");
 
+/**
+ * Fixed category list (12 total)
+ * Admin must choose from these; max 3 per event.
+ */
+const ALLOWED_CATEGORIES = [
+  "Music",
+  "Food & Drink",
+  "Arts & Culture",
+  "Community",
+  "Family & Kids",
+  "Sports & Fitness",
+  "Nightlife",
+  "Markets & Shopping",
+  "Classes & Workshops",
+  "Outdoors",
+  "Business & Networking",
+  "Charity & Fundraising"
+];
+
+function normalizeCategories(input) {
+  let arr = [];
+  if (Array.isArray(input)) arr = input;
+  else if (typeof input === "string" && input.trim() !== "") arr = [input.trim()];
+
+  const uniq = [];
+  for (const c of arr) {
+    const v = String(c || "").trim();
+    if (!v) continue;
+    if (!ALLOWED_CATEGORIES.includes(v)) continue;
+    if (!uniq.includes(v)) uniq.push(v);
+    if (uniq.length >= 3) break;
+  }
+  return uniq;
+}
+
+function parseStoredCategories(stored) {
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return String(stored).split(",").map((x) => x.trim()).filter(Boolean);
+  }
+}
+
 // Convert datetime-local (no timezone) into ISO with your local timezone offset
 function toLocalISOWithOffset(dtLocal) {
   const d = new Date(dtLocal);
@@ -47,6 +92,26 @@ router.get("/", async (req, res) => {
   if (editId) {
     editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
   }
+
+  const selectedCats = parseStoredCategories(editEvent?.categories);
+
+  const categoriesHtml = `
+    <div style="margin-top: 6px; border: 1px solid #ddd; border-radius: 10px; padding: 12px;">
+      <div style="font-weight: 700; margin-bottom: 8px;">Categories (pick up to 3)</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        ${ALLOWED_CATEGORIES.map((c) => {
+          const checked = selectedCats.includes(c) ? "checked" : "";
+          return `
+            <label style="display:flex; gap:8px; align-items:center; margin:0; font-weight: 400;">
+              <input type="checkbox" name="categories" value="${c}" ${checked} />
+              <span>${c}</span>
+            </label>
+          `;
+        }).join("")}
+      </div>
+      <div class="note">Only these 12 categories are allowed. Max 3 per event.</div>
+    </div>
+  `;
 
   const listHtml = events.length
     ? events.map((e) => {
@@ -104,6 +169,8 @@ router.get("/", async (req, res) => {
           <label>City</label>
           <input name="city" value="${editEvent?.city || "Enumclaw"}" />
 
+          ${categoriesHtml}
+
           <label>Title</label>
           <input name="title" value="${editEvent?.title || ""}" required />
 
@@ -159,6 +226,7 @@ router.get("/", async (req, res) => {
         </div>
 
         <script>
+          // Auto-fill end time +2 hours
           const startEl = document.getElementById("startDateTime");
           const endEl = document.getElementById("endDateTime");
 
@@ -176,6 +244,19 @@ router.get("/", async (req, res) => {
                 pad(d.getMinutes());
             }
           });
+
+          // Enforce max 3 categories
+          const boxes = Array.from(document.querySelectorAll('input[type="checkbox"][name="categories"]'));
+          function enforceMax() {
+            const checked = boxes.filter(b => b.checked);
+            if (checked.length >= 3) {
+              boxes.forEach(b => { if (!b.checked) b.disabled = true; });
+            } else {
+              boxes.forEach(b => { b.disabled = false; });
+            }
+          }
+          boxes.forEach(b => b.addEventListener("change", enforceMax));
+          enforceMax();
         </script>
       </body>
     </html>
@@ -198,7 +279,8 @@ router.post("/events", async (req, res) => {
       organizer,
       imageUrl,
       ticketUrl,
-      ticketLabel
+      ticketLabel,
+      categories
     } = req.body;
 
     // Convert datetime-local values to ISO with timezone offset
@@ -226,6 +308,9 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
+    const cats = normalizeCategories(categories);
+    const catsJson = JSON.stringify(cats);
+
     // If an ID is present, update. Otherwise insert.
     if (id !== undefined && id !== null && String(id).trim() !== "") {
       const eventId = parseInt(String(id).trim(), 10);
@@ -245,6 +330,7 @@ router.post("/events", async (req, res) => {
              location=?,
              organizer=?,
              imageUrl=?,
+             categories=?,
              updatedAt=datetime('now')
          WHERE id=?`,
         [
@@ -260,6 +346,7 @@ router.post("/events", async (req, res) => {
           location,
           organizer,
           imageUrl || null,
+          catsJson,
           eventId
         ]
       );
@@ -276,9 +363,9 @@ router.post("/events", async (req, res) => {
         city, title, description, eventDetails, goodToKnow,
         ticketUrl, ticketLabel,
         startDateTime, endDateTime, location, organizer,
-        imageUrl, updatedAt
+        imageUrl, categories, updatedAt
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         city,
         title,
@@ -291,7 +378,8 @@ router.post("/events", async (req, res) => {
         endDateTime,
         location,
         organizer,
-        imageUrl || null
+        imageUrl || null,
+        catsJson
       ]
     );
 
