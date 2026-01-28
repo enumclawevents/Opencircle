@@ -25,6 +25,7 @@ const ALLOWED_CATEGORIES = [
 ];
 
 function normalizeCategories(input) {
+  // input can be: undefined, string, array
   let arr = [];
   if (Array.isArray(input)) arr = input;
   else if (typeof input === "string" && input.trim() !== "") arr = [input.trim()];
@@ -40,22 +41,36 @@ function normalizeCategories(input) {
   return uniq;
 }
 
-function parseStoredCategories(stored) {
-  if (!stored) return [];
+function safeParseJson(val, fallback) {
+  if (!val) return fallback;
   try {
-    const parsed = JSON.parse(stored);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (_) {
-    return String(stored)
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
+    return JSON.parse(val);
+  } catch {
+    return fallback;
   }
 }
 
-// Convert datetime-local (no timezone) into ISO with local timezone offset
+function parseStoredCategories(stored) {
+  const parsed = safeParseJson(stored, null);
+  if (Array.isArray(parsed)) return parsed;
+  if (!stored) return [];
+  return String(stored).split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+function parseStoredDates(stored) {
+  const parsed = safeParseJson(stored, null);
+  if (Array.isArray(parsed)) return parsed;
+  return [];
+}
+
+function parseStoredRule(stored) {
+  const parsed = safeParseJson(stored, null);
+  if (parsed && typeof parsed === "object") return parsed;
+  return null;
+}
+
+// Convert datetime-local (no timezone) into ISO with your local timezone offset
 function toLocalISOWithOffset(dtLocal) {
-  if (!dtLocal) return null;
   const d = new Date(dtLocal);
   if (isNaN(d.getTime())) return null;
 
@@ -68,7 +83,7 @@ function toLocalISOWithOffset(dtLocal) {
   const minutes = pad(d.getMinutes());
   const seconds = "00";
 
-  const offsetMin = -d.getTimezoneOffset(); // local offset minutes
+  const offsetMin = -d.getTimezoneOffset();
   const sign = offsetMin >= 0 ? "+" : "-";
   const abs = Math.abs(offsetMin);
   const offH = pad(Math.floor(abs / 60));
@@ -81,53 +96,70 @@ function toLocalISOWithOffset(dtLocal) {
   );
 }
 
-// Convert ISO-with-offset -> datetime-local for form inputs
+// Convert ISO-with-offset to datetime-local value for the form
 function toDateTimeLocalValue(isoWithOffset) {
   if (!isoWithOffset) return "";
   return String(isoWithOffset).slice(0, 16);
 }
 
+function esc(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 // GET /admin
 router.get("/", async (req, res) => {
   const events = await all(
-    "SELECT id, title, startDateTime, location FROM events ORDER BY startDateTime DESC LIMIT 20"
+    "SELECT id, title, startDateTime, location FROM events ORDER BY startDateTime DESC LIMIT 50"
   );
 
   const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
   let editEvent = null;
+
   if (editId) {
     editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
   }
 
-  const selectedCats = parseStoredCategories(editEvent?.categories);
+  const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
 
-  const categoriesHtml = `
-  <label>Categories (pick up to 3)</label>
-  <select id="categoriesSelect" name="categories" multiple>
-    ${ALLOWED_CATEGORIES.map((c) => {
-      const selected = selectedCats.includes(c) ? "selected" : "";
-      return `<option value="${c}" ${selected}>${c}</option>`;
-    }).join("")}
-  </select>
-  <div class="note">Hold Cmd (Mac) / Ctrl (Windows) to select multiple. Max 3.</div>
-`;
+  const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
+  const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none" };
+  const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
 
+  const customDates = parseStoredDates(editEvent?.recurrenceDates);
+
+  // Category dropdowns (3)
+  const categorySelect = (idx) => {
+    const current = selectedCats[idx] || "";
+    return `
+      <select name="categories" class="ctrl">
+        <option value="">— None —</option>
+        ${ALLOWED_CATEGORIES.map((c) => {
+          const sel = current === c ? "selected" : "";
+          return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
+        }).join("")}
+      </select>
+    `;
+  };
 
   const listHtml = events.length
     ? events.map((e) => {
         return `
-          <div class="eventCard">
-            <div class="eventTitle">#${e.id} — ${escapeHtml(e.title || "")}</div>
-            <div class="eventMeta">
-              <div><strong>Start:</strong> ${escapeHtml(e.startDateTime || "")}</div>
-              <div><strong>Location:</strong> ${escapeHtml(e.location || "")}</div>
+          <div class="event-card">
+            <div class="event-title">#${e.id} — ${esc(e.title)}</div>
+            <div class="event-meta">
+              <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
+              <div><strong>Location:</strong> ${esc(e.location)}</div>
             </div>
-            <div class="eventActions">
-              <a href="/events/${e.id}" target="_blank" rel="noopener noreferrer">View JSON</a>
+            <div class="event-actions">
+              <a href="/events/${e.id}" target="_blank" rel="noopener">View JSON</a>
               <a href="/admin?edit=${e.id}">Edit</a>
-              <form method="POST" action="/admin/events/${e.id}/delete" style="margin:0;"
+              <form method="POST" action="/admin/events/${e.id}/delete" class="inline"
                 onsubmit="return confirm('Delete event #${e.id}?');">
-                <button type="submit" class="danger">Delete</button>
+                <button type="submit" class="btn btn-danger">Delete</button>
               </form>
             </div>
           </div>
@@ -138,203 +170,529 @@ router.get("/", async (req, res) => {
   res.send(`
 <!doctype html>
 <html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OpenCircle Admin</title>
-  <link rel="icon" href="/assets/brand/favicon.ico" />
-  <style>
-    body { font-family: Arial, sans-serif; padding: 24px; max-width: 920px; margin: 0 auto; }
-    .brand { display:flex; align-items:center; gap:14px; margin-bottom: 14px; }
-    .brand img { height: 56px; width:auto; display:block; }
-    h1 { margin: 0; font-size: 22px; }
-    p { margin: 8px 0 14px; color:#444; }
-    a { color:#0b6; }
-    label { display:block; margin: 12px 0 6px; font-weight: 700; }
-    input, textarea {
-      width:100%;
-      padding: 10px;
-      border: 1px solid #ccc;
-      border-radius: 10px;
-      box-sizing: border-box;
-      font-size: 14px;
-    }
-    textarea { min-height: 110px; resize: vertical; }
-    .row { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .note { font-size: 12px; color:#666; margin-top: 8px; }
-    button {
-      margin-top: 16px;
-      padding: 10px 14px;
-      border: 0;
-      border-radius: 10px;
-      cursor: pointer;
-      background: #3fabd1;
-      color: #fff;
-      font-weight: 700;
-    }
-    button.danger { background: #d9534f; }
-    .muted { color:#666; }
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    select {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #ccc;
-  border-radius: 10px;
-  box-sizing: border-box;
-  font-size: 14px;
-  background: #fff;
-}
+    <link rel="icon" href="/assets/brand/favicon.ico" />
 
-select[multiple]{
-  min-height: 140px;
-}
+    <title>OpenCircle Admin</title>
 
-
-    .catsWrap {
-      margin-top: 6px;
-      border: 1px solid #ddd;
-      border-radius: 12px;
-      padding: 12px;
-    }
-    .catsTitle { font-weight: 800; margin-bottom: 10px; }
-    .catsGrid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .catItem { display:flex; gap:10px; align-items:center; margin:0; font-weight: 400; }
-    .catItem input { width:auto; }
-
-    .eventCard {
-      border: 1px solid #ddd;
-      border-radius: 12px;
-      padding: 12px;
-      background: #fff;
-    }
-    .eventTitle { font-weight: 800; margin-bottom: 6px; }
-    .eventMeta { color:#444; font-size: 14px; display:grid; gap:4px; }
-    .eventActions { margin-top: 10px; display:flex; gap: 12px; align-items:center; flex-wrap: wrap; }
-    hr { margin: 24px 0; border:0; border-top: 1px solid #eee; }
-
-    @media (max-width: 720px){
-      .row { grid-template-columns: 1fr; }
-      .catsGrid { grid-template-columns: 1fr; }
-    }
-  </style>
-</head>
-<body>
-
-  <div class="brand">
-    <img src="/assets/brand/oc-logo.svg" alt="OpenCircle API" />
-    <div>
-      <h1>OpenCircle Admin</h1>
-      <p>Add or edit an event (stored in SQLite).</p>
-      <p><a href="/events" target="_blank" rel="noopener noreferrer">View all events (JSON)</a></p>
-    </div>
-  </div>
-
-  <form method="POST" action="/admin/events">
-    ${editEvent ? `<input type="hidden" name="id" value="${editEvent.id}" />` : ""}
-
-    <label>City</label>
-    <input name="city" value="${escapeAttr(editEvent?.city || "Enumclaw")}" />
-
-    ${categoriesHtml}
-
-    <label>Title</label>
-    <input name="title" value="${escapeAttr(editEvent?.title || "")}" required />
-
-    <label>Description</label>
-    <textarea name="description" required>${escapeTextarea(editEvent?.description || "")}</textarea>
-
-    <label>Event Details</label>
-    <textarea name="eventDetails">${escapeTextarea(editEvent?.eventDetails || "")}</textarea>
-
-    <label>Good to Know</label>
-    <textarea name="goodToKnow">${escapeTextarea(editEvent?.goodToKnow || "")}</textarea>
-
-    <div class="row">
-      <div>
-        <label>Start Date/Time</label>
-        <input id="startDateTime" type="datetime-local" name="startDateTime"
-          value="${escapeAttr(toDateTimeLocalValue(editEvent?.startDateTime))}" required />
-      </div>
-      <div>
-        <label>End Date/Time</label>
-        <input id="endDateTime" type="datetime-local" name="endDateTime"
-          value="${escapeAttr(toDateTimeLocalValue(editEvent?.endDateTime))}" required />
-      </div>
-    </div>
-
-    <label>Image URL (flyer)</label>
-    <input name="imageUrl" value="${escapeAttr(editEvent?.imageUrl || "")}" placeholder="https://..." />
-
-    <label>Ticket Button Text</label>
-    <input name="ticketLabel" value="${escapeAttr(editEvent?.ticketLabel || "Tickets")}" placeholder="Tickets / Reserve / Buy Tickets..." />
-
-    <label>Ticket Link (URL)</label>
-    <input name="ticketUrl" value="${escapeAttr(editEvent?.ticketUrl || "")}" placeholder="https://..." />
-    <div class="note">If provided, a ticket button will show on the event page.</div>
-
-    <label>Location</label>
-    <input name="location" value="${escapeAttr(editEvent?.location || "")}" required />
-
-    <label>Organizer</label>
-    <input name="organizer" value="${escapeAttr(editEvent?.organizer || "")}" required />
-
-    <button type="submit">${editEvent ? "Update Event" : "Save Event"}</button>
-    ${editEvent ? `<a href="/admin" style="margin-left:10px;">Cancel</a>` : ""}
-
-    <div class="note">Dates are saved with your local timezone automatically.</div>
-  </form>
-
-  <hr />
-
-  <h2>Existing Events (latest 20)</h2>
-  <div style="display:grid; gap:10px;">
-    ${listHtml}
-  </div>
-
-  <script>
-    // Auto-fill end time +2 hours
-    const startEl = document.getElementById("startDateTime");
-    const endEl = document.getElementById("endDateTime");
-
-    function pad(n){ return String(n).padStart(2, "0"); }
-
-    startEl.addEventListener("change", () => {
-      if (!startEl.value) return;
-      if (!endEl.value) {
-        const d = new Date(startEl.value);
-        d.setHours(d.getHours() + 2);
-        endEl.value =
-          d.getFullYear() + "-" +
-          pad(d.getMonth() + 1) + "-" +
-          pad(d.getDate()) + "T" +
-          pad(d.getHours()) + ":" +
-          pad(d.getMinutes());
+    <style>
+      :root{
+        --bg:#f3f4f6;
+        --card:#ffffff;
+        --text:#0f172a;
+        --muted:#475569;
+        --line:rgba(15, 23, 42, .12);
+        --brand:#3fabd1;
+        --brand2:#1b7ea8;
+        --danger:#ef4444;
+        --shadow:0 10px 30px rgba(2, 6, 23, .08);
+        --radius:14px;
       }
-    });
-
-// Enforce max 3 categories for <select multiple>
-  const catSelect = document.getElementById("categoriesSelect");
-  if (catSelect) {
-    const MAX = 3;
-
-    catSelect.addEventListener("change", () => {
-      const selected = Array.from(catSelect.selectedOptions);
-
-      if (selected.length > MAX) {
-        // Unselect the last option the user just selected
-        // (best effort: revert to first MAX)
-        selected.slice(MAX).forEach(opt => (opt.selected = false));
+      *{ box-sizing:border-box; }
+      body{
+        margin:0;
+        background:var(--bg);
+        color:var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        padding:24px;
       }
-    });
-  }
-</script>
+      .wrap{ max-width: 980px; margin: 0 auto; }
+      .topbar{
+        display:flex; align-items:center; justify-content:space-between;
+        gap:16px;
+        margin-bottom:18px;
+      }
+      .brand{
+        display:flex; align-items:center; gap:12px;
+      }
+      .brand img{ height:42px; width:auto; display:block; }
+      .brand-title{
+        font-size:18px; font-weight:700; line-height:1;
+      }
+      .pill{
+        font-size:12px; color: #0b1220;
+        background: rgba(63,171,209,.18);
+        border: 1px solid rgba(63,171,209,.35);
+        padding:6px 10px;
+        border-radius:999px;
+        font-weight:600;
+      }
+      .card{
+        background:var(--card);
+        border:1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 18px;
+      }
+      .card + .card{ margin-top: 16px; }
+      h1{ margin:0 0 8px; font-size:22px; }
+      .sub{ margin:0; color:var(--muted); }
+      .row{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+      @media (max-width: 900px){ .row{ grid-template-columns: 1fr; } }
 
-</body>
+      label{
+        display:block;
+        margin: 12px 0 6px;
+        font-weight:700;
+        font-size:13px;
+      }
+      .ctrl, input, textarea, select{
+        width:100%;
+        padding: 10px 12px;
+        border: 1px solid rgba(15, 23, 42, .18);
+        border-radius: 12px;
+        background:#fff;
+        font-size: 14px;
+        outline: none;
+      }
+      textarea{ min-height: 110px; resize: vertical; }
+      .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
+      .divider{ height:1px; background: var(--line); margin:18px 0; border:0; }
+      .btn{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(15, 23, 42, .12);
+        background:#fff;
+        cursor:pointer;
+        font-weight:700;
+        text-decoration:none;
+        color: var(--text);
+      }
+      .btn-primary{
+        background: var(--brand);
+        border-color: var(--brand);
+        color:#fff;
+      }
+      .btn-primary:hover{ background: var(--brand2); border-color: var(--brand2); }
+      .btn-danger{
+        background: rgba(239,68,68,.12);
+        border-color: rgba(239,68,68,.25);
+        color: #991b1b;
+      }
+      .btn-link{
+        background: transparent;
+        border-color: transparent;
+        color: var(--brand2);
+        padding: 8px 10px;
+      }
+      .actions{
+        display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+        margin-top: 14px;
+      }
+
+      .event-card{
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        background: #fff;
+      }
+      .event-title{ font-weight:800; margin-bottom:6px; }
+      .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
+      .event-actions{
+        margin-top:10px;
+        display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+      }
+      a{ color: var(--brand2); text-decoration:none; font-weight:700; }
+      a:hover{ text-decoration:underline; }
+
+      .inline{ display:inline; margin:0; }
+      .muted{ color: var(--muted); }
+
+      .cat-grid{
+        display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;
+      }
+      @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
+
+      .rec-box{
+        border:1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        background: #fff;
+        margin-top: 10px;
+      }
+      .rec-row{
+        display:grid;
+        grid-template-columns: 1fr 1fr;
+        gap:12px;
+        align-items:end;
+      }
+      @media (max-width: 900px){ .rec-row{ grid-template-columns: 1fr; } }
+
+      .checkbox{
+        display:flex; gap:10px; align-items:center;
+        margin-top: 8px;
+        font-weight:700;
+      }
+      .checkbox input{ width:auto; }
+
+      .chips{
+        display:flex; flex-wrap:wrap; gap:8px; margin-top: 10px;
+      }
+      .chip{
+        display:inline-flex; align-items:center; gap:8px;
+        border:1px solid var(--line);
+        border-radius:999px;
+        padding: 6px 10px;
+        background: #fff;
+        font-size: 13px;
+      }
+      .chip button{
+        border:0; background: transparent; cursor:pointer;
+        font-weight:900; color: #991b1b;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+
+      <div class="topbar">
+        <div class="brand">
+          <img src="/assets/brand/oc-logo.svg" alt="OpenCircle API" />
+          <div>
+            <div class="brand-title">OpenCircle Admin</div>
+            <div class="muted" style="font-size:12px; margin-top:4px;">Create and manage events (SQLite)</div>
+          </div>
+        </div>
+        <div class="pill">/admin</div>
+      </div>
+
+      <div class="card">
+        <h1>${editEvent ? "Edit Event" : "Add Event"}</h1>
+        <p class="sub">
+          <a href="/events" target="_blank" rel="noopener">View all events (JSON)</a>
+        </p>
+
+        <form method="POST" action="/admin/events">
+          ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
+
+          <label>City</label>
+          <input class="ctrl" name="city" value="${esc(editEvent?.city || "Enumclaw")}" />
+
+          <div class="rec-box">
+            <div style="font-weight:900; margin-bottom:6px;">Categories (pick up to 3)</div>
+            <div class="cat-grid">
+              <div>
+                <div class="muted" style="font-size:12px; margin-bottom:6px;">Category 1</div>
+                ${categorySelect(0)}
+              </div>
+              <div>
+                <div class="muted" style="font-size:12px; margin-bottom:6px;">Category 2</div>
+                ${categorySelect(1)}
+              </div>
+              <div>
+                <div class="muted" style="font-size:12px; margin-bottom:6px;">Category 3</div>
+                ${categorySelect(2)}
+              </div>
+            </div>
+            <div class="note">Only these 12 categories are allowed. Max 3 per event.</div>
+          </div>
+
+          <label>Title</label>
+          <input class="ctrl" name="title" value="${esc(editEvent?.title || "")}" required />
+
+          <label>Description</label>
+          <textarea class="ctrl" name="description" required>${esc(editEvent?.description || "")}</textarea>
+
+          <label>Event Details</label>
+          <textarea class="ctrl" name="eventDetails">${esc(editEvent?.eventDetails || "")}</textarea>
+
+          <label>Good to Know</label>
+          <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
+
+          <div class="row">
+            <div>
+              <label>Start Date/Time</label>
+              <input id="startDateTime" class="ctrl" type="datetime-local" name="startDateTime"
+                value="${esc(toDateTimeLocalValue(editEvent?.startDateTime))}" required />
+            </div>
+            <div>
+              <label>End Date/Time</label>
+              <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
+                value="${esc(toDateTimeLocalValue(editEvent?.endDateTime))}" required />
+            </div>
+          </div>
+
+          <div class="rec-box">
+            <div class="checkbox">
+              <input id="hasRecurrence" type="checkbox" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
+              <label for="hasRecurrence" style="margin:0; font-size:13px; font-weight:900;">
+                Check here if the event has occurrences
+              </label>
+            </div>
+
+            <div class="rec-row" style="margin-top:10px;">
+              <div>
+                <label style="margin-top:0;">Occurrence Type</label>
+                <select id="recurrenceType" name="recurrenceType" class="ctrl">
+                  <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
+                  <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
+                  <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
+                  <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Custom (pick dates)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style="margin-top:0;">Interval</label>
+                <select id="recurrenceInterval" name="recurrenceInterval" class="ctrl">
+                  ${[1,2,3,4].map((n) => {
+                    const sel = Number(rule.interval || 1) === n ? "selected" : "";
+                    return `<option value="${n}" ${sel}>Every ${n} ${ruleType === "monthly" ? "month(s)" : "week(s)"}</option>`;
+                  }).join("")}
+                </select>
+                <div class="note">Used for Weekly/Monthly only.</div>
+              </div>
+            </div>
+
+            <!-- Weekly options -->
+            <div id="weeklyBox" style="margin-top:12px;">
+              <label style="margin-top:0;">Weekly: Which days?</label>
+              <div class="row" style="grid-template-columns: repeat(7, 1fr); gap:10px;">
+                ${["SU","MO","TU","WE","TH","FR","SA"].map((d) => {
+                  const byDay = Array.isArray(rule.byDay) ? rule.byDay : [];
+                  const checked = byDay.includes(d) ? "checked" : "";
+                  return `
+                    <label class="checkbox" style="justify-content:center; margin:0; font-weight:900;">
+                      <input type="checkbox" name="weeklyByDay" value="${d}" ${checked}/>
+                      <span>${d}</span>
+                    </label>
+                  `;
+                }).join("")}
+              </div>
+              <div class="note">Example: Every Wednesday = select WE.</div>
+            </div>
+
+            <!-- Monthly options -->
+            <div id="monthlyBox" style="margin-top:12px;">
+              <label style="margin-top:0;">Monthly: Mode</label>
+              <select id="monthlyMode" name="monthlyMode" class="ctrl">
+                <option value="monthday" ${(rule.mode || "monthday") === "monthday" ? "selected" : ""}>Same day of month (e.g., 15th)</option>
+                <option value="nthweekday" ${(rule.mode || "") === "nthweekday" ? "selected" : ""}>Nth weekday (e.g., 1st Thursday)</option>
+              </select>
+
+              <div id="monthdayBox" style="margin-top:10px;">
+                <label>Day of month</label>
+                <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(rule.byMonthday || "")}" placeholder="e.g. 15" />
+              </div>
+
+              <div id="nthweekdayBox" style="margin-top:10px;">
+                <div class="row">
+                  <div>
+                    <label>Nth</label>
+                    <select class="ctrl" name="setPos">
+                      ${[
+                        ["1","First"],
+                        ["2","Second"],
+                        ["3","Third"],
+                        ["4","Fourth"],
+                        ["-1","Last"]
+                      ].map(([v, label]) => {
+                        const sel = String(rule.setPos ?? "1") === v ? "selected" : "";
+                        return `<option value="${v}" ${sel}>${label}</option>`;
+                      }).join("")}
+                    </select>
+                  </div>
+                  <div>
+                    <label>Weekday</label>
+                    <select class="ctrl" name="monthlyByDay">
+                      ${[
+                        ["SU","Sunday"],
+                        ["MO","Monday"],
+                        ["TU","Tuesday"],
+                        ["WE","Wednesday"],
+                        ["TH","Thursday"],
+                        ["FR","Friday"],
+                        ["SA","Saturday"]
+                      ].map(([v, label]) => {
+                        const sel = String(rule.byDay || "") === v ? "selected" : "";
+                        return `<option value="${v}" ${sel}>${label}</option>`;
+                      }).join("")}
+                    </select>
+                  </div>
+                </div>
+                <div class="note">Example: First Thursday = First + Thursday.</div>
+              </div>
+            </div>
+
+            <!-- Custom date picker -->
+            <div id="customBox" style="margin-top:12px;">
+              <label style="margin-top:0;">Custom dates (pick specific dates)</label>
+
+              <div class="actions" style="margin-top:8px;">
+                <button type="button" id="addCustomDate" class="btn">+ Add date</button>
+              </div>
+
+              <div id="customDatesWrap" class="chips">
+                ${(customDates.length ? customDates : []).map((d, i) => `
+                  <span class="chip">
+                    <input class="ctrl" style="width: 160px; padding:6px 8px; border-radius:10px;"
+                      type="date" name="recurrenceDates" value="${esc(d)}" />
+                    <button type="button" data-remove-date="${i}" aria-label="Remove">×</button>
+                  </span>
+                `).join("")}
+              </div>
+
+              <div class="note">
+                These will show on the feed for the next 3 months, and all occurrences link back to the same single event page.
+              </div>
+            </div>
+          </div>
+
+          <label>Image URL (flyer)</label>
+          <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
+
+          <div class="row">
+            <div>
+              <label>Ticket Button Text</label>
+              <input class="ctrl" name="ticketLabel" value="${esc(editEvent?.ticketLabel || "Tickets")}" placeholder="Tickets / Reserve / Buy Tickets..." />
+            </div>
+            <div>
+              <label>Ticket Link (URL)</label>
+              <input class="ctrl" name="ticketUrl" value="${esc(editEvent?.ticketUrl || "")}" placeholder="https://..." />
+              <div class="note">If provided, a ticket button will show on the event page.</div>
+            </div>
+          </div>
+
+          <label>Location</label>
+          <input class="ctrl" name="location" value="${esc(editEvent?.location || "")}" required />
+
+          <label>Organizer</label>
+          <input class="ctrl" name="organizer" value="${esc(editEvent?.organizer || "")}" required />
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
+            ${editEvent ? `<a class="btn btn-link" href="/admin">Cancel</a>` : ""}
+            <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h1 style="margin-bottom:10px;">Existing Events (latest 50)</h1>
+        <div style="display:grid; gap:12px;">
+          ${listHtml}
+        </div>
+      </div>
+
+    </div>
+
+    <script>
+      // ---- Auto-fill end time +2 hours if empty ----
+      const startEl = document.getElementById("startDateTime");
+      const endEl = document.getElementById("endDateTime");
+
+      if (startEl && endEl) {
+        startEl.addEventListener("change", () => {
+          if (!startEl.value) return;
+          if (!endEl.value) {
+            const d = new Date(startEl.value);
+            d.setHours(d.getHours() + 2);
+            const pad = (n) => String(n).padStart(2, "0");
+            endEl.value =
+              d.getFullYear() + "-" +
+              pad(d.getMonth() + 1) + "-" +
+              pad(d.getDate()) + "T" +
+              pad(d.getHours()) + ":" +
+              pad(d.getMinutes());
+          }
+        });
+      }
+
+      // ---- Recurrence UI logic ----
+      const hasRecEl = document.getElementById("hasRecurrence");
+      const typeEl = document.getElementById("recurrenceType");
+      const intervalEl = document.getElementById("recurrenceInterval");
+
+      const weeklyBox = document.getElementById("weeklyBox");
+      const monthlyBox = document.getElementById("monthlyBox");
+      const customBox = document.getElementById("customBox");
+
+      const monthlyModeEl = document.getElementById("monthlyMode");
+      const monthdayBox = document.getElementById("monthdayBox");
+      const nthweekdayBox = document.getElementById("nthweekdayBox");
+
+      function show(el, on) {
+        if (!el) return;
+        el.style.display = on ? "" : "none";
+      }
+
+      function syncRecurrenceUI() {
+        const enabled = !!(hasRecEl && hasRecEl.checked);
+        const t = (typeEl ? typeEl.value : "none");
+
+        // If not enabled, hide all sub options
+        if (!enabled || t === "none") {
+          show(intervalEl?.parentElement?.parentElement, false);
+          show(weeklyBox, false);
+          show(monthlyBox, false);
+          show(customBox, false);
+          return;
+        }
+
+        // interval visible for weekly/monthly only
+        show(intervalEl?.parentElement?.parentElement, (t === "weekly" || t === "monthly"));
+
+        show(weeklyBox, t === "weekly");
+        show(monthlyBox, t === "monthly");
+        show(customBox, t === "custom");
+
+        // monthly mode toggles
+        if (t === "monthly") {
+          const mm = monthlyModeEl ? monthlyModeEl.value : "monthday";
+          show(monthdayBox, mm === "monthday");
+          show(nthweekdayBox, mm === "nthweekday");
+        }
+      }
+
+      if (hasRecEl) hasRecEl.addEventListener("change", syncRecurrenceUI);
+      if (typeEl) typeEl.addEventListener("change", syncRecurrenceUI);
+      if (monthlyModeEl) monthlyModeEl.addEventListener("change", syncRecurrenceUI);
+
+      syncRecurrenceUI();
+
+      // ---- Custom dates add/remove ----
+      const addBtn = document.getElementById("addCustomDate");
+      const wrap = document.getElementById("customDatesWrap");
+
+      function attachRemoveHandlers() {
+        if (!wrap) return;
+        wrap.querySelectorAll("button[data-remove-date]").forEach((btn) => {
+          btn.onclick = () => {
+            const chip = btn.closest(".chip");
+            if (chip) chip.remove();
+          };
+        });
+      }
+
+      if (addBtn && wrap) {
+        addBtn.addEventListener("click", () => {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.innerHTML = \`
+            <input class="ctrl" style="width: 160px; padding:6px 8px; border-radius:10px;"
+              type="date" name="recurrenceDates" value="" />
+            <button type="button" aria-label="Remove">×</button>
+          \`;
+          wrap.appendChild(chip);
+
+          const x = chip.querySelector("button");
+          x.onclick = () => chip.remove();
+        });
+
+        attachRemoveHandlers();
+      }
+    </script>
+  </body>
 </html>
   `);
 });
 
-// POST /admin/events -> create OR update
+// POST /admin/events -> create OR update depending on hidden id
 router.post("/events", async (req, res) => {
   try {
     let {
@@ -351,7 +709,20 @@ router.post("/events", async (req, res) => {
       imageUrl,
       ticketUrl,
       ticketLabel,
-      categories
+
+      // categories: can be string or array because we used 3 selects with same name
+      categories,
+
+      // recurrence fields
+      hasRecurrence,
+      recurrenceType,
+      recurrenceInterval,
+      weeklyByDay,
+      monthlyMode,
+      byMonthday,
+      setPos,
+      monthlyByDay,
+      recurrenceDates
     } = req.body;
 
     // Convert datetime-local values to ISO with timezone offset
@@ -379,9 +750,72 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
+    // Categories
     const cats = normalizeCategories(categories);
     const catsJson = JSON.stringify(cats);
 
+    // --- Recurrence build ---
+    const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
+    const t = String(recurrenceType || "none").toLowerCase();
+
+    let recurrenceRule = null;
+    let recurrenceDatesJson = null;
+
+    if (hasRec && t !== "none") {
+      if (t === "custom") {
+        // recurrenceDates can be string or array
+        let arr = [];
+        if (Array.isArray(recurrenceDates)) arr = recurrenceDates;
+        else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "") arr = [recurrenceDates];
+
+        // keep valid YYYY-MM-DD only, unique, sorted
+        const uniq = [];
+        for (const d of arr) {
+          const v = String(d || "").trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) continue;
+          if (!uniq.includes(v)) uniq.push(v);
+        }
+        uniq.sort();
+
+        recurrenceRule = { type: "custom" };
+        recurrenceDatesJson = JSON.stringify(uniq);
+      }
+
+      if (t === "weekly") {
+        let days = [];
+        if (Array.isArray(weeklyByDay)) days = weeklyByDay;
+        else if (typeof weeklyByDay === "string" && weeklyByDay.trim() !== "") days = [weeklyByDay];
+
+        days = days.map((x) => String(x).trim()).filter(Boolean);
+        const allowed = new Set(["SU","MO","TU","WE","TH","FR","SA"]);
+        const uniq = [];
+        for (const d of days) {
+          if (!allowed.has(d)) continue;
+          if (!uniq.includes(d)) uniq.push(d);
+        }
+
+        const interval = Math.max(1, parseInt(recurrenceInterval || "1", 10) || 1);
+        recurrenceRule = { type: "weekly", interval, byDay: uniq };
+      }
+
+      if (t === "monthly") {
+        const interval = Math.max(1, parseInt(recurrenceInterval || "1", 10) || 1);
+        const mode = String(monthlyMode || "monthday");
+
+        if (mode === "nthweekday") {
+          const sp = parseInt(setPos || "1", 10);
+          const wd = String(monthlyByDay || "").trim(); // SU..SA
+          recurrenceRule = { type: "monthly", interval, mode: "nthweekday", setPos: sp, byDay: wd };
+        } else {
+          const md = Math.max(1, Math.min(31, parseInt(byMonthday || "0", 10) || 0));
+          recurrenceRule = { type: "monthly", interval, mode: "monthday", byMonthday: md };
+        }
+      }
+    }
+
+    const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
+
+    // If an ID is present, update. Otherwise insert.
     if (id !== undefined && id !== null && String(id).trim() !== "") {
       const eventId = parseInt(String(id).trim(), 10);
       if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
@@ -401,6 +835,9 @@ router.post("/events", async (req, res) => {
              organizer=?,
              imageUrl=?,
              categories=?,
+             hasRecurrence=?,
+             recurrenceRule=?,
+             recurrenceDates=?,
              updatedAt=datetime('now')
          WHERE id=?`,
         [
@@ -417,6 +854,9 @@ router.post("/events", async (req, res) => {
           organizer,
           imageUrl || null,
           catsJson,
+          hasRec,
+          recurrenceRuleJson,
+          recurrenceDatesJson,
           eventId
         ]
       );
@@ -433,9 +873,11 @@ router.post("/events", async (req, res) => {
         city, title, description, eventDetails, goodToKnow,
         ticketUrl, ticketLabel,
         startDateTime, endDateTime, location, organizer,
-        imageUrl, categories, updatedAt
+        imageUrl, categories,
+        hasRecurrence, recurrenceRule, recurrenceDates,
+        updatedAt
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         city,
         title,
@@ -449,14 +891,17 @@ router.post("/events", async (req, res) => {
         location,
         organizer,
         imageUrl || null,
-        catsJson
+        catsJson,
+        hasRec,
+        recurrenceRuleJson,
+        recurrenceDatesJson
       ]
     );
 
-    return res.redirect(`/events/${result.lastID}`);
+    res.redirect(`/events/${result.lastID}`);
   } catch (err) {
     console.error(err);
-    return res.status(500).send("Server error.");
+    res.status(500).send("Server error.");
   }
 });
 
@@ -467,28 +912,11 @@ router.post("/events/:id/delete", async (req, res) => {
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
 
     await run("DELETE FROM events WHERE id = ?", [id]);
-    return res.redirect("/admin");
+    res.redirect("/admin");
   } catch (err) {
     console.error(err);
-    return res.status(500).send("Server error.");
+    res.status(500).send("Server error.");
   }
 });
-
-// ---- Safe HTML escaping helpers ----
-function escapeHtml(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-function escapeAttr(s) {
-  return escapeHtml(s).replace(/`/g, "&#096;");
-}
-function escapeTextarea(s) {
-  // textarea doesn't need quotes escaped, but still prevent </textarea> injection
-  return String(s || "").replace(/<\/textarea/gi, "&lt;/textarea");
-}
 
 module.exports = router;
