@@ -1,18 +1,32 @@
-// db.js
 "use strict";
 
 const path = require("path");
 const sqlite3 = require("sqlite3").verbose();
 
-const DB_FILE = process.env.DB_FILE || path.join(__dirname, "data.sqlite");
-const db = new sqlite3.Database(DB_FILE);
+/**
+ * DB PATH
+ * Priority:
+ * 1) Explicit DB_PATH env var (Render recommended)
+ * 2) Render disk mount (RENDER_DISK_PATH)
+ * 3) Local fallback (project root)
+ */
+const DB_PATH =
+  process.env.DB_PATH ||
+  (process.env.RENDER_DISK_PATH
+    ? path.join(process.env.RENDER_DISK_PATH, "opencircle.db")
+    : path.join(__dirname, "data.sqlite"));
 
-// --- Promisified helpers ---
+console.log("[DB] Using SQLite file:", DB_PATH);
+
+// Open database
+const db = new sqlite3.Database(DB_PATH);
+
+// ---------- PROMISIFIED HELPERS ----------
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
       if (err) return reject(err);
-      resolve({ lastID: this.lastID, changes: this.changes });
+      resolve(this);
     });
   });
 }
@@ -35,18 +49,13 @@ function all(sql, params = []) {
   });
 }
 
-async function columnExists(table, col) {
-  const rows = await all(`PRAGMA table_info(${table})`);
-  return rows.some((r) => r && r.name === col);
-}
-
-// --- Init + auto-migrations ---
+// ---------- INIT / MIGRATIONS ----------
 async function init() {
-  // Create base table if missing (includes newest columns)
+  // Base events table
   await run(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      city TEXT DEFAULT 'Enumclaw',
+      city TEXT,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
       eventDetails TEXT,
@@ -62,42 +71,54 @@ async function init() {
       ticketUrl TEXT,
       ticketLabel TEXT,
 
-      categories TEXT,             -- JSON array of strings (max 3)
-      hasRecurrence INTEGER DEFAULT 0,  -- 0/1
-      recurrenceRule TEXT,         -- JSON object
-      recurrenceDates TEXT,        -- JSON array of YYYY-MM-DD for custom
+      categories TEXT, -- JSON array
 
-      updatedAt TEXT
-    );
+      -- Recurrence
+      hasOccurrences INTEGER DEFAULT 0,
+      recurrenceType TEXT,     -- none | weekly | monthly | custom
+      recurrenceRule TEXT,     -- JSON (weekly/monthly rules)
+      customDates TEXT,        -- JSON array of ISO strings
+
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )
   `);
 
-  // Migrate older DBs (add missing columns safely)
-  const adds = [
-    ["eventDetails", "TEXT"],
-    ["goodToKnow", "TEXT"],
-    ["imageUrl", "TEXT"],
-    ["ticketUrl", "TEXT"],
-    ["ticketLabel", "TEXT"],
-    ["categories", "TEXT"],
-    ["hasRecurrence", "INTEGER DEFAULT 0"],
-    ["recurrenceRule", "TEXT"],
-    ["recurrenceDates", "TEXT"],
-    ["updatedAt", "TEXT"]
+  // ---- SAFE MIGRATIONS (NO DATA LOSS) ----
+  const migrations = [
+    `ALTER TABLE events ADD COLUMN categories TEXT`,
+    `ALTER TABLE events ADD COLUMN eventDetails TEXT`,
+    `ALTER TABLE events ADD COLUMN goodToKnow TEXT`,
+    `ALTER TABLE events ADD COLUMN ticketUrl TEXT`,
+    `ALTER TABLE events ADD COLUMN ticketLabel TEXT`,
+    `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
+
+    // Recurrence columns
+    `ALTER TABLE events ADD COLUMN hasOccurrences INTEGER DEFAULT 0`,
+    `ALTER TABLE events ADD COLUMN recurrenceType TEXT`,
+    `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
+    `ALTER TABLE events ADD COLUMN customDates TEXT`,
   ];
 
-  for (const [col, type] of adds) {
-    // eslint-disable-next-line no-await-in-loop
-    const exists = await columnExists("events", col);
-    if (!exists) {
-      // eslint-disable-next-line no-await-in-loop
-      await run(`ALTER TABLE events ADD COLUMN ${col} ${type}`);
+  for (const sql of migrations) {
+    try {
+      await run(sql);
+    } catch (_) {
+      // column already exists — ignore
     }
   }
+
+  console.log("[DB] Initialized & migrated");
 }
 
-// Run init immediately (best-effort)
-init().catch((e) => {
-  console.error("DB init/migration failed:", e);
+// Run init immediately
+init().catch((err) => {
+  console.error("[DB] Init failed:", err);
 });
 
-module.exports = { db, run, get, all };
+module.exports = {
+  db,
+  run,
+  get,
+  all,
+};

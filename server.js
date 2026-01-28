@@ -13,36 +13,37 @@ const app = express();
 // Serve static assets from /public at /assets/*
 app.use("/assets", express.static(path.join(__dirname, "public")));
 
-// Allow cross-origin requests
+// Allows other websites/apps to call this API
 app.use(cors());
 
-// Body parsers
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Body parsers (JSON + form posts)
+app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
-// ---- Simple Admin Auth (Basic Auth) ----
+// --- Simple Admin Password (Basic Auth) ---
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "opencircle";
 
 function requireAdmin(req, res, next) {
   const header = req.headers.authorization || "";
-  const parts = header.split(" ");
+  const [type, token] = header.split(" ");
 
-  if (parts.length !== 2 || parts[0] !== "Basic") {
+  if (type !== "Basic" || !token) {
     res.setHeader("WWW-Authenticate", 'Basic realm="OpenCircle Admin"');
     return res.status(401).send("Authentication required.");
   }
 
-  let decoded;
+  let decoded = "";
   try {
-    decoded = Buffer.from(parts[1], "base64").toString("utf8");
-  } catch {
+    decoded = Buffer.from(token, "base64").toString("utf8");
+  } catch (e) {
+    res.setHeader("WWW-Authenticate", 'Basic realm="OpenCircle Admin"');
     return res.status(401).send("Invalid authorization header.");
   }
 
   const idx = decoded.indexOf(":");
-  const user = decoded.slice(0, idx);
-  const pass = decoded.slice(idx + 1);
+  const user = idx >= 0 ? decoded.slice(0, idx) : "";
+  const pass = idx >= 0 ? decoded.slice(idx + 1) : "";
 
   if (user === ADMIN_USER && pass === ADMIN_PASS) return next();
 
@@ -50,22 +51,24 @@ function requireAdmin(req, res, next) {
   return res.status(401).send("Invalid credentials.");
 }
 
-// Root
+// Home test route
 app.get("/", (req, res) => {
   res.json({
     name: "OpenCircle API",
     status: "ok",
-    endpoints: ["/events", "/events/:id", "/admin"]
+    endpoints: ["/events", "/events/:id", "/admin", "/assets/brand/*"]
   });
 });
 
-// Health check (Render-friendly)
+// Optional health check endpoint (useful on Render)
 app.get("/health", (req, res) => {
   res.status(200).send("ok");
 });
 
-// Routes
+// Public API
 app.use("/events", eventsRouter);
+
+// Admin (protected)
 app.use("/admin", requireAdmin, adminRouter);
 
 // Start server

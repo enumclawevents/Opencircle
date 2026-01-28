@@ -1,90 +1,439 @@
+// routes/events.js
+"use strict";
+
 const express = require("express");
 const router = express.Router();
-const { all, get, run } = require("../db");
+const { all, get } = require("../db");
 
 /**
- * Fixed category list (12 total)
- * Admin must choose from these; API will reject anything else.
+ * Helpers
  */
-const ALLOWED_CATEGORIES = [
-  "Music",
-  "Food & Drink",
-  "Arts & Culture",
-  "Community",
-  "Family & Kids",
-  "Sports & Fitness",
-  "Nightlife",
-  "Markets & Shopping",
-  "Classes & Workshops",
-  "Outdoors",
-  "Business & Networking",
-  "Charity & Fundraising"
-];
-
-function normalizeCategories(input) {
-  // input can be: undefined, string, array (from form or JSON)
-  let arr = [];
-
-  if (Array.isArray(input)) arr = input;
-  else if (typeof input === "string" && input.trim() !== "") {
-    // Could be JSON, or comma-separated, or a single value
-    const s = input.trim();
-    if (s.startsWith("[") && s.endsWith("]")) {
-      try {
-        const parsed = JSON.parse(s);
-        if (Array.isArray(parsed)) arr = parsed;
-      } catch (_) {}
-    }
-    if (!arr.length) {
-      arr = s.split(",").map((x) => x.trim()).filter(Boolean);
-    }
-  }
-
-  // sanitize + unique + allowed only + max 3
-  const uniq = [];
-  for (const c of arr) {
-    const v = String(c || "").trim();
-    if (!v) continue;
-    if (!ALLOWED_CATEGORIES.includes(v)) continue;
-    if (!uniq.includes(v)) uniq.push(v);
-    if (uniq.length >= 3) break;
-  }
-
-  return uniq;
+function safeParseJson(val, fallback) {
+  if (!val) return fallback;
+  try { return JSON.parse(val); } catch { return fallback; }
 }
 
-function rowToApi(row) {
-  if (!row) return row;
-  let cats = [];
-  if (row.categories) {
-    try {
-      const parsed = JSON.parse(row.categories);
-      if (Array.isArray(parsed)) cats = parsed;
-    } catch (_) {
-      cats = String(row.categories).split(",").map((x) => x.trim()).filter(Boolean);
-    }
-  }
-  return { ...row, categories: cats };
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+function parseIsoParts(iso) {
+  // YYYY-MM-DDTHH:mm(:ss)?(+/-)HH:mm
+  const s = String(iso || "").trim();
+  const m = s.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?([+-]\d{2}:\d{2})$/
+  );
+  if (!m) return null;
+  return {
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: Number(m[4]),
+    minute: Number(m[5]),
+    second: Number(m[6] || "00"),
+    offset: m[7]
+  };
 }
 
-// GET /events?city=Enumclaw
+function offsetToMinutes(offset) {
+  const m = String(offset || "").match(/^([+-])(\d{2}):(\d{2})$/);
+  if (!m) return 0;
+  const sign = m[1] === "-" ? -1 : 1;
+  return sign * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+function partsToUtcMs(parts) {
+  const offMin = offsetToMinutes(parts.offset);
+  const localAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second || 0
+  );
+  return localAsUtc - offMin * 60 * 1000;
+}
+
+function utcMsToLocalParts(utcMs, offset) {
+  const offMin = offsetToMinutes(offset);
+  const localMs = utcMs + offMin * 60 * 1000;
+  const d = new Date(localMs);
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    hour: d.getUTCHours(),
+    minute: d.getUTCMinutes(),
+    second: d.getUTCSeconds(),
+    offset
+  };
+}
+
+function partsToIso(parts) {
+  return (
+    `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}` +
+    `T${pad2(parts.hour)}:${pad2(parts.minute)}:${pad2(parts.second || 0)}` +
+    `${parts.offset}`
+  );
+}
+
+function daysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function weekdayKeyFromLocalParts(parts) {
+  const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0);
+  const d = new Date(localAsUtc);
+  const map = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+  return map[d.getUTCDay()];
+}
+
+function startOfWeekLocalDate(parts) {
+  const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 0, 0, 0);
+  const d = new Date(localAsUtc);
+  const dow = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - dow);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
+function monthsDiff(y1, m1, y2, m2) {
+  return (y2 - y1) * 12 + (m2 - m1);
+}
+
+function formatLabelLocal(parts) {
+  const d = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0));
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function nthWeekdayOfMonth(year, month, weekdayKey, setPos) {
+  const map = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+  const target = map[weekdayKey];
+  if (target === undefined) return null;
+
+  const dim = daysInMonth(year, month);
+
+  if (setPos === -1) {
+    for (let day = dim; day >= 1; day--) {
+      const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      if (d.getUTCDay() === target) return day;
+    }
+    return null;
+  }
+
+  let count = 0;
+  for (let day = 1; day <= dim; day++) {
+    const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    if (d.getUTCDay() === target) {
+      count++;
+      if (count === setPos) return day;
+    }
+  }
+  return null;
+}
+
+/**
+ * Custom recurrence:
+ * - recurrenceDates stored as JSON array of "YYYY-MM-DD"
+ * - occurrences start time uses base event's wall-clock time + offset
+ */
+function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
+  const startParts = parseIsoParts(eventRow.startDateTime);
+  if (!startParts) return [];
+
+  const startUtc = Date.parse(eventRow.startDateTime);
+  const endUtc = Date.parse(eventRow.endDateTime);
+  if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
+
+  const durationMs = Math.max(0, endUtc - startUtc);
+  const offset = startParts.offset;
+
+  const dates = safeParseJson(eventRow.recurrenceDates, []);
+  if (!Array.isArray(dates) || dates.length === 0) return [];
+
+  const out = [];
+
+  for (const d of dates) {
+    const s = String(d || "").trim();
+    // must be YYYY-MM-DD
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) continue;
+
+    const [yy, mm, dd] = s.split("-").map(Number);
+
+    const occLocalParts = {
+      year: yy,
+      month: mm,
+      day: dd,
+      hour: startParts.hour,
+      minute: startParts.minute,
+      second: startParts.second,
+      offset
+    };
+
+    const occStartUtc = partsToUtcMs(occLocalParts);
+    const occEndUtc = occStartUtc + durationMs;
+
+    // Keep only next 90 days window
+    if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+
+    // Also don't show occurrences before the original event's start moment
+    if (occStartUtc < startUtc) continue;
+
+    const occEndParts = utcMsToLocalParts(occEndUtc, offset);
+
+    out.push({
+      startDateTime: partsToIso(occLocalParts),
+      endDateTime: partsToIso(occEndParts),
+      label: formatLabelLocal(occLocalParts)
+    });
+  }
+
+  // Sort by date asc
+  out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+  return out;
+}
+
+/**
+ * Generate occurrences for next N days
+ * Supports:
+ *  - weekly: {type:"weekly", interval, byDay:["WE","FR"]}
+ *  - monthly:
+ *     mode:"monthday" {byMonthday:15}
+ *     mode:"nthweekday" {setPos:1, byDay:"TH"} // first Thursday
+ *  - custom: selected dates in recurrenceDates
+ */
+function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
+  const startISO = eventRow.startDateTime;
+  const endISO = eventRow.endDateTime;
+
+  const startParts = parseIsoParts(startISO);
+  const endParts = parseIsoParts(endISO);
+
+  if (!startParts || !endParts) return [];
+
+  const startUtc = Date.parse(startISO);
+  const endUtc = Date.parse(endISO);
+  if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
+
+  const durationMs = Math.max(0, endUtc - startUtc);
+  const offset = startParts.offset;
+
+  const rule = safeParseJson(eventRow.recurrenceRule, null);
+  if (!rule || Number(eventRow.hasRecurrence || 0) !== 1) return [];
+
+  const type = String(rule.type || "").toLowerCase();
+
+  if (type === "custom") {
+    return generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs);
+  }
+
+  const interval = Math.max(1, Number(rule.interval || 1));
+  const out = [];
+
+  // anchor is original start date/time
+  const anchorLocal = utcMsToLocalParts(partsToUtcMs(startParts), offset);
+  const anchorWeekStart = startOfWeekLocalDate(anchorLocal);
+
+  if (type === "weekly") {
+    const byDay = Array.isArray(rule.byDay) ? rule.byDay : [];
+    const byDaySet = new Set(byDay);
+
+    const dayMs = 86400 * 1000;
+    for (let t = windowStartUtcMs; t <= windowEndUtcMs; t += dayMs) {
+      const lp = utcMsToLocalParts(t, offset);
+      const wk = weekdayKeyFromLocalParts(lp);
+      if (!byDaySet.has(wk)) continue;
+
+      const candWeekStart = startOfWeekLocalDate(lp);
+      const anchorWsUtc = Date.UTC(anchorWeekStart.year, anchorWeekStart.month - 1, anchorWeekStart.day, 0, 0, 0);
+      const candWsUtc = Date.UTC(candWeekStart.year, candWeekStart.month - 1, candWeekStart.day, 0, 0, 0);
+      const weekIndex = Math.floor((candWsUtc - anchorWsUtc) / (7 * dayMs));
+      if (weekIndex < 0) continue;
+      if (weekIndex % interval !== 0) continue;
+
+      const occLocalParts = {
+        year: lp.year,
+        month: lp.month,
+        day: lp.day,
+        hour: startParts.hour,
+        minute: startParts.minute,
+        second: startParts.second,
+        offset
+      };
+      const occStartUtc = partsToUtcMs(occLocalParts);
+      const occEndUtc = occStartUtc + durationMs;
+
+      if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+      if (occStartUtc < startUtc) continue;
+
+      const occEndParts = utcMsToLocalParts(occEndUtc, offset);
+
+      out.push({
+        startDateTime: partsToIso(occLocalParts),
+        endDateTime: partsToIso(occEndParts),
+        label: formatLabelLocal(occLocalParts)
+      });
+    }
+
+    out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+    return out;
+  }
+
+  if (type === "monthly") {
+    const mode = rule.mode === "nthweekday" ? "nthweekday" : "monthday";
+
+    const windowStartLocal = utcMsToLocalParts(windowStartUtcMs, offset);
+    const windowEndLocal = utcMsToLocalParts(windowEndUtcMs, offset);
+
+    const anchorY = anchorLocal.year;
+    const anchorM = anchorLocal.month;
+
+    const startMonthIndex = Math.max(0, monthsDiff(anchorY, anchorM, windowStartLocal.year, windowStartLocal.month));
+    const endMonthIndex = Math.max(0, monthsDiff(anchorY, anchorM, windowEndLocal.year, windowEndLocal.month));
+
+    for (let mi = startMonthIndex; mi <= endMonthIndex; mi++) {
+      if (mi % interval !== 0) continue;
+
+      const base = new Date(Date.UTC(anchorY, anchorM - 1, 1, 12, 0, 0));
+      base.setUTCMonth(base.getUTCMonth() + mi);
+      const y = base.getUTCFullYear();
+      const m = base.getUTCMonth() + 1;
+
+      let day = null;
+
+      if (mode === "monthday") {
+        const md = Number(rule.byMonthday || 0);
+        if (!md) continue;
+        day = Math.min(md, daysInMonth(y, m));
+      } else {
+        const setPos = Number(rule.setPos || 1);
+        const wd = String(rule.byDay || "").trim();
+        day = nthWeekdayOfMonth(y, m, wd, setPos);
+        if (!day) continue;
+      }
+
+      const occLocalParts = {
+        year: y,
+        month: m,
+        day,
+        hour: startParts.hour,
+        minute: startParts.minute,
+        second: startParts.second,
+        offset
+      };
+
+      const occStartUtc = partsToUtcMs(occLocalParts);
+      const occEndUtc = occStartUtc + durationMs;
+
+      if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+      if (occStartUtc < startUtc) continue;
+
+      const occEndParts = utcMsToLocalParts(occEndUtc, offset);
+
+      out.push({
+        startDateTime: partsToIso(occLocalParts),
+        endDateTime: partsToIso(occEndParts),
+        label: formatLabelLocal(occLocalParts)
+      });
+    }
+
+    out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+    return out;
+  }
+
+  return [];
+}
+
+/**
+ * Feed expansion:
+ * - id stays same (WP link stays /oc-events/{id}/)
+ * - instanceId unique for UI rendering
+ */
+function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
+  const cats = safeParseJson(row.categories, []);
+  const recurRuleObj = safeParseJson(row.recurrenceRule, null);
+
+  const base = {
+    ...row,
+    categories: Array.isArray(cats) ? cats : [],
+    hasRecurrence: Number(row.hasRecurrence || 0),
+    recurrenceRule: recurRuleObj
+  };
+
+  const baseStartUtc = Date.parse(base.startDateTime);
+
+  // Non-recurring: include once (only if within next 90 days)
+  if (!base.hasRecurrence || !base.recurrenceRule) {
+    if (Number.isFinite(baseStartUtc) && baseStartUtc >= windowStartUtcMs && baseStartUtc <= windowEndUtcMs) {
+      return [{
+        ...base,
+        instanceId: `e${base.id}_${base.startDateTime}`,
+        baseStartDateTime: base.startDateTime,
+        isOccurrence: false
+      }];
+    }
+    return [];
+  }
+
+  const occ = generateOccurrences(base, windowStartUtcMs, windowEndUtcMs);
+
+  return occ.map((o) => ({
+    ...base,
+    startDateTime: o.startDateTime,
+    endDateTime: o.endDateTime,
+    instanceId: `e${base.id}_${o.startDateTime}`,
+    baseStartDateTime: row.startDateTime,
+    isOccurrence: true,
+    occurrenceLabel: o.label
+  }));
+}
+
+/**
+ * GET /events?city=Enumclaw&expand=1
+ * Returns occurrences for next 90 days
+ */
 router.get("/", async (req, res) => {
   try {
-    const city = req.query.city || "Enumclaw";
+    const city = (req.query.city || "Enumclaw").trim();
+    const expand = String(req.query.expand ?? "1") !== "0";
+
+    const nowUtc = Date.now();
+    const windowDays = 90;
+    const windowStartUtc = nowUtc - 5 * 60 * 1000;
+    const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
     const rows = await all(
       "SELECT * FROM events WHERE LOWER(city) = LOWER(?) ORDER BY startDateTime ASC",
       [city]
     );
 
-    res.json({ data: rows.map(rowToApi) });
+    if (!expand) {
+      const normalized = rows.map((r) => ({
+        ...r,
+        categories: safeParseJson(r.categories, []),
+        hasRecurrence: Number(r.hasRecurrence || 0),
+        recurrenceRule: safeParseJson(r.recurrenceRule, null),
+        recurrenceDates: safeParseJson(r.recurrenceDates, [])
+      }));
+      return res.json({ data: normalized });
+    }
+
+    const expanded = [];
+    for (const r of rows) {
+      expanded.push(...expandEventIntoFeedItems(r, windowStartUtc, windowEndUtc));
+    }
+
+    expanded.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+
+    res.json({ data: expanded });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// GET /events/:id
+/**
+ * GET /events/:id
+ * Returns base event + occurrencesUpcoming[] (next 90 days)
+ */
 router.get("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -93,162 +442,41 @@ router.get("/:id", async (req, res) => {
     const row = await get("SELECT * FROM events WHERE id = ?", [id]);
     if (!row) return res.status(404).json({ error: "Event not found" });
 
-    res.json({ data: rowToApi(row) });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
+    const cats = safeParseJson(row.categories, []);
+    const recurRuleObj = safeParseJson(row.recurrenceRule, null);
 
-// POST /events
-router.post("/", async (req, res) => {
-  try {
-    const {
-      city = "Enumclaw",
-      title,
-      description,
-      eventDetails,
-      goodToKnow,
-      ticketUrl,
-      ticketLabel,
-      startDateTime,
-      endDateTime,
-      location,
-      organizer,
-      imageUrl,
-      categories
-    } = req.body;
-
-    if (!title || !description || !startDateTime || !endDateTime || !location || !organizer) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-
-    if (ticketUrl && !/^https?:\/\//i.test(ticketUrl)) {
-      return res.status(400).json({ error: "ticketUrl must start with http:// or https://" });
-    }
-
-    const finalTicketLabel =
-      (ticketLabel && String(ticketLabel).trim()) ? String(ticketLabel).trim() : "Tickets";
-
-    const cats = normalizeCategories(categories);
-    const catsJson = JSON.stringify(cats);
-
-    const result = await run(
-      `INSERT INTO events (
-        city, title, description, eventDetails, goodToKnow,
-        ticketUrl, ticketLabel,
-        startDateTime, endDateTime, location, organizer,
-        imageUrl, categories, updatedAt
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-      [
-        city,
-        title,
-        description,
-        eventDetails || null,
-        goodToKnow || null,
-        ticketUrl || null,
-        finalTicketLabel,
-        startDateTime,
-        endDateTime,
-        location,
-        organizer,
-        imageUrl || null,
-        catsJson
-      ]
-    );
-
-    const created = await get("SELECT * FROM events WHERE id = ?", [result.lastID]);
-    res.status(201).json({ data: rowToApi(created) });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-// PUT /events/:id
-router.put("/:id", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (Number.isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
-
-    const existing = await get("SELECT * FROM events WHERE id = ?", [id]);
-    if (!existing) return res.status(404).json({ error: "Event not found" });
-
-    const patch = req.body;
-
-    const updated = {
-      city: patch.city ?? existing.city,
-      title: patch.title ?? existing.title,
-      description: patch.description ?? existing.description,
-      eventDetails: patch.eventDetails ?? existing.eventDetails,
-      goodToKnow: patch.goodToKnow ?? existing.goodToKnow,
-      ticketUrl: patch.ticketUrl ?? existing.ticketUrl,
-      ticketLabel: patch.ticketLabel ?? existing.ticketLabel,
-      startDateTime: patch.startDateTime ?? existing.startDateTime,
-      endDateTime: patch.endDateTime ?? existing.endDateTime,
-      location: patch.location ?? existing.location,
-      organizer: patch.organizer ?? existing.organizer,
-      imageUrl: patch.imageUrl ?? existing.imageUrl,
-      categories: patch.categories ?? existing.categories
+    const base = {
+      ...row,
+      categories: Array.isArray(cats) ? cats : [],
+      hasRecurrence: Number(row.hasRecurrence || 0),
+      recurrenceRule: recurRuleObj,
+      recurrenceDates: safeParseJson(row.recurrenceDates, [])
     };
 
-    if (updated.ticketUrl && !/^https?:\/\//i.test(updated.ticketUrl)) {
-      return res.status(400).json({ error: "ticketUrl must start with http:// or https://" });
-    }
+    const nowUtc = Date.now();
+    const windowDays = 90;
+    const windowStartUtc = nowUtc - 5 * 60 * 1000;
+    const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
-    const finalTicketLabel =
-      (updated.ticketLabel && String(updated.ticketLabel).trim())
-        ? String(updated.ticketLabel).trim()
-        : "Tickets";
+    const occurrences = base.hasRecurrence && base.recurrenceRule
+      ? generateOccurrences(base, windowStartUtc, windowEndUtc)
+      : [];
 
-    const cats = normalizeCategories(updated.categories);
-    const catsJson = JSON.stringify(cats);
+    const occurrencesUpcoming = occurrences
+      .filter((o) => Date.parse(o.startDateTime) >= windowStartUtc)
+      .slice(0, 200)
+      .map((o) => ({
+        startDateTime: o.startDateTime,
+        endDateTime: o.endDateTime,
+        label: o.label
+      }));
 
-    await run(
-      `UPDATE events
-       SET city=?, title=?, description=?, eventDetails=?, goodToKnow=?,
-           ticketUrl=?, ticketLabel=?,
-           startDateTime=?, endDateTime=?, location=?, organizer=?,
-           imageUrl=?, categories=?, updatedAt=datetime('now')
-       WHERE id=?`,
-      [
-        updated.city,
-        updated.title,
-        updated.description,
-        updated.eventDetails || null,
-        updated.goodToKnow || null,
-        updated.ticketUrl || null,
-        finalTicketLabel,
-        updated.startDateTime,
-        updated.endDateTime,
-        updated.location,
-        updated.organizer,
-        updated.imageUrl || null,
-        catsJson,
-        id
-      ]
-    );
-
-    const row = await get("SELECT * FROM events WHERE id = ?", [id]);
-    res.json({ data: rowToApi(row) });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-// DELETE /events/:id
-router.delete("/:id", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (Number.isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
-
-    const existing = await get("SELECT * FROM events WHERE id = ?", [id]);
-    if (!existing) return res.status(404).json({ error: "Event not found" });
-
-    await run("DELETE FROM events WHERE id = ?", [id]);
-    res.json({ ok: true });
+    res.json({
+      data: {
+        ...base,
+        occurrencesUpcoming
+      }
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
