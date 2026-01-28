@@ -502,24 +502,31 @@ router.get("/slug/:slug", async (req, res) => {
 });
 
 
-/**
- * GET /events/:id
- * Returns base event + occurrencesUpcoming[] (next 90 days)
- */
-router.get("/:id", async (req, res) => {
+// GET /events/:idOrSlug
+router.get("/:idOrSlug", async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (Number.isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
+    const raw = String(req.params.idOrSlug || "").trim();
+    if (!raw) return res.status(400).json({ error: "Missing id/slug" });
 
-    const row = await get("SELECT * FROM events WHERE id = ?", [id]);
+    const asId = Number(raw);
+    const isId = Number.isInteger(asId) && asId > 0;
+
+    const row = isId
+      ? await get("SELECT * FROM events WHERE id = ?", [asId])
+      : await get("SELECT * FROM events WHERE slug = ?", [raw]);
+
     if (!row) return res.status(404).json({ error: "Event not found" });
+
+    // (rest of your existing code stays the same)
+    const cats = safeParseJson(row.categories, []);
+    const recurRuleObj = safeParseJson(row.recurrenceRule, null);
 
     const base = {
       ...row,
-      categories: Array.isArray(safeParseJson(row.categories, [])) ? safeParseJson(row.categories, []) : [],
+      categories: Array.isArray(cats) ? cats : [],
       hasRecurrence: Number(row.hasRecurrence || 0),
-      recurrenceRule: safeParseJson(row.recurrenceRule, null),
-      recurrenceDates: safeParseJson(row.recurrenceDates, [])
+      recurrenceRule: recurRuleObj,
+      recurrenceDates: safeParseJson(row.recurrenceDates, []),
     };
 
     const nowUtc = Date.now();
@@ -535,22 +542,17 @@ router.get("/:id", async (req, res) => {
       .filter((o) => Date.parse(o.startDateTime) >= windowStartUtc)
       .slice(0, 200)
       .map((o) => ({
-        occurrenceDate: o.occurrenceDate,
         startDateTime: o.startDateTime,
         endDateTime: o.endDateTime,
         label: o.label
       }));
 
-    res.json({
-      data: {
-        ...base,
-        occurrencesUpcoming
-      }
-    });
+    res.json({ data: { ...base, occurrencesUpcoming } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 module.exports = router;
