@@ -4,15 +4,13 @@
   "description": "",
   "main": "index.js",
   "engines": {
-  "node": "20.x"
-},
-
+    "node": "20.x"
+  },
   "scripts": {
-  "dev": "nodemon server.js",
-  "start": "node server.js",
-  "postinstall": "npm rebuild sqlite3 --build-from-source"
-}
-,
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "postinstall": "npm rebuild sqlite3 --build-from-source"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -20,6 +18,7 @@
   "dependencies": {
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "multer": "^2.0.2",
     "sqlite3": "^5.1.7"
   },
   "devDependencies": {

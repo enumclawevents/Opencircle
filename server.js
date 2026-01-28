@@ -4,14 +4,34 @@
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 
 const eventsRouter = require("./routes/events");
 const adminRouter = require("./routes/admin");
 
 const app = express();
 
+// If behind Render proxy, this helps req.protocol be correct
+app.set("trust proxy", 1);
+
 // Serve static assets from /public at /assets/*
 app.use("/assets", express.static(path.join(__dirname, "public")));
+
+/**
+ * UPLOADS DIR
+ * Use Render disk mount so uploads persist across deploys.
+ */
+const UPLOADS_DIR =
+  process.env.UPLOADS_DIR ||
+  (process.env.RENDER_DISK_PATH
+    ? path.join(process.env.RENDER_DISK_PATH, "uploads")
+    : path.join(__dirname, "uploads"));
+
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+console.log("[UPLOADS] Using folder:", UPLOADS_DIR);
+
+// Host uploads publicly
+app.use("/uploads", express.static(UPLOADS_DIR));
 
 // Allows other websites/apps to call this API
 app.use(cors());
@@ -36,7 +56,7 @@ function requireAdmin(req, res, next) {
   let decoded = "";
   try {
     decoded = Buffer.from(token, "base64").toString("utf8");
-  } catch {
+  } catch (e) {
     res.setHeader("WWW-Authenticate", 'Basic realm="OpenCircle Admin"');
     return res.status(401).send("Invalid authorization header.");
   }
@@ -56,11 +76,14 @@ app.get("/", (req, res) => {
   res.json({
     name: "OpenCircle API",
     status: "ok",
-    endpoints: ["/events", "/events/:id", "/admin", "/assets/brand/*"]
+    endpoints: ["/events", "/events/:id", "/admin", "/uploads/*", "/assets/brand/*"],
   });
 });
 
-app.get("/health", (req, res) => res.status(200).send("ok"));
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).send("ok");
+});
 
 // Public API
 app.use("/events", eventsRouter);
@@ -73,3 +96,6 @@ const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`OpenCircle API running on port ${PORT}`);
 });
+
+// Export for admin router to reuse uploads dir if desired
+module.exports = { UPLOADS_DIR };

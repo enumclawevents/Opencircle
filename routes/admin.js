@@ -3,7 +3,63 @@
 
 const express = require("express");
 const router = express.Router();
+const path = require("path");
+const fs = require("fs");
+const multer = require("multer");
 const { run, all, get } = require("../db");
+
+/**
+ * Uploads directory (match server.js logic)
+ */
+const UPLOADS_DIR =
+  process.env.UPLOADS_DIR ||
+  (process.env.RENDER_DISK_PATH
+    ? path.join(process.env.RENDER_DISK_PATH, "uploads")
+    : path.join(__dirname, "..", "uploads"));
+
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+function safeFileBase(name) {
+  const base = String(name || "upload")
+    .toLowerCase()
+    .replace(/[^a-z0-9-_\.]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^\-+|\-+$/g, "");
+  return base.slice(0, 80) || "upload";
+}
+
+const storage = multer.diskStorage({
+  destination: function (_req, _file, cb) {
+    cb(null, UPLOADS_DIR);
+  },
+  filename: function (_req, file, cb) {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    const base = safeFileBase(path.basename(file.originalname || "image", ext));
+    const stamp = Date.now();
+    cb(null, `${base}-${stamp}${ext || ""}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
+  fileFilter: function (_req, file, cb) {
+    const ok = /^image\//i.test(file.mimetype || "");
+    cb(ok ? null : new Error("Only image uploads are allowed."), ok);
+  },
+});
+
+/**
+ * Build public base URL for uploaded files.
+ * You can force it via env var PUBLIC_BASE_URL (recommended).
+ */
+function getPublicBaseUrl(req) {
+  const forced = String(process.env.PUBLIC_BASE_URL || "").trim();
+  if (forced) return forced.replace(/\/+$/, "");
+  const proto = req.protocol || "https";
+  const host = req.get("host");
+  return `${proto}://${host}`;
+}
 
 /**
  * Fixed category list (12 total)
@@ -21,7 +77,7 @@ const ALLOWED_CATEGORIES = [
   "Classes & Workshops",
   "Outdoors",
   "Business & Networking",
-  "Charity & Fundraising"
+  "Charity & Fundraising",
 ];
 
 function normalizeCategories(input) {
@@ -122,11 +178,9 @@ router.get("/", async (req, res) => {
   }
 
   const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
-
   const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
   const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
   const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
-
   const customDates = parseStoredDates(editEvent?.recurrenceDates);
 
   // Category dropdowns (3)
@@ -171,7 +225,6 @@ router.get("/", async (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/assets/brand/favicon.ico" />
     <title>OpenCircle Admin</title>
-
     <style>
       :root{
         --bg:#f3f4f6;
@@ -352,7 +405,7 @@ router.get("/", async (req, res) => {
           <a href="/events" target="_blank" rel="noopener">View all events (JSON)</a>
         </p>
 
-        <form method="POST" action="/admin/events">
+        <form method="POST" action="/admin/events" enctype="multipart/form-data">
           ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
 
           <label>City</label>
@@ -503,7 +556,6 @@ router.get("/", async (req, res) => {
 
             <div id="customBox" style="margin-top:12px;">
               <label style="margin-top:0;">Custom dates (pick specific dates)</label>
-
               <div class="actions" style="margin-top:8px;">
                 <button type="button" id="addCustomDate" class="btn">+ Add date</button>
               </div>
@@ -524,8 +576,13 @@ router.get("/", async (req, res) => {
             </div>
           </div>
 
-          <label>Image URL (flyer)</label>
+          <label>Upload Flyer Image</label>
+          <input class="ctrl" type="file" name="imageFile" accept="image/*" />
+          <div class="note">Optional. Uploading a file will set the Image URL automatically.</div>
+
+          <label>Image URL (optional override)</label>
           <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
+          <div class="note">Leave blank if you want to keep the existing uploaded image when editing.</div>
 
           <div class="row">
             <div>
@@ -563,7 +620,6 @@ router.get("/", async (req, res) => {
     </div>
 
     <script>
-      // Auto-fill end time +2 hours if empty
       const startEl = document.getElementById("startDateTime");
       const endEl = document.getElementById("endDateTime");
 
@@ -584,7 +640,6 @@ router.get("/", async (req, res) => {
         });
       }
 
-      // Recurrence UI logic
       const hasRecEl = document.getElementById("hasRecurrence");
       const typeEl = document.getElementById("recurrenceType");
       const intervalRow = document.getElementById("intervalRow");
@@ -603,52 +658,34 @@ router.get("/", async (req, res) => {
       }
 
       function syncRecurrenceUI() {
-  const enabled = !!(hasRecEl && hasRecEl.checked);
+        const enabled = !!(hasRecEl && hasRecEl.checked);
+        const t = (typeEl ? typeEl.value : "none");
 
-  // If user enables recurrence and type is still none, default to weekly
-  if (enabled && typeEl && typeEl.value === "none") {
-    typeEl.value = "weekly";
-  }
+        if (!enabled || t === "none") {
+          show(intervalRow, false);
+          show(weeklyBox, false);
+          show(monthlyBox, false);
+          show(customBox, false);
+          return;
+        }
 
-  const t = (typeEl ? typeEl.value : "none");
+        show(intervalRow, true);
+        show(weeklyBox, t === "weekly");
+        show(monthlyBox, t === "monthly");
+        show(customBox, t === "custom");
 
-  // Disable controls when recurrence is off
-  if (typeEl) typeEl.disabled = !enabled;
-  const intervalEl = document.getElementById("recurrenceInterval");
-  if (intervalEl) intervalEl.disabled = !enabled;
-
-  if (!enabled) {
-    show(intervalRow, false);
-    show(weeklyBox, false);
-    show(monthlyBox, false);
-    show(customBox, false);
-    return;
-  }
-
-  // Show the row always when enabled
-  show(intervalRow, true);
-
-  show(weeklyBox, t === "weekly");
-  show(monthlyBox, t === "monthly");
-  show(customBox, t === "custom");
-
-  if (t === "monthly") {
-    const mm = monthlyModeEl ? monthlyModeEl.value : "monthday";
-    show(monthdayBox, mm === "monthday");
-    show(nthweekdayBox, mm === "nthweekday");
-  } else {
-    show(monthdayBox, false);
-    show(nthweekdayBox, false);
-  }
-}
-
+        if (t === "monthly") {
+          const mm = monthlyModeEl ? monthlyModeEl.value : "monthday";
+          show(monthdayBox, mm === "monthday");
+          show(nthweekdayBox, mm === "nthweekday");
+        }
+      }
 
       if (hasRecEl) hasRecEl.addEventListener("change", syncRecurrenceUI);
       if (typeEl) typeEl.addEventListener("change", syncRecurrenceUI);
       if (monthlyModeEl) monthlyModeEl.addEventListener("change", syncRecurrenceUI);
       syncRecurrenceUI();
 
-      // Custom dates add/remove
       const addBtn = document.getElementById("addCustomDate");
       const wrap = document.getElementById("customDatesWrap");
 
@@ -684,8 +721,8 @@ router.get("/", async (req, res) => {
   `);
 });
 
-// POST /admin/events -> create OR update depending on hidden id
-router.post("/events", async (req, res) => {
+// POST /admin/events -> create OR update (multipart for image upload)
+router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
     let {
       id,
@@ -698,7 +735,7 @@ router.post("/events", async (req, res) => {
       endDateTime,
       location,
       organizer,
-      imageUrl,
+      imageUrl, // optional override
       ticketUrl,
       ticketLabel,
       categories,
@@ -712,9 +749,10 @@ router.post("/events", async (req, res) => {
       byMonthday,
       setPos,
       monthlyByDay,
-      recurrenceDates
+      recurrenceDates,
     } = req.body;
 
+    // Convert datetime-local values to ISO with timezone offset
     startDateTime = toLocalISOWithOffset(startDateTime);
     endDateTime = toLocalISOWithOffset(endDateTime);
 
@@ -729,6 +767,7 @@ router.post("/events", async (req, res) => {
     const finalTicketLabel =
       (ticketLabel && String(ticketLabel).trim()) ? String(ticketLabel).trim() : "Tickets";
 
+    // Validate end after start
     const startMs = Date.parse(startDateTime);
     const endMs = Date.parse(endDateTime);
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
@@ -738,6 +777,7 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
+    // Categories
     const cats = normalizeCategories(categories);
     const catsJson = JSON.stringify(cats);
 
@@ -799,10 +839,24 @@ router.post("/events", async (req, res) => {
 
     const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
 
+    // ---- IMAGE URL RESOLUTION (upload wins) ----
+    let finalImageUrl = (imageUrl && String(imageUrl).trim()) ? String(imageUrl).trim() : "";
+
+    if (req.file && req.file.filename) {
+      const base = getPublicBaseUrl(req);
+      finalImageUrl = `${base}/uploads/${encodeURIComponent(req.file.filename)}`;
+    }
+
     // Update vs Insert
     if (id !== undefined && id !== null && String(id).trim() !== "") {
       const eventId = parseInt(String(id).trim(), 10);
       if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
+
+      // Preserve existing image if user didn’t upload AND didn’t provide URL
+      if (!finalImageUrl) {
+        const prev = await get("SELECT imageUrl FROM events WHERE id = ?", [eventId]);
+        if (prev && prev.imageUrl) finalImageUrl = prev.imageUrl;
+      }
 
       const result = await run(
         `UPDATE events
@@ -836,12 +890,12 @@ router.post("/events", async (req, res) => {
           endDateTime,
           location,
           organizer,
-          imageUrl || null,
+          finalImageUrl || null,
           catsJson,
           hasRec,
           recurrenceRuleJson,
           recurrenceDatesJson,
-          eventId
+          eventId,
         ]
       );
 
@@ -874,11 +928,11 @@ router.post("/events", async (req, res) => {
         endDateTime,
         location,
         organizer,
-        imageUrl || null,
+        finalImageUrl || null,
         catsJson,
         hasRec,
         recurrenceRuleJson,
-        recurrenceDatesJson
+        recurrenceDatesJson,
       ]
     );
 

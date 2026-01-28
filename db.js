@@ -84,7 +84,6 @@ async function init() {
   `);
 
   // ---- SAFE MIGRATIONS (NO DATA LOSS) ----
-  // Add any missing columns if table existed previously.
   const migrations = [
     `ALTER TABLE events ADD COLUMN eventDetails TEXT`,
     `ALTER TABLE events ADD COLUMN goodToKnow TEXT`,
@@ -109,7 +108,6 @@ async function init() {
 
   // ---- OPTIONAL COMPAT MIGRATION ----
   // If you previously used older column names, copy them forward once.
-  // These will no-op if the old columns don't exist.
   try {
     await run(`
       UPDATE events
