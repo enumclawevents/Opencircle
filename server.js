@@ -1,12 +1,16 @@
+// server.js
+"use strict";
+
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
+
 const eventsRouter = require("./routes/events");
 const adminRouter = require("./routes/admin");
 
 const app = express();
 
-const path = require("path");
-
+// Serve static assets from /public at /assets/*
 app.use("/assets", express.static(path.join(__dirname, "public")));
 
 // Allows other websites/apps to call this API
@@ -29,8 +33,17 @@ function requireAdmin(req, res, next) {
     return res.status(401).send("Authentication required.");
   }
 
-  const decoded = Buffer.from(token, "base64").toString("utf8");
-  const [user, pass] = decoded.split(":");
+  let decoded = "";
+  try {
+    decoded = Buffer.from(token, "base64").toString("utf8");
+  } catch (e) {
+    res.setHeader("WWW-Authenticate", 'Basic realm="OpenCircle Admin"');
+    return res.status(401).send("Invalid authorization header.");
+  }
+
+  const idx = decoded.indexOf(":");
+  const user = idx >= 0 ? decoded.slice(0, idx) : "";
+  const pass = idx >= 0 ? decoded.slice(idx + 1) : "";
 
   if (user === ADMIN_USER && pass === ADMIN_PASS) return next();
 
@@ -43,8 +56,13 @@ app.get("/", (req, res) => {
   res.json({
     name: "OpenCircle API",
     status: "ok",
-    endpoints: ["/events", "/events/:id", "/admin"]
+    endpoints: ["/events", "/events/:id", "/admin", "/assets/brand/*"]
   });
+});
+
+// (Optional) Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).send("ok");
 });
 
 // Public API
@@ -54,7 +72,7 @@ app.use("/events", eventsRouter);
 app.use("/admin", requireAdmin, adminRouter);
 
 // Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`OpenCircle API running on port ${PORT}`);
 });
