@@ -10,13 +10,23 @@ const { all, get } = require("../db");
  */
 function safeParseJson(val, fallback) {
   if (!val) return fallback;
-  try { return JSON.parse(val); } catch { return fallback; }
+  try {
+    return JSON.parse(val);
+  } catch {
+    return fallback;
+  }
 }
 
-function pad2(n) { return String(n).padStart(2, "0"); }
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function toYmd(parts) {
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
+}
 
 function parseIsoParts(iso) {
-  // YYYY-MM-DDTHH:mm(:ss)?(+/-)HH:mm
+  // expects: YYYY-MM-DDTHH:mm(:ss)?(+/-)HH:mm
   const s = String(iso || "").trim();
   const m = s.match(
     /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?([+-]\d{2}:\d{2})$/
@@ -153,7 +163,6 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
 
   for (const d of dates) {
     const s = String(d || "").trim();
-    // must be YYYY-MM-DD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) continue;
 
     const [yy, mm, dd] = s.split("-").map(Number);
@@ -171,22 +180,19 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     const occStartUtc = partsToUtcMs(occLocalParts);
     const occEndUtc = occStartUtc + durationMs;
 
-    // Keep only next 90 days window
     if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
-
-    // Also don't show occurrences before the original event's start moment
     if (occStartUtc < startUtc) continue;
 
     const occEndParts = utcMsToLocalParts(occEndUtc, offset);
 
     out.push({
+      occurrenceDate: toYmd(occLocalParts),
       startDateTime: partsToIso(occLocalParts),
       endDateTime: partsToIso(occEndParts),
       label: formatLabelLocal(occLocalParts)
     });
   }
 
-  // Sort by date asc
   out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
   return out;
 }
@@ -220,16 +226,23 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   if (!rule || Number(eventRow.hasRecurrence || 0) !== 1) return [];
 
   const type = String(rule.type || "").toLowerCase();
+  const interval = Math.max(1, Number(rule.interval || 1));
+  const out = [];
 
   if (type === "custom") {
     return generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs);
   }
 
-  const interval = Math.max(1, Number(rule.interval || 1));
-  const out = [];
-
-  // anchor is original start date/time
-  const anchorLocal = utcMsToLocalParts(partsToUtcMs(startParts), offset);
+  // anchor is original start date (local)
+  const anchorLocal = {
+    year: startParts.year,
+    month: startParts.month,
+    day: startParts.day,
+    hour: startParts.hour,
+    minute: startParts.minute,
+    second: startParts.second,
+    offset
+  };
   const anchorWeekStart = startOfWeekLocalDate(anchorLocal);
 
   if (type === "weekly") {
@@ -258,6 +271,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
         second: startParts.second,
         offset
       };
+
       const occStartUtc = partsToUtcMs(occLocalParts);
       const occEndUtc = occStartUtc + durationMs;
 
@@ -267,6 +281,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       const occEndParts = utcMsToLocalParts(occEndUtc, offset);
 
       out.push({
+        occurrenceDate: toYmd(occLocalParts),
         startDateTime: partsToIso(occLocalParts),
         endDateTime: partsToIso(occEndParts),
         label: formatLabelLocal(occLocalParts)
@@ -329,6 +344,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       const occEndParts = utcMsToLocalParts(occEndUtc, offset);
 
       out.push({
+        occurrenceDate: toYmd(occLocalParts),
         startDateTime: partsToIso(occLocalParts),
         endDateTime: partsToIso(occEndParts),
         label: formatLabelLocal(occLocalParts)
@@ -344,18 +360,20 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
 
 /**
  * Feed expansion:
- * - id stays same (WP link stays /oc-events/{id}/)
+ * - id stays same
  * - instanceId unique for UI rendering
  */
 function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
   const cats = safeParseJson(row.categories, []);
   const recurRuleObj = safeParseJson(row.recurrenceRule, null);
+  const recurDatesArr = safeParseJson(row.recurrenceDates, []);
 
   const base = {
     ...row,
     categories: Array.isArray(cats) ? cats : [],
     hasRecurrence: Number(row.hasRecurrence || 0),
-    recurrenceRule: recurRuleObj
+    recurrenceRule: recurRuleObj,
+    recurrenceDates: Array.isArray(recurDatesArr) ? recurDatesArr : []
   };
 
   const baseStartUtc = Date.parse(base.startDateTime);
@@ -367,7 +385,8 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
         ...base,
         instanceId: `e${base.id}_${base.startDateTime}`,
         baseStartDateTime: base.startDateTime,
-        isOccurrence: false
+        isOccurrence: false,
+        occurrenceDate: toYmd(parseIsoParts(base.startDateTime) || { year: 0, month: 0, day: 0 })
       }];
     }
     return [];
@@ -382,6 +401,7 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
     instanceId: `e${base.id}_${o.startDateTime}`,
     baseStartDateTime: row.startDateTime,
     isOccurrence: true,
+    occurrenceDate: o.occurrenceDate,
     occurrenceLabel: o.label
   }));
 }
@@ -396,7 +416,7 @@ router.get("/", async (req, res) => {
     const expand = String(req.query.expand ?? "1") !== "0";
 
     const nowUtc = Date.now();
-    const windowDays = 90;
+    const windowDays = 90; // ~3 months
     const windowStartUtc = nowUtc - 5 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
@@ -442,14 +462,11 @@ router.get("/:id", async (req, res) => {
     const row = await get("SELECT * FROM events WHERE id = ?", [id]);
     if (!row) return res.status(404).json({ error: "Event not found" });
 
-    const cats = safeParseJson(row.categories, []);
-    const recurRuleObj = safeParseJson(row.recurrenceRule, null);
-
     const base = {
       ...row,
-      categories: Array.isArray(cats) ? cats : [],
+      categories: Array.isArray(safeParseJson(row.categories, [])) ? safeParseJson(row.categories, []) : [],
       hasRecurrence: Number(row.hasRecurrence || 0),
-      recurrenceRule: recurRuleObj,
+      recurrenceRule: safeParseJson(row.recurrenceRule, null),
       recurrenceDates: safeParseJson(row.recurrenceDates, [])
     };
 
@@ -466,6 +483,7 @@ router.get("/:id", async (req, res) => {
       .filter((o) => Date.parse(o.startDateTime) >= windowStartUtc)
       .slice(0, 200)
       .map((o) => ({
+        occurrenceDate: o.occurrenceDate,
         startDateTime: o.startDateTime,
         endDateTime: o.endDateTime,
         label: o.label
