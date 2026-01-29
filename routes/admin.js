@@ -43,6 +43,8 @@ function normalizeCategories(input) {
 function safeParseJson(val, fallback) {
   if (!val) return fallback;
   try {
+    // if already object/array, return as-is
+    if (typeof val === "object") return val;
     return JSON.parse(val);
   } catch {
     return fallback;
@@ -85,7 +87,7 @@ function toLocalISOWithOffset(dtLocal) {
   const minutes = pad(d.getMinutes());
   const seconds = "00";
 
-  const offsetMin = -d.getTimezoneOffset();
+  const offsetMin = -d.getTimezoneOffset(); // minutes east of UTC
   const sign = offsetMin >= 0 ? "+" : "-";
   const abs = Math.abs(offsetMin);
   const offH = pad(Math.floor(abs / 60));
@@ -140,66 +142,71 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
 
 // GET /admin
 router.get("/", async (req, res) => {
-  const events = await all(
-    "SELECT id, slug, title, startDateTime, location FROM events ORDER BY startDateTime DESC LIMIT 50"
-  );
+  try {
+    const events = await all(
+      "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT 50"
+    );
 
-  const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
-  let editEvent = null;
+    const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
+    let editEvent = null;
 
-  if (editId) {
-    editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
-  }
+    if (editId) {
+      editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
+    }
 
-  const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
-  const featuredFlag = String(featured || "") === "1" ? 1 : 0;
-  const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
-  const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
-  const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
+    const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
+    const isFeatured = Number(editEvent?.featured || 0) === 1;
 
-  const customDates = parseStoredDates(editEvent?.recurrenceDates);
+    const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
+    const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
+    const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
+    const customDates = parseStoredDates(editEvent?.recurrenceDates);
 
-  // Category dropdowns (3)
-  const categorySelect = (idx) => {
-    const current = selectedCats[idx] || "";
-    return `
-      <select name="categories" class="ctrl">
-        <option value="">— None —</option>
-        ${ALLOWED_CATEGORIES.map((c) => {
-          const sel = current === c ? "selected" : "";
-          return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
-        }).join("")}
-      </select>
-    `;
-  };
+    // Category dropdowns (3)
+    const categorySelect = (idx) => {
+      const current = selectedCats[idx] || "";
+      return `
+        <select name="categories" class="ctrl">
+          <option value="">— None —</option>
+          ${ALLOWED_CATEGORIES
+            .map((c) => {
+              const sel = current === c ? "selected" : "";
+              return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
+            })
+            .join("")}
+        </select>
+      `;
+    };
 
-  const listHtml = events.length
-    ? events
-        .map(
-          (e) => `
-        <div class="event-card">
-          <div class="event-title">#${e.id} — ${esc(e.title)}</div>
-          <div class="event-meta">
-            <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
-            <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
-            <div><strong>Location:</strong> ${esc(e.location)}</div>
+    const listHtml = events.length
+      ? events
+          .map(
+            (e) => `
+          <div class="event-card">
+            <div class="event-title">#${e.id} — ${esc(e.title)} ${
+              Number(e.featured || 0) === 1 ? `<span class="pill" style="margin-left:8px;">Featured</span>` : ""
+            }</div>
+            <div class="event-meta">
+              <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
+              <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
+              <div><strong>Location:</strong> ${esc(e.location)}</div>
+            </div>
+            <div class="event-actions">
+              <a href="/events/${e.id}" target="_blank" rel="noopener">View JSON (id)</a>
+              ${e.slug ? `<a href="/events/slug/${esc(e.slug)}" target="_blank" rel="noopener">View JSON (slug)</a>` : ""}
+              <a href="/admin?edit=${e.id}">Edit</a>
+              <form method="POST" action="/admin/events/${e.id}/delete" class="inline"
+                onsubmit="return confirm('Delete event #${e.id}?');">
+                <button type="submit" class="btn btn-danger">Delete</button>
+              </form>
+            </div>
           </div>
-          <div class="event-actions">
-            <a href="/events/${e.id}" target="_blank" rel="noopener">View JSON (id)</a>
-            ${e.slug ? `<a href="/events/slug/${esc(e.slug)}" target="_blank" rel="noopener">View JSON (slug)</a>` : ""}
-            <a href="/admin?edit=${e.id}">Edit</a>
-            <form method="POST" action="/admin/events/${e.id}/delete" class="inline"
-              onsubmit="return confirm('Delete event #${e.id}?');">
-              <button type="submit" class="btn btn-danger">Delete</button>
-            </form>
-          </div>
-        </div>
-      `
-        )
-        .join("")
-    : `<div class="muted">No events yet.</div>`;
+        `
+          )
+          .join("")
+      : `<div class="muted">No events yet.</div>`;
 
-  res.send(`
+    res.send(`
 <!doctype html>
 <html>
   <head>
@@ -245,6 +252,9 @@ router.get("/", async (req, res) => {
         padding:6px 10px;
         border-radius:999px;
         font-weight:600;
+        display:inline-flex;
+        align-items:center;
+        gap:6px;
       }
       .card{
         background:var(--card);
@@ -393,26 +403,16 @@ router.get("/", async (req, res) => {
 
           <label>City</label>
           <input class="ctrl" name="city" value="${esc(editEvent?.city || "Enumclaw")}" />
+
           <div class="rec-box">
-  <div class="checkbox">
-    <input
-  type="checkbox"
-  id="featured"
-  name="featured"
-  value="1"
-  ${isFeatured ? "checked" : ""}
-/>
-
-    <label for="featured" style="margin:0;font-size:13px;font-weight:900;">
-      Mark as Featured Event
-    </label>
-  </div>
-
-  <div class="note">
-    Featured events show a badge on the event card and event page.
-  </div>
-</div>
-
+            <div class="checkbox">
+              <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
+              <label for="featured" style="margin:0;font-size:13px;font-weight:900;">
+                Mark as Featured Event
+              </label>
+            </div>
+            <div class="note">Featured events show a badge on the event card and event page.</div>
+          </div>
 
           <div class="rec-box">
             <div style="font-weight:900; margin-bottom:6px;">Categories (pick up to 3)</div>
@@ -578,12 +578,12 @@ router.get("/", async (req, res) => {
                 ${(customDates.length ? customDates : [])
                   .map(
                     (d, i) => `
-                    <span class="chip">
-                      <input class="ctrl" style="width: 160px; padding:6px 8px; border-radius:10px;"
-                        type="date" name="recurrenceDates" value="${esc(d)}" />
-                      <button type="button" data-remove-date="${i}" aria-label="Remove">×</button>
-                    </span>
-                  `
+                      <span class="chip">
+                        <input class="ctrl" style="width: 160px; padding:6px 8px; border-radius:10px;"
+                          type="date" name="recurrenceDates" value="${esc(d)}" />
+                        <button type="button" data-remove-date="${i}" aria-label="Remove">×</button>
+                      </span>
+                    `
                   )
                   .join("")}
               </div>
@@ -673,38 +673,31 @@ router.get("/", async (req, res) => {
       }
 
       function syncRecurrenceUI() {
-  const enabled = !!(hasRecEl && hasRecEl.checked);
-  const t = (typeEl ? typeEl.value : "none");
+        const enabled = !!(hasRecEl && hasRecEl.checked);
+        const t = (typeEl ? typeEl.value : "none");
 
-  // If not enabled, hide everything
-  if (!enabled) {
-    show(intervalRow, false);
-    show(weeklyBox, false);
-    show(monthlyBox, false);
-    show(customBox, false);
-    return;
-  }
+        if (!enabled) {
+          show(intervalRow, false);
+          show(weeklyBox, false);
+          show(monthlyBox, false);
+          show(customBox, false);
+          return;
+        }
 
-  // Enabled: ALWAYS show the row that contains "Occurrence Type"
-  show(intervalRow, true);
+        show(intervalRow, true);
+        show(weeklyBox, t === "weekly");
+        show(monthlyBox, t === "monthly");
+        show(customBox, t === "custom");
 
-  // Show rule-specific sections
-  show(weeklyBox, t === "weekly");
-  show(monthlyBox, t === "monthly");
-  show(customBox, t === "custom");
-
-  // Monthly sub-mode switching
-  if (t === "monthly") {
-    const mm = monthlyModeEl ? monthlyModeEl.value : "monthday";
-    show(monthdayBox, mm === "monthday");
-    show(nthweekdayBox, mm === "nthweekday");
-  } else {
-    // If not monthly, hide monthly sub-boxes so they don't flicker
-    show(monthdayBox, false);
-    show(nthweekdayBox, false);
-  }
-}
-
+        if (t === "monthly") {
+          const mm = monthlyModeEl ? monthlyModeEl.value : "monthday";
+          show(monthdayBox, mm === "monthday");
+          show(nthweekdayBox, mm === "nthweekday");
+        } else {
+          show(monthdayBox, false);
+          show(nthweekdayBox, false);
+        }
+      }
 
       if (hasRecEl) hasRecEl.addEventListener("change", syncRecurrenceUI);
       if (typeEl) typeEl.addEventListener("change", syncRecurrenceUI);
@@ -744,7 +737,11 @@ router.get("/", async (req, res) => {
     </script>
   </body>
 </html>
-  `);
+    `);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Internal server error");
+  }
 });
 
 // POST /admin/events -> create OR update depending on hidden id
@@ -765,6 +762,8 @@ router.post("/events", async (req, res) => {
       ticketUrl,
       ticketLabel,
       categories,
+
+      // ✅ featured checkbox
       featured,
 
       // recurrence fields
@@ -778,6 +777,9 @@ router.post("/events", async (req, res) => {
       monthlyByDay,
       recurrenceDates,
     } = req.body;
+
+    // ✅ checkbox -> integer 0/1
+    const featuredFlag = String(featured || "") === "1" ? 1 : 0;
 
     startDateTime = toLocalISOWithOffset(startDateTime);
     endDateTime = toLocalISOWithOffset(endDateTime);
@@ -803,7 +805,10 @@ router.post("/events", async (req, res) => {
     }
 
     // Slug (auto from title)
-    const baseSlug = slugify ? slugify(title) : String(title || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const baseSlug = slugify
+      ? slugify(title)
+      : String(title || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
     const cats = normalizeCategories(categories);
     const catsJson = JSON.stringify(cats);
 
@@ -855,7 +860,7 @@ router.post("/events", async (req, res) => {
 
         if (mode === "nthweekday") {
           const sp = parseInt(setPos || "1", 10);
-          const wd = String(monthlyByDay || "").trim(); // SU..SA
+          const wd = String(monthlyByDay || "").trim();
           recurrenceRule = { type: "monthly", interval, mode: "nthweekday", setPos: sp, byDay: wd };
         } else {
           const md = Math.max(1, Math.min(31, parseInt(byMonthday || "0", 10) || 0));
@@ -910,7 +915,7 @@ router.post("/events", async (req, res) => {
           organizer,
           imageUrl || null,
           catsJson,
-          featured,
+          featuredFlag,
           hasRec,
           recurrenceRuleJson,
           recurrenceDatesJson,
@@ -933,10 +938,11 @@ router.post("/events", async (req, res) => {
         ticketUrl, ticketLabel,
         startDateTime, endDateTime, location, organizer,
         imageUrl, categories,
+        featured,
         hasRecurrence, recurrenceRule, recurrenceDates,
         updatedAt
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         city,
         finalSlug,
@@ -952,6 +958,7 @@ router.post("/events", async (req, res) => {
         organizer,
         imageUrl || null,
         catsJson,
+        featuredFlag,
         hasRec,
         recurrenceRuleJson,
         recurrenceDatesJson,

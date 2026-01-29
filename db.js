@@ -1,3 +1,4 @@
+// db.js
 "use strict";
 
 const path = require("path");
@@ -81,7 +82,7 @@ async function init() {
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-      slug TEXT, -- NEW: public identifier
+      slug TEXT,
 
       city TEXT,
       title TEXT NOT NULL,
@@ -100,6 +101,8 @@ async function init() {
       ticketLabel TEXT,
 
       categories TEXT, -- JSON array of strings
+
+      featured INTEGER DEFAULT 0, -- ✅ Featured flag
 
       -- Recurrence (canonical names used by admin.js + events.js)
       hasRecurrence INTEGER DEFAULT 0,
@@ -120,7 +123,9 @@ async function init() {
     `ALTER TABLE events ADD COLUMN ticketLabel TEXT`,
     `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
     `ALTER TABLE events ADD COLUMN categories TEXT`,
-    `ALTER TABLE events ADD COLUMN Featured INTEGER DEFAULT 0`,
+
+    // ✅ Featured flag (canonical lower-case)
+    `ALTER TABLE events ADD COLUMN featured INTEGER DEFAULT 0`,
 
     // Recurrence (canonical)
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
@@ -136,7 +141,17 @@ async function init() {
     }
   }
 
-  // ---- OPTIONAL COMPAT MIGRATION ----
+  // ---- FEATURED COMPAT (Featured -> featured) ----
+  // If an older migration created "Featured", copy its values into "featured".
+  try {
+    await run(`
+      UPDATE events
+      SET featured = COALESCE(featured, Featured, 0)
+      WHERE featured IS NULL OR featured = 0
+    `);
+  } catch (_) {}
+
+  // ---- OPTIONAL COMPAT MIGRATIONS ----
   try {
     await run(`
       UPDATE events
