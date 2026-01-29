@@ -158,8 +158,9 @@ router.get("/", async (req, res) => {
               <div><strong>Location:</strong> ${esc(e.location)}</div>
             </div>
             <div class="event-actions">
-              <a href="/events/${e.id}" target="_blank" rel="noopener">View JSON (id)</a>
-${e.slug ? `<a href="/events/slug/${esc(e.slug)}" target="_blank" rel="noopener">View JSON (slug)</a>` : ""}
+              <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}" target="_blank" rel="noopener">
+  View JSON
+</a>
 
               <a href="/admin?edit=${e.id}">Edit</a>
               <form method="POST" action="/admin/events/${e.id}/delete" class="inline"
