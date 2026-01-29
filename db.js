@@ -1,4 +1,3 @@
-// db.js
 "use strict";
 
 const path = require("path");
@@ -77,7 +76,7 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
 
 // ---------- INIT / MIGRATIONS ----------
 async function init() {
-  // Base events table (canonical schema)
+  // Canonical schema
   await run(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,19 +101,18 @@ async function init() {
 
       categories TEXT, -- JSON array of strings
 
-      featured INTEGER DEFAULT 0, -- ✅ Featured flag
+      featured INTEGER DEFAULT 0,
 
-      -- Recurrence (canonical names used by admin.js + events.js)
       hasRecurrence INTEGER DEFAULT 0,
-      recurrenceRule TEXT,     -- JSON rule object {type, interval,...}
-      recurrenceDates TEXT,    -- JSON array of "YYYY-MM-DD" for custom dates
+      recurrenceRule TEXT,      -- JSON rule object {type, interval,...}
+      recurrenceDates TEXT,     -- JSON array of "YYYY-MM-DD" for custom dates
 
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     )
   `);
 
-  // ---- SAFE MIGRATIONS (NO DATA LOSS) ----
+  // Safe migrations (no data loss)
   const migrations = [
     `ALTER TABLE events ADD COLUMN slug TEXT`,
     `ALTER TABLE events ADD COLUMN eventDetails TEXT`,
@@ -123,11 +121,8 @@ async function init() {
     `ALTER TABLE events ADD COLUMN ticketLabel TEXT`,
     `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
     `ALTER TABLE events ADD COLUMN categories TEXT`,
-
-    // ✅ Featured flag (canonical lower-case)
     `ALTER TABLE events ADD COLUMN featured INTEGER DEFAULT 0`,
 
-    // Recurrence (canonical)
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
     `ALTER TABLE events ADD COLUMN recurrenceDates TEXT`,
@@ -137,21 +132,11 @@ async function init() {
     try {
       await run(sql);
     } catch (_) {
-      // Column already exists — ignore
+      // column already exists
     }
   }
 
-  // ---- FEATURED COMPAT (Featured -> featured) ----
-  // If an older migration created "Featured", copy its values into "featured".
-  try {
-    await run(`
-      UPDATE events
-      SET featured = COALESCE(featured, Featured, 0)
-      WHERE featured IS NULL OR featured = 0
-    `);
-  } catch (_) {}
-
-  // ---- OPTIONAL COMPAT MIGRATIONS ----
+  // Optional compat migrations (ignore if legacy cols don't exist)
   try {
     await run(`
       UPDATE events
@@ -168,7 +153,7 @@ async function init() {
     `);
   } catch (_) {}
 
-  // ---- BACKFILL SLUGS (once) ----
+  // Backfill slugs (once)
   try {
     const rows = await all("SELECT id, title, slug FROM events", []);
     for (const r of rows) {
@@ -189,4 +174,4 @@ init().catch((err) => {
   console.error("[DB] Init failed:", err);
 });
 
-module.exports = { db, run, get, all, slugify };
+module.exports = { db, run, get, all, slugify, ensureUniqueSlug };

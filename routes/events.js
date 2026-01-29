@@ -1,4 +1,3 @@
-// routes/events.js
 "use strict";
 
 const express = require("express");
@@ -10,10 +9,7 @@ const { all, get } = require("../db");
  */
 function safeParseJson(val, fallback) {
   if (val === null || val === undefined || val === "") return fallback;
-
-  // If it's already an object/array, return as-is
   if (typeof val === "object") return val;
-
   try {
     return JSON.parse(val);
   } catch {
@@ -30,7 +26,6 @@ function toYmd(parts) {
 }
 
 function parseIsoParts(iso) {
-  // expects: YYYY-MM-DDTHH:mm(:ss)?(+/-)HH:mm
   const s = String(iso || "").trim();
   const m = s.match(
     /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?([+-]\d{2}:\d{2})$/
@@ -95,7 +90,6 @@ function daysInMonth(year, month) {
 }
 
 function weekdayKeyFromLocalParts(parts) {
-  // use noon UTC to avoid DST edges in date conversion
   const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0);
   const d = new Date(localAsUtc);
   const map = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
@@ -103,10 +97,9 @@ function weekdayKeyFromLocalParts(parts) {
 }
 
 function startOfWeekLocalDate(parts) {
-  // local date at midnight as UTC (safe for day math)
   const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 0, 0, 0);
   const d = new Date(localAsUtc);
-  const dow = d.getUTCDay(); // Sunday=0
+  const dow = d.getUTCDay();
   d.setUTCDate(d.getUTCDate() - dow);
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
 }
@@ -127,7 +120,6 @@ function nthWeekdayOfMonth(year, month, weekdayKey, setPos) {
 
   const dim = daysInMonth(year, month);
 
-  // last
   if (setPos === -1) {
     for (let day = dim; day >= 1; day--) {
       const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
@@ -147,11 +139,6 @@ function nthWeekdayOfMonth(year, month, weekdayKey, setPos) {
   return null;
 }
 
-/**
- * Custom recurrence:
- * - recurrenceDates stored as JSON array of "YYYY-MM-DD"
- * - occurrences start time uses base event's wall-clock time + offset
- */
 function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   const startParts = parseIsoParts(eventRow.startDateTime);
   if (!startParts) return [];
@@ -167,7 +154,6 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   if (!Array.isArray(dates) || dates.length === 0) return [];
 
   const out = [];
-
   for (const d of dates) {
     const s = String(d || "").trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) continue;
@@ -204,15 +190,6 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   return out;
 }
 
-/**
- * Generate occurrences for next N days
- * Supports:
- *  - weekly: {type:"weekly", interval, byDay:["WE","FR"]}
- *  - monthly:
- *     mode:"monthday" {byMonthday:15}
- *     mode:"nthweekday" {setPos:1, byDay:"TH"} // first Thursday
- *  - custom: selected dates in recurrenceDates
- */
 function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   const startISO = eventRow.startDateTime;
   const endISO = eventRow.endDateTime;
@@ -239,7 +216,6 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     return generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs);
   }
 
-  // anchor is original start date (local)
   const anchorLocal = {
     year: startParts.year,
     month: startParts.month,
@@ -307,14 +283,8 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     const anchorY = anchorLocal.year;
     const anchorM = anchorLocal.month;
 
-    const startMonthIndex = Math.max(
-      0,
-      monthsDiff(anchorY, anchorM, windowStartLocal.year, windowStartLocal.month)
-    );
-    const endMonthIndex = Math.max(
-      0,
-      monthsDiff(anchorY, anchorM, windowEndLocal.year, windowEndLocal.month)
-    );
+    const startMonthIndex = Math.max(0, monthsDiff(anchorY, anchorM, windowStartLocal.year, windowStartLocal.month));
+    const endMonthIndex = Math.max(0, monthsDiff(anchorY, anchorM, windowEndLocal.year, windowEndLocal.month));
 
     for (let mi = startMonthIndex; mi <= endMonthIndex; mi++) {
       if (mi % interval !== 0) continue;
@@ -370,11 +340,6 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   return [];
 }
 
-/**
- * Feed expansion:
- * - id stays same
- * - instanceId unique for UI rendering
- */
 function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
   const cats = safeParseJson(row.categories, []);
   const recurRuleObj = safeParseJson(row.recurrenceRule, null);
@@ -386,25 +351,21 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
     hasRecurrence: Number(row.hasRecurrence || 0),
     recurrenceRule: recurRuleObj,
     recurrenceDates: Array.isArray(recurDatesArr) ? recurDatesArr : [],
-    // ✅ Featured flag (DB column is "featured")
     featured: Number(row.featured || 0),
   };
 
   const baseStartUtc = Date.parse(base.startDateTime);
 
-  // Non-recurring: include once (only if within window)
   if (!base.hasRecurrence || !base.recurrenceRule) {
     if (Number.isFinite(baseStartUtc) && baseStartUtc >= windowStartUtcMs && baseStartUtc <= windowEndUtcMs) {
       const p = parseIsoParts(base.startDateTime);
-      return [
-        {
-          ...base,
-          instanceId: `e${base.id}_${base.startDateTime}`,
-          baseStartDateTime: base.startDateTime,
-          isOccurrence: false,
-          occurrenceDate: p ? toYmd(p) : "",
-        },
-      ];
+      return [{
+        ...base,
+        instanceId: `e${base.id}_${base.startDateTime}`,
+        baseStartDateTime: base.startDateTime,
+        isOccurrence: false,
+        occurrenceDate: p ? toYmd(p) : "",
+      }];
     }
     return [];
   }
@@ -423,17 +384,14 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
   }));
 }
 
-/**
- * GET /events?city=Enumclaw&expand=1
- * Returns occurrences for next 90 days
- */
+// GET /events?city=Enumclaw&expand=1
 router.get("/", async (req, res) => {
   try {
     const city = (req.query.city || "Enumclaw").trim();
     const expand = String(req.query.expand ?? "1") !== "0";
 
     const nowUtc = Date.now();
-    const windowDays = 90; // ~3 months
+    const windowDays = 90;
     const windowStartUtc = nowUtc - 5 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
@@ -449,7 +407,6 @@ router.get("/", async (req, res) => {
         hasRecurrence: Number(r.hasRecurrence || 0),
         recurrenceRule: safeParseJson(r.recurrenceRule, null),
         recurrenceDates: safeParseJson(r.recurrenceDates, []),
-        // ✅ Featured flag
         featured: Number(r.featured || 0),
       }));
       return res.json({ data: normalized });
@@ -460,7 +417,6 @@ router.get("/", async (req, res) => {
       expanded.push(...expandEventIntoFeedItems(r, windowStartUtc, windowEndUtc));
     }
 
-    // ✅ Featured first, then by soonest date
     expanded.sort((a, b) => {
       const af = Number(a.featured || 0);
       const bf = Number(b.featured || 0);
@@ -493,7 +449,6 @@ router.get("/slug/:slug", async (req, res) => {
       hasRecurrence: Number(row.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(row.recurrenceDates, []),
-      // ✅ Featured flag
       featured: Number(row.featured || 0),
     };
 
@@ -509,11 +464,7 @@ router.get("/slug/:slug", async (req, res) => {
     const occurrencesUpcoming = occurrences
       .filter((o) => Date.parse(o.startDateTime) >= windowStartUtc)
       .slice(0, 200)
-      .map((o) => ({
-        startDateTime: o.startDateTime,
-        endDateTime: o.endDateTime,
-        label: o.label,
-      }));
+      .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
 
     res.json({ data: { ...base, occurrencesUpcoming } });
   } catch (err) {
@@ -546,7 +497,6 @@ router.get("/:idOrSlug", async (req, res) => {
       hasRecurrence: Number(row.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(row.recurrenceDates, []),
-      // ✅ Featured flag
       featured: Number(row.featured || 0),
     };
 
@@ -562,11 +512,7 @@ router.get("/:idOrSlug", async (req, res) => {
     const occurrencesUpcoming = occurrences
       .filter((o) => Date.parse(o.startDateTime) >= windowStartUtc)
       .slice(0, 200)
-      .map((o) => ({
-        startDateTime: o.startDateTime,
-        endDateTime: o.endDateTime,
-        label: o.label,
-      }));
+      .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
 
     res.json({ data: { ...base, occurrencesUpcoming } });
   } catch (err) {
