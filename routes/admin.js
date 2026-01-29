@@ -159,7 +159,8 @@ router.get("/", async (req, res) => {
             </div>
             <div class="event-actions">
               <a href="/events/${e.id}" target="_blank" rel="noopener">View JSON (id)</a>
-              ${e.slug ? `<a href="/events/slug/${esc(e.slug)}" target="_blank" rel="noopener">View JSON (slug)</a>` : ""}
+${e.slug ? `<a href="/events/slug/${esc(e.slug)}" target="_blank" rel="noopener">View JSON (slug)</a>` : ""}
+
               <a href="/admin?edit=${e.id}">Edit</a>
               <form method="POST" action="/admin/events/${e.id}/delete" class="inline"
                 onsubmit="return confirm('Delete event #${e.id}?');">
