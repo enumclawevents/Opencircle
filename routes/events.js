@@ -219,7 +219,6 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
 
   const startParts = parseIsoParts(startISO);
   const endParts = parseIsoParts(endISO);
-
   if (!startParts || !endParts) return [];
 
   const startUtc = Date.parse(startISO);
@@ -308,8 +307,14 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     const anchorY = anchorLocal.year;
     const anchorM = anchorLocal.month;
 
-    const startMonthIndex = Math.max(0, monthsDiff(anchorY, anchorM, windowStartLocal.year, windowStartLocal.month));
-    const endMonthIndex = Math.max(0, monthsDiff(anchorY, anchorM, windowEndLocal.year, windowEndLocal.month));
+    const startMonthIndex = Math.max(
+      0,
+      monthsDiff(anchorY, anchorM, windowStartLocal.year, windowStartLocal.month)
+    );
+    const endMonthIndex = Math.max(
+      0,
+      monthsDiff(anchorY, anchorM, windowEndLocal.year, windowEndLocal.month)
+    );
 
     for (let mi = startMonthIndex; mi <= endMonthIndex; mi++) {
       if (mi % interval !== 0) continue;
@@ -428,7 +433,7 @@ router.get("/", async (req, res) => {
     const expand = String(req.query.expand ?? "1") !== "0";
 
     const nowUtc = Date.now();
-    const windowDays = 90;
+    const windowDays = 90; // ~3 months
     const windowStartUtc = nowUtc - 5 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
@@ -444,7 +449,7 @@ router.get("/", async (req, res) => {
         hasRecurrence: Number(r.hasRecurrence || 0),
         recurrenceRule: safeParseJson(r.recurrenceRule, null),
         recurrenceDates: safeParseJson(r.recurrenceDates, []),
-        // ✅ Featured flag (DB column is "featured")
+        // ✅ Featured flag
         featured: Number(r.featured || 0),
       }));
       return res.json({ data: normalized });
@@ -533,7 +538,6 @@ router.get("/:idOrSlug", async (req, res) => {
     if (!row) return res.status(404).json({ error: "Event not found" });
 
     const cats = safeParseJson(row.categories, []);
-
     const recurRuleObj = safeParseJson(row.recurrenceRule, null);
 
     const base = {
