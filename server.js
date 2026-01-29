@@ -92,7 +92,6 @@ app.use("/events", eventsRouter);
 app.use("/admin", requireAdmin, adminRouter);
 
 // --- Static uploads ---
-const path = require("path");
 
 const UPLOAD_DIR =
   process.env.UPLOAD_DIR ||
