@@ -27,11 +27,12 @@ const ALLOWED_CATEGORIES = [
 ];
 
 // --- Uploads (local disk or Render disk mount) ---
+// IMPORTANT: use repo-root /uploads (opencircle-api/uploads)
 const UPLOAD_DIR =
-  process.env.UPLOAD_DIR ||
+  process.env.UPLOADS_DIR ||
   (process.env.RENDER_DISK_PATH
     ? path.join(process.env.RENDER_DISK_PATH, "uploads")
-    : path.join(__dirname, "..", "uploads"));
+    : path.join(process.cwd(), "uploads"));
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -60,7 +61,6 @@ const upload = multer({
   fileFilter,
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
 });
-
 
 function normalizeCategories(input) {
   let arr = [];
@@ -156,9 +156,7 @@ router.get("/", async (req, res) => {
     const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
     let editEvent = null;
 
-    if (editId) {
-      editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
-    }
+    if (editId) editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
 
     const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
     const isFeatured = Number(editEvent?.featured || 0) === 1;
@@ -198,11 +196,12 @@ router.get("/", async (req, res) => {
             </div>
             <div class="event-actions">
               <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}" target="_blank" rel="noopener">
-  View JSON
-</a>
-
+                View JSON
+              </a>
               <a href="/admin?edit=${e.id}">Edit</a>
-              <form method="POST" action="/admin/events" enctype="multipart/form-data">
+
+              <!-- FIXED: delete goes to /admin/events/:id/delete -->
+              <form method="POST" action="/admin/events/${e.id}/delete" class="inline">
                 <button type="submit" class="btn btn-danger">Delete</button>
               </form>
             </div>
@@ -222,10 +221,10 @@ router.get("/", async (req, res) => {
     <title>OpenCircle Admin</title>
     <style>
       :root{
-        --bg:#f3f4f6; --card:#ffffff; --text:#0f172a; --muted:#475569;
-        --line:rgba(15, 23, 42, .12);
+        --bg:#0b1220; --card:#0f172a; --text:#e5e7eb; --muted:#94a3b8;
+        --line:rgba(148,163,184,.18);
         --brand:#3fabd1; --brand2:#1b7ea8; --danger:#ef4444;
-        --shadow:0 10px 30px rgba(2, 6, 23, .08);
+        --shadow:0 10px 30px rgba(0,0,0,.35);
         --radius:14px;
       }
       *{ box-sizing:border-box; }
@@ -240,8 +239,8 @@ router.get("/", async (req, res) => {
       .brand img{ height:42px; width:auto; display:block; }
       .brand-title{ font-size:18px; font-weight:700; line-height:1; }
       .pill{
-        font-size:12px; color: #0b1220;
-        background: rgba(63,171,209,.18);
+        font-size:12px; color: var(--text);
+        background: rgba(63,171,209,.15);
         border: 1px solid rgba(63,171,209,.35);
         padding:6px 10px; border-radius:999px; font-weight:600;
         display:inline-flex; align-items:center; gap:6px;
@@ -261,29 +260,29 @@ router.get("/", async (req, res) => {
 
       label{ display:block; margin: 12px 0 6px; font-weight:700; font-size:13px; }
       .ctrl, input, textarea, select{
-        width:100%; padding: 10px 12px; border: 1px solid rgba(15, 23, 42, .18);
-        border-radius: 12px; background:#fff; font-size: 14px; outline: none;
+        width:100%; padding: 10px 12px; border: 1px solid rgba(148,163,184,.25);
+        border-radius: 12px; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
       }
       textarea{ min-height: 110px; resize: vertical; }
       .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
       .btn{
         display:inline-flex; align-items:center; justify-content:center;
         padding: 10px 14px; border-radius: 12px;
-        border: 1px solid rgba(15, 23, 42, .12);
-        background:#fff; cursor:pointer; font-weight:700; text-decoration:none; color: var(--text);
+        border: 1px solid rgba(148,163,184,.22);
+        background:#0b1220; cursor:pointer; font-weight:700; text-decoration:none; color: var(--text);
       }
-      .btn-primary{ background: var(--brand); border-color: var(--brand); color:#fff; }
-      .btn-primary:hover{ background: var(--brand2); border-color: var(--brand2); }
-      .btn-danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.25); color: #991b1b; }
-      .btn-link{ background: transparent; border-color: transparent; color: var(--brand2); padding: 8px 10px; }
+      .btn-primary{ background: var(--brand); border-color: var(--brand); color:#06202b; }
+      .btn-primary:hover{ background: var(--brand2); border-color: var(--brand2); color:#071c24; }
+      .btn-danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.25); color: #fecaca; }
+      .btn-link{ background: transparent; border-color: transparent; color: var(--brand); padding: 8px 10px; }
       .actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 14px; }
 
-      .event-card{ border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: #fff; }
+      .event-card{ border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: #0b1220; }
       .event-title{ font-weight:800; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
       .event-actions{ margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
 
-      a{ color: var(--brand2); text-decoration:none; font-weight:700; }
+      a{ color: var(--brand); text-decoration:none; font-weight:700; }
       a:hover{ text-decoration:underline; }
       .inline{ display:inline; margin:0; }
       .muted{ color: var(--muted); }
@@ -295,7 +294,7 @@ router.get("/", async (req, res) => {
         border:1px solid var(--line);
         border-radius: 14px;
         padding: 14px;
-        background: #fff;
+        background: #0b1220;
         margin-top: 10px;
       }
       .rec-row{
@@ -315,10 +314,10 @@ router.get("/", async (req, res) => {
         border:1px solid var(--line);
         border-radius:999px;
         padding: 6px 10px;
-        background: #fff;
+        background: #0b1220;
         font-size: 13px;
       }
-      .chip button{ border:0; background: transparent; cursor:pointer; font-weight:900; color: #991b1b; }
+      .chip button{ border:0; background: transparent; cursor:pointer; font-weight:900; color: #fecaca; }
     </style>
   </head>
   <body>
@@ -338,6 +337,7 @@ router.get("/", async (req, res) => {
         <h1>${editEvent ? "Edit Event" : "Add Event"}</h1>
         <p class="sub"><a href="/events" target="_blank" rel="noopener">View all events (JSON)</a></p>
 
+        <!-- IMPORTANT: enctype is required for file uploads -->
         <form method="POST" action="/admin/events" enctype="multipart/form-data">
           ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
 
@@ -387,159 +387,26 @@ router.get("/", async (req, res) => {
             </div>
           </div>
 
-          <div class="rec-box">
-            <div class="checkbox">
-              <input id="hasRecurrence" type="checkbox" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
-              <label for="hasRecurrence" style="margin:0; font-size:13px; font-weight:900;">Check here if the event has occurrences</label>
-            </div>
-
-            <div id="intervalRow" class="rec-row" style="margin-top:10px;">
-              <div>
-                <label style="margin-top:0;">Occurrence Type</label>
-                <select id="recurrenceType" name="recurrenceType" class="ctrl">
-                  <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
-                  <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
-                  <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
-                  <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Custom (pick dates)</option>
-                </select>
-              </div>
-
-              <div>
-                <label style="margin-top:0;">Interval</label>
-                <select id="recurrenceInterval" name="recurrenceInterval" class="ctrl">
-                  ${[1, 2, 3, 4]
-                    .map((n) => {
-                      const sel = Number(rule.interval || 1) === n ? "selected" : "";
-                      return `<option value="${n}" ${sel}>Every ${n} ${ruleType === "monthly" ? "month(s)" : "week(s)"}</option>`;
-                    })
-                    .join("")}
-                </select>
-                <div class="note">Used for Weekly/Monthly only.</div>
-              </div>
-            </div>
-
-            <div id="weeklyBox" style="margin-top:12px;">
-              <label style="margin-top:0;">Weekly: Which days?</label>
-              <div class="row" style="grid-template-columns: repeat(7, 1fr); gap:10px;">
-                ${["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
-                  .map((d) => {
-                    const byDay = Array.isArray(rule.byDay) ? rule.byDay : [];
-                    const checked = byDay.includes(d) ? "checked" : "";
-                    return `
-                      <label class="checkbox" style="justify-content:center; margin:0; font-weight:900;">
-                        <input type="checkbox" name="weeklyByDay" value="${d}" ${checked}/>
-                        <span>${d}</span>
-                      </label>
-                    `;
-                  })
-                  .join("")}
-              </div>
-              <div class="note">Example: Every Wednesday = select WE.</div>
-            </div>
-
-            <div id="monthlyBox" style="margin-top:12px;">
-              <label style="margin-top:0;">Monthly: Mode</label>
-              <select id="monthlyMode" name="monthlyMode" class="ctrl">
-                <option value="monthday" ${(rule.mode || "monthday") === "monthday" ? "selected" : ""}>Same day of month (e.g., 15th)</option>
-                <option value="nthweekday" ${(rule.mode || "") === "nthweekday" ? "selected" : ""}>Nth weekday (e.g., 1st Thursday)</option>
-              </select>
-
-              <div id="monthdayBox" style="margin-top:10px;">
-                <label>Day of month</label>
-                <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(rule.byMonthday || "")}" placeholder="e.g. 15" />
-              </div>
-
-              <div id="nthweekdayBox" style="margin-top:10px;">
-                <div class="row">
-                  <div>
-                    <label>Nth</label>
-                    <select class="ctrl" name="setPos">
-                      ${[
-                        ["1", "First"],
-                        ["2", "Second"],
-                        ["3", "Third"],
-                        ["4", "Fourth"],
-                        ["-1", "Last"],
-                      ]
-                        .map(([v, label]) => {
-                          const sel = String(rule.setPos ?? "1") === v ? "selected" : "";
-                          return `<option value="${v}" ${sel}>${label}</option>`;
-                        })
-                        .join("")}
-                    </select>
-                  </div>
-                  <div>
-                    <label>Weekday</label>
-                    <select class="ctrl" name="monthlyByDay">
-                      ${[
-                        ["SU", "Sunday"],
-                        ["MO", "Monday"],
-                        ["TU", "Tuesday"],
-                        ["WE", "Wednesday"],
-                        ["TH", "Thursday"],
-                        ["FR", "Friday"],
-                        ["SA", "Saturday"],
-                      ]
-                        .map(([v, label]) => {
-                          const sel = String(rule.byDay || "") === v ? "selected" : "";
-                          return `<option value="${v}" ${sel}>${label}</option>`;
-                        })
-                        .join("")}
-                    </select>
-                  </div>
-                </div>
-                <div class="note">Example: First Thursday = First + Thursday.</div>
-              </div>
-            </div>
-
-            <div id="customBox" style="margin-top:12px;">
-              <label style="margin-top:0;">Custom dates (pick specific dates)</label>
-              <div class="actions" style="margin-top:8px;">
-                <button type="button" id="addCustomDate" class="btn">+ Add date</button>
-              </div>
-
-              <div id="customDatesWrap" class="chips">
-                ${(customDates.length ? customDates : [])
-                  .map(
-                    (d, i) => `
-                      <span class="chip">
-                        <input class="ctrl" style="width: 160px; padding:6px 8px; border-radius:10px;"
-                          type="date" name="recurrenceDates" value="${esc(d)}" />
-                        <button type="button" data-remove-date="${i}" aria-label="Remove">×</button>
-                      </span>
-                    `
-                  )
-                  .join("")}
-              </div>
-
-              <div class="note">These show on the feed for the next 3 months, and all occurrences link back to the same event page.</div>
-            </div>
-          </div>
-
           <label>Flyer Image (Upload)</label>
-<input class="ctrl" type="file" name="imageFile" accept="image/*" />
+          <input class="ctrl" type="file" name="imageFile" accept="image/*" />
+          <div class="note">Uploading replaces the Image URL below.</div>
 
-<div class="note">
-  Upload an image file (JPG/PNG/WebP/GIF). If you upload a file, it will replace the Image URL below.
-</div>
+          <label style="margin-top:12px;">Image URL (optional fallback)</label>
+          <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
 
-<label style="margin-top:12px;">Image URL (optional fallback)</label>
-<input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
-
-${editEvent?.imageUrl
-  ? `<div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>`
-  : ""
-}
+          ${editEvent?.imageUrl
+            ? `<div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>`
+            : ""
+          }
 
           <div class="row">
             <div>
               <label>Ticket Button Text</label>
-              <input class="ctrl" name="ticketLabel" value="${esc(editEvent?.ticketLabel || "Tickets")}" placeholder="Tickets / Reserve / Buy Tickets..." />
+              <input class="ctrl" name="ticketLabel" value="${esc(editEvent?.ticketLabel || "Tickets")}" />
             </div>
             <div>
               <label>Ticket Link (URL)</label>
               <input class="ctrl" name="ticketUrl" value="${esc(editEvent?.ticketUrl || "")}" placeholder="https://..." />
-              <div class="note">If provided, a ticket button will show on the event page.</div>
             </div>
           </div>
 
@@ -552,7 +419,6 @@ ${editEvent?.imageUrl
           <div class="actions">
             <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
             ${editEvent ? `<a class="btn btn-link" href="/admin">Cancel</a>` : ""}
-            <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
           </div>
         </form>
       </div>
@@ -562,107 +428,6 @@ ${editEvent?.imageUrl
         <div style="display:grid; gap:12px;">${listHtml}</div>
       </div>
     </div>
-
-    <script>
-      const startEl = document.getElementById("startDateTime");
-      const endEl = document.getElementById("endDateTime");
-
-      if (startEl && endEl) {
-        startEl.addEventListener("change", () => {
-          if (!startEl.value) return;
-          if (!endEl.value) {
-            const d = new Date(startEl.value);
-            d.setHours(d.getHours() + 2);
-            const pad = (n) => String(n).padStart(2, "0");
-            endEl.value =
-              d.getFullYear() + "-" +
-              pad(d.getMonth() + 1) + "-" +
-              pad(d.getDate()) + "T" +
-              pad(d.getHours()) + ":" +
-              pad(d.getMinutes());
-          }
-        });
-      }
-
-      const hasRecEl = document.getElementById("hasRecurrence");
-      const typeEl = document.getElementById("recurrenceType");
-      const intervalRow = document.getElementById("intervalRow");
-
-      const weeklyBox = document.getElementById("weeklyBox");
-      const monthlyBox = document.getElementById("monthlyBox");
-      const customBox = document.getElementById("customBox");
-
-      const monthlyModeEl = document.getElementById("monthlyMode");
-      const monthdayBox = document.getElementById("monthdayBox");
-      const nthweekdayBox = document.getElementById("nthweekdayBox");
-
-      function show(el, on) {
-        if (!el) return;
-        el.style.display = on ? "" : "none";
-      }
-
-      function syncRecurrenceUI() {
-        const enabled = !!(hasRecEl && hasRecEl.checked);
-        const t = (typeEl ? typeEl.value : "none");
-
-        if (!enabled) {
-          show(intervalRow, false);
-          show(weeklyBox, false);
-          show(monthlyBox, false);
-          show(customBox, false);
-          return;
-        }
-
-        show(intervalRow, true);
-        show(weeklyBox, t === "weekly");
-        show(monthlyBox, t === "monthly");
-        show(customBox, t === "custom");
-
-        if (t === "monthly") {
-          const mm = monthlyModeEl ? monthlyModeEl.value : "monthday";
-          show(monthdayBox, mm === "monthday");
-          show(nthweekdayBox, mm === "nthweekday");
-        } else {
-          show(monthdayBox, false);
-          show(nthweekdayBox, false);
-        }
-      }
-
-      if (hasRecEl) hasRecEl.addEventListener("change", syncRecurrenceUI);
-      if (typeEl) typeEl.addEventListener("change", syncRecurrenceUI);
-      if (monthlyModeEl) monthlyModeEl.addEventListener("change", syncRecurrenceUI);
-      syncRecurrenceUI();
-
-      const addBtn = document.getElementById("addCustomDate");
-      const wrap = document.getElementById("customDatesWrap");
-
-      function attachRemoveHandlers() {
-        if (!wrap) return;
-        wrap.querySelectorAll("button[data-remove-date]").forEach((btn) => {
-          btn.onclick = () => {
-            const chip = btn.closest(".chip");
-            if (chip) chip.remove();
-          };
-        });
-      }
-
-      if (addBtn && wrap) {
-        addBtn.addEventListener("click", () => {
-          const chip = document.createElement("span");
-          chip.className = "chip";
-          chip.innerHTML = \`
-            <input class="ctrl" style="width: 160px; padding:6px 8px; border-radius:10px;"
-              type="date" name="recurrenceDates" value="" />
-            <button type="button" aria-label="Remove">×</button>
-          \`;
-          wrap.appendChild(chip);
-          const x = chip.querySelector("button");
-          x.onclick = () => chip.remove();
-        });
-
-        attachRemoveHandlers();
-      }
-    </script>
   </body>
 </html>
     `);
@@ -691,25 +456,14 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ticketLabel,
       categories,
       featured,
-
-      hasRecurrence,
-      recurrenceType,
-      recurrenceInterval,
-      weeklyByDay,
-      monthlyMode,
-      byMonthday,
-      setPos,
-      monthlyByDay,
-      recurrenceDates,
     } = req.body;
 
     // If a file was uploaded, prefer it over the URL field
-if (req.file && req.file.filename) {
-  const proto = req.headers["x-forwarded-proto"] || req.protocol;
-  const host = req.headers["x-forwarded-host"] || req.get("host");
-  imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
-}
-
+    if (req.file && req.file.filename) {
+      const proto = req.headers["x-forwarded-proto"] || req.protocol;
+      const host = req.headers["x-forwarded-host"] || req.get("host");
+      imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
+    }
 
     const featuredFlag = String(featured || "") === "1" ? 1 : 0;
 
@@ -740,64 +494,7 @@ if (req.file && req.file.filename) {
     const cats = normalizeCategories(categories);
     const catsJson = JSON.stringify(cats);
 
-    const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
-    const t = String(recurrenceType || "none").toLowerCase();
-
-    let recurrenceRule = null;
-    let recurrenceDatesJson = null;
-
-    if (hasRec && t !== "none") {
-      if (t === "custom") {
-        let arr = [];
-        if (Array.isArray(recurrenceDates)) arr = recurrenceDates;
-        else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "")
-          arr = [recurrenceDates];
-
-        const uniq = [];
-        for (const d of arr) {
-          const v = String(d || "").trim();
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) continue;
-          if (!uniq.includes(v)) uniq.push(v);
-        }
-        uniq.sort();
-
-        recurrenceRule = { type: "custom" };
-        recurrenceDatesJson = JSON.stringify(uniq);
-      }
-
-      if (t === "weekly") {
-        let days = [];
-        if (Array.isArray(weeklyByDay)) days = weeklyByDay;
-        else if (typeof weeklyByDay === "string" && weeklyByDay.trim() !== "") days = [weeklyByDay];
-
-        const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
-        const uniq = [];
-        for (const d of days.map((x) => String(x).trim()).filter(Boolean)) {
-          if (!allowed.has(d)) continue;
-          if (!uniq.includes(d)) uniq.push(d);
-        }
-
-        const interval = Math.max(1, parseInt(recurrenceInterval || "1", 10) || 1);
-        recurrenceRule = { type: "weekly", interval, byDay: uniq };
-      }
-
-      if (t === "monthly") {
-        const interval = Math.max(1, parseInt(recurrenceInterval || "1", 10) || 1);
-        const mode = String(monthlyMode || "monthday");
-
-        if (mode === "nthweekday") {
-          const sp = parseInt(setPos || "1", 10);
-          const wd = String(monthlyByDay || "").trim();
-          recurrenceRule = { type: "monthly", interval, mode: "nthweekday", setPos: sp, byDay: wd };
-        } else {
-          const md = Math.max(1, Math.min(31, parseInt(byMonthday || "0", 10) || 0));
-          recurrenceRule = { type: "monthly", interval, mode: "monthday", byMonthday: md };
-        }
-      }
-    }
-
-    const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
-
+    // UPDATE
     if (id !== undefined && id !== null && String(id).trim() !== "") {
       const eventId = parseInt(String(id).trim(), 10);
       if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
@@ -821,9 +518,6 @@ if (req.file && req.file.filename) {
              imageUrl=?,
              categories=?,
              featured=?,
-             hasRecurrence=?,
-             recurrenceRule=?,
-             recurrenceDates=?,
              updatedAt=datetime('now')
          WHERE id=?`,
         [
@@ -842,9 +536,6 @@ if (req.file && req.file.filename) {
           imageUrl || null,
           catsJson,
           featuredFlag,
-          hasRec,
-          recurrenceRuleJson,
-          recurrenceDatesJson,
           eventId,
         ]
       );
@@ -856,6 +547,7 @@ if (req.file && req.file.filename) {
       return res.redirect(`/events/${eventId}`);
     }
 
+    // INSERT
     const finalSlug = await ensureUniqueSlug(baseSlug);
 
     const result = await run(
@@ -865,10 +557,9 @@ if (req.file && req.file.filename) {
         startDateTime, endDateTime, location, organizer,
         imageUrl, categories,
         featured,
-        hasRecurrence, recurrenceRule, recurrenceDates,
         updatedAt
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         city,
         finalSlug,
@@ -885,9 +576,6 @@ if (req.file && req.file.filename) {
         imageUrl || null,
         catsJson,
         featuredFlag,
-        hasRec,
-        recurrenceRuleJson,
-        recurrenceDatesJson,
       ]
     );
 

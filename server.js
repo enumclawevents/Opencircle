@@ -11,35 +11,25 @@ const adminRouter = require("./routes/admin");
 
 const app = express();
 
-import path from "path";
-import express from "express";
-
-const UPLOAD_DIR = path.resolve(process.cwd(), "uploads"); // -> opencircle-api/uploads
-
-app.use("/uploads", express.static(UPLOAD_DIR));
-
-
 // If behind Render proxy, this helps req.protocol be correct
 app.set("trust proxy", 1);
 
-// Serve static assets from /public at /assets/*
-app.use("/assets", express.static(path.join(__dirname, "public")));
-
-/**
- * UPLOADS DIR
- * Use Render disk mount so uploads persist across deploys.
- */
+// --- UPLOADS DIR (single source of truth) ---
+// Uses Render disk mount when available; otherwise uses repo-root /uploads
 const UPLOADS_DIR =
   process.env.UPLOADS_DIR ||
   (process.env.RENDER_DISK_PATH
     ? path.join(process.env.RENDER_DISK_PATH, "uploads")
-    : path.join(__dirname, "uploads"));
+    : path.join(process.cwd(), "uploads"));
 
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 console.log("[UPLOADS] Using folder:", UPLOADS_DIR);
 
 // Host uploads publicly
 app.use("/uploads", express.static(UPLOADS_DIR));
+
+// Serve static assets from /public at /assets/*
+app.use("/assets", express.static(path.join(__dirname, "public")));
 
 // Allows other websites/apps to call this API
 app.use(cors());
@@ -99,22 +89,11 @@ app.use("/events", eventsRouter);
 // Admin (protected)
 app.use("/admin", requireAdmin, adminRouter);
 
-// --- Static uploads ---
-
-const UPLOAD_DIR =
-  process.env.UPLOAD_DIR ||
-  (process.env.RENDER_DISK_PATH
-    ? path.join(process.env.RENDER_DISK_PATH, "uploads")
-    : path.join(__dirname, "uploads"));
-
-app.use("/uploads", express.static(UPLOAD_DIR));
-
-
 // Start server
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`OpenCircle API running on port ${PORT}`);
 });
 
-// Export for admin router to reuse uploads dir if desired
+// Export so admin router can reuse if you want
 module.exports = { UPLOADS_DIR };
