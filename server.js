@@ -91,6 +91,18 @@ app.use("/events", eventsRouter);
 // Admin (protected)
 app.use("/admin", requireAdmin, adminRouter);
 
+// --- Static uploads ---
+const path = require("path");
+
+const UPLOAD_DIR =
+  process.env.UPLOAD_DIR ||
+  (process.env.RENDER_DISK_PATH
+    ? path.join(process.env.RENDER_DISK_PATH, "uploads")
+    : path.join(__dirname, "uploads"));
+
+app.use("/uploads", express.static(UPLOAD_DIR));
+
+
 // Start server
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, "0.0.0.0", () => {

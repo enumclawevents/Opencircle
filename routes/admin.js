@@ -3,6 +3,9 @@
 const express = require("express");
 const router = express.Router();
 const { run, all, get, slugify, ensureUniqueSlug } = require("../db");
+const path = require("path");
+const fs = require("fs");
+const multer = require("multer");
 
 /**
  * Fixed category list (12 total)
@@ -22,6 +25,42 @@ const ALLOWED_CATEGORIES = [
   "Business & Networking",
   "Charity & Fundraising",
 ];
+
+// --- Uploads (local disk or Render disk mount) ---
+const UPLOAD_DIR =
+  process.env.UPLOAD_DIR ||
+  (process.env.RENDER_DISK_PATH
+    ? path.join(process.env.RENDER_DISK_PATH, "uploads")
+    : path.join(__dirname, "..", "uploads"));
+
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || "").toLowerCase() || ".jpg";
+    const base = path
+      .basename(file.originalname || "image", ext)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+
+    const stamp = Date.now();
+    cb(null, `${base || "event"}-${stamp}${ext}`);
+  },
+});
+
+function fileFilter(req, file, cb) {
+  const ok = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.mimetype || "");
+  cb(ok ? null : new Error("Only image files are allowed."), ok);
+}
+
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
+});
+
 
 function normalizeCategories(input) {
   let arr = [];
@@ -163,8 +202,7 @@ router.get("/", async (req, res) => {
 </a>
 
               <a href="/admin?edit=${e.id}">Edit</a>
-              <form method="POST" action="/admin/events/${e.id}/delete" class="inline"
-                onsubmit="return confirm('Delete event #${e.id}?');">
+              <form method="POST" action="/admin/events" enctype="multipart/form-data">
                 <button type="submit" class="btn btn-danger">Delete</button>
               </form>
             </div>
@@ -478,8 +516,20 @@ router.get("/", async (req, res) => {
             </div>
           </div>
 
-          <label>Image URL (flyer)</label>
-          <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
+          <label>Flyer Image (Upload)</label>
+<input class="ctrl" type="file" name="imageFile" accept="image/*" />
+
+<div class="note">
+  Upload an image file (JPG/PNG/WebP/GIF). If you upload a file, it will replace the Image URL below.
+</div>
+
+<label style="margin-top:12px;">Image URL (optional fallback)</label>
+<input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
+
+${editEvent?.imageUrl
+  ? `<div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>`
+  : ""
+}
 
           <div class="row">
             <div>
@@ -623,7 +673,7 @@ router.get("/", async (req, res) => {
 });
 
 // POST /admin/events (create or update)
-router.post("/events", async (req, res) => {
+router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
     let {
       id,
@@ -652,6 +702,14 @@ router.post("/events", async (req, res) => {
       monthlyByDay,
       recurrenceDates,
     } = req.body;
+
+    // If a file was uploaded, prefer it over the URL field
+if (req.file && req.file.filename) {
+  const proto = req.headers["x-forwarded-proto"] || req.protocol;
+  const host = req.headers["x-forwarded-host"] || req.get("host");
+  imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
+}
+
 
     const featuredFlag = String(featured || "") === "1" ? 1 : 0;
 
