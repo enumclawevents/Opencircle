@@ -11,7 +11,7 @@ const { all, get } = require("../db");
 function safeParseJson(val, fallback) {
   if (val === null || val === undefined || val === "") return fallback;
 
-  // ✅ If it's already an object/array, return as-is
+  // If it's already an object/array, return as-is
   if (typeof val === "object") return val;
 
   try {
@@ -43,7 +43,7 @@ function parseIsoParts(iso) {
     hour: Number(m[4]),
     minute: Number(m[5]),
     second: Number(m[6] || "00"),
-    offset: m[7]
+    offset: m[7],
   };
 }
 
@@ -78,7 +78,7 @@ function utcMsToLocalParts(utcMs, offset) {
     hour: d.getUTCHours(),
     minute: d.getUTCMinutes(),
     second: d.getUTCSeconds(),
-    offset
+    offset,
   };
 }
 
@@ -181,7 +181,7 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       hour: startParts.hour,
       minute: startParts.minute,
       second: startParts.second,
-      offset
+      offset,
     };
 
     const occStartUtc = partsToUtcMs(occLocalParts);
@@ -196,7 +196,7 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       occurrenceDate: toYmd(occLocalParts),
       startDateTime: partsToIso(occLocalParts),
       endDateTime: partsToIso(occEndParts),
-      label: formatLabelLocal(occLocalParts)
+      label: formatLabelLocal(occLocalParts),
     });
   }
 
@@ -248,7 +248,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     hour: startParts.hour,
     minute: startParts.minute,
     second: startParts.second,
-    offset
+    offset,
   };
   const anchorWeekStart = startOfWeekLocalDate(anchorLocal);
 
@@ -276,7 +276,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
         hour: startParts.hour,
         minute: startParts.minute,
         second: startParts.second,
-        offset
+        offset,
       };
 
       const occStartUtc = partsToUtcMs(occLocalParts);
@@ -291,7 +291,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
         occurrenceDate: toYmd(occLocalParts),
         startDateTime: partsToIso(occLocalParts),
         endDateTime: partsToIso(occEndParts),
-        label: formatLabelLocal(occLocalParts)
+        label: formatLabelLocal(occLocalParts),
       });
     }
 
@@ -308,14 +308,8 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     const anchorY = anchorLocal.year;
     const anchorM = anchorLocal.month;
 
-    const startMonthIndex = Math.max(
-      0,
-      monthsDiff(anchorY, anchorM, windowStartLocal.year, windowStartLocal.month)
-    );
-    const endMonthIndex = Math.max(
-      0,
-      monthsDiff(anchorY, anchorM, windowEndLocal.year, windowEndLocal.month)
-    );
+    const startMonthIndex = Math.max(0, monthsDiff(anchorY, anchorM, windowStartLocal.year, windowStartLocal.month));
+    const endMonthIndex = Math.max(0, monthsDiff(anchorY, anchorM, windowEndLocal.year, windowEndLocal.month));
 
     for (let mi = startMonthIndex; mi <= endMonthIndex; mi++) {
       if (mi % interval !== 0) continue;
@@ -345,7 +339,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
         hour: startParts.hour,
         minute: startParts.minute,
         second: startParts.second,
-        offset
+        offset,
       };
 
       const occStartUtc = partsToUtcMs(occLocalParts);
@@ -360,7 +354,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
         occurrenceDate: toYmd(occLocalParts),
         startDateTime: partsToIso(occLocalParts),
         endDateTime: partsToIso(occEndParts),
-        label: formatLabelLocal(occLocalParts)
+        label: formatLabelLocal(occLocalParts),
       });
     }
 
@@ -387,23 +381,25 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
     hasRecurrence: Number(row.hasRecurrence || 0),
     recurrenceRule: recurRuleObj,
     recurrenceDates: Array.isArray(recurDatesArr) ? recurDatesArr : [],
-    // ✅ Featured flag
-    isFeatured: Number(row.isFeatured || 0)
+    // ✅ Featured flag (DB column is "featured")
+    featured: Number(row.featured || 0),
   };
 
   const baseStartUtc = Date.parse(base.startDateTime);
 
-  // Non-recurring: include once (only if within next 90 days)
+  // Non-recurring: include once (only if within window)
   if (!base.hasRecurrence || !base.recurrenceRule) {
     if (Number.isFinite(baseStartUtc) && baseStartUtc >= windowStartUtcMs && baseStartUtc <= windowEndUtcMs) {
       const p = parseIsoParts(base.startDateTime);
-      return [{
-        ...base,
-        instanceId: `e${base.id}_${base.startDateTime}`,
-        baseStartDateTime: base.startDateTime,
-        isOccurrence: false,
-        occurrenceDate: p ? toYmd(p) : ""
-      }];
+      return [
+        {
+          ...base,
+          instanceId: `e${base.id}_${base.startDateTime}`,
+          baseStartDateTime: base.startDateTime,
+          isOccurrence: false,
+          occurrenceDate: p ? toYmd(p) : "",
+        },
+      ];
     }
     return [];
   }
@@ -418,7 +414,7 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
     baseStartDateTime: row.startDateTime,
     isOccurrence: true,
     occurrenceDate: o.occurrenceDate,
-    occurrenceLabel: o.label
+    occurrenceLabel: o.label,
   }));
 }
 
@@ -432,7 +428,7 @@ router.get("/", async (req, res) => {
     const expand = String(req.query.expand ?? "1") !== "0";
 
     const nowUtc = Date.now();
-    const windowDays = 90; // ~3 months
+    const windowDays = 90;
     const windowStartUtc = nowUtc - 5 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
@@ -448,8 +444,8 @@ router.get("/", async (req, res) => {
         hasRecurrence: Number(r.hasRecurrence || 0),
         recurrenceRule: safeParseJson(r.recurrenceRule, null),
         recurrenceDates: safeParseJson(r.recurrenceDates, []),
-        // ✅ Featured flag
-        isFeatured: Number(r.isFeatured || 0)
+        // ✅ Featured flag (DB column is "featured")
+        featured: Number(r.featured || 0),
       }));
       return res.json({ data: normalized });
     }
@@ -461,8 +457,8 @@ router.get("/", async (req, res) => {
 
     // ✅ Featured first, then by soonest date
     expanded.sort((a, b) => {
-      const af = Number(a.isFeatured || 0);
-      const bf = Number(b.isFeatured || 0);
+      const af = Number(a.featured || 0);
+      const bf = Number(b.featured || 0);
       if (bf !== af) return bf - af;
       return Date.parse(a.startDateTime) - Date.parse(b.startDateTime);
     });
@@ -483,7 +479,6 @@ router.get("/slug/:slug", async (req, res) => {
     const row = await get("SELECT * FROM events WHERE LOWER(slug) = LOWER(?) LIMIT 1", [slug]);
     if (!row) return res.status(404).json({ error: "Event not found" });
 
-    // normalize like /:id does
     const cats = safeParseJson(row.categories, []);
     const recurRuleObj = safeParseJson(row.recurrenceRule, null);
 
@@ -494,7 +489,7 @@ router.get("/slug/:slug", async (req, res) => {
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(row.recurrenceDates, []),
       // ✅ Featured flag
-      isFeatured: Number(row.isFeatured || 0)
+      featured: Number(row.featured || 0),
     };
 
     const nowUtc = Date.now();
@@ -512,7 +507,7 @@ router.get("/slug/:slug", async (req, res) => {
       .map((o) => ({
         startDateTime: o.startDateTime,
         endDateTime: o.endDateTime,
-        label: o.label
+        label: o.label,
       }));
 
     res.json({ data: { ...base, occurrencesUpcoming } });
@@ -547,7 +542,7 @@ router.get("/:idOrSlug", async (req, res) => {
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(row.recurrenceDates, []),
       // ✅ Featured flag
-      isFeatured: Number(row.isFeatured || 0)
+      featured: Number(row.featured || 0),
     };
 
     const nowUtc = Date.now();
@@ -565,7 +560,7 @@ router.get("/:idOrSlug", async (req, res) => {
       .map((o) => ({
         startDateTime: o.startDateTime,
         endDateTime: o.endDateTime,
-        label: o.label
+        label: o.label,
       }));
 
     res.json({ data: { ...base, occurrencesUpcoming } });
