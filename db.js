@@ -136,6 +136,19 @@ async function init() {
     }
   }
 
+  // ---- FEATURED COMPAT BACKFILL (old column -> new canonical column) ----
+try {
+  // If the legacy "Featured" column exists, copy it into "featured"
+  await run(`
+    UPDATE events
+    SET featured = COALESCE(featured, Featured, 0)
+    WHERE featured IS NULL OR featured = 0
+  `);
+} catch (_) {
+  // ignore if legacy column doesn't exist
+}
+
+
   // Optional compat migrations (ignore if legacy cols don't exist)
   try {
     await run(`
