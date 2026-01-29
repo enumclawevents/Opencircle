@@ -393,6 +393,24 @@ router.get("/", async (req, res) => {
 
           <label>City</label>
           <input class="ctrl" name="city" value="${esc(editEvent?.city || "Enumclaw")}" />
+          <div class="rec-box">
+  <div class="checkbox">
+    <input
+      type="checkbox"
+      id="isFeatured"
+      name="isFeatured"
+      value="1"
+      <?php echo !empty($editEvent?.isFeatured) ? 'checked' : ''; ?>
+    />
+    <label for="isFeatured" style="margin:0;font-size:13px;font-weight:900;">
+      Mark as Featured Event
+    </label>
+  </div>
+
+  <div class="note">
+    Featured events show a badge on the event card and event page.
+  </div>
+</div>
 
           <div class="rec-box">
             <div style="font-weight:900; margin-bottom:6px;">Categories (pick up to 3)</div>
