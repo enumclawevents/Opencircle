@@ -152,7 +152,7 @@ router.get("/", async (req, res) => {
   }
 
   const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
-
+  const isFeatured = Number(editEvent?.featured || 0) === 1;
   const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
   const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
   const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
