@@ -1,9 +1,8 @@
-// routes/admin.js
 "use strict";
 
 const express = require("express");
 const router = express.Router();
-const { run, all, get, slugify } = require("../db");
+const { run, all, get, slugify, ensureUniqueSlug } = require("../db");
 
 /**
  * Fixed category list (12 total)
@@ -41,10 +40,9 @@ function normalizeCategories(input) {
 }
 
 function safeParseJson(val, fallback) {
-  if (!val) return fallback;
+  if (val === null || val === undefined || val === "") return fallback;
+  if (typeof val === "object") return val;
   try {
-    // if already object/array, return as-is
-    if (typeof val === "object") return val;
     return JSON.parse(val);
   } catch {
     return fallback;
@@ -93,23 +91,7 @@ function toLocalISOWithOffset(dtLocal) {
   const offH = pad(Math.floor(abs / 60));
   const offM = pad(abs % 60);
 
-  return (
-    year +
-    "-" +
-    month +
-    "-" +
-    day +
-    "T" +
-    hours +
-    ":" +
-    minutes +
-    ":" +
-    seconds +
-    sign +
-    offH +
-    ":" +
-    offM
-  );
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
 }
 
 function toDateTimeLocalValue(isoWithOffset) {
@@ -123,21 +105,6 @@ function esc(s) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
-}
-
-// Ensure slugs are unique
-async function ensureUniqueSlug(baseSlug, excludeId = null) {
-  let slug = baseSlug || "event";
-  let i = 2;
-
-  while (true) {
-    const row = excludeId
-      ? await get("SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1", [slug, excludeId])
-      : await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [slug]);
-
-    if (!row) return slug;
-    slug = `${baseSlug}-${i++}`;
-  }
 }
 
 // GET /admin
@@ -162,7 +129,6 @@ router.get("/", async (req, res) => {
     const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
     const customDates = parseStoredDates(editEvent?.recurrenceDates);
 
-    // Category dropdowns (3)
     const categorySelect = (idx) => {
       const current = selectedCats[idx] || "";
       return `
@@ -214,34 +180,22 @@ router.get("/", async (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/assets/brand/favicon.ico" />
     <title>OpenCircle Admin</title>
-
     <style>
       :root{
-        --bg:#f3f4f6;
-        --card:#ffffff;
-        --text:#0f172a;
-        --muted:#475569;
+        --bg:#f3f4f6; --card:#ffffff; --text:#0f172a; --muted:#475569;
         --line:rgba(15, 23, 42, .12);
-        --brand:#3fabd1;
-        --brand2:#1b7ea8;
-        --danger:#ef4444;
+        --brand:#3fabd1; --brand2:#1b7ea8; --danger:#ef4444;
         --shadow:0 10px 30px rgba(2, 6, 23, .08);
         --radius:14px;
       }
       *{ box-sizing:border-box; }
       body{
-        margin:0;
-        background:var(--bg);
-        color:var(--text);
+        margin:0; background:var(--bg); color:var(--text);
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
         padding:24px;
       }
       .wrap{ max-width: 980px; margin: 0 auto; }
-      .topbar{
-        display:flex; align-items:center; justify-content:space-between;
-        gap:16px;
-        margin-bottom:18px;
-      }
+      .topbar{ display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; }
       .brand{ display:flex; align-items:center; gap:12px; }
       .brand img{ height:42px; width:auto; display:block; }
       .brand-title{ font-size:18px; font-weight:700; line-height:1; }
@@ -249,12 +203,8 @@ router.get("/", async (req, res) => {
         font-size:12px; color: #0b1220;
         background: rgba(63,171,209,.18);
         border: 1px solid rgba(63,171,209,.35);
-        padding:6px 10px;
-        border-radius:999px;
-        font-weight:600;
-        display:inline-flex;
-        align-items:center;
-        gap:6px;
+        padding:6px 10px; border-radius:999px; font-weight:600;
+        display:inline-flex; align-items:center; gap:6px;
       }
       .card{
         background:var(--card);
@@ -269,70 +219,30 @@ router.get("/", async (req, res) => {
       .row{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
       @media (max-width: 900px){ .row{ grid-template-columns: 1fr; } }
 
-      label{
-        display:block;
-        margin: 12px 0 6px;
-        font-weight:700;
-        font-size:13px;
-      }
+      label{ display:block; margin: 12px 0 6px; font-weight:700; font-size:13px; }
       .ctrl, input, textarea, select{
-        width:100%;
-        padding: 10px 12px;
-        border: 1px solid rgba(15, 23, 42, .18);
-        border-radius: 12px;
-        background:#fff;
-        font-size: 14px;
-        outline: none;
+        width:100%; padding: 10px 12px; border: 1px solid rgba(15, 23, 42, .18);
+        border-radius: 12px; background:#fff; font-size: 14px; outline: none;
       }
       textarea{ min-height: 110px; resize: vertical; }
       .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
       .btn{
-        display:inline-flex;
-        align-items:center;
-        justify-content:center;
-        padding: 10px 14px;
-        border-radius: 12px;
+        display:inline-flex; align-items:center; justify-content:center;
+        padding: 10px 14px; border-radius: 12px;
         border: 1px solid rgba(15, 23, 42, .12);
-        background:#fff;
-        cursor:pointer;
-        font-weight:700;
-        text-decoration:none;
-        color: var(--text);
+        background:#fff; cursor:pointer; font-weight:700; text-decoration:none; color: var(--text);
       }
-      .btn-primary{
-        background: var(--brand);
-        border-color: var(--brand);
-        color:#fff;
-      }
+      .btn-primary{ background: var(--brand); border-color: var(--brand); color:#fff; }
       .btn-primary:hover{ background: var(--brand2); border-color: var(--brand2); }
-      .btn-danger{
-        background: rgba(239,68,68,.12);
-        border-color: rgba(239,68,68,.25);
-        color: #991b1b;
-      }
-      .btn-link{
-        background: transparent;
-        border-color: transparent;
-        color: var(--brand2);
-        padding: 8px 10px;
-      }
-      .actions{
-        display:flex; gap:10px; align-items:center; flex-wrap:wrap;
-        margin-top: 14px;
-      }
+      .btn-danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.25); color: #991b1b; }
+      .btn-link{ background: transparent; border-color: transparent; color: var(--brand2); padding: 8px 10px; }
+      .actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 14px; }
 
-      .event-card{
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: 14px;
-        background: #fff;
-      }
+      .event-card{ border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: #fff; }
       .event-title{ font-weight:800; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
-      .event-actions{
-        margin-top:10px;
-        display:flex; gap:12px; align-items:center; flex-wrap:wrap;
-      }
+      .event-actions{ margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+
       a{ color: var(--brand2); text-decoration:none; font-weight:700; }
       a:hover{ text-decoration:underline; }
       .inline{ display:inline; margin:0; }
@@ -356,11 +266,7 @@ router.get("/", async (req, res) => {
       }
       @media (max-width: 900px){ .rec-row{ grid-template-columns: 1fr; } }
 
-      .checkbox{
-        display:flex; gap:10px; align-items:center;
-        margin-top: 8px;
-        font-weight:700;
-      }
+      .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:700; }
       .checkbox input{ width:auto; }
 
       .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top: 10px; }
@@ -372,15 +278,11 @@ router.get("/", async (req, res) => {
         background: #fff;
         font-size: 13px;
       }
-      .chip button{
-        border:0; background: transparent; cursor:pointer;
-        font-weight:900; color: #991b1b;
-      }
+      .chip button{ border:0; background: transparent; cursor:pointer; font-weight:900; color: #991b1b; }
     </style>
   </head>
   <body>
     <div class="wrap">
-
       <div class="topbar">
         <div class="brand">
           <img src="/assets/brand/oc-logo.svg" alt="OpenCircle API" />
@@ -394,9 +296,7 @@ router.get("/", async (req, res) => {
 
       <div class="card">
         <h1>${editEvent ? "Edit Event" : "Add Event"}</h1>
-        <p class="sub">
-          <a href="/events" target="_blank" rel="noopener">View all events (JSON)</a>
-        </p>
+        <p class="sub"><a href="/events" target="_blank" rel="noopener">View all events (JSON)</a></p>
 
         <form method="POST" action="/admin/events">
           ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
@@ -407,9 +307,7 @@ router.get("/", async (req, res) => {
           <div class="rec-box">
             <div class="checkbox">
               <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
-              <label for="featured" style="margin:0;font-size:13px;font-weight:900;">
-                Mark as Featured Event
-              </label>
+              <label for="featured" style="margin:0;font-size:13px;font-weight:900;">Mark as Featured Event</label>
             </div>
             <div class="note">Featured events show a badge on the event card and event page.</div>
           </div>
@@ -417,18 +315,9 @@ router.get("/", async (req, res) => {
           <div class="rec-box">
             <div style="font-weight:900; margin-bottom:6px;">Categories (pick up to 3)</div>
             <div class="cat-grid">
-              <div>
-                <div class="muted" style="font-size:12px; margin-bottom:6px;">Category 1</div>
-                ${categorySelect(0)}
-              </div>
-              <div>
-                <div class="muted" style="font-size:12px; margin-bottom:6px;">Category 2</div>
-                ${categorySelect(1)}
-              </div>
-              <div>
-                <div class="muted" style="font-size:12px; margin-bottom:6px;">Category 3</div>
-                ${categorySelect(2)}
-              </div>
+              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 1</div>${categorySelect(0)}</div>
+              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 2</div>${categorySelect(1)}</div>
+              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 3</div>${categorySelect(2)}</div>
             </div>
             <div class="note">Only these 12 categories are allowed. Max 3 per event.</div>
           </div>
@@ -461,9 +350,7 @@ router.get("/", async (req, res) => {
           <div class="rec-box">
             <div class="checkbox">
               <input id="hasRecurrence" type="checkbox" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
-              <label for="hasRecurrence" style="margin:0; font-size:13px; font-weight:900;">
-                Check here if the event has occurrences
-              </label>
+              <label for="hasRecurrence" style="margin:0; font-size:13px; font-weight:900;">Check here if the event has occurrences</label>
             </div>
 
             <div id="intervalRow" class="rec-row" style="margin-top:10px;">
@@ -483,9 +370,7 @@ router.get("/", async (req, res) => {
                   ${[1, 2, 3, 4]
                     .map((n) => {
                       const sel = Number(rule.interval || 1) === n ? "selected" : "";
-                      return `<option value="${n}" ${sel}>Every ${n} ${
-                        ruleType === "monthly" ? "month(s)" : "week(s)"
-                      }</option>`;
+                      return `<option value="${n}" ${sel}>Every ${n} ${ruleType === "monthly" ? "month(s)" : "week(s)"}</option>`;
                     })
                     .join("")}
                 </select>
@@ -569,7 +454,6 @@ router.get("/", async (req, res) => {
 
             <div id="customBox" style="margin-top:12px;">
               <label style="margin-top:0;">Custom dates (pick specific dates)</label>
-
               <div class="actions" style="margin-top:8px;">
                 <button type="button" id="addCustomDate" class="btn">+ Add date</button>
               </div>
@@ -588,9 +472,7 @@ router.get("/", async (req, res) => {
                   .join("")}
               </div>
 
-              <div class="note">
-                These will show on the feed for the next 3 months, and all occurrences link back to the same single event page.
-              </div>
+              <div class="note">These show on the feed for the next 3 months, and all occurrences link back to the same event page.</div>
             </div>
           </div>
 
@@ -625,15 +507,11 @@ router.get("/", async (req, res) => {
 
       <div class="card">
         <h1 style="margin-bottom:10px;">Existing Events (latest 50)</h1>
-        <div style="display:grid; gap:12px;">
-          ${listHtml}
-        </div>
+        <div style="display:grid; gap:12px;">${listHtml}</div>
       </div>
-
     </div>
 
     <script>
-      // Auto-fill end time +2 hours if empty
       const startEl = document.getElementById("startDateTime");
       const endEl = document.getElementById("endDateTime");
 
@@ -654,7 +532,6 @@ router.get("/", async (req, res) => {
         });
       }
 
-      // Recurrence UI logic
       const hasRecEl = document.getElementById("hasRecurrence");
       const typeEl = document.getElementById("recurrenceType");
       const intervalRow = document.getElementById("intervalRow");
@@ -704,7 +581,6 @@ router.get("/", async (req, res) => {
       if (monthlyModeEl) monthlyModeEl.addEventListener("change", syncRecurrenceUI);
       syncRecurrenceUI();
 
-      // Custom dates add/remove
       const addBtn = document.getElementById("addCustomDate");
       const wrap = document.getElementById("customDatesWrap");
 
@@ -744,7 +620,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// POST /admin/events -> create OR update depending on hidden id
+// POST /admin/events (create or update)
 router.post("/events", async (req, res) => {
   try {
     let {
@@ -762,11 +638,8 @@ router.post("/events", async (req, res) => {
       ticketUrl,
       ticketLabel,
       categories,
-
-      // ✅ featured checkbox
       featured,
 
-      // recurrence fields
       hasRecurrence,
       recurrenceType,
       recurrenceInterval,
@@ -778,7 +651,6 @@ router.post("/events", async (req, res) => {
       recurrenceDates,
     } = req.body;
 
-    // ✅ checkbox -> integer 0/1
     const featuredFlag = String(featured || "") === "1" ? 1 : 0;
 
     startDateTime = toLocalISOWithOffset(startDateTime);
@@ -804,15 +676,10 @@ router.post("/events", async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
-    // Slug (auto from title)
-    const baseSlug = slugify
-      ? slugify(title)
-      : String(title || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
-
+    const baseSlug = slugify(title);
     const cats = normalizeCategories(categories);
     const catsJson = JSON.stringify(cats);
 
-    // --- Recurrence build ---
     const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
     const t = String(recurrenceType || "none").toLowerCase();
 
@@ -871,7 +738,6 @@ router.post("/events", async (req, res) => {
 
     const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
 
-    // Update vs Insert
     if (id !== undefined && id !== null && String(id).trim() !== "") {
       const eventId = parseInt(String(id).trim(), 10);
       if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
