@@ -533,6 +533,7 @@ router.get("/:idOrSlug", async (req, res) => {
     if (!row) return res.status(404).json({ error: "Event not found" });
 
     const cats = safeParseJson(row.categories, []);
+
     const recurRuleObj = safeParseJson(row.recurrenceRule, null);
 
     const base = {

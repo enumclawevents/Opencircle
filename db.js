@@ -120,7 +120,7 @@ async function init() {
     `ALTER TABLE events ADD COLUMN ticketLabel TEXT`,
     `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
     `ALTER TABLE events ADD COLUMN categories TEXT`,
-    `ALTER TABLE events ADD COLUMN isFeatured INTEGER DEFAULT 0`,
+    `ALTER TABLE events ADD COLUMN Featured INTEGER DEFAULT 0`,
 
     // Recurrence (canonical)
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,

@@ -152,7 +152,7 @@ router.get("/", async (req, res) => {
   }
 
   const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
-  const isFeatured = Number(editEvent?.featured || 0) === 1;
+  const featuredFlag = String(featured || "") === "1" ? 1 : 0;
   const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
   const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
   const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
@@ -396,13 +396,14 @@ router.get("/", async (req, res) => {
           <div class="rec-box">
   <div class="checkbox">
     <input
-      type="checkbox"
-      id="isFeatured"
-      name="isFeatured"
-      value="1"
-      <?php echo !empty($editEvent?.isFeatured) ? 'checked' : ''; ?>
-    />
-    <label for="isFeatured" style="margin:0;font-size:13px;font-weight:900;">
+  type="checkbox"
+  id="featured"
+  name="featured"
+  value="1"
+  ${isFeatured ? "checked" : ""}
+/>
+
+    <label for="featured" style="margin:0;font-size:13px;font-weight:900;">
       Mark as Featured Event
     </label>
   </div>
@@ -411,6 +412,7 @@ router.get("/", async (req, res) => {
     Featured events show a badge on the event card and event page.
   </div>
 </div>
+
 
           <div class="rec-box">
             <div style="font-weight:900; margin-bottom:6px;">Categories (pick up to 3)</div>
@@ -763,6 +765,7 @@ router.post("/events", async (req, res) => {
       ticketUrl,
       ticketLabel,
       categories,
+      featured,
 
       // recurrence fields
       hasRecurrence,
@@ -886,6 +889,7 @@ router.post("/events", async (req, res) => {
              organizer=?,
              imageUrl=?,
              categories=?,
+             featured=?,
              hasRecurrence=?,
              recurrenceRule=?,
              recurrenceDates=?,
@@ -906,6 +910,7 @@ router.post("/events", async (req, res) => {
           organizer,
           imageUrl || null,
           catsJson,
+          featured,
           hasRec,
           recurrenceRuleJson,
           recurrenceDatesJson,
