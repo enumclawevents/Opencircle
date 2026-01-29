@@ -544,7 +544,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         return res.status(404).send("Event not found (ID does not exist).");
       }
 
-      return res.redirect(`/events/${eventId}`);
+      return res.redirect(`/admin?edit=${result.lastID}`);
     }
 
     // INSERT
