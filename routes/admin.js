@@ -338,7 +338,7 @@ router.get("/", async (req, res) => {
         <h1>${editEvent ? "Edit Event" : "Add Event"}</h1>
         <p class="sub"><a href="/events" target="_blank" rel="noopener">View all events (JSON)</a></p>
 
-        <form method="POST" action="/admin/events">
+        <form method="POST" action="/admin/events" enctype="multipart/form-data">
           ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
 
           <label>City</label>
