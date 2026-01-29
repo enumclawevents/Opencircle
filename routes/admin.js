@@ -653,28 +653,38 @@ router.get("/", async (req, res) => {
       }
 
       function syncRecurrenceUI() {
-        const enabled = !!(hasRecEl && hasRecEl.checked);
-        const t = (typeEl ? typeEl.value : "none");
+  const enabled = !!(hasRecEl && hasRecEl.checked);
+  const t = (typeEl ? typeEl.value : "none");
 
-        if (!enabled || t === "none") {
-          show(intervalRow, false);
-          show(weeklyBox, false);
-          show(monthlyBox, false);
-          show(customBox, false);
-          return;
-        }
+  // If not enabled, hide everything
+  if (!enabled) {
+    show(intervalRow, false);
+    show(weeklyBox, false);
+    show(monthlyBox, false);
+    show(customBox, false);
+    return;
+  }
 
-        show(intervalRow, true);
-        show(weeklyBox, t === "weekly");
-        show(monthlyBox, t === "monthly");
-        show(customBox, t === "custom");
+  // Enabled: ALWAYS show the row that contains "Occurrence Type"
+  show(intervalRow, true);
 
-        if (t === "monthly") {
-          const mm = monthlyModeEl ? monthlyModeEl.value : "monthday";
-          show(monthdayBox, mm === "monthday");
-          show(nthweekdayBox, mm === "nthweekday");
-        }
-      }
+  // Show rule-specific sections
+  show(weeklyBox, t === "weekly");
+  show(monthlyBox, t === "monthly");
+  show(customBox, t === "custom");
+
+  // Monthly sub-mode switching
+  if (t === "monthly") {
+    const mm = monthlyModeEl ? monthlyModeEl.value : "monthday";
+    show(monthdayBox, mm === "monthday");
+    show(nthweekdayBox, mm === "nthweekday");
+  } else {
+    // If not monthly, hide monthly sub-boxes so they don't flicker
+    show(monthdayBox, false);
+    show(nthweekdayBox, false);
+  }
+}
+
 
       if (hasRecEl) hasRecEl.addEventListener("change", syncRecurrenceUI);
       if (typeEl) typeEl.addEventListener("change", syncRecurrenceUI);
