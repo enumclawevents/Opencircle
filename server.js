@@ -11,6 +11,14 @@ const adminRouter = require("./routes/admin");
 
 const app = express();
 
+import path from "path";
+import express from "express";
+
+const UPLOAD_DIR = path.resolve(process.cwd(), "uploads"); // -> opencircle-api/uploads
+
+app.use("/uploads", express.static(UPLOAD_DIR));
+
+
 // If behind Render proxy, this helps req.protocol be correct
 app.set("trust proxy", 1);
 
