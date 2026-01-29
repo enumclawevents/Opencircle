@@ -112,6 +112,15 @@ async function init() {
     )
   `);
 
+    // --- NORMALIZE LEGACY FEATURED COLUMN (Featured -> featured) ---
+  try {
+    await run(`ALTER TABLE events RENAME COLUMN Featured TO featured`);
+    console.log("[DB] Renamed column Featured -> featured");
+  } catch (_) {
+    // Ignore if column doesn't exist or already renamed
+  }
+
+
   // Safe migrations (no data loss)
   const migrations = [
     `ALTER TABLE events ADD COLUMN slug TEXT`,
@@ -135,18 +144,6 @@ async function init() {
       // column already exists
     }
   }
-
-  // ---- FEATURED COMPAT BACKFILL (old column -> new canonical column) ----
-try {
-  // If the legacy "Featured" column exists, copy it into "featured"
-  await run(`
-    UPDATE events
-    SET featured = COALESCE(featured, Featured, 0)
-    WHERE featured IS NULL OR featured = 0
-  `);
-} catch (_) {
-  // ignore if legacy column doesn't exist
-}
 
 
   // Optional compat migrations (ignore if legacy cols don't exist)
