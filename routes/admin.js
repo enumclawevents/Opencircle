@@ -44,7 +44,6 @@ const storage = multer.diskStorage({
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
-
     const stamp = Date.now();
     cb(null, `${base || "event"}-${stamp}${ext}`);
   },
@@ -109,13 +108,20 @@ function parseStoredRule(stored) {
   return null;
 }
 
-// Convert datetime-local (no timezone) into ISO with local timezone offset
+function esc(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+// Convert yyyy-mm-dd + hh:mm (datetime-local-ish) into ISO with local offset
 function toLocalISOWithOffset(dtLocal) {
   const d = new Date(dtLocal);
   if (isNaN(d.getTime())) return null;
 
   const pad = (n) => String(n).padStart(2, "0");
-
   const year = d.getFullYear();
   const month = pad(d.getMonth() + 1);
   const day = pad(d.getDate());
@@ -132,158 +138,156 @@ function toLocalISOWithOffset(dtLocal) {
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
 }
 
-function toDateTimeLocalValue(isoWithOffset) {
-  if (!isoWithOffset) return "";
-  return String(isoWithOffset).slice(0, 16);
-}
-
-function toDateValue(input) {
-  if (!input) return "";
-  // If it's already YYYY-MM-DD, keep it
-  if (/^\d{4}-\d{2}-\d{2}$/.test(String(input))) return String(input);
-
-  const d = new Date(input);
+function toDateValue(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-
-function esc(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+function toTimeValue(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-
-/**
- * Optional: schema safety (so admin doesn't crash if columns don't exist)
- */
-let _eventsColsCache = null;
-async function getEventsColumns() {
-  if (_eventsColsCache) return _eventsColsCache;
-  try {
-    const rows = await all("PRAGMA table_info(events)");
-    _eventsColsCache = new Set((rows || []).map((r) => String(r.name)));
-    return _eventsColsCache;
-  } catch {
-    _eventsColsCache = new Set();
-    return _eventsColsCache;
-  }
-}
-
-// GET /admin
-router.get("/", async (req, res) => {
-  try {
-    // ✅ Resilient list query: supports optional columns
-    let events = [];
-    try {
-      events = await all(
-        "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount FROM events ORDER BY startDateTime DESC LIMIT 50"
-      );
-    } catch {
-      events = await all(
-        "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT 50"
-      );
-      events = events.map((x) => ({ ...x, goingCount: 0, interestedCount: 0 }));
-    }
-
-    const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
-    let editEvent = null;
-    if (editId) editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
-
-    const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
-    const isFeatured = Number(editEvent?.featured || 0) === 1;
-
-    // ✅ recurrence values for UI (these existed in your file, UI block was missing)
-    const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
-    const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
-    const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
-    const customDates = parseStoredDates(editEvent?.recurrenceDates);
-    const recurrenceInterval = String(rule?.interval ?? 1);
-
-// weekly rule can be array or string depending on how it was saved
-const weeklyByDay = Array.isArray(rule?.byDay)
-  ? rule.byDay
-  : (rule?.byDay ? [String(rule.byDay)] : []);
-
-const monthlyMode = String(rule?.monthlyMode || rule?.mode || "monthday");
-const byMonthday = String(rule?.byMonthday || "");
-const setPos = String(rule?.setPos ?? "1");
-const monthlyByDay = String(rule?.monthlyByDay || rule?.byDay || "TH");
 
 function isChecked(arr, v) {
   return Array.isArray(arr) && arr.includes(v) ? "checked" : "";
 }
 
-    const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
-    const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
+/**
+ * GET /admin
+ * Supports:
+ *  - ?edit=ID
+ *  - ?q=searchTerm
+ *  - ?page=1..n
+ */
+router.get("/", async (req, res) => {
+  try {
+    const pageSize = 50;
+    const page = Math.max(1, parseInt(req.query.page || "1", 10) || 1);
+    const q = String(req.query.q || "").trim();
 
-    const monthlyMode = String(rule.mode || "monthday");
+    const where = q ? `WHERE title LIKE ? OR location LIKE ? OR slug LIKE ?` : "";
+    const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`] : [];
+
+    const totalRow = await get(
+      `SELECT COUNT(*) as c FROM events ${where}`,
+      params
+    );
+    const totalCount = Number(totalRow?.c || 0);
+
+    const offset = (page - 1) * pageSize;
+    const events = await all(
+      `SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount
+       FROM events
+       ${where}
+       ORDER BY startDateTime DESC
+       LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    );
+
+    const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
+    let editEvent = null;
+    if (editId) editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
+
+    // --- Edit values ---
+    const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
+    const isFeatured = Number(editEvent?.featured || 0) === 1;
+
+    const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
+
+    const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
+    const ruleType = String(rule.type || "none").toLowerCase();
+
+    const recurrenceInterval = String(rule.interval || 1);
+    const weeklyByDay = Array.isArray(rule.byDay) ? rule.byDay : [];
+
+    // Monthly mode:
+    // - "monthday": byMonthday (1..31)
+    // - "nthweekday": setPos (1..4 or -1) + byDay (one weekday)
+    const monthlyMode = String(rule.monthlyMode || "monthday");
     const byMonthday = rule.byMonthday ? String(rule.byMonthday) : "";
-    const setPos = rule.setPos ? String(rule.setPos) : "1";
-    const monthlyByDay = rule.byDay ? String(rule.byDay) : "MO";
-    const recurrenceInterval = rule.interval ? String(rule.interval) : "1";
+    const setPos = rule.setPos !== undefined ? String(rule.setPos) : "1";
+    const monthlyByDay = rule.monthlyByDay ? String(rule.monthlyByDay) : "TH";
 
-    const categorySelect = (idx) => {
-      const current = selectedCats[idx] || "";
-      return `
-        <select name="categories" class="ctrl">
-          <option value="">— None —</option>
-          ${ALLOWED_CATEGORIES
-            .map((c) => {
-              const sel = current === c ? "selected" : "";
-              return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
-            })
-            .join("")}
-        </select>
-      `;
-    };
+    const customDates = parseStoredDates(editEvent?.recurrenceDates);
+
+    // Optional recurrence range fields (simple date inputs)
+    const recurrenceStartDate = String(editEvent?.recurrenceStartDate || "");
+    const recurrenceUntilDate = String(editEvent?.recurrenceUntilDate || "");
+
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
     const listHtml = events.length
       ? events
           .map((e) => {
             const going = Number(e.goingCount || 0);
             const interested = Number(e.interestedCount || 0);
+            const featuredPill =
+              Number(e.featured || 0) === 1
+                ? `<span class="pill" style="margin-left:8px;">Featured</span>`
+                : "";
+
+            const viewHref = e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`;
 
             return `
-          <div class="event-card" data-eid="${e.id}">
-            <div class="event-left">
-              <div class="event-title">#${e.id} — ${esc(e.title)} ${
-              Number(e.featured || 0) === 1 ? `<span class="pill" style="margin-left:8px;">Featured</span>` : ""
-            }</div>
-              <div class="event-meta">
-                <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
-                <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
-                <div><strong>Location:</strong> ${esc(e.location)}</div>
-              </div>
-              <div class="event-actions">
-                <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}" target="_blank" rel="noopener">View JSON</a>
-                <a href="/admin?edit=${e.id}">Edit</a>
-                <form method="POST"
-      action="/admin/events/${e.id}/delete"
-      class="inline"
-      onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
-  <button type="submit" class="btn btn-danger">Delete</button>
-</form>
+              <div class="event-card" data-eid="${e.id}">
+                <div class="event-left">
+                  <div class="event-title">#${e.id} — ${esc(e.title)} ${featuredPill}</div>
+                  <div class="event-meta">
+                    <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
+                    <div><strong>Start:</strong> ${esc(e.startDateTime || "")}</div>
+                    <div><strong>Location:</strong> ${esc(e.location || "")}</div>
+                  </div>
 
-              </div>
-            </div>
+                  <div class="event-actions">
+                    <a href="${viewHref}" target="_blank" rel="noopener">View JSON</a>
+                    <a href="/admin?edit=${e.id}">Edit</a>
 
-            <div class="event-stats">
-              <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
-              <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
-              <div class="note" style="margin-top:10px;">Live</div>
-            </div>
-          </div>
-        `;
+                    <form method="POST" action="/admin/events/${e.id}/delete" class="inline js-delete-form">
+                      <button type="submit" class="btn btn-danger">Delete</button>
+                    </form>
+                  </div>
+                </div>
+
+                <div class="event-stats">
+                  <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
+                  <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
+                  <div class="note" style="margin-top:10px;">Live</div>
+                </div>
+              </div>
+            `;
           })
           .join("")
-      : `<div class="muted">No events yet.</div>`;
+      : `<div class="muted">No events found.</div>`;
 
-    const isChecked = (arr, code) => (arr.includes(code) ? "checked" : "");
+    // Pagination UI
+    const pagination = totalPages > 1
+      ? (() => {
+          const mkLink = (p, label, disabled) => {
+            const cls = disabled ? "btn is-disabled" : "btn";
+            const href = disabled ? "#" : `/admin?page=${p}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+            return `<a class="${cls}" href="${href}" ${disabled ? 'aria-disabled="true" tabindex="-1"' : ""}>${label}</a>`;
+          };
+
+          const prev = mkLink(page - 1, "← Prev", page <= 1);
+          const next = mkLink(page + 1, "Next →", page >= totalPages);
+
+          return `
+            <div class="pager">
+              <div class="muted">Page ${page} of ${totalPages}</div>
+              <div class="pager-actions">
+                ${prev}
+                ${next}
+              </div>
+            </div>
+          `;
+        })()
+      : "";
 
     res.send(`<!doctype html>
 <html>
@@ -296,7 +300,7 @@ function isChecked(arr, v) {
       :root{
         --bg:#0b1220; --card:#0f172a; --text:#e5e7eb; --muted:#94a3b8;
         --line:rgba(148,163,184,.18);
-        --brand:#00c08b; --brand2:#323E48; --danger:#C3413A;
+        --brand:#00c08b; --brand2:#0aa678; --danger:#ef4444;
         --shadow:0 10px 30px rgba(0,0,0,.35);
         --radius:4px;
       }
@@ -309,21 +313,19 @@ function isChecked(arr, v) {
       .wrap{ max-width: 980px; margin: 0 auto; }
       .topbar{ display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; }
       .brand{ display:flex; align-items:center; gap:12px; }
-      .brand img{ height:42px; width:auto; display:block; }
-      .brand-title{ font-size:18px; font-weight:700; line-height:1; }
-
+      .brand img{ height:54px; width:auto; display:block; }
+      .brand-title{ font-size:18px; font-weight:800; line-height:1; }
       .pill{
         font-size:12px; color: var(--text);
-        background: rgba(63,171,209,.15);
-        border: 1px solid rgba(63,171,209,.35);
-        padding:6px 10px; border-radius:4px; font-weight:600;
+        background: rgba(0,192,139,.14);
+        border: 1px solid rgba(0,192,139,.35);
+        padding:6px 10px; border-radius:999px; font-weight:700;
         display:inline-flex; align-items:center; gap:6px;
       }
-
       .card{
         background:var(--card);
         border:1px solid var(--line);
-        border-radius: 4px;
+        border-radius: var(--radius);
         box-shadow: var(--shadow);
         padding: 18px;
       }
@@ -333,163 +335,38 @@ function isChecked(arr, v) {
       .row{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
       @media (max-width: 900px){ .row{ grid-template-columns: 1fr; } }
 
-      label{ display:block; margin: 12px 0 6px; font-weight:700; font-size:13px; }
+      label{ display:block; margin: 12px 0 6px; font-weight:800; font-size:13px; }
       .ctrl, input, textarea, select{
         width:100%; padding: 10px 12px; border: 1px solid rgba(148,163,184,.25);
-        border-radius: 4px; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
+        border-radius: var(--radius); background:#0b1220; color: var(--text); font-size: 14px; outline: none;
       }
       textarea{ min-height: 110px; resize: vertical; }
       .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
-
       .btn{
         display:inline-flex; align-items:center; justify-content:center;
-        padding: 10px 14px; border-radius: 4px;
+        padding: 10px 14px; border-radius: var(--radius);
         border: 1px solid rgba(148,163,184,.22);
-        background:#0b1220; cursor:pointer; font-weight:700; text-decoration:none; color: var(--text);
+        background:#0b1220; cursor:pointer; font-weight:800; text-decoration:none; color: var(--text);
       }
-      .btn-primary{ background: var(--brand); border-color: var(--brand); color:#06202b; }
-      .btn-primary:hover{ background: var(--brand2); border-color: var(--brand2); color:#071c24; }
+      .btn.is-disabled{ opacity:.5; pointer-events:none; }
+      .btn-primary{ background: var(--brand); border-color: var(--brand); color:#05261d; }
+      .btn-primary:hover{ background: var(--brand2); border-color: var(--brand2); }
       .btn-danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.25); color: #fecaca; }
       .btn-link{ background: transparent; border-color: transparent; color: var(--brand); padding: 8px 10px; }
       .actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 14px; }
 
-      a{ color: var(--brand); text-decoration:none; font-weight:700; }
-      a:hover{ text-decoration:underline; }
-      .inline{ display:inline; margin:0; }
-      .muted{ color: var(--muted); }
-
-      .cat-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
-      @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
-
-
-/* ===== Recurrence UI polish ===== */
-.recurrence{
-  border-radius: 4px;
-  padding: 18px;
-  background: rgba(15,23,42,.25);
-}
-
-.rec-grid{
-  display:grid;
-  grid-template-columns: 1.2fr .8fr;
-  gap: 16px;
-  align-items: end;
-}
-
-@media (max-width: 900px){
-  .rec-grid{ grid-template-columns: 1fr; }
-}
-
-.rec-label{
-  font-weight: 900;
-  font-size: 14px;
-  margin-bottom: 8px;
-  color: var(--text);
-  letter-spacing: .2px;
-}
-
-.rec-help{
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.4;
-}
-
-/* Pills for weekday selection */
-.dow{
-  display:flex;
-  flex-wrap:wrap;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.dow-pill{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 4px;
-  border: 1px solid rgba(148,163,184,.22);
-  background: rgba(11,18,32,.65);
-  color: var(--text);
-  font-weight: 800;
-  font-size: 13px;
-  cursor: pointer;
-  user-select:none;
-  transition: background .15s ease, border-color .15s ease, transform .05s ease;
-}
-
-/* Hide raw checkbox, keep accessible */
-.dow-pill input{
-  position:absolute;
-  opacity:0;
-  pointer-events:none;
-}
-
-/* Active state */
-.dow-pill:has(input:checked){
-  background: rgba(0,192,139,.18);
-  border-color: rgba(0,192,139,.45);
-  box-shadow: 0 0 0 3px rgba(0,192,139,.10);
-}
-
-.dow-pill:active{ transform: scale(.98); }
-
-/* Make select/input feel aligned */
-.recurrence .ctrl{
-  border-radius: 4px;
-}
-
-/* Make the two columns align cleanly */
-.rec-grid{
-  align-items: start;            /* was end */
-}
-
-/* Force consistent control height */
-.recurrence .ctrl{
-  height: 48px;                  /* matches your big select look */
-  padding: 0 14px;
-}
-
-/* Keep help text from "pushing" the second column weirdly */
-.recurrence #intervalRow .rec-help{
-  margin-top: 10px;
-}
-
-
-      .rec-box{
-        border:1px solid var(--line);
-        border-radius: 4px;
+      .event-card{
+        display:flex;
+        justify-content:space-between;
+        gap:16px;
+        align-items:flex-start;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
         padding: 14px;
         background: #0b1220;
-        margin-top: 10px;
       }
-      .rec-row{
-        display:grid;
-        grid-template-columns: 1fr 1fr;
-        gap:12px;
-        align-items:end;
-      }
-      @media (max-width: 900px){ .rec-row{ grid-template-columns: 1fr; } }
-
-      .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:700; }
-      .checkbox input{ width:auto; }
-
-      .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top: 10px; }
-      .chip{
-        display:inline-flex; align-items:center; gap:8px;
-        border:1px solid var(--line);
-        border-radius:4px;
-        padding: 6px 10px;
-        background: #0b1220;
-        font-size: 13px;
-      }
-      .chip button{ border:0; background: transparent; cursor:pointer; font-weight:900; color: #fecaca; }
-
-      .event-card{ border: 1px solid var(--line); border-radius: 4px; padding: 14px; background: #0b1220; display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
       .event-left{ flex: 1; min-width: 0; }
-      .event-title{ font-weight:800; margin-bottom:6px; }
+      .event-title{ font-weight:900; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
       .event-actions{ margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
 
@@ -497,23 +374,116 @@ function isChecked(arr, v) {
         width: 160px;
         flex: 0 0 160px;
         border: 1px solid var(--line);
-        border-radius: 4px;
+        border-radius: var(--radius);
         padding: 12px;
         background: rgba(15,23,42,.35);
       }
-      .stat{ display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--muted); margin: 6px 0; }
-      .stat strong{ color: var(--text); font-size: 16px; }
+      .stat{
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        font-size: 13px;
+        color: var(--muted);
+        margin: 6px 0;
+      }
+      .stat strong{
+        color: var(--text);
+        font-size: 16px;
+      }
 
-      .days{ display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
-      .day{ display:flex; gap:8px; align-items:center; font-weight:700; }
+      a{ color: var(--brand); text-decoration:none; font-weight:800; }
+      a:hover{ text-decoration:underline; }
+      .inline{ display:inline; margin:0; }
+      .muted{ color: var(--muted); }
+
+      .cat-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
+      @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
+
+      .box{
+        border:1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 14px;
+        background: #0b1220;
+        margin-top: 10px;
+      }
+      .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:900; }
+      .checkbox input{ width:auto; }
+
+      .rec-row{
+        display:grid;
+        grid-template-columns: 1.2fr .8fr;
+        gap:12px;
+        align-items:start;
+      }
+      @media (max-width: 900px){ .rec-row{ grid-template-columns: 1fr; } }
+
+      .days{
+        display:flex;
+        flex-wrap:wrap;
+        gap:10px;
+        margin-top:8px;
+      }
+      .day{
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        padding:8px 10px;
+        border:1px solid rgba(148,163,184,.22);
+        border-radius: var(--radius);
+        background: rgba(15,23,42,.35);
+        font-weight:800;
+      }
       .day input{ width:auto; }
+
+      .chips{ display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
+      .chip{
+        display:flex; align-items:center; gap:8px;
+        border:1px solid rgba(148,163,184,.22);
+        border-radius: var(--radius);
+        padding:8px;
+        background: rgba(15,23,42,.35);
+      }
+      .chip button{
+        width:28px; height:28px;
+        border-radius: var(--radius);
+        border:1px solid rgba(148,163,184,.22);
+        background:#0b1220; color: var(--text);
+        cursor:pointer; font-weight:900;
+      }
+
+      .list-head{
+        display:flex;
+        align-items:baseline;
+        justify-content:space-between;
+        gap:12px;
+        flex-wrap:wrap;
+        margin-bottom:10px;
+      }
+      .searchbar{
+        display:flex;
+        gap:10px;
+        align-items:center;
+        flex-wrap:wrap;
+      }
+
+      .pager{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:12px;
+        margin-top:14px;
+        padding-top:14px;
+        border-top:1px solid var(--line);
+      }
+      .pager-actions{ display:flex; gap:10px; }
     </style>
   </head>
+
   <body>
     <div class="wrap">
       <div class="topbar">
         <div class="brand">
-          <img src="/assets/brand/oc-logo.svg" alt="OpenCircle API" style="height:72px; width:auto; display:block;" />
+          <img src="/assets/brand/oc-logo.svg" alt="OpenCircle API" />
           <div>
             <div class="brand-title">OpenCircle Admin</div>
             <div class="muted" style="font-size:12px; margin-top:4px;">Create and manage events (SQLite)</div>
@@ -532,7 +502,7 @@ function isChecked(arr, v) {
           <label>City</label>
           <input class="ctrl" name="city" value="${esc(editEvent?.city || "Enumclaw")}" />
 
-          <div class="rec-box">
+          <div class="box">
             <div class="checkbox">
               <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
               <label for="featured" style="margin:0;font-size:13px;font-weight:900;">Mark as Featured Event</label>
@@ -540,12 +510,24 @@ function isChecked(arr, v) {
             <div class="note">Featured events show a badge on the event card and event page.</div>
           </div>
 
-          <div class="rec-box">
+          <div class="box">
             <div style="font-weight:900; margin-bottom:6px;">Categories (pick up to 3)</div>
             <div class="cat-grid">
-              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 1</div>${categorySelect(0)}</div>
-              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 2</div>${categorySelect(1)}</div>
-              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 3</div>${categorySelect(2)}</div>
+              ${[0,1,2].map((idx) => {
+                const current = selectedCats[idx] || "";
+                return `
+                  <div>
+                    <div class="muted" style="font-size:12px; margin-bottom:6px;">Category ${idx+1}</div>
+                    <select name="categories" class="ctrl">
+                      <option value="">— None —</option>
+                      ${ALLOWED_CATEGORIES.map((c) => {
+                        const sel = current === c ? "selected" : "";
+                        return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
+                      }).join("")}
+                    </select>
+                  </div>
+                `;
+              }).join("")}
             </div>
             <div class="note">Only these 12 categories are allowed. Max 3 per event.</div>
           </div>
@@ -562,170 +544,147 @@ function isChecked(arr, v) {
           <label>Good to Know</label>
           <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
 
+          <!-- Split date/time inputs -->
           <div class="row">
             <div>
-              <label>Start Date/Time</label>
-              <input id="startDateTime" class="ctrl" type="datetime-local" name="startDateTime"
-                value="${esc(toDateTimeLocalValue(editEvent?.startDateTime))}" required />
+              <label>Start</label>
+              <div class="row" style="grid-template-columns: 1fr 1fr;">
+                <input id="startDate" class="ctrl" type="date" name="startDate" value="${esc(toDateValue(editEvent?.startDateTime))}" required />
+                <input id="startTime" class="ctrl" type="time" name="startTime" value="${esc(toTimeValue(editEvent?.startDateTime))}" required />
+              </div>
             </div>
+
             <div>
-              <label>End Date/Time</label>
-              <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
-                value="${esc(toDateTimeLocalValue(editEvent?.endDateTime))}" required />
+              <label>End</label>
+              <div class="row" style="grid-template-columns: 1fr 1fr;">
+                <input id="endDate" class="ctrl" type="date" name="endDate" value="${esc(toDateValue(editEvent?.endDateTime))}" required />
+                <input id="endTime" class="ctrl" type="time" name="endTime" value="${esc(toTimeValue(editEvent?.endDateTime))}" required />
+              </div>
             </div>
           </div>
 
-         <!-- ✅ RESTORED: Recurring Events UI (polished layout) -->
-<div class="rec-box recurrence">
-  <div class="checkbox">
-    <input
-      type="checkbox"
-      id="hasRecurrence"
-      name="hasRecurrence"
-      value="1"
-      ${hasRecurrence ? "checked" : ""}
-    />
-    <label for="hasRecurrence" style="margin:0;font-size:13px;font-weight:900;">Recurring Event</label>
-  </div>
-  <div class="note">Create a recurring rule (weekly/monthly) or a custom date list.</div>
-<div class="row" style="margin-top:12px;">
-  <div>
-    <label style="margin-top:0;">First date (series starts)</label>
-    <input class="ctrl" type="date" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
-    <div class="note">First occurrence date for this recurring series.</div>
-  </div>
+          <!-- ✅ Recurring Events -->
+          <div class="box">
+            <div class="checkbox">
+              <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
+              <label for="hasRecurrence" style="margin:0;font-size:13px;font-weight:900;">Recurring Event</label>
+            </div>
+            <div class="note">Weekly, monthly (like “first Thursday”), or custom dates.</div>
 
-  <div>
-    <label style="margin-top:0;">Until date (series ends)</label>
-    <input class="ctrl" type="date" name="recurrenceUntilDate" value="${esc(recurrenceUntilDateVal)}" />
-    <div class="note">No occurrences after this date.</div>
-  </div>
-</div>
+            <div class="rec-row" style="margin-top:12px;">
+              <div>
+                <label style="margin-top:0;">Recurrence Type</label>
+                <select id="recurrenceType" name="recurrenceType" class="ctrl">
+                  <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
+                  <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
+                  <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
+                  <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Custom Dates</option>
+                </select>
+              </div>
 
-  <!-- Type + Interval in a clean grid -->
-  <div class="rec-grid" style="margin-top:12px;">
-    <div>
-      <div class="rec-label">Recurrence Type</div>
-      <select id="recurrenceType" name="recurrenceType" class="ctrl">
-        <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
-        <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
-        <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
-        <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Custom Dates</option>
-      </select>
-    </div>
+              <div id="intervalRow">
+                <label style="margin-top:0;">Interval</label>
+                <input class="ctrl" type="number" min="1" name="recurrenceInterval" value="${esc(recurrenceInterval)}" />
+                <div class="note">Example: every 1 week, every 2 weeks, every 1 month, etc.</div>
+              </div>
+            </div>
 
-    <div id="intervalRow">
-      <div class="rec-label">Interval</div>
-      <input class="ctrl" type="number" min="1" name="recurrenceInterval" value="${esc(recurrenceInterval)}" />
-      <div class="rec-help">Example: every 1 week, every 2 weeks, every 1 month, etc.</div>
-    </div>
-  </div>
+            <div class="rec-row" style="margin-top:12px;">
+              <div>
+                <label style="margin-top:0;">First Date</label>
+                <input class="ctrl" type="date" name="recurrenceStartDate" value="${esc(recurrenceStartDate)}" />
+                <div class="note">Optional. If blank, start from the event Start Date above.</div>
+              </div>
+              <div>
+                <label style="margin-top:0;">Until Date</label>
+                <input class="ctrl" type="date" name="recurrenceUntilDate" value="${esc(recurrenceUntilDate)}" />
+                <div class="note">Optional. Stops generating occurrences after this date.</div>
+              </div>
+            </div>
 
-  <!-- Weekly -->
-  <div id="weeklyBox" style="margin-top:14px;">
-    <div class="rec-label">Days of Week</div>
+            <div id="weeklyBox" style="margin-top:12px;">
+              <label>Days of Week</label>
+              <div class="days">
+                <label class="day"><input type="checkbox" name="weeklyByDay" value="SU" ${isChecked(weeklyByDay, "SU")} />Sun</label>
+                <label class="day"><input type="checkbox" name="weeklyByDay" value="MO" ${isChecked(weeklyByDay, "MO")} />Mon</label>
+                <label class="day"><input type="checkbox" name="weeklyByDay" value="TU" ${isChecked(weeklyByDay, "TU")} />Tue</label>
+                <label class="day"><input type="checkbox" name="weeklyByDay" value="WE" ${isChecked(weeklyByDay, "WE")} />Wed</label>
+                <label class="day"><input type="checkbox" name="weeklyByDay" value="TH" ${isChecked(weeklyByDay, "TH")} />Thu</label>
+                <label class="day"><input type="checkbox" name="weeklyByDay" value="FR" ${isChecked(weeklyByDay, "FR")} />Fri</label>
+                <label class="day"><input type="checkbox" name="weeklyByDay" value="SA" ${isChecked(weeklyByDay, "SA")} />Sat</label>
+              </div>
+              <div class="note">Pick one or more days.</div>
+            </div>
 
-    <!-- pill toggles -->
-    <div class="dow">
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="SU" ${isChecked(weeklyByDay, "SU")} />Sun
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="MO" ${isChecked(weeklyByDay, "MO")} />Mon
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="TU" ${isChecked(weeklyByDay, "TU")} />Tue
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="WE" ${isChecked(weeklyByDay, "WE")} />Wed
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="TH" ${isChecked(weeklyByDay, "TH")} />Thu
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="FR" ${isChecked(weeklyByDay, "FR")} />Fri
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="SA" ${isChecked(weeklyByDay, "SA")} />Sat
-      </label>
-    </div>
+            <div id="monthlyBox" style="margin-top:12px;">
+              <div class="rec-row">
+                <div>
+                  <label style="margin-top:0;">Monthly Mode</label>
+                  <select id="monthlyMode" name="monthlyMode" class="ctrl">
+                    <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
+                    <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday (ex: first Thursday)</option>
+                  </select>
+                </div>
+                <div></div>
+              </div>
 
-    <div class="rec-help">Pick one or more days.</div>
-  </div>
+              <div id="monthdayBox" style="margin-top:12px;">
+                <label>Day of Month (1–31)</label>
+                <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(byMonthday)}" />
+              </div>
 
-  <!-- Monthly -->
-  <div id="monthlyBox" style="margin-top:14px;">
-    <div class="rec-grid">
-      <div>
-        <div class="rec-label">Monthly Mode</div>
-        <select id="monthlyMode" name="monthlyMode" class="ctrl">
-          <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
-          <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday</option>
-        </select>
-      </div>
-      <div></div>
-    </div>
+              <div id="nthweekdayBox" style="margin-top:12px;">
+                <div class="rec-row">
+                  <div>
+                    <label>Which Week</label>
+                    <select name="setPos" class="ctrl">
+                      <option value="1" ${setPos === "1" ? "selected" : ""}>1st</option>
+                      <option value="2" ${setPos === "2" ? "selected" : ""}>2nd</option>
+                      <option value="3" ${setPos === "3" ? "selected" : ""}>3rd</option>
+                      <option value="4" ${setPos === "4" ? "selected" : ""}>4th</option>
+                      <option value="-1" ${setPos === "-1" ? "selected" : ""}>Last</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Weekday</label>
+                    <select name="monthlyByDay" class="ctrl">
+                      <option value="SU" ${monthlyByDay === "SU" ? "selected" : ""}>Sunday</option>
+                      <option value="MO" ${monthlyByDay === "MO" ? "selected" : ""}>Monday</option>
+                      <option value="TU" ${monthlyByDay === "TU" ? "selected" : ""}>Tuesday</option>
+                      <option value="WE" ${monthlyByDay === "WE" ? "selected" : ""}>Wednesday</option>
+                      <option value="TH" ${monthlyByDay === "TH" ? "selected" : ""}>Thursday</option>
+                      <option value="FR" ${monthlyByDay === "FR" ? "selected" : ""}>Friday</option>
+                      <option value="SA" ${monthlyByDay === "SA" ? "selected" : ""}>Saturday</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-    <div id="monthdayBox" style="margin-top:12px;">
-      <div class="rec-label">Day of Month (1–31)</div>
-      <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(byMonthday)}" />
-    </div>
+            <div id="customBox" style="margin-top:12px;">
+              <label>Custom Dates</label>
+              <div class="note">Add specific dates (YYYY-MM-DD). Time comes from the Start/End above.</div>
 
-    <div id="nthweekdayBox" style="margin-top:12px;">
-      <div class="rec-grid">
-        <div>
-          <div class="rec-label">Which Week</div>
-          <select name="setPos" class="ctrl">
-            <option value="1" ${setPos === "1" ? "selected" : ""}>1st</option>
-            <option value="2" ${setPos === "2" ? "selected" : ""}>2nd</option>
-            <option value="3" ${setPos === "3" ? "selected" : ""}>3rd</option>
-            <option value="4" ${setPos === "4" ? "selected" : ""}>4th</option>
-            <option value="-1" ${setPos === "-1" ? "selected" : ""}>Last</option>
-          </select>
-        </div>
-        <div>
-          <div class="rec-label">Weekday</div>
-          <select name="monthlyByDay" class="ctrl">
-            <option value="SU" ${monthlyByDay === "SU" ? "selected" : ""}>Sunday</option>
-            <option value="MO" ${monthlyByDay === "MO" ? "selected" : ""}>Monday</option>
-            <option value="TU" ${monthlyByDay === "TU" ? "selected" : ""}>Tuesday</option>
-            <option value="WE" ${monthlyByDay === "WE" ? "selected" : ""}>Wednesday</option>
-            <option value="TH" ${monthlyByDay === "TH" ? "selected" : ""}>Thursday</option>
-            <option value="FR" ${monthlyByDay === "FR" ? "selected" : ""}>Friday</option>
-            <option value="SA" ${monthlyByDay === "SA" ? "selected" : ""}>Saturday</option>
-          </select>
-        </div>
-      </div>
-    </div>
-  </div>
+              <div id="customDatesWrap" class="chips">
+                ${
+                  (customDates || [])
+                    .map((d) => {
+                      return `
+                        <span class="chip">
+                          <input class="ctrl" style="width:170px; padding:8px 10px;" type="date" name="recurrenceDates" value="${esc(d)}" />
+                          <button type="button" data-remove-date="1" aria-label="Remove">×</button>
+                        </span>
+                      `;
+                    })
+                    .join("")
+                }
+              </div>
 
-  <!-- Custom -->
-  <div id="customBox" style="margin-top:14px;">
-    <div class="rec-label">Custom Dates</div>
-    <div class="rec-help">Add specific dates (YYYY-MM-DD). Time comes from the Start/End above.</div>
-
-    <div id="customDatesWrap" class="chips" style="margin-top:10px;">
-      ${
-        (customDates || [])
-          .map((d) => {
-            return `
-              <span class="chip">
-                <input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="recurrenceDates" value="${esc(d)}" />
-                <button type="button" data-remove-date="1" aria-label="Remove">×</button>
-              </span>
-            `;
-          })
-          .join("")
-      }
-    </div>
-
-    <div class="actions" style="margin-top:10px;">
-      <button id="addCustomDate" type="button" class="btn">+ Add Date</button>
-    </div>
-  </div>
-</div>
-
-          <!-- ✅ END recurrence UI -->
+              <div class="actions" style="margin-top:10px;">
+                <button id="addCustomDate" type="button" class="btn">+ Add Date</button>
+              </div>
+            </div>
+          </div>
 
           <label>Flyer Image (Upload)</label>
           <input class="ctrl" type="file" name="imageFile" accept="image/*" />
@@ -734,21 +693,19 @@ function isChecked(arr, v) {
           <label style="margin-top:12px;">Image URL (optional fallback)</label>
           <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
 
-          ${
-            editEvent?.imageUrl
-              ? `<div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>`
-              : ""
+          ${editEvent?.imageUrl
+            ? `<div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>`
+            : ""
           }
 
           <div class="row">
             <div>
               <label>Ticket Button Text</label>
-              <input class="ctrl" name="ticketLabel" value="${esc(editEvent?.ticketLabel || "Tickets")}" placeholder="Tickets / Reserve / Buy Tickets..." />
+              <input class="ctrl" name="ticketLabel" value="${esc(editEvent?.ticketLabel || "Tickets")}" />
             </div>
             <div>
               <label>Ticket Link (URL)</label>
               <input class="ctrl" name="ticketUrl" value="${esc(editEvent?.ticketUrl || "")}" placeholder="https://..." />
-              <div class="note">If provided, a ticket button will show on the event page.</div>
             </div>
           </div>
 
@@ -761,208 +718,201 @@ function isChecked(arr, v) {
           <div class="actions">
             <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
             ${editEvent ? `<a class="btn btn-link" href="/admin">Cancel</a>` : ""}
-            <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
           </div>
         </form>
       </div>
 
       <div class="card">
-        <h1 style="margin-bottom:10px;">Existing Events (latest 50)</h1>
+        <div class="list-head">
+          <h1 style="margin:0;">Existing Events <span class="muted" style="font-weight:800; font-size:14px;">(${totalCount})</span></h1>
 
-<div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px;">
-  <input id="eventSearch" class="ctrl" type="text"
-         placeholder="Search by title, slug, location, or ID..." />
-  <button id="eventSearchClear" type="button" class="btn">Clear</button>
-</div>
+          <form class="searchbar" method="GET" action="/admin">
+            <input class="ctrl" style="width:320px;" name="q" value="${esc(q)}" placeholder="Search title, location, or slug..." />
+            <button class="btn" type="submit">Search</button>
+            ${q ? `<a class="btn btn-link" href="/admin">Clear</a>` : ""}
+          </form>
+        </div>
 
-<div id="eventsList" style="display:grid; gap:12px;">${listHtml}</div>
-<div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
-
+        <div style="display:grid; gap:12px;">${listHtml}</div>
+        ${pagination}
       </div>
     </div>
 
     <script>
-      // Auto-set End = Start + 2 hours (only if end is empty)
+      // Delete confirmation
       (function(){
-        var startEl = document.getElementById("startDateTime");
-        var endEl = document.getElementById("endDateTime");
-        if (!startEl || !endEl) return;
-
-        function pad(n){ return String(n).padStart(2, "0"); }
-
-        startEl.addEventListener("change", function(){
-          if (!startEl.value) return;
-          if (!endEl.value) {
-            var d = new Date(startEl.value);
-            if (isNaN(d.getTime())) return;
-            d.setHours(d.getHours() + 2);
-            endEl.value =
-              d.getFullYear() + "-" +
-              pad(d.getMonth() + 1) + "-" +
-              pad(d.getDate()) + "T" +
-              pad(d.getHours()) + ":" +
-              pad(d.getMinutes());
-          }
-        });
+        var forms = document.querySelectorAll(".js-delete-form");
+        for (var i=0;i<forms.length;i++){
+          forms[i].addEventListener("submit", function(ev){
+            if(!confirm("Delete this event? This cannot be undone.")){
+              ev.preventDefault();
+            }
+          });
+        }
       })();
 
-(function(){
-  var input = document.getElementById('eventSearch');
-  var clearBtn = document.getElementById('eventSearchClear');
-  if(!input) return;
-
-  function normalize(s){ return String(s || '').toLowerCase(); }
-
-  function applyFilter(){
-    var q = normalize(input.value).trim();
-    var cards = document.querySelectorAll('.event-card[data-eid]');
-    var shown = 0;
-
-    for(var i=0;i<cards.length;i++){
-      var card = cards[i];
-      var hay = normalize(card.textContent);
-      var ok = !q || hay.indexOf(q) !== -1;
-      card.style.display = ok ? '' : 'none';
-      if(ok) shown++;
-    }
-
-    var empty = document.getElementById('eventsEmpty');
-    if(empty) empty.style.display = shown ? 'none' : '';
-  }
-
-  input.addEventListener('input', applyFilter);
-  if(clearBtn){
-    clearBtn.addEventListener('click', function(){
-      input.value = '';
-      applyFilter();
-      input.focus();
-    });
-  }
-
-  applyFilter();
-})();
-
-      // Recurrence UI show/hide
+      // Live counts refresh (safe)
       (function(){
-        var hasRecEl = document.getElementById("hasRecurrence");
-        var typeEl = document.getElementById("recurrenceType");
+        function updateCard(card, payload){
+          if(!card || !payload) return;
+          var g = card.querySelector('.js-going');
+          var i = card.querySelector('.js-interested');
+          var e = payload.data ? payload.data : payload;
+          if(!e) return;
+
+          if(g && typeof e.goingCount !== 'undefined') g.textContent = String(Number(e.goingCount || 0));
+          if(i && typeof e.interestedCount !== 'undefined') i.textContent = String(Number(e.interestedCount || 0));
+        }
+
+        async function refreshOne(card){
+          var id = card.getAttribute('data-eid');
+          if(!id) return;
+          try{
+            var res = await fetch('/events/' + encodeURIComponent(id), { headers: { 'Accept': 'application/json' } });
+            if(!res.ok) return;
+            var json = await res.json();
+            updateCard(card, json);
+          }catch(_){}
+        }
+
+        function tick(){
+          var cards = document.querySelectorAll('.event-card[data-eid]');
+          for(var j=0;j<cards.length;j++){
+            refreshOne(cards[j]);
+          }
+        }
+
+        tick();
+        setInterval(tick, 15000);
+      })();
+
+      // Auto-set End = Start + 2 hours (safe)
+      (function(){
+        var sd = document.getElementById('startDate');
+        var st = document.getElementById('startTime');
+        var ed = document.getElementById('endDate');
+        var et = document.getElementById('endTime');
+        if(!sd || !st || !ed || !et) return;
+
+        function pad(n){ return String(n).padStart(2,'0'); }
+
+        function getStart(){
+          if(!sd.value || !st.value) return null;
+          var d = new Date(sd.value + 'T' + st.value);
+          if(isNaN(d.getTime())) return null;
+          return d;
+        }
+
+        function getEnd(){
+          if(!ed.value || !et.value) return null;
+          var d = new Date(ed.value + 'T' + et.value);
+          if(isNaN(d.getTime())) return null;
+          return d;
+        }
+
+        function setEnd(d){
+          ed.value = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+          et.value = pad(d.getHours()) + ':' + pad(d.getMinutes());
+        }
+
+        function maybeSetEnd(){
+          var s = getStart();
+          if(!s) return;
+          var e = getEnd();
+          if(!e || e.getTime() <= s.getTime()){
+            var d = new Date(s.getTime());
+            d.setHours(d.getHours() + 2);
+            setEnd(d);
+          }
+        }
+
+        sd.addEventListener('change', maybeSetEnd);
+        st.addEventListener('change', maybeSetEnd);
+        sd.addEventListener('blur', maybeSetEnd);
+        st.addEventListener('blur', maybeSetEnd);
+
+        maybeSetEnd();
+      })();
+
+      // Recurrence UI logic + custom date chips
+      (function(){
+        var hasRec = document.getElementById("hasRecurrence");
+        var typeSel = document.getElementById("recurrenceType");
         var intervalRow = document.getElementById("intervalRow");
         var weeklyBox = document.getElementById("weeklyBox");
         var monthlyBox = document.getElementById("monthlyBox");
         var customBox = document.getElementById("customBox");
 
-        var monthlyModeEl = document.getElementById("monthlyMode");
+        var monthlyMode = document.getElementById("monthlyMode");
         var monthdayBox = document.getElementById("monthdayBox");
         var nthweekdayBox = document.getElementById("nthweekdayBox");
 
-        function show(el, on){
-          if(!el) return;
-          el.style.display = on ? "" : "none";
-        }
+        var addBtn = document.getElementById("addCustomDate");
+        var wrap = document.getElementById("customDatesWrap");
 
-        function sync(){
-          var enabled = !!(hasRecEl && hasRecEl.checked);
-          var t = typeEl ? String(typeEl.value || "none") : "none";
+        function show(el, on){ if(!el) return; el.style.display = on ? "" : "none"; }
 
-          if(!enabled){
-            show(intervalRow, false);
-            show(weeklyBox, false);
-            show(monthlyBox, false);
-            show(customBox, false);
-            return;
-          }
+        function refresh(){
+          var enabled = hasRec && hasRec.checked;
+          show(typeSel && typeSel.closest(".rec-row"), enabled);
+          show(intervalRow, enabled);
 
-          show(intervalRow, true);
+          var t = enabled ? (typeSel ? typeSel.value : "none") : "none";
+
           show(weeklyBox, t === "weekly");
           show(monthlyBox, t === "monthly");
           show(customBox, t === "custom");
 
-          if(t === "monthly"){
-            var mm = monthlyModeEl ? String(monthlyModeEl.value || "monthday") : "monthday";
-            show(monthdayBox, mm === "monthday");
-            show(nthweekdayBox, mm === "nthweekday");
-          } else {
-            show(monthdayBox, false);
-            show(nthweekdayBox, false);
+          // Interval not needed for custom dates
+          if(intervalRow) intervalRow.style.display = (t === "custom" || t === "none") ? "none" : "";
+
+          // Monthly mode toggles
+          if(monthlyMode){
+            var m = monthlyMode.value;
+            show(monthdayBox, t === "monthly" && m === "monthday");
+            show(nthweekdayBox, t === "monthly" && m === "nthweekday");
           }
         }
 
-        if(hasRecEl) hasRecEl.addEventListener("change", sync);
-        if(typeEl) typeEl.addEventListener("change", sync);
-        if(monthlyModeEl) monthlyModeEl.addEventListener("change", sync);
-        sync();
+        if(hasRec) hasRec.addEventListener("change", refresh);
+        if(typeSel) typeSel.addEventListener("change", refresh);
+        if(monthlyMode) monthlyMode.addEventListener("change", refresh);
 
-        // Custom date chips
-        var addBtn = document.getElementById("addCustomDate");
-        var wrap = document.getElementById("customDatesWrap");
-
-        function attachRemove(){
-          if(!wrap) return;
-          var btns = wrap.querySelectorAll("button[data-remove-date]");
-          for(var i=0;i<btns.length;i++){
-            btns[i].onclick = function(){
-              var chip = this.closest(".chip");
-              if(chip) chip.remove();
-            };
-          }
-        }
-        attachRemove();
-
+        // custom dates add/remove
         if(addBtn && wrap){
           addBtn.addEventListener("click", function(){
             var chip = document.createElement("span");
             chip.className = "chip";
-
-            // no backticks in the HTML, avoid escaping issues
             chip.innerHTML =
-              '<input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="recurrenceDates" value="" />' +
+              '<input class="ctrl" style="width:170px; padding:8px 10px;" type="date" name="recurrenceDates" value="" />' +
               '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
-
             wrap.appendChild(chip);
-            attachRemove();
+          });
+
+          wrap.addEventListener("click", function(ev){
+            var t = ev.target;
+            if(t && t.getAttribute && t.getAttribute("data-remove-date") === "1"){
+              ev.preventDefault();
+              var chip = t.closest(".chip");
+              if(chip) chip.remove();
+            }
           });
         }
-      })();
 
-      // Live going/interested refresh (optional, safe)
-      (function(){
-        async function refreshOne(card){
-          var id = card.getAttribute("data-eid");
-          if(!id) return;
-
-          try{
-            var res = await fetch("/events/" + encodeURIComponent(id), { headers: { "Accept": "application/json" } });
-            if(!res.ok) return;
-            var json = await res.json();
-            var e = (json && json.data) ? json.data : json;
-
-            var g = card.querySelector(".js-going");
-            var i = card.querySelector(".js-interested");
-
-            if(g && e && typeof e.goingCount !== "undefined") g.textContent = String(Number(e.goingCount || 0));
-            if(i && e && typeof e.interestedCount !== "undefined") i.textContent = String(Number(e.interestedCount || 0));
-          }catch(_){}
-        }
-
-        function tick(){
-          var cards = document.querySelectorAll(".event-card[data-eid]");
-          for(var j=0;j<cards.length;j++){
-            refreshOne(cards[j]);
-          }
-        }
-        tick();
-        setInterval(tick, 15000);
+        refresh();
       })();
     </script>
   </body>
 </html>`);
   } catch (err) {
-    console.error(err);
+    console.error("[ADMIN] GET /admin error:", err);
     res.status(500).send("Internal server error");
   }
 });
 
-// POST /admin/events (create or update)
+/**
+ * POST /admin/events (create or update)
+ */
 router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
     let {
@@ -972,8 +922,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       description,
       eventDetails,
       goodToKnow,
-      startDateTime,
-      endDateTime,
+      startDate,
+      startTime,
+      endDate,
+      endTime,
       location,
       organizer,
       imageUrl,
@@ -982,6 +934,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       categories,
       featured,
 
+      // recurrence
       hasRecurrence,
       recurrenceType,
       recurrenceInterval,
@@ -993,8 +946,22 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       recurrenceDates,
       recurrenceStartDate,
       recurrenceUntilDate,
-
     } = req.body;
+
+    // Build datetime-local strings from split inputs
+    let startDateTime = (startDate && startTime) ? `${startDate}T${startTime}` : "";
+    let endDateTime   = (endDate && endTime) ? `${endDate}T${endTime}` : "";
+
+    // If end missing, default to +2 hours
+    if (startDateTime && (!endDateTime || !endDate || !endTime)) {
+      const d = new Date(startDateTime);
+      if (!isNaN(d.getTime())) {
+        d.setHours(d.getHours() + 2);
+        const pad = (n) => String(n).padStart(2, "0");
+        endDateTime =
+          `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+    }
 
     // If a file was uploaded, prefer it over the URL field
     if (req.file && req.file.filename) {
@@ -1005,6 +972,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     const featuredFlag = String(featured || "") === "1" ? 1 : 0;
 
+    // Convert to stored format
     startDateTime = toLocalISOWithOffset(startDateTime);
     endDateTime = toLocalISOWithOffset(endDateTime);
 
@@ -1032,92 +1000,60 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     const cats = normalizeCategories(categories);
     const catsJson = JSON.stringify(cats);
 
-    // recurrence normalize (this matches your existing logic)
-    const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
-    const t = String(recurrenceType || "none").toLowerCase();
+    // --- Recurrence payload ---
+    const hasRecurrenceFlag = String(hasRecurrence || "") === "1" ? 1 : 0;
+    const type = String(recurrenceType || "none").toLowerCase();
 
-    let recurrenceRule = null;
-    let recurrenceDatesJson = null;
+    let ruleObj = null;
+    let datesArr = [];
 
-    if (hasRec && t !== "none") {
-      if (t === "custom") {
-        let arr = [];
-        if (Array.isArray(recurrenceDates)) arr = recurrenceDates;
-        else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "")
-          arr = [recurrenceDates];
+    // Normalize recurrence dates array
+    if (Array.isArray(recurrenceDates)) datesArr = recurrenceDates.filter(Boolean);
+    else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "") datesArr = [recurrenceDates.trim()];
 
-        const uniq = [];
-        for (const d of arr) {
-          const v = String(d || "").trim();
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) continue;
-          if (!uniq.includes(v)) uniq.push(v);
-        }
-        uniq.sort();
+    // Build rule only if recurrence enabled + type != none
+    if (hasRecurrenceFlag && type !== "none") {
+      const interval = Math.max(1, parseInt(recurrenceInterval || "1", 10) || 1);
 
-        recurrenceRule = { type: "custom" };
-        recurrenceDatesJson = JSON.stringify(uniq);
-      }
+      if (type === "weekly") {
+        const byDay = Array.isArray(weeklyByDay)
+          ? weeklyByDay
+          : (weeklyByDay ? [weeklyByDay] : []);
 
-      if (t === "weekly") {
-        let days = [];
-        if (Array.isArray(weeklyByDay)) days = weeklyByDay;
-        else if (typeof weeklyByDay === "string" && weeklyByDay.trim() !== "") days = [weeklyByDay];
-
-        const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
-        const uniq = [];
-        for (const d of days.map((x) => String(x).trim()).filter(Boolean)) {
-          if (!allowed.has(d)) continue;
-          if (!uniq.includes(d)) uniq.push(d);
-        }
-
-        const interval = Math.max(1, parseInt(recurrenceInterval || "1", 10) || 1);
-        recurrenceRule = { type: "weekly", interval, byDay: uniq };
-      }
-
-      if (t === "monthly") {
-        const interval = Math.max(1, parseInt(recurrenceInterval || "1", 10) || 1);
-        const mode = String(monthlyMode || "monthday");
-
-        if (mode === "nthweekday") {
-          const sp = parseInt(setPos || "1", 10);
-          const wd = String(monthlyByDay || "").trim();
-          recurrenceRule = { type: "monthly", interval, mode: "nthweekday", setPos: sp, byDay: wd };
+        ruleObj = { type: "weekly", interval, byDay };
+      } else if (type === "monthly") {
+        const mm = String(monthlyMode || "monthday");
+        if (mm === "nthweekday") {
+          ruleObj = {
+            type: "monthly",
+            interval,
+            monthlyMode: "nthweekday",
+            setPos: parseInt(setPos || "1", 10) || 1,
+            monthlyByDay: String(monthlyByDay || "TH"),
+          };
         } else {
-          const md = Math.max(1, Math.min(31, parseInt(byMonthday || "0", 10) || 0));
-          recurrenceRule = { type: "monthly", interval, mode: "monthday", byMonthday: md };
+          ruleObj = {
+            type: "monthly",
+            interval,
+            monthlyMode: "monthday",
+            byMonthday: parseInt(byMonthday || "1", 10) || 1,
+          };
         }
+      } else if (type === "custom") {
+        ruleObj = { type: "custom", interval: 1 };
       }
+    } else {
+      // not recurring
+      ruleObj = { type: "none", interval: 1 };
+      datesArr = [];
     }
 
-    const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
-function cleanYmd(v) {
-  const s = String(v || "").trim();
-  if (!s) return null;
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
-}
+    const recurrenceRuleJson = JSON.stringify(ruleObj || { type: "none", interval: 1 });
+    const recurrenceDatesJson = JSON.stringify(datesArr || []);
 
-let recStart = cleanYmd(recurrenceStartDate);
-let recUntil = cleanYmd(recurrenceUntilDate);
-
-// If not recurring, don't store these
-if (hasRec !== 1) {
-  recStart = null;
-  recUntil = null;
-}
-
-// Default: first date falls back to the event start date
-if (hasRec === 1 && !recStart) {
-  recStart = toDateValue(startDateTime);
-}
-
-// Validate ordering if both exist
-if (hasRec === 1 && recStart && recUntil && recUntil < recStart) {
-  return res.status(400).send("Until date must be on or after the First date.");
-}
-
-    // schema safety: only write recurrence cols if they exist
-    const cols = await getEventsColumns();
-    const hasRecCols = cols.has("hasRecurrence") && cols.has("recurrenceRule") && cols.has("recurrenceDates");
+    // sanitize recurrence range dates (YYYY-MM-DD or empty)
+    const recStart = (typeof recurrenceStartDate === "string" && recurrenceStartDate.trim()) ? recurrenceStartDate.trim() : null;
+    const recUntil = (typeof recurrenceUntilDate === "string" && recurrenceUntilDate.trim()) ? recurrenceUntilDate.trim() : null;
 
     // UPDATE
     if (id !== undefined && id !== null && String(id).trim() !== "") {
@@ -1126,25 +1062,83 @@ if (hasRec === 1 && recStart && recUntil && recUntil < recStart) {
 
       const finalSlug = await ensureUniqueSlug(baseSlug, eventId);
 
-      const sets = [
-        "city=?",
-        "slug=?",
-        "title=?",
-        "description=?",
-        "eventDetails=?",
-        "goodToKnow=?",
-        "ticketUrl=?",
-        "ticketLabel=?",
-        "startDateTime=?",
-        "endDateTime=?",
-        "location=?",
-        "organizer=?",
-        "imageUrl=?",
-        "categories=?",
-        "featured=?",
-      ];
+      const result = await run(
+        `UPDATE events
+         SET city=?,
+             slug=?,
+             title=?,
+             description=?,
+             eventDetails=?,
+             goodToKnow=?,
+             ticketUrl=?,
+             ticketLabel=?,
+             startDateTime=?,
+             endDateTime=?,
+             location=?,
+             organizer=?,
+             imageUrl=?,
+             categories=?,
+             featured=?,
 
-      const vals = [
+             hasRecurrence=?,
+             recurrenceRule=?,
+             recurrenceDates=?,
+             recurrenceStartDate=?,
+             recurrenceUntilDate=?,
+
+             updatedAt=datetime('now')
+         WHERE id=?`,
+        [
+          city,
+          finalSlug,
+          title,
+          description,
+          eventDetails || null,
+          goodToKnow || null,
+          ticketUrl || null,
+          finalTicketLabel,
+          startDateTime,
+          endDateTime,
+          location,
+          organizer,
+          imageUrl || null,
+          catsJson,
+          featuredFlag,
+
+          hasRecurrenceFlag,
+          recurrenceRuleJson,
+          recurrenceDatesJson,
+          recStart,
+          recUntil,
+
+          eventId,
+        ]
+      );
+
+      if (result && typeof result.changes === "number" && result.changes === 0) {
+        return res.status(404).send("Event not found (ID does not exist).");
+      }
+
+      return res.redirect(`/admin?edit=${eventId}&saved=1`);
+    }
+
+    // INSERT
+    const finalSlug = await ensureUniqueSlug(baseSlug);
+
+    const result = await run(
+      `INSERT INTO events (
+        city, slug, title, description, eventDetails, goodToKnow,
+        ticketUrl, ticketLabel,
+        startDateTime, endDateTime, location, organizer,
+        imageUrl, categories,
+        featured,
+
+        hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate,
+
+        updatedAt
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
         city,
         finalSlug,
         title,
@@ -1160,84 +1154,18 @@ if (hasRec === 1 && recStart && recUntil && recUntil < recStart) {
         imageUrl || null,
         catsJson,
         featuredFlag,
-      ];
 
-      if (hasRecCols) {
-        sets.push("hasRecurrence=?", "recurrenceRule=?", "recurrenceDates=?");
-        vals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
-      }
-
-      sets.push("updatedAt=datetime('now')");
-      vals.push(eventId);
-
-      const result = await run(
-        `UPDATE events SET ${sets.join(", ")} WHERE id=?`,
-        vals
-      );
-
-      if (result && typeof result.changes === "number" && result.changes === 0) {
-        return res.status(404).send("Event not found (ID does not exist).");
-      }
-
-      return res.redirect(`/admin?edit=${eventId}`);
-    }
-
-    // INSERT
-    const finalSlug = await ensureUniqueSlug(baseSlug);
-
-    const insertCols = [
-      "city",
-      "slug",
-      "title",
-      "description",
-      "eventDetails",
-      "goodToKnow",
-      "ticketUrl",
-      "ticketLabel",
-      "startDateTime",
-      "endDateTime",
-      "location",
-      "organizer",
-      "imageUrl",
-      "categories",
-      "featured",
-    ];
-
-    const insertVals = [
-      city,
-      finalSlug,
-      title,
-      description,
-      eventDetails || null,
-      goodToKnow || null,
-      ticketUrl || null,
-      finalTicketLabel,
-      startDateTime,
-      endDateTime,
-      location,
-      organizer,
-      imageUrl || null,
-      catsJson,
-      featuredFlag,
-    ];
-
-    if (hasRecCols) {
-      insertCols.push("hasRecurrence", "recurrenceRule", "recurrenceDates");
-      insertVals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
-    }
-
-    insertCols.push("updatedAt");
-
-    const placeholders = insertCols.map(() => "?").join(", ");
-
-    const result = await run(
-      `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.replace(/\?$/, "datetime('now')")})`,
-      insertVals
+        hasRecurrenceFlag,
+        recurrenceRuleJson,
+        recurrenceDatesJson,
+        recStart,
+        recUntil,
+      ]
     );
 
-    return res.redirect(`/events/${result.lastID}`);
+    return res.redirect(`/admin?edit=${result.lastID}&saved=1`);
   } catch (err) {
-    console.error(err);
+    console.error("[ADMIN] POST /admin/events error:", err);
     res.status(500).send("Server error.");
   }
 });
@@ -1251,7 +1179,7 @@ router.post("/events/:id/delete", async (req, res) => {
     await run("DELETE FROM events WHERE id = ?", [id]);
     res.redirect("/admin");
   } catch (err) {
-    console.error(err);
+    console.error("[ADMIN] DELETE error:", err);
     res.status(500).send("Server error.");
   }
 });
