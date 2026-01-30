@@ -27,7 +27,6 @@ const ALLOWED_CATEGORIES = [
 ];
 
 // --- Uploads (local disk or Render disk mount) ---
-// IMPORTANT: use repo-root /uploads (opencircle-api/uploads)
 const UPLOAD_DIR =
   process.env.UPLOADS_DIR ||
   (process.env.RENDER_DISK_PATH
@@ -124,7 +123,7 @@ function toLocalISOWithOffset(dtLocal) {
   const minutes = pad(d.getMinutes());
   const seconds = "00";
 
-  const offsetMin = -d.getTimezoneOffset(); // minutes east of UTC
+  const offsetMin = -d.getTimezoneOffset();
   const sign = offsetMin >= 0 ? "+" : "-";
   const abs = Math.abs(offsetMin);
   const offH = pad(Math.floor(abs / 60));
@@ -133,9 +132,20 @@ function toLocalISOWithOffset(dtLocal) {
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
 }
 
-function toDateTimeLocalValue(isoWithOffset) {
-  if (!isoWithOffset) return "";
-  return String(isoWithOffset).slice(0, 16);
+function toDateValue(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function toTimeValue(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function esc(s) {
@@ -200,7 +210,6 @@ router.get("/", async (req, res) => {
               </a>
               <a href="/admin?edit=${e.id}">Edit</a>
 
-              <!-- FIXED: delete goes to /admin/events/:id/delete -->
               <form method="POST" action="/admin/events/${e.id}/delete" class="inline">
                 <button type="submit" class="btn btn-danger">Delete</button>
               </form>
@@ -220,6 +229,7 @@ router.get("/", async (req, res) => {
     <link rel="icon" href="/assets/brand/favicon.ico" />
     <title>OpenCircle Admin</title>
     <style>
+      /* your CSS unchanged */
       :root{
         --bg:#0b1220; --card:#0f172a; --text:#e5e7eb; --muted:#94a3b8;
         --line:rgba(148,163,184,.18);
@@ -297,27 +307,8 @@ router.get("/", async (req, res) => {
         background: #0b1220;
         margin-top: 10px;
       }
-      .rec-row{
-        display:grid;
-        grid-template-columns: 1fr 1fr;
-        gap:12px;
-        align-items:end;
-      }
-      @media (max-width: 900px){ .rec-row{ grid-template-columns: 1fr; } }
-
       .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:700; }
       .checkbox input{ width:auto; }
-
-      .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top: 10px; }
-      .chip{
-        display:inline-flex; align-items:center; gap:8px;
-        border:1px solid var(--line);
-        border-radius:999px;
-        padding: 6px 10px;
-        background: #0b1220;
-        font-size: 13px;
-      }
-      .chip button{ border:0; background: transparent; cursor:pointer; font-weight:900; color: #fecaca; }
     </style>
   </head>
   <body>
@@ -337,7 +328,6 @@ router.get("/", async (req, res) => {
         <h1>${editEvent ? "Edit Event" : "Add Event"}</h1>
         <p class="sub"><a href="/events" target="_blank" rel="noopener">View all events (JSON)</a></p>
 
-        <!-- IMPORTANT: enctype is required for file uploads -->
         <form method="POST" action="/admin/events" enctype="multipart/form-data">
           ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
 
@@ -374,16 +364,22 @@ router.get("/", async (req, res) => {
           <label>Good to Know</label>
           <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
 
+          <!-- Split date/time inputs -->
           <div class="row">
             <div>
-              <label>Start Date/Time</label>
-              <input id="startDateTime" class="ctrl" type="datetime-local" name="startDateTime"
-                value="${esc(toDateTimeLocalValue(editEvent?.startDateTime))}" required />
+              <label>Start</label>
+              <div class="row" style="grid-template-columns: 1fr 1fr;">
+                <input id="startDate" class="ctrl" type="date" name="startDate" value="${esc(toDateValue(editEvent?.startDateTime))}" required />
+                <input id="startTime" class="ctrl" type="time" name="startTime" value="${esc(toTimeValue(editEvent?.startDateTime))}" required />
+              </div>
             </div>
+
             <div>
-              <label>End Date/Time</label>
-              <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
-                value="${esc(toDateTimeLocalValue(editEvent?.endDateTime))}" required />
+              <label>End</label>
+              <div class="row" style="grid-template-columns: 1fr 1fr;">
+                <input id="endDate" class="ctrl" type="date" name="endDate" value="${esc(toDateValue(editEvent?.endDateTime))}" required />
+                <input id="endTime" class="ctrl" type="time" name="endTime" value="${esc(toTimeValue(editEvent?.endDateTime))}" required />
+              </div>
             </div>
           </div>
 
@@ -428,40 +424,54 @@ router.get("/", async (req, res) => {
         <div style="display:grid; gap:12px;">${listHtml}</div>
       </div>
     </div>
-             <script>
+
+    <!-- Auto-set End = Start + 2 hours (SAFE: no backticks, no ${}) -->
+    <script>
     (function(){
-      var startEl = document.getElementById('startDateTime');
-      var endEl   = document.getElementById('endDateTime');
-      if(!startEl || !endEl) return;
+      var sd = document.getElementById('startDate');
+      var st = document.getElementById('startTime');
+      var ed = document.getElementById('endDate');
+      var et = document.getElementById('endTime');
+      if(!sd || !st || !ed || !et) return;
 
       function pad(n){ return String(n).padStart(2,'0'); }
 
-      function addHours(dtLocal, hours){
-        if(!dtLocal) return '';
-        var d = new Date(dtLocal);
-        if (isNaN(d.getTime())) return '';
-        d.setHours(d.getHours() + hours);
-        return d.getFullYear() + '-' +
-          pad(d.getMonth()+1) + '-' +
-          pad(d.getDate()) + 'T' +
-          pad(d.getHours()) + ':' +
-          pad(d.getMinutes());
+      function getStart(){
+        if(!sd.value || !st.value) return null;
+        var d = new Date(sd.value + 'T' + st.value);
+        if(isNaN(d.getTime())) return null;
+        return d;
+      }
+
+      function getEnd(){
+        if(!ed.value || !et.value) return null;
+        var d = new Date(ed.value + 'T' + et.value);
+        if(isNaN(d.getTime())) return null;
+        return d;
+      }
+
+      function setEnd(d){
+        ed.value = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+        et.value = pad(d.getHours()) + ':' + pad(d.getMinutes());
       }
 
       function maybeSetEnd(){
-        var s = startEl.value;
+        var s = getStart();
         if(!s) return;
-        var sTime = new Date(s).getTime();
-        var eTime = endEl.value ? new Date(endEl.value).getTime() : NaN;
 
-        // only auto-fill if empty/invalid or <= start
-        if(!endEl.value || !isFinite(eTime) || eTime <= sTime){
-          endEl.value = addHours(s, 2);
+        var e = getEnd();
+        if(!e || e.getTime() <= s.getTime()){
+          var d = new Date(s.getTime());
+          d.setHours(d.getHours() + 2);
+          setEnd(d);
         }
       }
 
-      startEl.addEventListener('change', maybeSetEnd);
-      startEl.addEventListener('blur', maybeSetEnd);
+      sd.addEventListener('change', maybeSetEnd);
+      st.addEventListener('change', maybeSetEnd);
+      sd.addEventListener('blur', maybeSetEnd);
+      st.addEventListener('blur', maybeSetEnd);
+
       maybeSetEnd();
     })();
     </script>
@@ -485,8 +495,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       description,
       eventDetails,
       goodToKnow,
-      startDateTime,
-      endDateTime,
+      startDate,
+      startTime,
+      endDate,
+      endTime,
       location,
       organizer,
       imageUrl,
@@ -495,6 +507,21 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       categories,
       featured,
     } = req.body;
+
+    // Build datetime-local strings from split inputs
+    let startDateTime = (startDate && startTime) ? `${startDate}T${startTime}` : "";
+    let endDateTime   = (endDate && endTime) ? `${endDate}T${endTime}` : "";
+
+    // If end missing, default to +2 hours
+    if (startDateTime && (!endDateTime || !endDate || !endTime)) {
+      const d = new Date(startDateTime);
+      if (!isNaN(d.getTime())) {
+        d.setHours(d.getHours() + 2);
+        const pad = (n) => String(n).padStart(2, "0");
+        endDateTime =
+          `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+    }
 
     // If a file was uploaded, prefer it over the URL field
     if (req.file && req.file.filename) {
@@ -505,6 +532,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     const featuredFlag = String(featured || "") === "1" ? 1 : 0;
 
+    // Convert to stored format
     startDateTime = toLocalISOWithOffset(startDateTime);
     endDateTime = toLocalISOWithOffset(endDateTime);
 
@@ -582,7 +610,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         return res.status(404).send("Event not found (ID does not exist).");
       }
 
-      return res.redirect(`/admin?edit=${result.lastID}`);
+      // FIXED: redirect back to admin (and keep editing the same event)
+      return res.redirect(`/admin?edit=${eventId}`);
     }
 
     // INSERT
@@ -617,7 +646,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ]
     );
 
-    res.redirect(`/events/${result.lastID}`);
+    // FIXED: go back to admin so it appears in the list
+    return res.redirect(`/admin?edit=${result.lastID}`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error.");
