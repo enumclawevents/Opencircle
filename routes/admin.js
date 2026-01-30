@@ -611,7 +611,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       }
 
       // FIXED: redirect back to admin (and keep editing the same event)
-      return res.redirect(`/admin?edit=${eventId}`);
+      return res.redirect(`/admin?saved=1`);
     }
 
     // INSERT
