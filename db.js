@@ -66,7 +66,10 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
 
   while (true) {
     const row = excludeId
-      ? await get("SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1", [slug, excludeId])
+      ? await get(
+          "SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1",
+          [slug, excludeId]
+        )
       : await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [slug]);
 
     if (!row) return slug;
@@ -76,7 +79,7 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
 
 // ---------- INIT / MIGRATIONS ----------
 async function init() {
-  // Canonical schema
+  // Canonical schema (keep this stable)
   await run(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,9 +112,8 @@ async function init() {
       hasRecurrence INTEGER DEFAULT 0,
       recurrenceRule TEXT,      -- JSON rule object {type, interval,...}
       recurrenceDates TEXT,     -- JSON array of "YYYY-MM-DD" for custom dates
-
-      recurrenceStartDate TEXT,
-      recurrenceUntilDate TEXT,
+      recurrenceStartDate TEXT, -- optional range start
+      recurrenceUntilDate TEXT, -- optional range end
 
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
@@ -119,14 +121,14 @@ async function init() {
   `);
 
   // --- NORMALIZE LEGACY FEATURED COLUMN (Featured -> featured) ---
+  // Safe to ignore errors (column may not exist)
   try {
     await run(`ALTER TABLE events RENAME COLUMN Featured TO featured`);
     console.log("[DB] Renamed column Featured -> featured");
-  } catch (_) {
-    // Ignore if column doesn't exist or already renamed
-  }
+  } catch (_) {}
 
   // Safe migrations (no data loss)
+  // (Ignore errors if columns already exist)
   const migrations = [
     `ALTER TABLE events ADD COLUMN slug TEXT`,
     `ALTER TABLE events ADD COLUMN eventDetails TEXT`,
@@ -136,13 +138,10 @@ async function init() {
     `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
     `ALTER TABLE events ADD COLUMN categories TEXT`,
     `ALTER TABLE events ADD COLUMN featured INTEGER DEFAULT 0`,
-
     `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0`,
-
     `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT`,
     `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT`,
-
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
     `ALTER TABLE events ADD COLUMN recurrenceDates TEXT`,
@@ -152,7 +151,7 @@ async function init() {
     try {
       await run(sql);
     } catch (_) {
-      // column already exists
+      // column already exists (or older sqlite limitations)
     }
   }
 
@@ -191,11 +190,12 @@ async function init() {
 }
 
 /**
- * ✅ This is what server.js expects to call.
- * server.js does: await initDB();
+ * ✅ This is what server.js should call:
+ * const { initDB } = require("./db");
+ * initDB().then(...)
  */
 async function initDB() {
-  return init();
+  await init();
 }
 
 module.exports = {

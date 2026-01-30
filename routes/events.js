@@ -435,7 +435,7 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
     startDateTime: o.startDateTime,
     endDateTime: o.endDateTime,
     instanceId: `e${base.id}_${o.startDateTime}`,
-    baseStartDateTime: row.startDateTime,
+    baseStartDateTime: base.startDateTime,
     isOccurrence: true,
     occurrenceDate: o.occurrenceDate,
     occurrenceLabel: o.label,
