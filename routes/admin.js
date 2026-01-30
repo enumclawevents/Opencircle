@@ -638,6 +638,42 @@ router.get("/", async (req, res) => {
         });
       })();
 
+(function(){
+  var input = document.getElementById('eventSearch');
+  var clearBtn = document.getElementById('eventSearchClear');
+  if(!input) return;
+
+  function normalize(s){ return String(s || '').toLowerCase(); }
+
+  function applyFilter(){
+    var q = normalize(input.value).trim();
+    var cards = document.querySelectorAll('.event-card[data-eid]');
+    var shown = 0;
+
+    for(var i=0;i<cards.length;i++){
+      var card = cards[i];
+      var hay = normalize(card.textContent);
+      var ok = !q || hay.indexOf(q) !== -1;
+      card.style.display = ok ? '' : 'none';
+      if(ok) shown++;
+    }
+
+    var empty = document.getElementById('eventsEmpty');
+    if(empty) empty.style.display = shown ? 'none' : '';
+  }
+
+  input.addEventListener('input', applyFilter);
+  if(clearBtn){
+    clearBtn.addEventListener('click', function(){
+      input.value = '';
+      applyFilter();
+      input.focus();
+    });
+  }
+
+  applyFilter();
+})();
+
       // Recurrence UI show/hide
       (function(){
         var hasRecEl = document.getElementById("hasRecurrence");
