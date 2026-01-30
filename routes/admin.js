@@ -137,6 +137,23 @@ function toDateTimeLocalValue(isoWithOffset) {
   return String(isoWithOffset).slice(0, 16);
 }
 
+function toDateValue(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function toTimeValue(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+
 function esc(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -189,6 +206,10 @@ router.get("/", async (req, res) => {
     const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
     const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
     const customDates = parseStoredDates(editEvent?.recurrenceDates);
+
+    // ✅ first/until date values (YYYY-MM-DD) for recurrence range
+    const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
+    const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
 
     const weeklyByDay = Array.isArray(rule.byDay) ? rule.byDay : [];
     const monthlyMode = String(rule.mode || "monthday");
@@ -268,7 +289,7 @@ router.get("/", async (req, res) => {
         --line:rgba(148,163,184,.18);
         --brand:#00c08b; --brand2:#323E48; --danger:#C3413A;
         --shadow:0 10px 30px rgba(0,0,0,.35);
-        --radius:4px;
+        --radius:14px;
       }
       *{ box-sizing:border-box; }
       body{
@@ -286,14 +307,14 @@ router.get("/", async (req, res) => {
         font-size:12px; color: var(--text);
         background: rgba(63,171,209,.15);
         border: 1px solid rgba(63,171,209,.35);
-        padding:6px 10px; border-radius:4px; font-weight:600;
+        padding:6px 10px; border-radius: 4px ; font-weight:600;
         display:inline-flex; align-items:center; gap:6px;
       }
 
       .card{
         background:var(--card);
         border:1px solid var(--line);
-        border-radius: 4px;
+        border-radius: var(--radius);
         box-shadow: var(--shadow);
         padding: 18px;
       }
@@ -306,14 +327,14 @@ router.get("/", async (req, res) => {
       label{ display:block; margin: 12px 0 6px; font-weight:700; font-size:13px; }
       .ctrl, input, textarea, select{
         width:100%; padding: 10px 12px; border: 1px solid rgba(148,163,184,.25);
-        border-radius: 4px; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
+        border-radius: 4px ; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
       }
       textarea{ min-height: 110px; resize: vertical; }
       .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
 
       .btn{
         display:inline-flex; align-items:center; justify-content:center;
-        padding: 10px 14px; border-radius: 4px;
+        padding: 10px 14px; border-radius: 4px ;
         border: 1px solid rgba(148,163,184,.22);
         background:#0b1220; cursor:pointer; font-weight:700; text-decoration:none; color: var(--text);
       }
@@ -334,7 +355,7 @@ router.get("/", async (req, res) => {
 
 /* ===== Recurrence UI polish ===== */
 .recurrence{
-  border-radius: 4px;
+  border-radius: 4px ;
   padding: 18px;
   background: rgba(15,23,42,.25);
 }
@@ -379,7 +400,7 @@ router.get("/", async (req, res) => {
   justify-content:center;
   gap: 8px;
   padding: 10px 12px;
-  border-radius: 4px;
+  border-radius: 4px ;
   border: 1px solid rgba(148,163,184,.22);
   background: rgba(11,18,32,.65);
   color: var(--text);
@@ -408,7 +429,7 @@ router.get("/", async (req, res) => {
 
 /* Make select/input feel aligned */
 .recurrence .ctrl{
-  border-radius: 4px;
+  border-radius: 4px ;
 }
 
 /* Make the two columns align cleanly */
@@ -430,7 +451,7 @@ router.get("/", async (req, res) => {
 
       .rec-box{
         border:1px solid var(--line);
-        border-radius: 4px;
+        border-radius: 4px ;
         padding: 14px;
         background: #0b1220;
         margin-top: 10px;
@@ -450,14 +471,14 @@ router.get("/", async (req, res) => {
       .chip{
         display:inline-flex; align-items:center; gap:8px;
         border:1px solid var(--line);
-        border-radius:4px;
+        border-radius: 4px ;
         padding: 6px 10px;
         background: #0b1220;
         font-size: 13px;
       }
       .chip button{ border:0; background: transparent; cursor:pointer; font-weight:900; color: #fecaca; }
 
-      .event-card{ border: 1px solid var(--line); border-radius: 4px; padding: 14px; background: #0b1220; display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
+      .event-card{ border: 1px solid var(--line); border-radius: 4px ; padding: 14px; background: #0b1220; display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
       .event-left{ flex: 1; min-width: 0; }
       .event-title{ font-weight:800; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
@@ -467,7 +488,7 @@ router.get("/", async (req, res) => {
         width: 160px;
         flex: 0 0 160px;
         border: 1px solid var(--line);
-        border-radius: 4px;
+        border-radius: 4px ;
         padding: 12px;
         background: rgba(15,23,42,.35);
       }
@@ -558,6 +579,20 @@ router.get("/", async (req, res) => {
     <label for="hasRecurrence" style="margin:0;font-size:13px;font-weight:900;">Recurring Event</label>
   </div>
   <div class="note">Create a recurring rule (weekly/monthly) or a custom date list.</div>
+
+
+  <div class="row" style="margin-top:12px;">
+    <div>
+      <label style="margin-top:0;">First date (series starts)</label>
+      <input class="ctrl" type="date" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
+      <div class="note">First occurrence date for this recurring series.</div>
+    </div>
+    <div>
+      <label style="margin-top:0;">Until date (series ends)</label>
+      <input class="ctrl" type="date" name="recurrenceUntilDate" value="${esc(recurrenceUntilDateVal)}" />
+      <div class="note">No occurrences after this date.</div>
+    </div>
+  </div>
 
   <!-- Type + Interval in a clean grid -->
   <div class="rec-grid" style="margin-top:12px;">
@@ -948,7 +983,20 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       setPos,
       monthlyByDay,
       recurrenceDates,
+      recurrenceStartDate,
+      recurrenceUntilDate,
     } = req.body;
+
+    // If end is missing, default End = Start + 2 hours (server-side safety)
+    if (startDateTime && (!endDateTime || String(endDateTime).trim() === "")) {
+      const d = new Date(startDateTime);
+      if (!isNaN(d.getTime())) {
+        d.setHours(d.getHours() + 2);
+        const pad = (n) => String(n).padStart(2, "0");
+        endDateTime =
+          `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+    }
 
     // If a file was uploaded, prefer it over the URL field
     if (req.file && req.file.filename) {
@@ -1048,6 +1096,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     // schema safety: only write recurrence cols if they exist
     const cols = await getEventsColumns();
     const hasRecCols = cols.has("hasRecurrence") && cols.has("recurrenceRule") && cols.has("recurrenceDates");
+    const hasRecRangeCols = cols.has("recurrenceStartDate") && cols.has("recurrenceUntilDate");
 
     // UPDATE
     if (id !== undefined && id !== null && String(id).trim() !== "") {
@@ -1096,6 +1145,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         sets.push("hasRecurrence=?", "recurrenceRule=?", "recurrenceDates=?");
         vals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
       }
+      if (hasRecRangeCols && (typeof recurrenceStartDate !== "undefined" || typeof recurrenceUntilDate !== "undefined")) {
+        sets.push("recurrenceStartDate=?", "recurrenceUntilDate=?");
+        vals.push(recurrenceStartDate || null, recurrenceUntilDate || null);
+      }
 
       sets.push("updatedAt=datetime('now')");
       vals.push(eventId);
@@ -1109,7 +1162,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         return res.status(404).send("Event not found (ID does not exist).");
       }
 
-      return res.redirect(`/admin?edit=${eventId}`);
+      return res.redirect(`/admin?edit=${eventId}&saved=1`);
     }
 
     // INSERT
@@ -1155,17 +1208,19 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       insertCols.push("hasRecurrence", "recurrenceRule", "recurrenceDates");
       insertVals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
     }
+    if (hasRecRangeCols) {
+      insertCols.push("recurrenceStartDate", "recurrenceUntilDate");
+      insertVals.push(recurrenceStartDate || null, recurrenceUntilDate || null);
+    }
 
-    insertCols.push("updatedAt");
-
+        // INSERT
     const placeholders = insertCols.map(() => "?").join(", ");
+    const sql = `INSERT INTO events (${insertCols.join(", ")}, updatedAt) VALUES (${placeholders}, datetime('now'))`;
 
-    const result = await run(
-      `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.replace(/\?$/, "datetime('now')")})`,
-      insertVals
-    );
+    const result = await run(sql, insertVals);
 
-    return res.redirect(`/events/${result.lastID}`);
+    // After creating an event, go back to /admin with a clean form (fast entry)
+    return res.redirect(`/admin?saved=1`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error.");

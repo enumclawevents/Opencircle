@@ -148,6 +148,34 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
 
   const durationMs = Math.max(0, endUtc - startUtc);
+  // Optional recurrence range controls:
+  // - recurrenceStartDate: first date the recurrence should begin (YYYY-MM-DD)
+  // - recurrenceUntilDate: last date recurrence should generate through (YYYY-MM-DD, inclusive)
+  function parseYmdStr(s) {
+    const m = /^\s*(\d{4})-(\d{2})-(\d{2})\s*$/.exec(String(s || ""));
+    if (!m) return null;
+    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    if (!y || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    return { year: y, month: mo, day: d };
+  }
+
+  const seriesStartYmd = parseYmdStr(eventRow.recurrenceStartDate);
+  const seriesUntilYmd = parseYmdStr(eventRow.recurrenceUntilDate);
+
+  const anchorBaseLocal = seriesStartYmd
+    ? { ...seriesStartYmd, hour: startParts.hour, minute: startParts.minute, second: startParts.second, offset }
+    : startParts;
+
+  const seriesStartUtc = partsToUtcMs(anchorBaseLocal);
+  const minStartUtc = Math.max(startUtc, seriesStartUtc);
+
+  let windowEndEffUtcMs = windowEndUtcMs;
+  if (seriesUntilYmd) {
+    const untilLocalEnd = { ...seriesUntilYmd, hour: 23, minute: 59, second: 59, offset };
+    const untilUtcEnd = partsToUtcMs(untilLocalEnd);
+    windowEndEffUtcMs = Math.min(windowEndEffUtcMs, untilUtcEnd);
+  }
+  if (windowEndEffUtcMs < windowStartUtcMs) return [];
   const offset = startParts.offset;
 
   const dates = safeParseJson(eventRow.recurrenceDates, []);
@@ -173,8 +201,8 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     const occStartUtc = partsToUtcMs(occLocalParts);
     const occEndUtc = occStartUtc + durationMs;
 
-    if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
-    if (occStartUtc < startUtc) continue;
+    if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndEffUtcMs) continue;
+    if (occStartUtc < minStartUtc) continue;
 
     const occEndParts = utcMsToLocalParts(occEndUtc, offset);
 
@@ -203,6 +231,34 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
 
   const durationMs = Math.max(0, endUtc - startUtc);
+  // Optional recurrence range controls:
+  // - recurrenceStartDate: first date the recurrence should begin (YYYY-MM-DD)
+  // - recurrenceUntilDate: last date recurrence should generate through (YYYY-MM-DD, inclusive)
+  function parseYmdStr(s) {
+    const m = /^\s*(\d{4})-(\d{2})-(\d{2})\s*$/.exec(String(s || ""));
+    if (!m) return null;
+    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    if (!y || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    return { year: y, month: mo, day: d };
+  }
+
+  const seriesStartYmd = parseYmdStr(eventRow.recurrenceStartDate);
+  const seriesUntilYmd = parseYmdStr(eventRow.recurrenceUntilDate);
+
+  const anchorBaseLocal = seriesStartYmd
+    ? { ...seriesStartYmd, hour: startParts.hour, minute: startParts.minute, second: startParts.second, offset }
+    : startParts;
+
+  const seriesStartUtc = partsToUtcMs(anchorBaseLocal);
+  const minStartUtc = Math.max(startUtc, seriesStartUtc);
+
+  let windowEndEffUtcMs = windowEndUtcMs;
+  if (seriesUntilYmd) {
+    const untilLocalEnd = { ...seriesUntilYmd, hour: 23, minute: 59, second: 59, offset };
+    const untilUtcEnd = partsToUtcMs(untilLocalEnd);
+    windowEndEffUtcMs = Math.min(windowEndEffUtcMs, untilUtcEnd);
+  }
+  if (windowEndEffUtcMs < windowStartUtcMs) return [];
   const offset = startParts.offset;
 
   const rule = safeParseJson(eventRow.recurrenceRule, null);
@@ -257,8 +313,8 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       const occStartUtc = partsToUtcMs(occLocalParts);
       const occEndUtc = occStartUtc + durationMs;
 
-      if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
-      if (occStartUtc < startUtc) continue;
+      if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndEffUtcMs) continue;
+      if (occStartUtc < minStartUtcMs) continue;
 
       const occEndParts = utcMsToLocalParts(occEndUtc, offset);
 
@@ -278,7 +334,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     const mode = rule.mode === "nthweekday" ? "nthweekday" : "monthday";
 
     const windowStartLocal = utcMsToLocalParts(windowStartUtcMs, offset);
-    const windowEndLocal = utcMsToLocalParts(windowEndUtcMs, offset);
+    const windowEndLocal = utcMsToLocalParts(windowEndEffUtcMs, offset);
 
     const anchorY = anchorLocal.year;
     const anchorM = anchorLocal.month;
@@ -320,8 +376,8 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       const occStartUtc = partsToUtcMs(occLocalParts);
       const occEndUtc = occStartUtc + durationMs;
 
-      if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
-      if (occStartUtc < startUtc) continue;
+      if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndEffUtcMs) continue;
+      if (occStartUtc < minStartUtcMs) continue;
 
       const occEndParts = utcMsToLocalParts(occEndUtc, offset);
 
@@ -351,6 +407,8 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
     hasRecurrence: Number(row.hasRecurrence || 0),
     recurrenceRule: recurRuleObj,
     recurrenceDates: Array.isArray(recurDatesArr) ? recurDatesArr : [],
+    recurrenceStartDate: row.recurrenceStartDate || null,
+    recurrenceUntilDate: row.recurrenceUntilDate || null,
     featured: Number(row.featured || 0),
   };
 
@@ -392,7 +450,7 @@ router.get("/", async (req, res) => {
 
     const nowUtc = Date.now();
     const windowDays = 90;
-    const windowStartUtc = nowUtc - 5 * 60 * 1000;
+    const windowStartUtc = nowUtc - 24 * 60 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
     const rows = await all(
@@ -407,6 +465,8 @@ router.get("/", async (req, res) => {
         hasRecurrence: Number(r.hasRecurrence || 0),
         recurrenceRule: safeParseJson(r.recurrenceRule, null),
         recurrenceDates: safeParseJson(r.recurrenceDates, []),
+        recurrenceStartDate: r.recurrenceStartDate || null,
+        recurrenceUntilDate: r.recurrenceUntilDate || null,
         featured: Number(r.featured || 0),
       }));
       return res.json({ data: normalized });
@@ -449,12 +509,14 @@ router.get("/slug/:slug", async (req, res) => {
       hasRecurrence: Number(row.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(row.recurrenceDates, []),
+      recurrenceStartDate: row.recurrenceStartDate || null,
+      recurrenceUntilDate: row.recurrenceUntilDate || null,
       featured: Number(row.featured || 0),
     };
 
     const nowUtc = Date.now();
     const windowDays = 90;
-    const windowStartUtc = nowUtc - 5 * 60 * 1000;
+    const windowStartUtc = nowUtc - 24 * 60 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
     const occurrences = base.hasRecurrence && base.recurrenceRule
@@ -497,12 +559,14 @@ router.get("/:idOrSlug", async (req, res) => {
       hasRecurrence: Number(row.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(row.recurrenceDates, []),
+      recurrenceStartDate: row.recurrenceStartDate || null,
+      recurrenceUntilDate: row.recurrenceUntilDate || null,
       featured: Number(row.featured || 0),
     };
 
     const nowUtc = Date.now();
     const windowDays = 90;
-    const windowStartUtc = nowUtc - 5 * 60 * 1000;
+    const windowStartUtc = nowUtc - 24 * 60 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
     const occurrences = base.hasRecurrence && base.recurrenceRule
