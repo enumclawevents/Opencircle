@@ -159,19 +159,29 @@ function esc(s) {
 // GET /admin
 router.get("/", async (req, res) => {
   try {
-    const events = await all(
-  "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount FROM events ORDER BY startDateTime DESC LIMIT 50"
-);
-
+    // ✅ Resilient query: works even if goingCount/interestedCount columns don't exist yet
+    let events = [];
+    try {
+      events = await all(
+        "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount FROM events ORDER BY startDateTime DESC LIMIT 50"
+      );
+    } catch (e) {
+      events = await all(
+        "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT 50"
+      );
+      events = events.map((x) => ({ ...x, goingCount: 0, interestedCount: 0 }));
+    }
 
     const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
-    let editEvent = null;
+    const saved = String(req.query.saved || "") === "1";
 
+    let editEvent = null;
     if (editId) editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
 
     const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
     const isFeatured = Number(editEvent?.featured || 0) === 1;
 
+    // (kept for future recurrence work)
     const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
     const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
     const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
@@ -192,16 +202,19 @@ router.get("/", async (req, res) => {
       `;
     };
 
-const listHtml = events.length
-  ? events.map((e) => {
-      const going = Number(e.goingCount || 0);
-      const interested = Number(e.interestedCount || 0);
+    const listHtml = events.length
+      ? events
+          .map((e) => {
+            const going = Number(e.goingCount || 0);
+            const interested = Number(e.interestedCount || 0);
 
-      return `
+            return `
         <div class="event-card" data-eid="${e.id}">
           <div class="event-left">
             <div class="event-title">#${e.id} — ${esc(e.title)} ${
-              Number(e.featured || 0) === 1 ? `<span class="pill" style="margin-left:8px;">Featured</span>` : ""
+              Number(e.featured || 0) === 1
+                ? `<span class="pill" style="margin-left:8px;">Featured</span>`
+                : ""
             }</div>
 
             <div class="event-meta">
@@ -227,9 +240,9 @@ const listHtml = events.length
           </div>
         </div>
       `;
-    }).join("")
-  : `<div class="muted">No events yet.</div>`;
-
+          })
+          .join("")
+      : `<div class="muted">No events yet.</div>`;
 
     res.send(`
 <!doctype html>
@@ -240,39 +253,6 @@ const listHtml = events.length
     <link rel="icon" href="/assets/brand/favicon.ico" />
     <title>OpenCircle Admin</title>
     <style>
-      /* your CSS unchanged */
-
-      .event-card{
-  display:flex;
-  justify-content:space-between;
-  gap:16px;
-  align-items:flex-start;
-}
-
-.event-left{ flex: 1; min-width: 0; }
-
-.event-stats{
-  width: 160px;
-  flex: 0 0 160px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 12px;
-  background: rgba(15,23,42,.35);
-}
-
-.stat{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  font-size: 13px;
-  color: var(--muted);
-  margin: 6px 0;
-}
-.stat strong{
-  color: var(--text);
-  font-size: 16px;
-}
-
       :root{
         --bg:#0b1220; --card:#0f172a; --text:#e5e7eb; --muted:#94a3b8;
         --line:rgba(148,163,184,.18);
@@ -330,11 +310,6 @@ const listHtml = events.length
       .btn-link{ background: transparent; border-color: transparent; color: var(--brand); padding: 8px 10px; }
       .actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 14px; }
 
-      .event-card{ border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: #0b1220; }
-      .event-title{ font-weight:800; margin-bottom:6px; }
-      .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
-      .event-actions{ margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-
       a{ color: var(--brand); text-decoration:none; font-weight:700; }
       a:hover{ text-decoration:underline; }
       .inline{ display:inline; margin:0; }
@@ -352,6 +327,44 @@ const listHtml = events.length
       }
       .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:700; }
       .checkbox input{ width:auto; }
+
+      /* ✅ event card layout + stats (combined cleanly) */
+      .event-card{
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        background: #0b1220;
+
+        display:flex;
+        justify-content:space-between;
+        gap:16px;
+        align-items:flex-start;
+      }
+      .event-left{ flex: 1; min-width: 0; }
+      .event-title{ font-weight:800; margin-bottom:6px; }
+      .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
+      .event-actions{ margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+
+      .event-stats{
+        width: 160px;
+        flex: 0 0 160px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px;
+        background: rgba(15,23,42,.35);
+      }
+      .stat{
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        font-size: 13px;
+        color: var(--muted);
+        margin: 6px 0;
+      }
+      .stat strong{
+        color: var(--text);
+        font-size: 16px;
+      }
     </style>
   </head>
   <body>
@@ -370,6 +383,7 @@ const listHtml = events.length
       <div class="card">
         <h1>${editEvent ? "Edit Event" : "Add Event"}</h1>
         <p class="sub"><a href="/events" target="_blank" rel="noopener">View all events (JSON)</a></p>
+        ${saved ? `<div class="pill" style="margin-top:10px;">Saved — ready for the next event ✅</div>` : ""}
 
         <form method="POST" action="/admin/events" enctype="multipart/form-data">
           ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
@@ -407,7 +421,6 @@ const listHtml = events.length
           <label>Good to Know</label>
           <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
 
-          <!-- Split date/time inputs -->
           <div class="row">
             <div>
               <label>Start</label>
@@ -468,9 +481,8 @@ const listHtml = events.length
       </div>
     </div>
 
-    <!-- Auto-set End = Start + 2 hours (SAFE: no backticks) -->
+    <!-- Auto-set end = start + 2 hours -->
     <script>
-
 (function(){
   function updateCard(card, payload){
     if(!card || !payload) return;
@@ -480,8 +492,7 @@ const listHtml = events.length
     var going = 0;
     var interested = 0;
 
-    // payload could be {data:{...}} or {...} depending on your API
-    var e = payload.data ? payload.data : payload;
+    var e = payload && payload.data ? payload.data : payload;
 
     if(e && typeof e.goingCount !== 'undefined') going = Number(e.goingCount || 0);
     if(e && typeof e.interestedCount !== 'undefined') interested = Number(e.interestedCount || 0);
@@ -513,55 +524,54 @@ const listHtml = events.length
   setInterval(tick, 15000);
 })();
 
-    (function(){
-      var sd = document.getElementById('startDate');
-      var st = document.getElementById('startTime');
-      var ed = document.getElementById('endDate');
-      var et = document.getElementById('endTime');
-      if(!sd || !st || !ed || !et) return;
+(function(){
+  var sd = document.getElementById('startDate');
+  var st = document.getElementById('startTime');
+  var ed = document.getElementById('endDate');
+  var et = document.getElementById('endTime');
+  if(!sd || !st || !ed || !et) return;
 
-      function pad(n){ return String(n).padStart(2,'0'); }
+  function pad(n){ return String(n).padStart(2,'0'); }
 
-      function getStart(){
-        if(!sd.value || !st.value) return null;
-        var d = new Date(sd.value + 'T' + st.value);
-        if(isNaN(d.getTime())) return null;
-        return d;
-      }
+  function getStart(){
+    if(!sd.value || !st.value) return null;
+    var d = new Date(sd.value + 'T' + st.value);
+    if(isNaN(d.getTime())) return null;
+    return d;
+  }
 
-      function getEnd(){
-        if(!ed.value || !et.value) return null;
-        var d = new Date(ed.value + 'T' + et.value);
-        if(isNaN(d.getTime())) return null;
-        return d;
-      }
+  function getEnd(){
+    if(!ed.value || !et.value) return null;
+    var d = new Date(ed.value + 'T' + et.value);
+    if(isNaN(d.getTime())) return null;
+    return d;
+  }
 
-      function setEnd(d){
-        ed.value = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
-        et.value = pad(d.getHours()) + ':' + pad(d.getMinutes());
-      }
+  function setEnd(d){
+    ed.value = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+    et.value = pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
 
-      function maybeSetEnd(){
-        var s = getStart();
-        if(!s) return;
+  function maybeSetEnd(){
+    var s = getStart();
+    if(!s) return;
 
-        var e = getEnd();
-        if(!e || e.getTime() <= s.getTime()){
-          var d = new Date(s.getTime());
-          d.setHours(d.getHours() + 2);
-          setEnd(d);
-        }
-      }
+    var e = getEnd();
+    if(!e || e.getTime() <= s.getTime()){
+      var d = new Date(s.getTime());
+      d.setHours(d.getHours() + 2);
+      setEnd(d);
+    }
+  }
 
-      sd.addEventListener('change', maybeSetEnd);
-      st.addEventListener('change', maybeSetEnd);
-      sd.addEventListener('blur', maybeSetEnd);
-      st.addEventListener('blur', maybeSetEnd);
+  sd.addEventListener('change', maybeSetEnd);
+  st.addEventListener('change', maybeSetEnd);
+  sd.addEventListener('blur', maybeSetEnd);
+  st.addEventListener('blur', maybeSetEnd);
 
-      maybeSetEnd();
-    })();
+  maybeSetEnd();
+})();
     </script>
-
   </body>
 </html>
     `);
@@ -595,8 +605,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     } = req.body;
 
     // Build datetime-local strings from split inputs
-    let startDateTime = (startDate && startTime) ? `${startDate}T${startTime}` : "";
-    let endDateTime   = (endDate && endTime) ? `${endDate}T${endTime}` : "";
+    let startDateTime = startDate && startTime ? `${startDate}T${startTime}` : "";
+    let endDateTime = endDate && endTime ? `${endDate}T${endTime}` : "";
 
     // If end missing, default to +2 hours
     if (startDateTime && (!endDateTime || !endDate || !endTime)) {
@@ -604,8 +614,9 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       if (!isNaN(d.getTime())) {
         d.setHours(d.getHours() + 2);
         const pad = (n) => String(n).padStart(2, "0");
-        endDateTime =
-          `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        endDateTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+          d.getHours()
+        )}:${pad(d.getMinutes())}`;
       }
     }
 
@@ -614,6 +625,14 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       const proto = req.headers["x-forwarded-proto"] || req.protocol;
       const host = req.headers["x-forwarded-host"] || req.get("host");
       imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
+    }
+
+    // Clean up bad/placeholder-ish values
+    if (typeof imageUrl === "string") {
+      const s = imageUrl.trim();
+      if (!s || s.toLowerCase() === "none" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined") {
+        imageUrl = null;
+      }
     }
 
     const featuredFlag = String(featured || "") === "1" ? 1 : 0;
@@ -696,14 +715,14 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         return res.status(404).send("Event not found (ID does not exist).");
       }
 
-      // FIXED: redirect back to admin (and keep editing the same event)
-      return res.redirect(`/admin?saved=1`);
+      // ✅ keep editing same event after update
+      return res.redirect(`/admin?edit=${eventId}&saved=1`);
     }
 
     // INSERT
     const finalSlug = await ensureUniqueSlug(baseSlug);
 
-    const result = await run(
+    await run(
       `INSERT INTO events (
         city, slug, title, description, eventDetails, goodToKnow,
         ticketUrl, ticketLabel,
@@ -732,8 +751,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ]
     );
 
-    // FIXED: go back to admin so it appears in the list
-    return res.redirect(`/admin?edit=${result.lastID}`);
+    // ✅ clear the form after saving a NEW event
+    return res.redirect(`/admin?saved=1`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error.");
