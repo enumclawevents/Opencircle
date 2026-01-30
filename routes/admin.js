@@ -221,7 +221,6 @@ function isChecked(arr, v) {
     const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
     const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
 
-    const weeklyByDay = Array.isArray(rule.byDay) ? rule.byDay : [];
     const monthlyMode = String(rule.mode || "monthday");
     const byMonthday = rule.byMonthday ? String(rule.byMonthday) : "";
     const setPos = rule.setPos ? String(rule.setPos) : "1";
