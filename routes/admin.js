@@ -411,6 +411,21 @@ router.get("/", async (req, res) => {
   border-radius: 12px;
 }
 
+/* Make the two columns align cleanly */
+.rec-grid{
+  align-items: start;            /* was end */
+}
+
+/* Force consistent control height */
+.recurrence .ctrl{
+  height: 48px;                  /* matches your big select look */
+  padding: 0 14px;
+}
+
+/* Keep help text from "pushing" the second column weirdly */
+.recurrence #intervalRow .rec-help{
+  margin-top: 10px;
+}
 
 
       .rec-box{
