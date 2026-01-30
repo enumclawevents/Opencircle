@@ -137,23 +137,6 @@ function toDateTimeLocalValue(isoWithOffset) {
   return String(isoWithOffset).slice(0, 16);
 }
 
-function toDateValue(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function toTimeValue(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-
 function esc(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -181,20 +164,32 @@ async function getEventsColumns() {
 // GET /admin
 router.get("/", async (req, res) => {
   try {
-    // ✅ Resilient list query: supports optional columns
+    // ✅ Pagination + resilient list query (supports optional columns)
+    const pageSize = 50;
+    const requestedPage = parseInt(String(req.query.page || req.query.p || "1"), 10);
+    const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+
+    // Total count (used for pagination + header)
+    const totalRow = await get("SELECT COUNT(*) AS count FROM events");
+    const totalCount = Number(totalRow?.count || 0);
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const safePage = Math.min(page, totalPages);
+    const offset = (safePage - 1) * pageSize;
+
     let events = [];
     try {
       events = await all(
-        "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount FROM events ORDER BY startDateTime DESC LIMIT 50"
+        "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount FROM events ORDER BY startDateTime DESC LIMIT ? OFFSET ?",
+        [pageSize, offset]
       );
     } catch {
       events = await all(
-        "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT 50"
+        "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT ? OFFSET ?",
+        [pageSize, offset]
       );
       events = events.map((x) => ({ ...x, goingCount: 0, interestedCount: 0 }));
     }
-
-    const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
+const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
     let editEvent = null;
     if (editId) editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
 
@@ -206,8 +201,6 @@ router.get("/", async (req, res) => {
     const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
     const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
     const customDates = parseStoredDates(editEvent?.recurrenceDates);
-
-    // ✅ first/until date values (YYYY-MM-DD) for recurrence range
     const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
     const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
 
@@ -276,6 +269,61 @@ router.get("/", async (req, res) => {
 
     const isChecked = (arr, code) => (arr.includes(code) ? "checked" : "");
 
+
+    // Pagination UI
+    const showingFrom = totalCount ? offset + 1 : 0;
+    const showingTo = totalCount ? offset + events.length : 0;
+
+    function pageHref(n) {
+      return `/admin?page=${n}`;
+    }
+
+    function pagerButton(n, label, isDisabled, isActive) {
+      if (isDisabled) return `<span class="pager-btn is-disabled">${esc(label)}</span>`;
+      const cls = `pager-btn${isActive ? " is-active" : ""}`;
+      return `<a class="${cls}" href="${pageHref(n)}">${esc(label)}</a>`;
+    }
+
+    let paginationHtml = "";
+    if (totalPages > 1) {
+      const nums = [];
+      const windowSize = 7;
+      let start = Math.max(1, safePage - Math.floor(windowSize / 2));
+      let end = start + windowSize - 1;
+      if (end > totalPages) {
+        end = totalPages;
+        start = Math.max(1, end - windowSize + 1);
+      }
+      for (let i = start; i <= end; i++) nums.push(i);
+
+      const parts = [];
+
+      parts.push(pagerButton(safePage - 1, "Prev", safePage <= 1, false));
+
+      if (start > 1) {
+        parts.push(pagerButton(1, "1", false, safePage === 1));
+        if (start > 2) parts.push(`<span class="pager-ellipsis">…</span>`);
+      }
+
+      nums.forEach((n) => {
+        parts.push(pagerButton(n, String(n), false, safePage === n));
+      });
+
+      if (end < totalPages) {
+        if (end < totalPages - 1) parts.push(`<span class="pager-ellipsis">…</span>`);
+        parts.push(pagerButton(totalPages, String(totalPages), false, safePage === totalPages));
+      }
+
+      parts.push(pagerButton(safePage + 1, "Next", safePage >= totalPages, false));
+
+      paginationHtml = `
+        <div class="pager-wrap">
+          <div class="pager-meta">${showingFrom}-${showingTo} of ${totalCount}</div>
+          <div class="pager">${parts.join("")}</div>
+        </div>
+      `;
+    }
+
     res.send(`<!doctype html>
 <html>
   <head>
@@ -284,12 +332,58 @@ router.get("/", async (req, res) => {
     <link rel="icon" href="/assets/brand/favicon.ico" />
     <title>OpenCircle Admin</title>
     <style>
+
+      .pager-wrap{
+        margin-top: 14px;
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+      }
+      .pager-meta{
+        text-align:center;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .pager{
+        display:flex;
+        justify-content:center;
+        gap:8px;
+        flex-wrap:wrap;
+      }
+      .pager-btn{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        padding: 8px 12px;
+        border: 1px solid rgba(148,163,184,.22);
+        background:#0b1220;
+        color: var(--text);
+        text-decoration:none;
+        font-weight:800;
+        border-radius: 4px;
+        min-width: 44px;
+      }
+      .pager-btn:hover{ border-color: rgba(148,163,184,.45); }
+      .pager-btn.is-active{
+        background: var(--brand);
+        border-color: var(--brand);
+        color:#06202b;
+      }
+      .pager-btn.is-disabled{
+        opacity:.45;
+        cursor:not-allowed;
+      }
+      .pager-ellipsis{
+        color: var(--muted);
+        padding: 8px 6px;
+      }
+
       :root{
         --bg:#0b1220; --card:#0f172a; --text:#e5e7eb; --muted:#94a3b8;
         --line:rgba(148,163,184,.18);
         --brand:#00c08b; --brand2:#323E48; --danger:#C3413A;
         --shadow:0 10px 30px rgba(0,0,0,.35);
-        --radius:14px;
+        --radius:4px;
       }
       *{ box-sizing:border-box; }
       body{
@@ -307,14 +401,14 @@ router.get("/", async (req, res) => {
         font-size:12px; color: var(--text);
         background: rgba(63,171,209,.15);
         border: 1px solid rgba(63,171,209,.35);
-        padding:6px 10px; border-radius: 4px ; font-weight:600;
+        padding:6px 10px; border-radius:4px; font-weight:600;
         display:inline-flex; align-items:center; gap:6px;
       }
 
       .card{
         background:var(--card);
         border:1px solid var(--line);
-        border-radius: var(--radius);
+        border-radius: 4px;
         box-shadow: var(--shadow);
         padding: 18px;
       }
@@ -327,14 +421,14 @@ router.get("/", async (req, res) => {
       label{ display:block; margin: 12px 0 6px; font-weight:700; font-size:13px; }
       .ctrl, input, textarea, select{
         width:100%; padding: 10px 12px; border: 1px solid rgba(148,163,184,.25);
-        border-radius: 4px ; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
+        border-radius: 4px; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
       }
       textarea{ min-height: 110px; resize: vertical; }
       .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
 
       .btn{
         display:inline-flex; align-items:center; justify-content:center;
-        padding: 10px 14px; border-radius: 4px ;
+        padding: 10px 14px; border-radius: 4px;
         border: 1px solid rgba(148,163,184,.22);
         background:#0b1220; cursor:pointer; font-weight:700; text-decoration:none; color: var(--text);
       }
@@ -355,7 +449,7 @@ router.get("/", async (req, res) => {
 
 /* ===== Recurrence UI polish ===== */
 .recurrence{
-  border-radius: 4px ;
+  border-radius: 4px;
   padding: 18px;
   background: rgba(15,23,42,.25);
 }
@@ -400,7 +494,7 @@ router.get("/", async (req, res) => {
   justify-content:center;
   gap: 8px;
   padding: 10px 12px;
-  border-radius: 4px ;
+  border-radius: 4px;
   border: 1px solid rgba(148,163,184,.22);
   background: rgba(11,18,32,.65);
   color: var(--text);
@@ -429,7 +523,7 @@ router.get("/", async (req, res) => {
 
 /* Make select/input feel aligned */
 .recurrence .ctrl{
-  border-radius: 4px ;
+  border-radius: 4px;
 }
 
 /* Make the two columns align cleanly */
@@ -451,7 +545,7 @@ router.get("/", async (req, res) => {
 
       .rec-box{
         border:1px solid var(--line);
-        border-radius: 4px ;
+        border-radius: 4px;
         padding: 14px;
         background: #0b1220;
         margin-top: 10px;
@@ -471,14 +565,14 @@ router.get("/", async (req, res) => {
       .chip{
         display:inline-flex; align-items:center; gap:8px;
         border:1px solid var(--line);
-        border-radius: 4px ;
+        border-radius:4px;
         padding: 6px 10px;
         background: #0b1220;
         font-size: 13px;
       }
       .chip button{ border:0; background: transparent; cursor:pointer; font-weight:900; color: #fecaca; }
 
-      .event-card{ border: 1px solid var(--line); border-radius: 4px ; padding: 14px; background: #0b1220; display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
+      .event-card{ border: 1px solid var(--line); border-radius: 4px; padding: 14px; background: #0b1220; display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
       .event-left{ flex: 1; min-width: 0; }
       .event-title{ font-weight:800; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
@@ -488,7 +582,7 @@ router.get("/", async (req, res) => {
         width: 160px;
         flex: 0 0 160px;
         border: 1px solid var(--line);
-        border-radius: 4px ;
+        border-radius: 4px;
         padding: 12px;
         background: rgba(15,23,42,.35);
       }
@@ -579,20 +673,19 @@ router.get("/", async (req, res) => {
     <label for="hasRecurrence" style="margin:0;font-size:13px;font-weight:900;">Recurring Event</label>
   </div>
   <div class="note">Create a recurring rule (weekly/monthly) or a custom date list.</div>
-
-
-  <div class="row" style="margin-top:12px;">
-    <div>
-      <label style="margin-top:0;">First date (series starts)</label>
-      <input class="ctrl" type="date" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
-      <div class="note">First occurrence date for this recurring series.</div>
-    </div>
-    <div>
-      <label style="margin-top:0;">Until date (series ends)</label>
-      <input class="ctrl" type="date" name="recurrenceUntilDate" value="${esc(recurrenceUntilDateVal)}" />
-      <div class="note">No occurrences after this date.</div>
-    </div>
+<div class="row" style="margin-top:12px;">
+  <div>
+    <label style="margin-top:0;">First date (series starts)</label>
+    <input class="ctrl" type="date" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
+    <div class="note">First occurrence date for this recurring series.</div>
   </div>
+
+  <div>
+    <label style="margin-top:0;">Until date (series ends)</label>
+    <input class="ctrl" type="date" name="recurrenceUntilDate" value="${esc(recurrenceUntilDateVal)}" />
+    <div class="note">No occurrences after this date.</div>
+  </div>
+</div>
 
   <!-- Type + Interval in a clean grid -->
   <div class="rec-grid" style="margin-top:12px;">
@@ -759,7 +852,7 @@ router.get("/", async (req, res) => {
       </div>
 
       <div class="card">
-        <h1 style="margin-bottom:10px;">Existing Events (latest 50)</h1>
+        <h1 style="margin-bottom:10px; display:flex; align-items:center; gap:10px;">Existing Events <span class="pill">${totalCount} total</span></h1>
 
 <div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px;">
   <input id="eventSearch" class="ctrl" type="text"
@@ -769,6 +862,8 @@ router.get("/", async (req, res) => {
 
 <div id="eventsList" style="display:grid; gap:12px;">${listHtml}</div>
 <div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
+
+<div>${paginationHtml}</div>
 
       </div>
     </div>
@@ -983,20 +1078,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       setPos,
       monthlyByDay,
       recurrenceDates,
-      recurrenceStartDate,
-      recurrenceUntilDate,
     } = req.body;
-
-    // If end is missing, default End = Start + 2 hours (server-side safety)
-    if (startDateTime && (!endDateTime || String(endDateTime).trim() === "")) {
-      const d = new Date(startDateTime);
-      if (!isNaN(d.getTime())) {
-        d.setHours(d.getHours() + 2);
-        const pad = (n) => String(n).padStart(2, "0");
-        endDateTime =
-          `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-      }
-    }
 
     // If a file was uploaded, prefer it over the URL field
     if (req.file && req.file.filename) {
@@ -1096,7 +1178,6 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     // schema safety: only write recurrence cols if they exist
     const cols = await getEventsColumns();
     const hasRecCols = cols.has("hasRecurrence") && cols.has("recurrenceRule") && cols.has("recurrenceDates");
-    const hasRecRangeCols = cols.has("recurrenceStartDate") && cols.has("recurrenceUntilDate");
 
     // UPDATE
     if (id !== undefined && id !== null && String(id).trim() !== "") {
@@ -1145,10 +1226,6 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         sets.push("hasRecurrence=?", "recurrenceRule=?", "recurrenceDates=?");
         vals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
       }
-      if (hasRecRangeCols && (typeof recurrenceStartDate !== "undefined" || typeof recurrenceUntilDate !== "undefined")) {
-        sets.push("recurrenceStartDate=?", "recurrenceUntilDate=?");
-        vals.push(recurrenceStartDate || null, recurrenceUntilDate || null);
-      }
 
       sets.push("updatedAt=datetime('now')");
       vals.push(eventId);
@@ -1162,7 +1239,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         return res.status(404).send("Event not found (ID does not exist).");
       }
 
-      return res.redirect(`/admin?edit=${eventId}&saved=1`);
+      return res.redirect(`/admin?edit=${eventId}`);
     }
 
     // INSERT
@@ -1208,19 +1285,17 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       insertCols.push("hasRecurrence", "recurrenceRule", "recurrenceDates");
       insertVals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
     }
-    if (hasRecRangeCols) {
-      insertCols.push("recurrenceStartDate", "recurrenceUntilDate");
-      insertVals.push(recurrenceStartDate || null, recurrenceUntilDate || null);
-    }
 
-        // INSERT
+    insertCols.push("updatedAt");
+
     const placeholders = insertCols.map(() => "?").join(", ");
-    const sql = `INSERT INTO events (${insertCols.join(", ")}, updatedAt) VALUES (${placeholders}, datetime('now'))`;
 
-    const result = await run(sql, insertVals);
+    const result = await run(
+      `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.replace(/\?$/, "datetime('now')")})`,
+      insertVals
+    );
 
-    // After creating an event, go back to /admin with a clean form (fast entry)
-    return res.redirect(`/admin?saved=1`);
+    return res.redirect(`/events/${result.lastID}`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error.");
