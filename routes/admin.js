@@ -429,7 +429,7 @@ router.get("/", async (req, res) => {
       </div>
     </div>
             <script>
-(function(){
+function(){
   const startEl = document.getElementById("startDateTime");
   const endEl   = document.getElementById("endDateTime");
   if(!startEl || !endEl) return;
