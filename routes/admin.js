@@ -233,9 +233,9 @@ router.get("/", async (req, res) => {
                 <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}" target="_blank" rel="noopener">View JSON</a>
                 <a href="/admin?edit=${e.id}">Edit</a>
                 <form method="POST"
-               action="/admin/events/${e.id}/delete"
+      action="/admin/events/${e.id}/delete"
       class="inline"
-      onsubmit="return confirm('Delete: ${esc(e.title)}? This cannot be undone.');"
+      onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
   <button type="submit" class="btn btn-danger">Delete</button>
 </form>
 
