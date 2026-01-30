@@ -137,23 +137,6 @@ function toDateTimeLocalValue(isoWithOffset) {
   return String(isoWithOffset).slice(0, 16);
 }
 
-function toDateValue(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function toTimeValue(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-
 function esc(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
