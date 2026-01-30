@@ -268,7 +268,7 @@ router.get("/", async (req, res) => {
         --line:rgba(148,163,184,.18);
         --brand:#00c08b; --brand2:#323E48; --danger:#C3413A;
         --shadow:0 10px 30px rgba(0,0,0,.35);
-        --radius:14px;
+        --radius:4px;
       }
       *{ box-sizing:border-box; }
       body{
@@ -286,14 +286,14 @@ router.get("/", async (req, res) => {
         font-size:12px; color: var(--text);
         background: rgba(63,171,209,.15);
         border: 1px solid rgba(63,171,209,.35);
-        padding:6px 10px; border-radius:999px; font-weight:600;
+        padding:6px 10px; border-radius:4px; font-weight:600;
         display:inline-flex; align-items:center; gap:6px;
       }
 
       .card{
         background:var(--card);
         border:1px solid var(--line);
-        border-radius: var(--radius);
+        border-radius: 4px;
         box-shadow: var(--shadow);
         padding: 18px;
       }
@@ -306,14 +306,14 @@ router.get("/", async (req, res) => {
       label{ display:block; margin: 12px 0 6px; font-weight:700; font-size:13px; }
       .ctrl, input, textarea, select{
         width:100%; padding: 10px 12px; border: 1px solid rgba(148,163,184,.25);
-        border-radius: 12px; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
+        border-radius: 4px; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
       }
       textarea{ min-height: 110px; resize: vertical; }
       .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
 
       .btn{
         display:inline-flex; align-items:center; justify-content:center;
-        padding: 10px 14px; border-radius: 12px;
+        padding: 10px 14px; border-radius: 4px;
         border: 1px solid rgba(148,163,184,.22);
         background:#0b1220; cursor:pointer; font-weight:700; text-decoration:none; color: var(--text);
       }
@@ -334,7 +334,7 @@ router.get("/", async (req, res) => {
 
 /* ===== Recurrence UI polish ===== */
 .recurrence{
-  border-radius: 12px;
+  border-radius: 4px;
   padding: 18px;
   background: rgba(15,23,42,.25);
 }
@@ -379,7 +379,7 @@ router.get("/", async (req, res) => {
   justify-content:center;
   gap: 8px;
   padding: 10px 12px;
-  border-radius: 999px;
+  border-radius: 4px;
   border: 1px solid rgba(148,163,184,.22);
   background: rgba(11,18,32,.65);
   color: var(--text);
@@ -408,7 +408,7 @@ router.get("/", async (req, res) => {
 
 /* Make select/input feel aligned */
 .recurrence .ctrl{
-  border-radius: 12px;
+  border-radius: 4px;
 }
 
 /* Make the two columns align cleanly */
@@ -430,7 +430,7 @@ router.get("/", async (req, res) => {
 
       .rec-box{
         border:1px solid var(--line);
-        border-radius: 14px;
+        border-radius: 4px;
         padding: 14px;
         background: #0b1220;
         margin-top: 10px;
@@ -450,14 +450,14 @@ router.get("/", async (req, res) => {
       .chip{
         display:inline-flex; align-items:center; gap:8px;
         border:1px solid var(--line);
-        border-radius:999px;
+        border-radius:4px;
         padding: 6px 10px;
         background: #0b1220;
         font-size: 13px;
       }
       .chip button{ border:0; background: transparent; cursor:pointer; font-weight:900; color: #fecaca; }
 
-      .event-card{ border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: #0b1220; display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
+      .event-card{ border: 1px solid var(--line); border-radius: 4px; padding: 14px; background: #0b1220; display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
       .event-left{ flex: 1; min-width: 0; }
       .event-title{ font-weight:800; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
@@ -467,7 +467,7 @@ router.get("/", async (req, res) => {
         width: 160px;
         flex: 0 0 160px;
         border: 1px solid var(--line);
-        border-radius: 14px;
+        border-radius: 4px;
         padding: 12px;
         background: rgba(15,23,42,.35);
       }
