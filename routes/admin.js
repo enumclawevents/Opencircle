@@ -258,7 +258,7 @@ router.get("/", async (req, res) => {
         --line:rgba(148,163,184,.18);
         --brand:#3fabd1; --brand2:#1b7ea8; --danger:#ef4444;
         --shadow:0 10px 30px rgba(0,0,0,.35);
-        --radius:14px;
+        --radius:8px;
       }
       *{ box-sizing:border-box; }
       body{
@@ -275,7 +275,7 @@ router.get("/", async (req, res) => {
         font-size:12px; color: var(--text);
         background: rgba(63,171,209,.15);
         border: 1px solid rgba(63,171,209,.35);
-        padding:6px 10px; border-radius:999px; font-weight:600;
+        padding:6px 10px; border-radius:8px; font-weight:600;
         display:inline-flex; align-items:center; gap:6px;
       }
       .card{
@@ -294,13 +294,13 @@ router.get("/", async (req, res) => {
       label{ display:block; margin: 12px 0 6px; font-weight:700; font-size:13px; }
       .ctrl, input, textarea, select{
         width:100%; padding: 10px 12px; border: 1px solid rgba(148,163,184,.25);
-        border-radius: 12px; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
+        border-radius: 8px; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
       }
       textarea{ min-height: 110px; resize: vertical; }
       .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
       .btn{
         display:inline-flex; align-items:center; justify-content:center;
-        padding: 10px 14px; border-radius: 12px;
+        padding: 10px 14px; border-radius: 8px;
         border: 1px solid rgba(148,163,184,.22);
         background:#0b1220; cursor:pointer; font-weight:700; text-decoration:none; color: var(--text);
       }
@@ -320,7 +320,7 @@ router.get("/", async (req, res) => {
 
       .rec-box{
         border:1px solid var(--line);
-        border-radius: 14px;
+        border-radius: 8px;
         padding: 14px;
         background: #0b1220;
         margin-top: 10px;
@@ -331,7 +331,7 @@ router.get("/", async (req, res) => {
       /* ✅ event card layout + stats (combined cleanly) */
       .event-card{
         border: 1px solid var(--line);
-        border-radius: 14px;
+        border-radius: 8px;
         padding: 14px;
         background: #0b1220;
 
@@ -349,7 +349,7 @@ router.get("/", async (req, res) => {
         width: 160px;
         flex: 0 0 160px;
         border: 1px solid var(--line);
-        border-radius: 14px;
+        border-radius: 8px;
         padding: 12px;
         background: rgba(15,23,42,.35);
       }
