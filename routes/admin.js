@@ -428,6 +428,43 @@ router.get("/", async (req, res) => {
         <div style="display:grid; gap:12px;">${listHtml}</div>
       </div>
     </div>
+            <script>
+(function(){
+  const startEl = document.getElementById("startDateTime");
+  const endEl   = document.getElementById("endDateTime");
+  if(!startEl || !endEl) return;
+
+  function addHours(dtLocal, hours){
+    if(!dtLocal) return "";
+    const d = new Date(dtLocal); // expects "YYYY-MM-DDTHH:MM"
+    if (isNaN(d.getTime())) return "";
+    d.setHours(d.getHours() + hours);
+
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function maybeSetEnd(){
+    const s = startEl.value;
+    if(!s) return;
+
+    const sTime = new Date(s).getTime();
+    const eTime = endEl.value ? new Date(endEl.value).getTime() : NaN;
+
+    // Only auto-set if empty or not after start (won't overwrite intentional edits)
+    if(!endEl.value || !Number.isFinite(eTime) || eTime <= sTime){
+      endEl.value = addHours(s, 2);
+    }
+  }
+
+  startEl.addEventListener("change", maybeSetEnd);
+  startEl.addEventListener("blur", maybeSetEnd);
+
+  // If start already filled (edit mode), fill end if blank/invalid
+  maybeSetEnd();
+})();
+</script>
+
   </body>
 </html>
     `);
