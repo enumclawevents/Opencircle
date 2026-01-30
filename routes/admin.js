@@ -137,6 +137,19 @@ function toDateTimeLocalValue(isoWithOffset) {
   return String(isoWithOffset).slice(0, 16);
 }
 
+function toDateValue(input) {
+  if (!input) return "";
+  // If it's already YYYY-MM-DD, keep it
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(input))) return String(input);
+
+  const d = new Date(input);
+  if (isNaN(d.getTime())) return "";
+
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+
 function esc(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -189,6 +202,22 @@ router.get("/", async (req, res) => {
     const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
     const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
     const customDates = parseStoredDates(editEvent?.recurrenceDates);
+    const recurrenceInterval = String(rule?.interval ?? 1);
+
+// weekly rule can be array or string depending on how it was saved
+const weeklyByDay = Array.isArray(rule?.byDay)
+  ? rule.byDay
+  : (rule?.byDay ? [String(rule.byDay)] : []);
+
+const monthlyMode = String(rule?.monthlyMode || rule?.mode || "monthday");
+const byMonthday = String(rule?.byMonthday || "");
+const setPos = String(rule?.setPos ?? "1");
+const monthlyByDay = String(rule?.monthlyByDay || rule?.byDay || "TH");
+
+function isChecked(arr, v) {
+  return Array.isArray(arr) && arr.includes(v) ? "checked" : "";
+}
+
     const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
     const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
 

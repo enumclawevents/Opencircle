@@ -1,6 +1,7 @@
 "use strict";
 
 const path = require("path");
+const fs = require("fs");
 const sqlite3 = require("sqlite3").verbose();
 
 /**
@@ -14,7 +15,12 @@ const DB_PATH =
   process.env.DB_PATH ||
   (process.env.RENDER_DISK_PATH
     ? path.join(process.env.RENDER_DISK_PATH, "opencircle.db")
-    : path.join(__dirname, "data.sqlite"));
+    : path.join(process.cwd(), "data.sqlite"));
+
+// Ensure folder exists (important for /var/data/...)
+try {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+} catch (_) {}
 
 console.log("[DB] Using SQLite file:", DB_PATH);
 
@@ -66,10 +72,7 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
 
   while (true) {
     const row = excludeId
-      ? await get(
-          "SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1",
-          [slug, excludeId]
-        )
+      ? await get("SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1", [slug, excludeId])
       : await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [slug]);
 
     if (!row) return slug;
@@ -79,7 +82,7 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
 
 // ---------- INIT / MIGRATIONS ----------
 async function init() {
-  // Canonical schema (keep this stable)
+  // Canonical schema (includes newer columns so fresh DBs are complete)
   await run(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,23 +115,23 @@ async function init() {
       hasRecurrence INTEGER DEFAULT 0,
       recurrenceRule TEXT,      -- JSON rule object {type, interval,...}
       recurrenceDates TEXT,     -- JSON array of "YYYY-MM-DD" for custom dates
-      recurrenceStartDate TEXT, -- optional range start
-      recurrenceUntilDate TEXT, -- optional range end
+      recurrenceStartDate TEXT, -- YYYY-MM-DD (optional range start)
+      recurrenceUntilDate TEXT, -- YYYY-MM-DD (optional range end)
 
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     )
   `);
 
-  // --- NORMALIZE LEGACY FEATURED COLUMN (Featured -> featured) ---
-  // Safe to ignore errors (column may not exist)
+  // Normalize legacy Featured column if it exists
   try {
     await run(`ALTER TABLE events RENAME COLUMN Featured TO featured`);
     console.log("[DB] Renamed column Featured -> featured");
-  } catch (_) {}
+  } catch (_) {
+    // ignore
+  }
 
-  // Safe migrations (no data loss)
-  // (Ignore errors if columns already exist)
+  // Safe migrations for older DBs (ignore if already exists)
   const migrations = [
     `ALTER TABLE events ADD COLUMN slug TEXT`,
     `ALTER TABLE events ADD COLUMN eventDetails TEXT`,
@@ -140,18 +143,18 @@ async function init() {
     `ALTER TABLE events ADD COLUMN featured INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT`,
-    `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT`,
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
     `ALTER TABLE events ADD COLUMN recurrenceDates TEXT`,
+    `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT`,
+    `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT`,
   ];
 
   for (const sql of migrations) {
     try {
       await run(sql);
     } catch (_) {
-      // column already exists (or older sqlite limitations)
+      // column already exists
     }
   }
 
@@ -189,13 +192,10 @@ async function init() {
   console.log("[DB] Initialized & migrated");
 }
 
-/**
- * ✅ This is what server.js should call:
- * const { initDB } = require("./db");
- * initDB().then(...)
- */
+// ✅ This is what server.js should call
 async function initDB() {
   await init();
+  return true;
 }
 
 module.exports = {
