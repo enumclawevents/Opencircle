@@ -262,7 +262,7 @@ router.get("/", async (req, res) => {
       :root{
         --bg:#0b1220; --card:#0f172a; --text:#e5e7eb; --muted:#94a3b8;
         --line:rgba(148,163,184,.18);
-        --brand:#3fabd1; --brand2:#1b7ea8; --danger:#ef4444;
+        --brand:#00c08b; --brand2:#323E48; --danger:#C3413A;
         --shadow:0 10px 30px rgba(0,0,0,.35);
         --radius:14px;
       }
