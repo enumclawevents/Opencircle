@@ -160,8 +160,9 @@ function esc(s) {
 router.get("/", async (req, res) => {
   try {
     const events = await all(
-      "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT 50"
-    );
+  "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount FROM events ORDER BY startDateTime DESC LIMIT 50"
+);
+
 
     const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
     let editEvent = null;
@@ -191,23 +192,26 @@ router.get("/", async (req, res) => {
       `;
     };
 
-    const listHtml = events.length
-      ? events
-          .map(
-            (e) => `
-          <div class="event-card">
+const listHtml = events.length
+  ? events.map((e) => {
+      const going = Number(e.goingCount || 0);
+      const interested = Number(e.interestedCount || 0);
+
+      return `
+        <div class="event-card" data-eid="${e.id}">
+          <div class="event-left">
             <div class="event-title">#${e.id} — ${esc(e.title)} ${
               Number(e.featured || 0) === 1 ? `<span class="pill" style="margin-left:8px;">Featured</span>` : ""
             }</div>
+
             <div class="event-meta">
               <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
               <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
               <div><strong>Location:</strong> ${esc(e.location)}</div>
             </div>
+
             <div class="event-actions">
-              <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}" target="_blank" rel="noopener">
-                View JSON
-              </a>
+              <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}" target="_blank" rel="noopener">View JSON</a>
               <a href="/admin?edit=${e.id}">Edit</a>
 
               <form method="POST" action="/admin/events/${e.id}/delete" class="inline">
@@ -215,10 +219,17 @@ router.get("/", async (req, res) => {
               </form>
             </div>
           </div>
-        `
-          )
-          .join("")
-      : `<div class="muted">No events yet.</div>`;
+
+          <div class="event-stats">
+            <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
+            <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
+            <div class="note" style="margin-top:10px;">Live</div>
+          </div>
+        </div>
+      `;
+    }).join("")
+  : `<div class="muted">No events yet.</div>`;
+
 
     res.send(`
 <!doctype html>
@@ -230,6 +241,38 @@ router.get("/", async (req, res) => {
     <title>OpenCircle Admin</title>
     <style>
       /* your CSS unchanged */
+
+      .event-card{
+  display:flex;
+  justify-content:space-between;
+  gap:16px;
+  align-items:flex-start;
+}
+
+.event-left{ flex: 1; min-width: 0; }
+
+.event-stats{
+  width: 160px;
+  flex: 0 0 160px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(15,23,42,.35);
+}
+
+.stat{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size: 13px;
+  color: var(--muted);
+  margin: 6px 0;
+}
+.stat strong{
+  color: var(--text);
+  font-size: 16px;
+}
+
       :root{
         --bg:#0b1220; --card:#0f172a; --text:#e5e7eb; --muted:#94a3b8;
         --line:rgba(148,163,184,.18);
@@ -427,6 +470,49 @@ router.get("/", async (req, res) => {
 
     <!-- Auto-set End = Start + 2 hours (SAFE: no backticks) -->
     <script>
+
+(function(){
+  function updateCard(card, payload){
+    if(!card || !payload) return;
+    var g = card.querySelector('.js-going');
+    var i = card.querySelector('.js-interested');
+
+    var going = 0;
+    var interested = 0;
+
+    // payload could be {data:{...}} or {...} depending on your API
+    var e = payload.data ? payload.data : payload;
+
+    if(e && typeof e.goingCount !== 'undefined') going = Number(e.goingCount || 0);
+    if(e && typeof e.interestedCount !== 'undefined') interested = Number(e.interestedCount || 0);
+
+    if(g) g.textContent = String(going);
+    if(i) i.textContent = String(interested);
+  }
+
+  async function refreshOne(card){
+    var id = card.getAttribute('data-eid');
+    if(!id) return;
+
+    try{
+      var res = await fetch('/events/' + encodeURIComponent(id), { headers: { 'Accept': 'application/json' } });
+      if(!res.ok) return;
+      var json = await res.json();
+      updateCard(card, json);
+    }catch(_){}
+  }
+
+  function tick(){
+    var cards = document.querySelectorAll('.event-card[data-eid]');
+    for(var j=0;j<cards.length;j++){
+      refreshOne(cards[j]);
+    }
+  }
+
+  tick();
+  setInterval(tick, 15000);
+})();
+
     (function(){
       var sd = document.getElementById('startDate');
       var st = document.getElementById('startTime');
