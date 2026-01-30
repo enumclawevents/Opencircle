@@ -66,10 +66,7 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
 
   while (true) {
     const row = excludeId
-      ? await get("SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1", [
-          slug,
-          excludeId,
-        ])
+      ? await get("SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1", [slug, excludeId])
       : await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [slug]);
 
     if (!row) return slug;
@@ -106,9 +103,15 @@ async function init() {
 
       featured INTEGER DEFAULT 0,
 
+      goingCount INTEGER DEFAULT 0,
+      interestedCount INTEGER DEFAULT 0,
+
       hasRecurrence INTEGER DEFAULT 0,
       recurrenceRule TEXT,      -- JSON rule object {type, interval,...}
       recurrenceDates TEXT,     -- JSON array of "YYYY-MM-DD" for custom dates
+
+      recurrenceStartDate TEXT,
+      recurrenceUntilDate TEXT,
 
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
@@ -133,10 +136,13 @@ async function init() {
     `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
     `ALTER TABLE events ADD COLUMN categories TEXT`,
     `ALTER TABLE events ADD COLUMN featured INTEGER DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0;`,
-    `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0;`,
-    `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT;`,
-    `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT;`,
+
+    `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0`,
+    `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0`,
+
+    `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT`,
+    `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT`,
+
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
     `ALTER TABLE events ADD COLUMN recurrenceDates TEXT`,
@@ -184,7 +190,10 @@ async function init() {
   console.log("[DB] Initialized & migrated");
 }
 
-// ✅ This is the function server.js expects to call:
+/**
+ * ✅ This is what server.js expects to call.
+ * server.js does: await initDB();
+ */
 async function initDB() {
   return init();
 }
