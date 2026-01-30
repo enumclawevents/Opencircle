@@ -6,6 +6,8 @@ const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 
+const { initDB } = require("./db");
+
 const eventsRouter = require("./routes/events");
 const adminRouter = require("./routes/admin");
 
@@ -91,10 +93,17 @@ app.use("/events", eventsRouter);
 app.use("/admin", requireAdmin, adminRouter);
 
 // Start server
-const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`OpenCircle API running on port ${PORT}`);
-});
+const port = process.env.PORT || 3000;
+
+initDB()
+  .then(() => {
+    app.listen(port, () => console.log(`OpenCircle API listening on ${port}`));
+  })
+  .catch((err) => {
+    console.error("DB init failed:", err);
+    process.exit(1);
+  });
+
 
 // Export so admin router can reuse if you want
 module.exports = { UPLOADS_DIR };
