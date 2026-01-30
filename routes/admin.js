@@ -61,126 +61,6 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
 });
 
-
-const csvUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: (req, file, cb) => {
-    const ok =
-      (file.mimetype || "").includes("csv") ||
-      (file.originalname || "").toLowerCase().endswith(".csv") ||
-      (file.mimetype || "") === "application/vnd.ms-excel";
-    cb(ok ? null : new Error("Only CSV files are allowed."), ok);
-  },
-});
-
-// Minimal CSV parser that supports Excel-style quoted fields.
-function parseCsv(text) {
-  const s = String(text || "").replace(/^\uFEFF/, ""); // strip BOM
-  const rows = [];
-  let row = [];
-  let cur = "";
-  let i = 0;
-  let inQuotes = false;
-
-  function pushCell() {
-    row.push(cur);
-    cur = "";
-  }
-  function pushRow() {
-    // ignore completely empty trailing rows
-    const nonEmpty = row.some((c) => String(c || "").trim() !== "");
-    if (nonEmpty) rows.push(row);
-    row = [];
-  }
-
-  while (i < s.length) {
-    const ch = s[i];
-
-    if (inQuotes) {
-      if (ch === '"') {
-        // double quote inside quotes -> escaped quote
-        if (s[i + 1] === '"') {
-          cur += '"';
-          i += 2;
-          continue;
-        }
-        inQuotes = false;
-        i += 1;
-        continue;
-      }
-      cur += ch;
-      i += 1;
-      continue;
-    }
-
-    if (ch === '"') {
-      inQuotes = true;
-      i += 1;
-      continue;
-    }
-
-    if (ch === ",") {
-      pushCell();
-      i += 1;
-      continue;
-    }
-
-    if (ch === "\n") {
-      pushCell();
-      pushRow();
-      i += 1;
-      continue;
-    }
-
-    if (ch === "\r") {
-      // handle CRLF
-      if (s[i + 1] === "\n") {
-        pushCell();
-        pushRow();
-        i += 2;
-        continue;
-      }
-      pushCell();
-      pushRow();
-      i += 1;
-      continue;
-    }
-
-    cur += ch;
-    i += 1;
-  }
-
-  // finalize
-  pushCell();
-  pushRow();
-
-  return rows;
-}
-
-function toBool01(v) {
-  const s = String(v ?? "").trim().toLowerCase();
-  if (!s) return 0;
-  if (["1", "true", "yes", "y", "on"].includes(s)) return 1;
-  return 0;
-}
-
-function splitList(v) {
-  const s = String(v ?? "").trim();
-  if (!s) return [];
-  // allow comma or semicolon separated
-  return s
-    .split(/\s*[;,]\s*/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
-
-function cleanYmd(v) {
-  const s = String(v || "").trim();
-  if (!s) return null;
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
-}
-
 function normalizeCategories(input) {
   let arr = [];
   if (Array.isArray(input)) arr = input;
@@ -255,24 +135,6 @@ function toLocalISOWithOffset(dtLocal) {
 function toDateTimeLocalValue(isoWithOffset) {
   if (!isoWithOffset) return "";
   return String(isoWithOffset).slice(0, 16);
-}
-
-
-
-function toDateValue(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function toTimeValue(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function esc(s) {
@@ -876,34 +738,7 @@ router.get("/", async (req, res) => {
         </form>
       </div>
 
-      
-<div class="card">
-  <h1>Bulk Import (CSV)</h1>
-  <p class="sub">
-    <a href="/admin/template.csv">Download template CSV</a>
-    <span class="muted" style="margin-left:10px; font-size:12px;">(opens in Excel)</span>
-  </p>
-
-  <form method="POST" action="/admin/import-csv" enctype="multipart/form-data" style="margin-top:12px;">
-    <label>Upload CSV</label>
-    <input class="ctrl" type="file" name="csvFile" accept=".csv,text/csv" required />
-    <div class="note">CSV import supports imageUrl (not image uploads). Required fields: title, description, start/end, location, organizer.</div>
-    <div class="actions">
-      <button type="submit" class="btn btn-primary">Import CSV</button>
-    </div>
-  </form>
-
-  ${
-    (req.query && (req.query.imported || req.query.failed))
-      ? `<div class="note" style="margin-top:10px;">
-           Imported: <strong>${esc(req.query.imported || 0)}</strong>
-           &nbsp;&nbsp; Failed: <strong>${esc(req.query.failed || 0)}</strong>
-         </div>`
-      : ""
-  }
-</div>
-
-<div class="card">
+      <div class="card">
         <h1 style="margin-bottom:10px;">Existing Events (latest 50)</h1>
 
 <div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px;">
@@ -1130,6 +965,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       recurrenceDates,
       recurrenceStartDate,
       recurrenceUntilDate,
+
     } = req.body;
 
     // If a file was uploaded, prefer it over the URL field
@@ -1226,28 +1062,34 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     }
 
     const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
+function cleanYmd(v) {
+  const s = String(v || "").trim();
+  if (!s) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
 
-// Optional recurring range dates (YYYY-MM-DD). Only saved if columns exist.
 let recStart = cleanYmd(recurrenceStartDate);
 let recUntil = cleanYmd(recurrenceUntilDate);
 
-if (hasRec === 1 && !recStart) {
-  // default first date = base event start date
-  recStart = toDateValue(startDateTime);
-}
-if (hasRec === 0) {
+// If not recurring, don't store these
+if (hasRec !== 1) {
   recStart = null;
   recUntil = null;
 }
+
+// Default: first date falls back to the event start date
+if (hasRec === 1 && !recStart) {
+  recStart = toDateValue(startDateTime);
+}
+
+// Validate ordering if both exist
 if (hasRec === 1 && recStart && recUntil && recUntil < recStart) {
   return res.status(400).send("Until date must be on or after the First date.");
 }
 
-
     // schema safety: only write recurrence cols if they exist
     const cols = await getEventsColumns();
     const hasRecCols = cols.has("hasRecurrence") && cols.has("recurrenceRule") && cols.has("recurrenceDates");
-    const hasRecRangeCols = cols.has("recurrenceStartDate") && cols.has("recurrenceUntilDate");
 
     // UPDATE
     if (id !== undefined && id !== null && String(id).trim() !== "") {
@@ -1296,10 +1138,6 @@ if (hasRec === 1 && recStart && recUntil && recUntil < recStart) {
         sets.push("hasRecurrence=?", "recurrenceRule=?", "recurrenceDates=?");
         vals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
       }
-    if (hasRecRangeCols) {
-      sets.push("recurrenceStartDate=?", "recurrenceUntilDate=?");
-      vals.push(recStart, recUntil);
-    }
 
       sets.push("updatedAt=datetime('now')");
       vals.push(eventId);
@@ -1359,10 +1197,6 @@ if (hasRec === 1 && recStart && recUntil && recUntil < recStart) {
       insertCols.push("hasRecurrence", "recurrenceRule", "recurrenceDates");
       insertVals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
     }
-    if (hasRecRangeCols) {
-      insertCols.push("recurrenceStartDate", "recurrenceUntilDate");
-      insertVals.push(recStart, recUntil);
-    }
 
     insertCols.push("updatedAt");
 
@@ -1391,334 +1225,6 @@ router.post("/events/:id/delete", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error.");
-  }
-});
-
-
-// GET /admin/template.csv  (Excel-friendly template)
-router.get("/template.csv", (req, res) => {
-  const headers = [
-    "city",
-    "title",
-    "description",
-    "eventDetails",
-    "goodToKnow",
-    "startDate",          // YYYY-MM-DD
-    "startTime",          // HH:MM (24h)
-    "endDate",            // YYYY-MM-DD
-    "endTime",            // HH:MM (24h)
-    "location",
-    "organizer",
-    "imageUrl",
-    "ticketUrl",
-    "ticketLabel",
-    "categories",         // comma/semicolon list (max 3)
-    "featured",           // 1/0 or TRUE/FALSE
-    "hasRecurrence",      // 1/0
-    "recurrenceType",     // weekly|monthly|custom|none
-    "recurrenceInterval", // number
-    "weeklyByDay",        // ex: MO,WE,FR
-    "monthlyMode",        // monthday|nthweekday
-    "setPos",             // 1|2|3|4|-1 (last)
-    "monthlyByDay",       // SU..SA (for nthweekday)
-    "byMonthday",         // 1-31 (for monthday)
-    "recurrenceDates",    // for custom: YYYY-MM-DD;YYYY-MM-DD
-    "recurrenceStartDate",// YYYY-MM-DD (optional)
-    "recurrenceUntilDate" // YYYY-MM-DD (optional)
-  ];
-
-  const example = [
-    "Enumclaw",
-    "Sample Event Title",
-    "Short description here",
-    "",
-    "",
-    "2026-02-05",
-    "18:00",
-    "2026-02-05",
-    "20:00",
-    "Chalet Theatre",
-    "Enumclaw Events",
-    "https://example.com/image.jpg",
-    "https://example.com/tickets",
-    "Tickets",
-    "Community;Arts & Culture",
-    "0",
-    "0",
-    "none",
-    "1",
-    "",
-    "monthday",
-    "1",
-    "TH",
-    "5",
-    "",
-    "",
-    ""
-  ];
-
-  function csvLine(arr) {
-    return arr
-      .map((v) => {
-        const s = String(v ?? "");
-        if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-        return s;
-      })
-      .join(",");
-  }
-
-  const csv = csvLine(headers) + "\r\n" + csvLine(example) + "\r\n";
-
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", 'attachment; filename="opencircle-events-template.csv"');
-  res.status(200).send(csv);
-});
-
-// POST /admin/import-csv  (bulk add events)
-router.post("/import-csv", csvUpload.single("csvFile"), async (req, res) => {
-  try {
-    if (!req.file || !req.file.buffer) return res.status(400).send("No CSV uploaded.");
-
-    const raw = req.file.buffer.toString("utf8");
-    const rows = parseCsv(raw);
-
-    if (!rows || rows.length < 2) {
-      return res.status(400).send("CSV must include a header row and at least one data row.");
-    }
-
-    const header = rows[0].map((h) => String(h || "").trim());
-    const normHeader = header.map((h) => h.toLowerCase());
-
-    function getVal(row, key) {
-      const idx = normHeader.indexOf(String(key).toLowerCase());
-      if (idx === -1) return "";
-      return row[idx] ?? "";
-    }
-
-    const cols = await getEventsColumns();
-    const hasRecCols = cols.has("hasRecurrence") && cols.has("recurrenceRule") && cols.has("recurrenceDates");
-    const hasRecRangeCols = cols.has("recurrenceStartDate") && cols.has("recurrenceUntilDate");
-
-    let created = 0;
-    let failed = 0;
-    const errors = [];
-
-    // Process each row
-    for (let r = 1; r < rows.length; r++) {
-      const row = rows[r];
-      const title = String(getVal(row, "title")).trim();
-      const description = String(getVal(row, "description")).trim();
-      const location = String(getVal(row, "location")).trim();
-      const organizer = String(getVal(row, "organizer")).trim();
-
-      const city = String(getVal(row, "city") || "Enumclaw").trim() || "Enumclaw";
-      const eventDetails = String(getVal(row, "eventDetails")).trim() || null;
-      const goodToKnow = String(getVal(row, "goodToKnow")).trim() || null;
-      const imageUrl = String(getVal(row, "imageUrl")).trim() || null;
-      const ticketUrl = String(getVal(row, "ticketUrl")).trim() || null;
-      const ticketLabelRaw = String(getVal(row, "ticketLabel")).trim();
-      const ticketLabel = ticketLabelRaw ? ticketLabelRaw : "Tickets";
-
-      // Dates
-      let startDate = String(getVal(row, "startDate")).trim();
-      let startTime = String(getVal(row, "startTime")).trim();
-      let endDate = String(getVal(row, "endDate")).trim();
-      let endTime = String(getVal(row, "endTime")).trim();
-
-      // Also accept startDateTime/endDateTime if provided
-      const startDateTimeRaw = String(getVal(row, "startDateTime")).trim();
-      const endDateTimeRaw = String(getVal(row, "endDateTime")).trim();
-
-      let startDateTimeLocal = "";
-      let endDateTimeLocal = "";
-
-      if (startDateTimeRaw) {
-        // Accept "YYYY-MM-DDTHH:MM" or "YYYY-MM-DD HH:MM"
-        const s = startDateTimeRaw.replace(" ", "T");
-        startDateTimeLocal = s.length >= 16 ? s.slice(0, 16) : s;
-      } else if (startDate && startTime) {
-        startDateTimeLocal = `${startDate}T${startTime}`;
-      }
-
-      if (endDateTimeRaw) {
-        const e = endDateTimeRaw.replace(" ", "T");
-        endDateTimeLocal = e.length >= 16 ? e.slice(0, 16) : e;
-      } else if (endDate && endTime) {
-        endDateTimeLocal = `${endDate}T${endTime}`;
-      }
-
-      // Default end = start + 2h if missing
-      if (startDateTimeLocal && !endDateTimeLocal) {
-        const d = new Date(startDateTimeLocal);
-        if (!isNaN(d.getTime())) {
-          d.setHours(d.getHours() + 2);
-          const pad = (n) => String(n).padStart(2, "0");
-          endDateTimeLocal = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-            d.getHours()
-          )}:${pad(d.getMinutes())}`;
-        }
-      }
-
-      const startDateTime = toLocalISOWithOffset(startDateTimeLocal);
-      const endDateTime = toLocalISOWithOffset(endDateTimeLocal);
-
-      if (!title || !description || !startDateTime || !endDateTime || !location || !organizer) {
-        failed++;
-        errors.push(`Row ${r + 1}: missing required fields (title/description/start/end/location/organizer).`);
-        continue;
-      }
-
-      if (ticketUrl && !/^https?:\/\//i.test(ticketUrl)) {
-        failed++;
-        errors.push(`Row ${r + 1}: ticketUrl must start with http:// or https://`);
-        continue;
-      }
-
-      const startMs = Date.parse(startDateTime);
-      const endMs = Date.parse(endDateTime);
-      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-        failed++;
-        errors.push(`Row ${r + 1}: invalid start/end date/time.`);
-        continue;
-      }
-
-      const featured = toBool01(getVal(row, "featured"));
-      const featuredFlag = featured === 1 ? 1 : 0;
-
-      // Categories: support "categories" list OR category1/category2/category3
-      const catList = splitList(getVal(row, "categories"));
-      const cat1 = String(getVal(row, "category1")).trim();
-      const cat2 = String(getVal(row, "category2")).trim();
-      const cat3 = String(getVal(row, "category3")).trim();
-
-      const cats = normalizeCategories(
-        catList.length ? catList : [cat1, cat2, cat3].filter(Boolean)
-      );
-      const catsJson = JSON.stringify(cats);
-
-      // Recurrence (optional)
-      let hasRec = 0;
-      let recurrenceRule = null;
-      let recurrenceDatesJson = null;
-
-      if (hasRecCols) {
-        const hasRecRaw = toBool01(getVal(row, "hasRecurrence"));
-        const recurrenceType = String(getVal(row, "recurrenceType")).trim().toLowerCase() || "none";
-        const interval = Math.max(1, parseInt(String(getVal(row, "recurrenceInterval") || "1"), 10) || 1);
-
-        if (hasRecRaw === 1 || (recurrenceType && recurrenceType !== "none")) {
-          hasRec = 1;
-
-          if (recurrenceType === "custom") {
-            const dates = splitList(getVal(row, "recurrenceDates")).map((d) => d.trim()).filter(Boolean);
-            recurrenceRule = { type: "custom", interval: 1 };
-            recurrenceDatesJson = JSON.stringify(dates);
-          } else if (recurrenceType === "weekly") {
-            const days = splitList(getVal(row, "weeklyByDay")).map((d) => d.toUpperCase());
-            recurrenceRule = { type: "weekly", interval, byDay: days };
-          } else if (recurrenceType === "monthly") {
-            const monthlyMode = String(getVal(row, "monthlyMode") || "monthday").trim().toLowerCase();
-            if (monthlyMode === "nthweekday") {
-              const setPos = String(getVal(row, "setPos") || "1").trim();
-              const byDay = String(getVal(row, "monthlyByDay") || "").trim().toUpperCase();
-              recurrenceRule = {
-                type: "monthly",
-                interval,
-                mode: "nthweekday",
-                setPos: parseInt(setPos, 10) || 1,
-                byDay,
-              };
-            } else {
-              const md = Math.max(1, Math.min(31, parseInt(String(getVal(row, "byMonthday") || "0"), 10) || 0));
-              recurrenceRule = { type: "monthly", interval, mode: "monthday", byMonthday: md };
-            }
-          } else {
-            // unknown -> none
-            hasRec = 0;
-          }
-        }
-      }
-
-      const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
-
-      // Recurrence range dates (optional)
-      const recStart = cleanYmd(getVal(row, "recurrenceStartDate"));
-      const recUntil = cleanYmd(getVal(row, "recurrenceUntilDate"));
-
-      // Insert
-      try {
-        const baseSlug = slugify(title);
-        const finalSlug = await ensureUniqueSlug(baseSlug);
-
-        const insertCols = [
-          "city",
-          "slug",
-          "title",
-          "description",
-          "eventDetails",
-          "goodToKnow",
-          "ticketUrl",
-          "ticketLabel",
-          "startDateTime",
-          "endDateTime",
-          "location",
-          "organizer",
-          "imageUrl",
-          "categories",
-          "featured",
-        ];
-
-        const insertVals = [
-          city,
-          finalSlug,
-          title,
-          description,
-          eventDetails,
-          goodToKnow,
-          ticketUrl,
-          ticketLabel,
-          startDateTime,
-          endDateTime,
-          location,
-          organizer,
-          imageUrl,
-          catsJson,
-          featuredFlag,
-        ];
-
-        if (hasRecCols) {
-          insertCols.push("hasRecurrence", "recurrenceRule", "recurrenceDates");
-          insertVals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
-        }
-
-        if (hasRecRangeCols) {
-          insertCols.push("recurrenceStartDate", "recurrenceUntilDate");
-          insertVals.push(recStart, recUntil);
-        }
-
-        insertCols.push("updatedAt");
-
-        const placeholders = insertCols.map(() => "?").join(", ");
-        await run(
-          `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.replace(/\?$/, "datetime('now')")})`,
-          insertVals
-        );
-
-        created++;
-      } catch (e) {
-        failed++;
-        errors.push(`Row ${r + 1}: ${String(e && e.message ? e.message : e)}`);
-      }
-    }
-
-    // If there are many errors, don't dump everything in the URL
-    const q = new URLSearchParams();
-    q.set("imported", String(created));
-    q.set("failed", String(failed));
-    return res.redirect(`/admin?${q.toString()}`);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("CSV import failed.");
   }
 });
 
