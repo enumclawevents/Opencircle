@@ -425,7 +425,7 @@ router.get("/", async (req, res) => {
       </div>
     </div>
 
-    <!-- Auto-set End = Start + 2 hours (SAFE: no backticks, no ${}) -->
+    <!-- Auto-set End = Start + 2 hours (SAFE: no backticks) -->
     <script>
     (function(){
       var sd = document.getElementById('startDate');
