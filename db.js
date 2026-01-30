@@ -184,8 +184,16 @@ async function init() {
   console.log("[DB] Initialized & migrated");
 }
 
-init().catch((err) => {
-  console.error("[DB] Init failed:", err);
-});
+async function initDB() {
+  return init();
+}
 
-module.exports = { db, run, get, all, slugify, ensureUniqueSlug };
+module.exports = {
+  db,
+  run,
+  get,
+  all,
+  slugify,
+  ensureUniqueSlug,
+  initDB,
+};
