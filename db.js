@@ -131,6 +131,8 @@ async function init() {
     `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
     `ALTER TABLE events ADD COLUMN categories TEXT`,
     `ALTER TABLE events ADD COLUMN featured INTEGER DEFAULT 0`,
+    `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0;`,
+    `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0;`,
 
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
