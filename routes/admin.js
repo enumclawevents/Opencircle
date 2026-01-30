@@ -477,12 +477,57 @@ router.get("/", async (req, res) => {
 
       <div class="card">
         <h1 style="margin-bottom:10px;">Existing Events (latest 50)</h1>
-        <div style="display:grid; gap:12px;">${listHtml}</div>
+
+<div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px;">
+  <input id="eventSearch" class="ctrl" type="text"
+         placeholder="Search by title, slug, location, or ID..." />
+  <button id="eventSearchClear" type="button" class="btn">Clear</button>
+</div>
+
+<div id="eventsList" style="display:grid; gap:12px;">${listHtml}</div>
+<div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
+
       </div>
     </div>
 
     <!-- Auto-set end = start + 2 hours -->
     <script>
+
+(function(){
+  var input = document.getElementById('eventSearch');
+  var clearBtn = document.getElementById('eventSearchClear');
+  if(!input) return;
+
+  function normalize(s){ return String(s || '').toLowerCase(); }
+
+  function applyFilter(){
+    var q = normalize(input.value).trim();
+    var cards = document.querySelectorAll('.event-card[data-eid]');
+    var shown = 0;
+
+    for(var i=0;i<cards.length;i++){
+      var card = cards[i];
+      var hay = normalize(card.textContent);
+      var ok = !q || hay.indexOf(q) !== -1;
+      card.style.display = ok ? '' : 'none';
+      if(ok) shown++;
+    }
+
+    var empty = document.getElementById('eventsEmpty');
+    if(empty) empty.style.display = shown ? 'none' : '';
+  }
+
+  input.addEventListener('input', applyFilter);
+  clearBtn && clearBtn.addEventListener('click', function(){
+    input.value = '';
+    applyFilter();
+    input.focus();
+  });
+
+  applyFilter();
+})();
+
+            
 (function(){
   function updateCard(card, payload){
     if(!card || !payload) return;
