@@ -66,7 +66,10 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
 
   while (true) {
     const row = excludeId
-      ? await get("SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1", [slug, excludeId])
+      ? await get("SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1", [
+          slug,
+          excludeId,
+        ])
       : await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [slug]);
 
     if (!row) return slug;
@@ -112,14 +115,13 @@ async function init() {
     )
   `);
 
-    // --- NORMALIZE LEGACY FEATURED COLUMN (Featured -> featured) ---
+  // --- NORMALIZE LEGACY FEATURED COLUMN (Featured -> featured) ---
   try {
     await run(`ALTER TABLE events RENAME COLUMN Featured TO featured`);
     console.log("[DB] Renamed column Featured -> featured");
   } catch (_) {
     // Ignore if column doesn't exist or already renamed
   }
-
 
   // Safe migrations (no data loss)
   const migrations = [
@@ -135,7 +137,6 @@ async function init() {
     `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0;`,
     `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT;`,
     `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT;`,
-
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
     `ALTER TABLE events ADD COLUMN recurrenceDates TEXT`,
@@ -148,7 +149,6 @@ async function init() {
       // column already exists
     }
   }
-
 
   // Optional compat migrations (ignore if legacy cols don't exist)
   try {
@@ -184,6 +184,7 @@ async function init() {
   console.log("[DB] Initialized & migrated");
 }
 
+// ✅ This is the function server.js expects to call:
 async function initDB() {
   return init();
 }
