@@ -1,7 +1,6 @@
 "use strict";
 
 const path = require("path");
-const fs = require("fs");
 const sqlite3 = require("sqlite3").verbose();
 
 /**
@@ -15,12 +14,7 @@ const DB_PATH =
   process.env.DB_PATH ||
   (process.env.RENDER_DISK_PATH
     ? path.join(process.env.RENDER_DISK_PATH, "opencircle.db")
-    : path.join(process.cwd(), "data.sqlite"));
-
-// Ensure folder exists (important for /var/data/...)
-try {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-} catch (_) {}
+    : path.join(__dirname, "data.sqlite"));
 
 console.log("[DB] Using SQLite file:", DB_PATH);
 
@@ -82,7 +76,7 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
 
 // ---------- INIT / MIGRATIONS ----------
 async function init() {
-  // Canonical schema (includes newer columns so fresh DBs are complete)
+  // Canonical schema
   await run(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,29 +103,24 @@ async function init() {
 
       featured INTEGER DEFAULT 0,
 
-      goingCount INTEGER DEFAULT 0,
-      interestedCount INTEGER DEFAULT 0,
-
       hasRecurrence INTEGER DEFAULT 0,
       recurrenceRule TEXT,      -- JSON rule object {type, interval,...}
       recurrenceDates TEXT,     -- JSON array of "YYYY-MM-DD" for custom dates
-      recurrenceStartDate TEXT, -- YYYY-MM-DD (optional range start)
-      recurrenceUntilDate TEXT, -- YYYY-MM-DD (optional range end)
 
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     )
   `);
 
-  // Normalize legacy Featured column if it exists
+  // --- NORMALIZE LEGACY FEATURED COLUMN (Featured -> featured) ---
   try {
     await run(`ALTER TABLE events RENAME COLUMN Featured TO featured`);
     console.log("[DB] Renamed column Featured -> featured");
   } catch (_) {
-    // ignore
+    // Ignore if column doesn't exist or already renamed
   }
 
-  // Safe migrations for older DBs (ignore if already exists)
+  // Safe migrations (no data loss)
   const migrations = [
     `ALTER TABLE events ADD COLUMN slug TEXT`,
     `ALTER TABLE events ADD COLUMN eventDetails TEXT`,
@@ -141,13 +130,13 @@ async function init() {
     `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
     `ALTER TABLE events ADD COLUMN categories TEXT`,
     `ALTER TABLE events ADD COLUMN featured INTEGER DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0`,
+    `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0;`,
+    `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0;`,
+    `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT;`,
+    `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT;`,
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
     `ALTER TABLE events ADD COLUMN recurrenceDates TEXT`,
-    `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT`,
-    `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT`,
   ];
 
   for (const sql of migrations) {
@@ -192,11 +181,21 @@ async function init() {
   console.log("[DB] Initialized & migrated");
 }
 
-// ✅ This is what server.js should call
-async function initDB() {
-  await init();
-  return true;
+/**
+ * initDB() exported for server.js
+ * This is "run once" safe — if server.js calls initDB() multiple times,
+ * it will reuse the same promise.
+ */
+let _initPromise = null;
+function initDB() {
+  if (!_initPromise) _initPromise = init();
+  return _initPromise;
 }
+
+// Keep the old behavior (auto-init) WITHOUT double-running when server.js also calls it.
+initDB().catch((err) => {
+  console.error("[DB] Init failed:", err);
+});
 
 module.exports = {
   db,
