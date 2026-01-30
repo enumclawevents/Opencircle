@@ -596,7 +596,16 @@ router.get("/", async (req, res) => {
 
       <div class="card">
         <h1 style="margin-bottom:10px;">Existing Events (latest 50)</h1>
-        <div style="display:grid; gap:12px;">${listHtml}</div>
+
+<div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px;">
+  <input id="eventSearch" class="ctrl" type="text"
+         placeholder="Search by title, slug, location, or ID..." />
+  <button id="eventSearchClear" type="button" class="btn">Clear</button>
+</div>
+
+<div id="eventsList" style="display:grid; gap:12px;">${listHtml}</div>
+<div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
+
       </div>
     </div>
 
