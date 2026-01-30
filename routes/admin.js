@@ -382,7 +382,7 @@ router.get("/", async (req, res) => {
     <div class="wrap">
       <div class="topbar">
         <div class="brand">
-          <img src="/assets/brand/oc-logo.svg" alt="OpenCircle API" />
+          <img src="/assets/brand/oc-logo.svg" alt="OpenCircle API" style="height:72px; width:auto; display:block;" />
           <div>
             <div class="brand-title">OpenCircle Admin</div>
             <div class="muted" style="font-size:12px; margin-top:4px;">Create and manage events (SQLite)</div>
