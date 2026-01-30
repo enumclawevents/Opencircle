@@ -331,6 +331,88 @@ router.get("/", async (req, res) => {
       .cat-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
       @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
 
+
+/* ===== Recurrence UI polish ===== */
+.recurrence{
+  border-radius: 12px;
+  padding: 18px;
+  background: rgba(15,23,42,.25);
+}
+
+.rec-grid{
+  display:grid;
+  grid-template-columns: 1.2fr .8fr;
+  gap: 16px;
+  align-items: end;
+}
+
+@media (max-width: 900px){
+  .rec-grid{ grid-template-columns: 1fr; }
+}
+
+.rec-label{
+  font-weight: 900;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: var(--text);
+  letter-spacing: .2px;
+}
+
+.rec-help{
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* Pills for weekday selection */
+.dow{
+  display:flex;
+  flex-wrap:wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.dow-pill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(148,163,184,.22);
+  background: rgba(11,18,32,.65);
+  color: var(--text);
+  font-weight: 800;
+  font-size: 13px;
+  cursor: pointer;
+  user-select:none;
+  transition: background .15s ease, border-color .15s ease, transform .05s ease;
+}
+
+/* Hide raw checkbox, keep accessible */
+.dow-pill input{
+  position:absolute;
+  opacity:0;
+  pointer-events:none;
+}
+
+/* Active state */
+.dow-pill:has(input:checked){
+  background: rgba(0,192,139,.18);
+  border-color: rgba(0,192,139,.45);
+  box-shadow: 0 0 0 3px rgba(0,192,139,.10);
+}
+
+.dow-pill:active{ transform: scale(.98); }
+
+/* Make select/input feel aligned */
+.recurrence .ctrl{
+  border-radius: 12px;
+}
+
+
+
       .rec-box{
         border:1px solid var(--line);
         border-radius: 14px;
@@ -448,115 +530,143 @@ router.get("/", async (req, res) => {
             </div>
           </div>
 
-          <!-- ✅ RESTORED: Recurring Events UI -->
-          <div class="rec-box">
-            <div class="checkbox">
-              <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
-              <label for="hasRecurrence" style="margin:0;font-size:13px;font-weight:900;">Recurring Event</label>
-            </div>
-            <div class="note">Create a recurring rule (weekly/monthly) or a custom date list.</div>
+         <!-- ✅ RESTORED: Recurring Events UI (polished layout) -->
+<div class="rec-box recurrence">
+  <div class="checkbox">
+    <input
+      type="checkbox"
+      id="hasRecurrence"
+      name="hasRecurrence"
+      value="1"
+      ${hasRecurrence ? "checked" : ""}
+    />
+    <label for="hasRecurrence" style="margin:0;font-size:13px;font-weight:900;">Recurring Event</label>
+  </div>
+  <div class="note">Create a recurring rule (weekly/monthly) or a custom date list.</div>
 
-            <div class="rec-row" style="margin-top:10px;">
-              <div>
-                <label style="margin-top:0;">Recurrence Type</label>
-                <select id="recurrenceType" name="recurrenceType" class="ctrl">
-                  <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
-                  <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
-                  <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
-                  <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Custom Dates</option>
-                </select>
-              </div>
+  <!-- Type + Interval in a clean grid -->
+  <div class="rec-grid" style="margin-top:12px;">
+    <div>
+      <div class="rec-label">Recurrence Type</div>
+      <select id="recurrenceType" name="recurrenceType" class="ctrl">
+        <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
+        <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
+        <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
+        <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Custom Dates</option>
+      </select>
+    </div>
 
-              <div id="intervalRow">
-                <label style="margin-top:0;">Interval</label>
-                <input class="ctrl" type="number" min="1" name="recurrenceInterval" value="${esc(recurrenceInterval)}" />
-                <div class="note">Example: every 1 week, every 2 weeks, every 1 month, etc.</div>
-              </div>
-            </div>
+    <div id="intervalRow">
+      <div class="rec-label">Interval</div>
+      <input class="ctrl" type="number" min="1" name="recurrenceInterval" value="${esc(recurrenceInterval)}" />
+      <div class="rec-help">Example: every 1 week, every 2 weeks, every 1 month, etc.</div>
+    </div>
+  </div>
 
-            <div id="weeklyBox" style="margin-top:10px;">
-              <label>Days of Week</label>
-              <div class="days">
-                <label class="day"><input type="checkbox" name="weeklyByDay" value="SU" ${isChecked(weeklyByDay, "SU")} />Sun</label>
-                <label class="day"><input type="checkbox" name="weeklyByDay" value="MO" ${isChecked(weeklyByDay, "MO")} />Mon</label>
-                <label class="day"><input type="checkbox" name="weeklyByDay" value="TU" ${isChecked(weeklyByDay, "TU")} />Tue</label>
-                <label class="day"><input type="checkbox" name="weeklyByDay" value="WE" ${isChecked(weeklyByDay, "WE")} />Wed</label>
-                <label class="day"><input type="checkbox" name="weeklyByDay" value="TH" ${isChecked(weeklyByDay, "TH")} />Thu</label>
-                <label class="day"><input type="checkbox" name="weeklyByDay" value="FR" ${isChecked(weeklyByDay, "FR")} />Fri</label>
-                <label class="day"><input type="checkbox" name="weeklyByDay" value="SA" ${isChecked(weeklyByDay, "SA")} />Sat</label>
-              </div>
-              <div class="note">Pick one or more days.</div>
-            </div>
+  <!-- Weekly -->
+  <div id="weeklyBox" style="margin-top:14px;">
+    <div class="rec-label">Days of Week</div>
 
-            <div id="monthlyBox" style="margin-top:10px;">
-              <div class="rec-row">
-                <div>
-                  <label>Monthly Mode</label>
-                  <select id="monthlyMode" name="monthlyMode" class="ctrl">
-                    <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
-                    <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday</option>
-                  </select>
-                </div>
-                <div></div>
-              </div>
+    <!-- pill toggles -->
+    <div class="dow">
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="SU" ${isChecked(weeklyByDay, "SU")} />Sun
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="MO" ${isChecked(weeklyByDay, "MO")} />Mon
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="TU" ${isChecked(weeklyByDay, "TU")} />Tue
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="WE" ${isChecked(weeklyByDay, "WE")} />Wed
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="TH" ${isChecked(weeklyByDay, "TH")} />Thu
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="FR" ${isChecked(weeklyByDay, "FR")} />Fri
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="SA" ${isChecked(weeklyByDay, "SA")} />Sat
+      </label>
+    </div>
 
-              <div id="monthdayBox" style="margin-top:10px;">
-                <label>Day of Month (1–31)</label>
-                <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(byMonthday)}" />
-              </div>
+    <div class="rec-help">Pick one or more days.</div>
+  </div>
 
-              <div id="nthweekdayBox" style="margin-top:10px;">
-                <div class="rec-row">
-                  <div>
-                    <label>Which Week</label>
-                    <select name="setPos" class="ctrl">
-                      <option value="1" ${setPos === "1" ? "selected" : ""}>1st</option>
-                      <option value="2" ${setPos === "2" ? "selected" : ""}>2nd</option>
-                      <option value="3" ${setPos === "3" ? "selected" : ""}>3rd</option>
-                      <option value="4" ${setPos === "4" ? "selected" : ""}>4th</option>
-                      <option value="-1" ${setPos === "-1" ? "selected" : ""}>Last</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label>Weekday</label>
-                    <select name="monthlyByDay" class="ctrl">
-                      <option value="SU" ${monthlyByDay === "SU" ? "selected" : ""}>Sunday</option>
-                      <option value="MO" ${monthlyByDay === "MO" ? "selected" : ""}>Monday</option>
-                      <option value="TU" ${monthlyByDay === "TU" ? "selected" : ""}>Tuesday</option>
-                      <option value="WE" ${monthlyByDay === "WE" ? "selected" : ""}>Wednesday</option>
-                      <option value="TH" ${monthlyByDay === "TH" ? "selected" : ""}>Thursday</option>
-                      <option value="FR" ${monthlyByDay === "FR" ? "selected" : ""}>Friday</option>
-                      <option value="SA" ${monthlyByDay === "SA" ? "selected" : ""}>Saturday</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
+  <!-- Monthly -->
+  <div id="monthlyBox" style="margin-top:14px;">
+    <div class="rec-grid">
+      <div>
+        <div class="rec-label">Monthly Mode</div>
+        <select id="monthlyMode" name="monthlyMode" class="ctrl">
+          <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
+          <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday</option>
+        </select>
+      </div>
+      <div></div>
+    </div>
 
-            <div id="customBox" style="margin-top:10px;">
-              <label>Custom Dates</label>
-              <div class="note">Add specific dates (YYYY-MM-DD). Time comes from the Start/End above.</div>
+    <div id="monthdayBox" style="margin-top:12px;">
+      <div class="rec-label">Day of Month (1–31)</div>
+      <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(byMonthday)}" />
+    </div>
 
-              <div id="customDatesWrap" class="chips">
-                ${
-                  (customDates || [])
-                    .map((d) => {
-                      return `
-                        <span class="chip">
-                          <input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="recurrenceDates" value="${esc(d)}" />
-                          <button type="button" data-remove-date="1" aria-label="Remove">×</button>
-                        </span>
-                      `;
-                    })
-                    .join("")
-                }
-              </div>
+    <div id="nthweekdayBox" style="margin-top:12px;">
+      <div class="rec-grid">
+        <div>
+          <div class="rec-label">Which Week</div>
+          <select name="setPos" class="ctrl">
+            <option value="1" ${setPos === "1" ? "selected" : ""}>1st</option>
+            <option value="2" ${setPos === "2" ? "selected" : ""}>2nd</option>
+            <option value="3" ${setPos === "3" ? "selected" : ""}>3rd</option>
+            <option value="4" ${setPos === "4" ? "selected" : ""}>4th</option>
+            <option value="-1" ${setPos === "-1" ? "selected" : ""}>Last</option>
+          </select>
+        </div>
+        <div>
+          <div class="rec-label">Weekday</div>
+          <select name="monthlyByDay" class="ctrl">
+            <option value="SU" ${monthlyByDay === "SU" ? "selected" : ""}>Sunday</option>
+            <option value="MO" ${monthlyByDay === "MO" ? "selected" : ""}>Monday</option>
+            <option value="TU" ${monthlyByDay === "TU" ? "selected" : ""}>Tuesday</option>
+            <option value="WE" ${monthlyByDay === "WE" ? "selected" : ""}>Wednesday</option>
+            <option value="TH" ${monthlyByDay === "TH" ? "selected" : ""}>Thursday</option>
+            <option value="FR" ${monthlyByDay === "FR" ? "selected" : ""}>Friday</option>
+            <option value="SA" ${monthlyByDay === "SA" ? "selected" : ""}>Saturday</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
 
-              <div class="actions" style="margin-top:10px;">
-                <button id="addCustomDate" type="button" class="btn">+ Add Date</button>
-              </div>
-            </div>
-          </div>
+  <!-- Custom -->
+  <div id="customBox" style="margin-top:14px;">
+    <div class="rec-label">Custom Dates</div>
+    <div class="rec-help">Add specific dates (YYYY-MM-DD). Time comes from the Start/End above.</div>
+
+    <div id="customDatesWrap" class="chips" style="margin-top:10px;">
+      ${
+        (customDates || [])
+          .map((d) => {
+            return `
+              <span class="chip">
+                <input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="recurrenceDates" value="${esc(d)}" />
+                <button type="button" data-remove-date="1" aria-label="Remove">×</button>
+              </span>
+            `;
+          })
+          .join("")
+      }
+    </div>
+
+    <div class="actions" style="margin-top:10px;">
+      <button id="addCustomDate" type="button" class="btn">+ Add Date</button>
+    </div>
+  </div>
+</div>
+
           <!-- ✅ END recurrence UI -->
 
           <label>Flyer Image (Upload)</label>
