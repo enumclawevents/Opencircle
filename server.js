@@ -23,6 +23,7 @@ const UPLOADS_DIR =
     : path.join(process.cwd(), "uploads"));
 
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+app.use("/uploads", express.static(UPLOADS_DIR));
 console.log("[UPLOADS] Using folder:", UPLOADS_DIR);
 
 // Host uploads publicly
