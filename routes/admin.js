@@ -1101,7 +1101,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       setPos,
       monthlyByDay,
       recurrenceDates,
-      recurrenceDatesJson,
+      recurrenceDatesJson: recurrenceDatesJsonRaw,
     } = req.body;
 
     // If a file was uploaded, prefer it over the URL field
@@ -1159,8 +1159,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       if (t === "custom") {
         // Prefer per-occurrence start/end times from the UI (JSON)
         let parsed = [];
-        if (typeof recurrenceDatesJson === "string" && recurrenceDatesJson.trim() !== "") {
-          try { parsed = JSON.parse(recurrenceDatesJson); } catch {}
+        if (typeof recurrenceDatesJsonRaw === "string" && recurrenceDatesJsonRaw.trim() !== "") {
+          try { parsed = JSON.parse(recurrenceDatesJsonRaw); } catch {}
         }
 
         if (Array.isArray(parsed) && parsed.length) {
