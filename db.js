@@ -76,7 +76,7 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
 
 // ---------- INIT / MIGRATIONS ----------
 async function init() {
-  // Canonical schema
+  // Canonical schema (fresh DB)
   await run(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,13 +99,18 @@ async function init() {
       ticketUrl TEXT,
       ticketLabel TEXT,
 
-      categories TEXT, -- JSON array of strings
+      categories TEXT,
 
       featured INTEGER DEFAULT 0,
 
       hasRecurrence INTEGER DEFAULT 0,
-      recurrenceRule TEXT,      -- JSON rule object {type, interval,...}
-      recurrenceDates TEXT,     -- JSON array of "YYYY-MM-DD" for custom dates
+      recurrenceRule TEXT,
+      recurrenceDates TEXT,
+      recurrenceStartDate TEXT,
+      recurrenceUntilDate TEXT,
+
+      goingCount INTEGER DEFAULT 0,
+      interestedCount INTEGER DEFAULT 0,
 
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
@@ -117,12 +122,11 @@ async function init() {
     await run(`ALTER TABLE events RENAME COLUMN Featured TO featured`);
     console.log("[DB] Renamed column Featured -> featured");
   } catch (_) {
-    // Ignore if column doesn't exist or already renamed
+    // ignore
   }
 
-  // Safe migrations (no data loss)
+  // Safe migrations (no data loss). These run on older DBs.
   const migrations = [
-    `ALTER TABLE events ADD COLUMN slug TEXT`,
     `ALTER TABLE events ADD COLUMN eventDetails TEXT`,
     `ALTER TABLE events ADD COLUMN goodToKnow TEXT`,
     `ALTER TABLE events ADD COLUMN ticketUrl TEXT`,
@@ -130,13 +134,16 @@ async function init() {
     `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
     `ALTER TABLE events ADD COLUMN categories TEXT`,
     `ALTER TABLE events ADD COLUMN featured INTEGER DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0;`,
-    `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0;`,
-    `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT;`,
-    `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT;`,
+    `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0`,
+    `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0`,
+
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
     `ALTER TABLE events ADD COLUMN recurrenceDates TEXT`,
+    `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT`,
+    `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT`,
+
+    `ALTER TABLE events ADD COLUMN slug TEXT`,
   ];
 
   for (const sql of migrations) {
@@ -181,21 +188,10 @@ async function init() {
   console.log("[DB] Initialized & migrated");
 }
 
-/**
- * initDB() exported for server.js
- * This is "run once" safe — if server.js calls initDB() multiple times,
- * it will reuse the same promise.
- */
-let _initPromise = null;
-function initDB() {
-  if (!_initPromise) _initPromise = init();
-  return _initPromise;
+// Server expects initDB() to exist and return a Promise
+async function initDB() {
+  return init();
 }
-
-// Keep the old behavior (auto-init) WITHOUT double-running when server.js also calls it.
-initDB().catch((err) => {
-  console.error("[DB] Init failed:", err);
-});
 
 module.exports = {
   db,
