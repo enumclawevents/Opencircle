@@ -132,6 +132,12 @@ function toLocalISOWithOffset(dtLocal) {
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
 }
 
+function toDateValue(isoWithOffset) {
+  if (!isoWithOffset) return "";
+  return String(isoWithOffset).slice(0, 10); // YYYY-MM-DD
+}
+
+
 function toDateTimeLocalValue(isoWithOffset) {
   if (!isoWithOffset) return "";
   return String(isoWithOffset).slice(0, 16);
