@@ -17,6 +17,47 @@ function safeParseJson(val, fallback) {
   }
 }
 
+const { DateTime } = require("luxon");
+
+const DEFAULT_TZ = "America/Los_Angeles";
+
+/**
+ * If an ISO has +00:00 but represents local time, convert it to Pacific
+ * while keeping the same clock time (keepLocalTime: true).
+ * This also automatically chooses -08:00 vs -07:00 depending on date (DST).
+ */
+function normalizeIsoToTzKeepClock(iso, tz = DEFAULT_TZ) {
+  const s = String(iso || "").trim();
+  if (!s) return s;
+
+  // If it already has a non-UTC offset, leave it.
+  // (Example: -08:00 or -07:00)
+  if (/[+-]\d{2}:\d{2}$/.test(s) && !s.endsWith("+00:00")) return s;
+
+  // Only rewrite if it ends in +00:00 (your current problematic case)
+  if (!s.endsWith("+00:00")) return s;
+
+  const dt = DateTime.fromISO(s, { setZone: true });
+  if (!dt.isValid) return s;
+
+  // keepLocalTime means "20:00 stays 20:00", but we change the zone/offset.
+  const fixed = dt.setZone(tz, { keepLocalTime: true });
+
+  // Force full ISO with offset, no millis
+  return fixed.toISO({ suppressMilliseconds: true, includeOffset: true });
+}
+
+function normalizeRowTimes(row, tz = DEFAULT_TZ) {
+  if (!row) return row;
+  return {
+    ...row,
+    startDateTime: normalizeIsoToTzKeepClock(row.startDateTime, tz),
+    endDateTime: normalizeIsoToTzKeepClock(row.endDateTime, tz),
+  };
+}
+
+
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -474,10 +515,14 @@ router.get("/", async (req, res) => {
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
     // Pull all city rows (we'll filter in JS because categories are JSON)
-    const rows = await all(
-      "SELECT * FROM events WHERE LOWER(city) = LOWER(?)",
-      [city]
-    );
+    let rows = await all(
+  "SELECT * FROM events WHERE LOWER(city) = LOWER(?) ORDER BY startDateTime ASC",
+  [city]
+);
+
+// normalize base times first so recurrence generation uses correct offset
+rows = rows.map(r => normalizeRowTimes(r));
+
 
     // Normalize base rows
     const normalizedRows = rows.map((r) => ({
@@ -554,6 +599,8 @@ router.get("/slug/:slug", async (req, res) => {
 
     const row = await get("SELECT * FROM events WHERE LOWER(slug) = LOWER(?) LIMIT 1", [slug]);
     if (!row) return res.status(404).json({ error: "Event not found" });
+
+    const rowFixed = normalizeRowTimes(row);
 
     const cats = safeParseJson(row.categories, []);
     const recurRuleObj = safeParseJson(row.recurrenceRule, null);
