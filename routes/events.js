@@ -384,50 +384,165 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
   }));
 }
 
-// GET /events?city=Enumclaw&expand=1
+/**
+ * Feed filtering helpers
+ */
+function normalizeCats(row) {
+  const cats = safeParseJson(row.categories, []);
+  return Array.isArray(cats) ? cats : [];
+}
+
+function matchesCategory(item, category) {
+  if (!category) return true;
+  const target = String(category).trim().toLowerCase();
+  if (!target) return true;
+  const cats = Array.isArray(item.categories) ? item.categories : [];
+  return cats.some((c) => String(c || "").trim().toLowerCase() === target);
+}
+
+function matchesQuery(item, q) {
+  if (!q) return true;
+  const qq = String(q).trim().toLowerCase();
+  if (!qq) return true;
+  const t = String(item.title || "").toLowerCase();
+  const l = String(item.location || "").toLowerCase();
+  return t.includes(qq) || l.includes(qq);
+}
+
+function inIsoRange(item, fromISO, toISO) {
+  if (!fromISO && !toISO) return true;
+  const t = Date.parse(item.startDateTime);
+  if (!Number.isFinite(t)) return false;
+
+  const fromT = fromISO ? Date.parse(fromISO) : NaN;
+  const toT = toISO ? Date.parse(toISO) : NaN;
+
+  if (Number.isFinite(fromT) && t < fromT) return false;
+  if (Number.isFinite(toT) && t > toT) return false;
+  return true;
+}
+
+function paginate(items, limit, offset) {
+  const total = items.length;
+  const start = Math.max(0, offset);
+  const end = Math.min(total, start + limit);
+  const slice = items.slice(start, end);
+  const hasMore = end < total;
+  return {
+    data: slice,
+    meta: {
+      total,
+      limit,
+      offset: start,
+      hasMore,
+      nextOffset: hasMore ? end : null,
+    },
+  };
+}
+
+/**
+ * GET /events
+ * Supports:
+ *  city=Enumclaw
+ *  expand=1 (default) or expand=0
+ *  limit=40 offset=0
+ *  sort=soonest|latest
+ *  q=search text
+ *  category=music
+ *  featured=1
+ *  from=ISO to=ISO
+ */
 router.get("/", async (req, res) => {
   try {
     const city = (req.query.city || "Enumclaw").trim();
     const expand = String(req.query.expand ?? "1") !== "0";
+
+    const sort = String(req.query.sort || "soonest").toLowerCase() === "latest" ? "latest" : "soonest";
+    const q = String(req.query.q || "").trim();
+    const category = String(req.query.category || "").trim();
+    const featuredOnly = String(req.query.featured || "0") === "1";
+
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit || "40", 10)));
+    const offset = Math.max(0, parseInt(req.query.offset || "0", 10));
+
+    const fromISO = String(req.query.from || "").trim();
+    const toISO = String(req.query.to || "").trim();
 
     const nowUtc = Date.now();
     const windowDays = 90;
     const windowStartUtc = nowUtc - 5 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
+    // Pull all city rows (we'll filter in JS because categories are JSON)
     const rows = await all(
-      "SELECT * FROM events WHERE LOWER(city) = LOWER(?) ORDER BY startDateTime ASC",
+      "SELECT * FROM events WHERE LOWER(city) = LOWER(?)",
       [city]
     );
 
+    // Normalize base rows
+    const normalizedRows = rows.map((r) => ({
+      ...r,
+      categories: normalizeCats(r),
+      hasRecurrence: Number(r.hasRecurrence || 0),
+      recurrenceRule: safeParseJson(r.recurrenceRule, null),
+      recurrenceDates: safeParseJson(r.recurrenceDates, []),
+      featured: Number(r.featured || 0),
+    }));
+
+    // If no expand, treat each base row as one feed item (but still window filter)
     if (!expand) {
-      const normalized = rows.map((r) => ({
-        ...r,
-        categories: safeParseJson(r.categories, []),
-        hasRecurrence: Number(r.hasRecurrence || 0),
-        recurrenceRule: safeParseJson(r.recurrenceRule, null),
-        recurrenceDates: safeParseJson(r.recurrenceDates, []),
-        featured: Number(r.featured || 0),
-      }));
-      return res.json({ data: normalized });
+      let items = normalizedRows
+        .filter((it) => {
+          const t = Date.parse(it.startDateTime);
+          if (!Number.isFinite(t)) return false;
+          if (t < windowStartUtc || t > windowEndUtc) return false;
+          if (featuredOnly && Number(it.featured || 0) !== 1) return false;
+          if (!matchesQuery(it, q)) return false;
+          if (!matchesCategory(it, category)) return false;
+          if (!inIsoRange(it, fromISO, toISO)) return false;
+          return true;
+        });
+
+      items.sort((a, b) => {
+        const at = Date.parse(a.startDateTime);
+        const bt = Date.parse(b.startDateTime);
+        return sort === "latest" ? (bt - at) : (at - bt);
+      });
+
+      return res.json(paginate(items, limit, offset));
     }
 
-    const expanded = [];
-    for (const r of rows) {
+    // Expand into occurrences
+    let expanded = [];
+    for (const r of normalizedRows) {
       expanded.push(...expandEventIntoFeedItems(r, windowStartUtc, windowEndUtc));
     }
 
-    expanded.sort((a, b) => {
-      const af = Number(a.featured || 0);
-      const bf = Number(b.featured || 0);
-      if (bf !== af) return bf - af;
-      return Date.parse(a.startDateTime) - Date.parse(b.startDateTime);
+    // Apply filters
+    expanded = expanded.filter((it) => {
+      if (featuredOnly && Number(it.featured || 0) !== 1) return false;
+      if (!matchesQuery(it, q)) return false;
+      if (!matchesCategory(it, category)) return false;
+      if (!inIsoRange(it, fromISO, toISO)) return false;
+      return true;
     });
 
-    res.json({ data: expanded });
+    // Sort
+    expanded.sort((a, b) => {
+      const at = Date.parse(a.startDateTime);
+      const bt = Date.parse(b.startDateTime);
+      return sort === "latest" ? (bt - at) : (at - bt);
+    });
+
+    // Paginate
+    return res.json(paginate(expanded, limit, offset));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({
+      data: [],
+      meta: { total: 0, limit: 40, offset: 0, hasMore: false, nextOffset: null },
+      error: "Server error",
+    });
   }
 });
 
