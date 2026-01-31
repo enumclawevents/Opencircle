@@ -139,8 +139,9 @@ function toDateTimeLocalValue(isoWithOffset) {
 
 function toDateValue(isoWithOffset) {
   if (!isoWithOffset) return "";
-  return String(isoWithOffset).slice(0, 10); // YYYY-MM-DD
+  return String(isoWithOffset).slice(0, 10);
 }
+
 
 function esc(s) {
   return String(s ?? "")
@@ -175,7 +176,7 @@ router.get("/", async (req, res) => {
       events = await all(
         "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount, imageUrl FROM events ORDER BY startDateTime DESC LIMIT 50"
       );
-    } catch (err) {
+    } catch {
       events = await all(
         "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT 50"
       );
@@ -193,7 +194,19 @@ router.get("/", async (req, res) => {
     const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
     const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
     const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
-    const customDates = parseStoredDates(editEvent?.recurrenceDates);
+    const _storedCustom = parseStoredDates(editEvent?.recurrenceDates);
+    const _startLocal = toDateTimeLocalValue(editEvent?.startDateTime);
+    const _endLocal = toDateTimeLocalValue(editEvent?.endDateTime);
+    const _defaultStart = _startLocal ? _startLocal.slice(11,16) : "12:00";
+    const _defaultEnd = _endLocal ? _endLocal.slice(11,16) : "14:00";
+    const customDates = Array.isArray(_storedCustom)
+      ? _storedCustom.map((x) => {
+          if (x && typeof x === "object" && (x.start || x.end)) return x;
+          const d = String(x || "").trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+          return { start: `${d}T${_defaultStart}`, end: `${d}T${_defaultEnd}` };
+        }).filter(Boolean)
+      : [];
     const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
     const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
 
@@ -225,23 +238,17 @@ router.get("/", async (req, res) => {
             const going = Number(e.goingCount || 0);
             const interested = Number(e.interestedCount || 0);
 
-            const thumbHtml = e.imageUrl
-              ? `
-                <a class="thumb-link" href="${esc(e.imageUrl)}" target="_blank" rel="noopener" title="View image">
-                  <img class="event-thumb-img" src="${esc(e.imageUrl)}" alt="${esc(e.title)} flyer" loading="lazy"
-                       onerror="this.closest('.event-thumb').classList.add('broken'); this.style.display='none';" />
-                  <div class="thumb-fallback">Image not found</div>
-                </a>
-              `
-              : `<div class="thumb-empty">No image</div>`;
-
             return `
           <div class="event-card" data-eid="${e.id}">
-            <div class="event-thumb">${thumbHtml}</div>
             <div class="event-left">
               <div class="event-title">#${e.id} — ${esc(e.title)} ${
               Number(e.featured || 0) === 1 ? `<span class="pill" style="margin-left:8px;">Featured</span>` : ""
             }</div>
+              ${
+                e.imageUrl
+                  ? `<div class="event-thumb"><img src="${esc(e.imageUrl)}" alt="Event image" loading="lazy" /></div>`
+                  : ""
+              }
               <div class="event-meta">
                 <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
                 <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
@@ -481,39 +488,23 @@ router.get("/", async (req, res) => {
       .event-title{ font-weight:800; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
       .event-actions{ margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+
       .event-thumb{
-        width: 120px;
-        flex: 0 0 120px;
-      }
-      .thumb-link{
-        display:block;
-        text-decoration:none;
-      }
-      .event-thumb-img{
-        width: 120px;
-        height: 120px;
-        object-fit: cover;
-        border-radius: 4px;
+        margin-top: 10px;
+        width: 100%;
+        max-width: 420px;
         border: 1px solid var(--line);
-        display:block;
-      }
-      .thumb-empty,
-      .thumb-fallback{
-        width: 120px;
-        height: 120px;
         border-radius: 4px;
-        border: 1px solid var(--line);
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        font-size: 12px;
-        color: var(--muted);
+        overflow: hidden;
         background: rgba(15,23,42,.35);
-        text-align:center;
-        padding: 8px;
       }
-      .event-thumb .thumb-fallback{ display:none; }
-      .event-thumb.broken .thumb-fallback{ display:flex; }
+      .event-thumb img{
+        width: 100%;
+        height: auto;
+        display: block;
+        aspect-ratio: 16/9;
+        object-fit: cover;
+      }
 
       .event-stats{
         width: 160px;
@@ -596,6 +587,9 @@ router.get("/", async (req, res) => {
                 value="${esc(toDateTimeLocalValue(editEvent?.endDateTime))}" required />
             </div>
           </div>
+
+          <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
+          <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
 
          <!-- ✅ RESTORED: Recurring Events UI (polished layout) -->
 <div class="rec-box recurrence">
@@ -724,15 +718,24 @@ router.get("/", async (req, res) => {
   <!-- Custom -->
   <div id="customBox" style="margin-top:14px;">
     <div class="rec-label">Custom Dates</div>
-    <div class="rec-help">Add specific dates (YYYY-MM-DD). Time comes from the Start/End above.</div>
+    <div class="rec-help">Add specific dates (YYYY-MM-DD) and set start/end time for each date.</div>
 
     <div id="customDatesWrap" class="chips" style="margin-top:10px;">
       ${
         (customDates || [])
-          .map((d) => {
+          .map((row) => {
+            const startIso = String(row?.start || "").trim();
+            const endIso   = String(row?.end || "").trim();
+
+            const dateVal  = startIso ? startIso.slice(0, 10) : "";
+            const startVal = startIso ? startIso.slice(11, 16) : "";
+            const endVal   = endIso ? endIso.slice(11, 16) : "";
+
             return `
               <span class="chip">
-                <input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="recurrenceDates" value="${esc(d)}" />
+                <input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="recurrenceDates" value="${esc(dateVal)}" />
+                <input class="ctrl" style="width:120px; padding:6px 8px;" type="time" name="customStart" value="${esc(startVal)}" />
+                <input class="ctrl" style="width:120px; padding:6px 8px;" type="time" name="customEnd" value="${esc(endVal)}" />
                 <button type="button" data-remove-date="1" aria-label="Remove">×</button>
               </span>
             `;
@@ -740,6 +743,8 @@ router.get("/", async (req, res) => {
           .join("")
       }
     </div>
+
+    <input type="hidden" name="recurrenceDatesJson" id="recurrenceDatesJson" value="" />
 
     <div class="actions" style="margin-top:10px;">
       <button id="addCustomDate" type="button" class="btn">+ Add Date</button>
@@ -750,34 +755,15 @@ router.get("/", async (req, res) => {
           <!-- ✅ END recurrence UI -->
 
           <label>Flyer Image (Upload)</label>
-          <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
+          <input class="ctrl" type="file" name="imageFile" accept="image/*" />
           <div class="note">Uploading replaces the Image URL below.</div>
-
-          <!-- Live preview when choosing a file -->
-          <img
-            id="uploadPreview"
-            style="margin-top:10px; width:160px; height:160px; object-fit:cover; border-radius:4px; border:1px solid var(--line); display:none;"
-            alt="Flyer upload preview"
-          />
 
           <label style="margin-top:12px;">Image URL (optional fallback)</label>
           <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
 
           ${
             editEvent?.imageUrl
-              ? `
-                <div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>
-
-                <div style="margin-top:10px;">
-                  <img
-                    id="existingPreview"
-                    src="${esc(editEvent.imageUrl)}"
-                    style="width:160px; height:160px; object-fit:cover; border-radius:4px; border:1px solid var(--line);"
-                    alt="Current flyer preview"
-                    onerror="this.style.display='none';"
-                  />
-                </div>
-              `
+              ? `<div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>`
               : ""
           }
 
@@ -802,7 +788,7 @@ router.get("/", async (req, res) => {
           <div class="actions">
             <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
             ${editEvent ? `<a class="btn btn-link" href="/admin">Cancel</a>` : ""}
-            <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
+            <span class="note">Times are saved using your browser timezone (prevents UTC shifts on hosting).</span>
           </div>
         </form>
       </div>
@@ -846,23 +832,6 @@ router.get("/", async (req, res) => {
           }
         });
       })();
-
-(function () {
-  var fileInput = document.getElementById("imageFileInput");
-  var preview = document.getElementById("uploadPreview");
-  if (!fileInput || !preview) return;
-
-  fileInput.addEventListener("change", function () {
-    var f = fileInput.files && fileInput.files[0];
-    if (!f) {
-      preview.style.display = "none";
-      preview.src = "";
-      return;
-    }
-    preview.src = URL.createObjectURL(f);
-    preview.style.display = "block";
-  });
-})();
 
 (function(){
   var input = document.getElementById('eventSearch');
@@ -972,14 +941,95 @@ router.get("/", async (req, res) => {
             chip.className = "chip";
 
             // no backticks in the HTML, avoid escaping issues
+            var startEl = document.getElementById("startDateTime");
+            var endEl = document.getElementById("endDateTime");
+            var startT = (startEl && startEl.value) ? String(startEl.value).slice(11,16) : "12:00";
+            var endT = (endEl && endEl.value) ? String(endEl.value).slice(11,16) : "14:00";
+
             chip.innerHTML =
               '<input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="recurrenceDates" value="" />' +
+              '<input class="ctrl" style="width:120px; padding:6px 8px;" type="time" name="customStart" value="' + startT + '" />' +
+              '<input class="ctrl" style="width:120px; padding:6px 8px;" type="time" name="customEnd" value="' + endT + '" />' +
               '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
 
             wrap.appendChild(chip);
             attachRemove();
           });
         }
+
+      // Ensure times are saved with browser timezone (prevents UTC shift on hosting)
+      (function(){
+        var form = document.querySelector('form[action="/admin/events"]');
+        if(!form) return;
+
+        function pad(n){ return String(n).padStart(2, "0"); }
+
+        function toISOWithOffsetFromLocalInput(dtLocal){
+          var d = new Date(dtLocal);
+          if(isNaN(d.getTime())) return "";
+          var y = d.getFullYear();
+          var m = pad(d.getMonth() + 1);
+          var day = pad(d.getDate());
+          var hh = pad(d.getHours());
+          var mm = pad(d.getMinutes());
+          var ss = "00";
+
+          var offsetMin = -d.getTimezoneOffset();
+          var sign = offsetMin >= 0 ? "+" : "-";
+          var abs = Math.abs(offsetMin);
+          var offH = pad(Math.floor(abs / 60));
+          var offM = pad(abs % 60);
+
+          return y + "-" + m + "-" + day + "T" + hh + ":" + mm + ":" + ss + sign + offH + ":" + offM;
+        }
+
+        function combineDateAndTimeToISO(dateStr, timeStr){
+          if(!dateStr || !timeStr) return "";
+          return toISOWithOffsetFromLocalInput(dateStr + "T" + timeStr);
+        }
+
+        form.addEventListener("submit", function(){
+          // main start/end
+          var startLocal = document.getElementById("startDateTime") ? document.getElementById("startDateTime").value : "";
+          var endLocal = document.getElementById("endDateTime") ? document.getElementById("endDateTime").value : "";
+
+          var startISO = startLocal ? toISOWithOffsetFromLocalInput(startLocal) : "";
+          var endISO = endLocal ? toISOWithOffsetFromLocalInput(endLocal) : "";
+
+          var startHidden = document.getElementById("startDateTimeISO");
+          var endHidden = document.getElementById("endDateTimeISO");
+          if(startHidden) startHidden.value = startISO;
+          if(endHidden) endHidden.value = endISO;
+
+          // custom occurrences -> JSON
+          var typeEl = document.getElementById("recurrenceType");
+          var type = typeEl ? String(typeEl.value || "") : "";
+
+          var out = [];
+          if(type === "custom"){
+            var dates = form.querySelectorAll('input[name="recurrenceDates"]');
+            var starts = form.querySelectorAll('input[name="customStart"]');
+            var ends = form.querySelectorAll('input[name="customEnd"]');
+
+            for(var i=0;i<dates.length;i++){
+              var d = dates[i].value;
+              var s = starts[i] ? starts[i].value : "";
+              var e = ends[i] ? ends[i].value : "";
+
+              var sISO = combineDateAndTimeToISO(d, s);
+              var eISO = combineDateAndTimeToISO(d, e);
+
+              if(sISO && eISO){
+                out.push({ start: sISO, end: eISO });
+              }
+            }
+          }
+
+          var recHidden = document.getElementById("recurrenceDatesJson");
+          if(recHidden) recHidden.value = JSON.stringify(out);
+        });
+      })();
+
       })();
 
       // Live going/interested refresh (optional, safe)
@@ -1032,6 +1082,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       goodToKnow,
       startDateTime,
       endDateTime,
+      startDateTimeISO,
+      endDateTimeISO,
       location,
       organizer,
       imageUrl,
@@ -1049,6 +1101,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       setPos,
       monthlyByDay,
       recurrenceDates,
+      recurrenceDatesJson,
     } = req.body;
 
     // If a file was uploaded, prefer it over the URL field
@@ -1060,8 +1113,16 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     const featuredFlag = String(featured || "") === "1" ? 1 : 0;
 
-    startDateTime = toLocalISOWithOffset(startDateTime);
-    endDateTime = toLocalISOWithOffset(endDateTime);
+    // Prefer browser-generated ISO with timezone offset (prevents UTC shift on hosting)
+    const _startISO = String(startDateTimeISO || "").trim();
+    const _endISO = String(endDateTimeISO || "").trim();
+    if (_startISO && _endISO) {
+      startDateTime = _startISO;
+      endDateTime = _endISO;
+    } else {
+      startDateTime = toLocalISOWithOffset(startDateTime);
+      endDateTime = toLocalISOWithOffset(endDateTime);
+    }
 
     if (!title || !description || !startDateTime || !endDateTime || !location || !organizer) {
       return res.status(400).send("Missing required fields.");
@@ -1096,21 +1157,42 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     if (hasRec && t !== "none") {
       if (t === "custom") {
-        let arr = [];
-        if (Array.isArray(recurrenceDates)) arr = recurrenceDates;
-        else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "")
-          arr = [recurrenceDates];
-
-        const uniq = [];
-        for (const d of arr) {
-          const v = String(d || "").trim();
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) continue;
-          if (!uniq.includes(v)) uniq.push(v);
+        // Prefer per-occurrence start/end times from the UI (JSON)
+        let parsed = [];
+        if (typeof recurrenceDatesJson === "string" && recurrenceDatesJson.trim() !== "") {
+          try { parsed = JSON.parse(recurrenceDatesJson); } catch {}
         }
-        uniq.sort();
 
-        recurrenceRule = { type: "custom" };
-        recurrenceDatesJson = JSON.stringify(uniq);
+        if (Array.isArray(parsed) && parsed.length) {
+          const clean = [];
+          for (const row of parsed) {
+            const start = String(row?.start || "").trim();
+            const end = String(row?.end || "").trim();
+            if (!start || !end) continue;
+            if (isNaN(Date.parse(start)) || isNaN(Date.parse(end))) continue;
+            clean.push({ start, end });
+          }
+          clean.sort((a,b) => Date.parse(a.start) - Date.parse(b.start));
+          recurrenceRule = { type: "custom" };
+          recurrenceDatesJson = JSON.stringify(clean);
+        } else {
+          // Backward-compatible fallback: old date-only list
+          let arr = [];
+          if (Array.isArray(recurrenceDates)) arr = recurrenceDates;
+          else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "")
+            arr = [recurrenceDates];
+
+          const uniq = [];
+          for (const d of arr) {
+            const v = String(d || "").trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) continue;
+            if (!uniq.includes(v)) uniq.push(v);
+          }
+          uniq.sort();
+
+          recurrenceRule = { type: "custom" };
+          recurrenceDatesJson = JSON.stringify(uniq);
+        }
       }
 
       if (t === "weekly") {
@@ -1245,6 +1327,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       finalTicketLabel,
       startDateTime,
       endDateTime,
+      startDateTimeISO,
+      endDateTimeISO,
       location,
       organizer,
       imageUrl || null,
