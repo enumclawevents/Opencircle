@@ -1,538 +1,1204 @@
 "use strict";
 
 const express = require("express");
+const router = express.Router();
+const { run, all, get, slugify, ensureUniqueSlug } = require("../db");
 const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
 
-const { all, get, run, slugify, ensureUniqueSlug } = require("../db");
+/**
+ * Fixed category list (12 total)
+ * Admin must choose from these; max 3 per event.
+ */
+const ALLOWED_CATEGORIES = [
+  "Music",
+  "Food & Drink",
+  "Arts & Culture",
+  "Community",
+  "Family & Kids",
+  "Sports & Fitness",
+  "Nightlife",
+  "Markets & Shopping",
+  "Classes & Workshops",
+  "Outdoors",
+  "Business & Networking",
+  "Charity & Fundraising",
+];
 
-const router = express.Router();
-
-// ---------------- Uploads ----------------
-const UPLOADS_DIR =
+// --- Uploads (local disk or Render disk mount) ---
+const UPLOAD_DIR =
   process.env.UPLOADS_DIR ||
   (process.env.RENDER_DISK_PATH
     ? path.join(process.env.RENDER_DISK_PATH, "uploads")
     : path.join(process.cwd(), "uploads"));
 
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || "").toLowerCase();
-    const safeExt = ext && ext.length <= 10 ? ext : "";
-    const name = `flyer_${Date.now()}_${Math.random().toString(16).slice(2)}${safeExt}`;
-    cb(null, name);
+    const ext = path.extname(file.originalname || "").toLowerCase() || ".jpg";
+    const base = path
+      .basename(file.originalname || "image", ext)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+
+    const stamp = Date.now();
+    cb(null, `${base || "event"}-${stamp}${ext}`);
   },
 });
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 15 * 1024 * 1024 },
-});
-
-// ---------------- Helpers ----------------
-function esc(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+function fileFilter(req, file, cb) {
+  const ok = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.mimetype || "");
+  cb(ok ? null : new Error("Only image files are allowed."), ok);
 }
 
-function safeJsonParse(v, fallback) {
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
+});
+
+function normalizeCategories(input) {
+  let arr = [];
+  if (Array.isArray(input)) arr = input;
+  else if (typeof input === "string" && input.trim() !== "") arr = [input.trim()];
+
+  const uniq = [];
+  for (const c of arr) {
+    const v = String(c || "").trim();
+    if (!v) continue;
+    if (!ALLOWED_CATEGORIES.includes(v)) continue;
+    if (!uniq.includes(v)) uniq.push(v);
+    if (uniq.length >= 3) break;
+  }
+  return uniq;
+}
+
+function safeParseJson(val, fallback) {
+  if (val === null || val === undefined || val === "") return fallback;
+  if (typeof val === "object") return val;
   try {
-    if (!v) return fallback;
-    return typeof v === "string" ? JSON.parse(v) : v;
-  } catch (_) {
+    return JSON.parse(val);
+  } catch {
     return fallback;
   }
 }
 
-function readRecurrenceFromBody(body) {
-  const hasRecurrence = body.hasRecurrence === "1" || body.hasRecurrence === "on";
-  if (!hasRecurrence) {
-    return { hasRecurrence: 0, recurrenceRule: null, recurrenceDates: null };
-  }
-
-  const type = String(body.recurrenceType || "none");
-  const interval = Math.max(1, parseInt(body.recurrenceInterval || "1", 10) || 1);
-
-  // Weekly BYDAY: multiple values
-  const weeklyByDay = ([]
-    .concat(body.weeklyByDay || [])
-    .map((d) => String(d).toUpperCase())
-    .filter(Boolean));
-
-  // Monthly
-  const monthlyMode = String(body.monthlyMode || "monthday");
-  const byMonthday = parseInt(body.byMonthday || "1", 10) || 1;
-  const setPos = parseInt(body.setPos || "1", 10) || 1;
-  const monthlyByDay = String(body.monthlyByDay || "MO").toUpperCase();
-
-  // Custom dates array
-  const customDates = ([]
-    .concat(body.recurrenceDates || [])
-    .map((d) => String(d).trim())
-    .filter(Boolean));
-
-  const rule = { type, interval };
-
-  if (type === "weekly") {
-    rule.byDay = weeklyByDay.length ? weeklyByDay : ["MO"]; // default Monday
-  }
-
-  if (type === "monthly") {
-    rule.mode = monthlyMode;
-    if (monthlyMode === "nthweekday") {
-      rule.setPos = setPos; // e.g. 1,2,3,4,-1
-      rule.byDay = monthlyByDay; // e.g. TH
-    } else {
-      rule.byMonthday = Math.min(31, Math.max(1, byMonthday));
-    }
-  }
-
-  if (type === "custom") {
-    // store custom dates in recurrenceDates column (rule still describes type)
-  }
-
-  return {
-    hasRecurrence: 1,
-    recurrenceRule: JSON.stringify(rule),
-    recurrenceDates: type === "custom" ? JSON.stringify(customDates) : null,
-  };
+function parseStoredCategories(stored) {
+  const parsed = safeParseJson(stored, null);
+  if (Array.isArray(parsed)) return parsed;
+  if (!stored) return [];
+  return String(stored)
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
-// ---------------- Routes ----------------
+function parseStoredDates(stored) {
+  const parsed = safeParseJson(stored, null);
+  if (Array.isArray(parsed)) return parsed;
+  return [];
+}
+
+function parseStoredRule(stored) {
+  const parsed = safeParseJson(stored, null);
+  if (parsed && typeof parsed === "object") return parsed;
+  return null;
+}
+
+// Convert datetime-local (no timezone) into ISO with local timezone offset
+function toLocalISOWithOffset(dtLocal) {
+  const d = new Date(dtLocal);
+  if (isNaN(d.getTime())) return null;
+
+  const pad = (n) => String(n).padStart(2, "0");
+
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  const seconds = "00";
+
+  const offsetMin = -d.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMin);
+  const offH = pad(Math.floor(abs / 60));
+  const offM = pad(abs % 60);
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
+}
+
+function toDateTimeLocalValue(isoWithOffset) {
+  if (!isoWithOffset) return "";
+  return String(isoWithOffset).slice(0, 16);
+}
+
+function esc(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+/**
+ * Optional: schema safety (so admin doesn't crash if columns don't exist)
+ */
+let _eventsColsCache = null;
+async function getEventsColumns() {
+  if (_eventsColsCache) return _eventsColsCache;
+  try {
+    const rows = await all("PRAGMA table_info(events)");
+    _eventsColsCache = new Set((rows || []).map((r) => String(r.name)));
+    return _eventsColsCache;
+  } catch {
+    _eventsColsCache = new Set();
+    return _eventsColsCache;
+  }
+}
+
+// GET /admin
 router.get("/", async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page || "1", 10) || 1);
-    const perPage = 25;
-    const offset = (page - 1) * perPage;
+    // ✅ Resilient list query: supports optional columns
+    let events = [];
+    try {
+      events = await all(
+        "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount FROM events ORDER BY startDateTime DESC LIMIT 50"
+      );
+    } catch {
+      events = await all(
+        "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT 50"
+      );
+      events = events.map((x) => ({ ...x, goingCount: 0, interestedCount: 0 }));
+    }
 
-    const rowCount = await get("SELECT COUNT(*) AS c FROM events", []);
-    const total = rowCount?.c || 0;
+    const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
+    let editEvent = null;
+    if (editId) editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
 
-    const rows = await all(
-      `SELECT id, slug, city, title, startDateTime, endDateTime, location, organizer, imageUrl, featured,
-              hasRecurrence, recurrenceRule, recurrenceDates
-         FROM events
-        ORDER BY datetime(startDateTime) DESC
-        LIMIT ? OFFSET ?`,
-      [perPage, offset]
-    );
+    const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
+    const isFeatured = Number(editEvent?.featured || 0) === 1;
 
-    const totalPages = Math.max(1, Math.ceil(total / perPage));
+    // ✅ recurrence values for UI (these existed in your file, UI block was missing)
+    const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
+    const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
+    const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
+    const customDates = parseStoredDates(editEvent?.recurrenceDates);
+    const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
+    const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
 
-    // basic page
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    const weeklyByDay = Array.isArray(rule.byDay) ? rule.byDay : [];
+    const monthlyMode = String(rule.mode || "monthday");
+    const byMonthday = rule.byMonthday ? String(rule.byMonthday) : "";
+    const setPos = rule.setPos ? String(rule.setPos) : "1";
+    const monthlyByDay = rule.byDay ? String(rule.byDay) : "MO";
+    const recurrenceInterval = rule.interval ? String(rule.interval) : "1";
+
+    const categorySelect = (idx) => {
+      const current = selectedCats[idx] || "";
+      return `
+        <select name="categories" class="ctrl">
+          <option value="">— None —</option>
+          ${ALLOWED_CATEGORIES
+            .map((c) => {
+              const sel = current === c ? "selected" : "";
+              return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
+            })
+            .join("")}
+        </select>
+      `;
+    };
+
+    const listHtml = events.length
+      ? events
+          .map((e) => {
+            const going = Number(e.goingCount || 0);
+            const interested = Number(e.interestedCount || 0);
+
+            return `
+          <div class="event-card" data-eid="${e.id}">
+            <div class="event-left">
+              <div class="event-title">#${e.id} — ${esc(e.title)} ${
+              Number(e.featured || 0) === 1 ? `<span class="pill" style="margin-left:8px;">Featured</span>` : ""
+            }</div>
+              <div class="event-meta">
+                <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
+                <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
+                <div><strong>Location:</strong> ${esc(e.location)}</div>
+              </div>
+              <div class="event-actions">
+                <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}" target="_blank" rel="noopener">View JSON</a>
+                <a href="/admin?edit=${e.id}">Edit</a>
+                <form method="POST"
+      action="/admin/events/${e.id}/delete"
+      class="inline"
+      onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
+  <button type="submit" class="btn btn-danger">Delete</button>
+</form>
+
+              </div>
+            </div>
+
+            <div class="event-stats">
+              <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
+              <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
+              <div class="note" style="margin-top:10px;">Live</div>
+            </div>
+          </div>
+        `;
+          })
+          .join("")
+      : `<div class="muted">No events yet.</div>`;
+
+    const isChecked = (arr, code) => (arr.includes(code) ? "checked" : "");
+
     res.send(`<!doctype html>
 <html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>OpenCircle Admin</title>
-  <style>
-    :root{ --r:4px; --b:#1c2230; --fg:#e9eefb; --mut:#a9b3c9; --card:#0f1522; --line:rgba(255,255,255,.10); }
-    body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0b0f19; color:var(--fg); }
-    .wrap{ max-width:1100px; margin:0 auto; padding:24px; }
-    h1{ margin:0 0 14px; font-size:24px; }
-    .card{ background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)); border:1px solid var(--line); border-radius:var(--r); padding:16px; margin-bottom:18px; }
-    .grid2{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-    @media (max-width: 900px){ .grid2{ grid-template-columns:1fr; } }
-    label{ display:block; font-size:12px; color:var(--mut); margin:10px 0 6px; }
-    input, textarea, select{ width:100%; background:rgba(0,0,0,.25); color:var(--fg); border:1px solid var(--line); border-radius:var(--r); padding:10px; outline:none; }
-    textarea{ min-height:90px; resize:vertical; }
-    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    .btn{ background:#00c08b; border:0; color:#081018; font-weight:800; border-radius:var(--r); padding:10px 14px; cursor:pointer; }
-    .btn.secondary{ background:rgba(255,255,255,.10); color:var(--fg); border:1px solid var(--line); }
-    .btn.danger{ background:rgba(255,255,255,.06); color:#ffb1b1; border:1px solid rgba(255,80,80,.45); }
-    .small{ font-size:12px; color:var(--mut); }
-    .events-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
-    table{ width:100%; border-collapse:collapse; }
-    th,td{ padding:10px; border-bottom:1px solid var(--line); text-align:left; font-size:13px; vertical-align:top; }
-    th{ color:var(--mut); font-weight:700; }
-    .thumb{ width:110px; height:62px; object-fit:cover; border-radius:var(--r); border:1px solid var(--line); background:#111; }
-    .pill{ display:inline-block; padding:3px 8px; border-radius:999px; border:1px solid var(--line); font-size:11px; color:var(--mut); }
-    .rec-box{ margin-top:10px; padding:12px; border:1px solid var(--line); border-radius:var(--r); background:rgba(0,0,0,.20); }
-    .checkbox{ display:flex; gap:10px; align-items:center; }
-    .checkbox input{ width:auto; }
-    .note{ font-size:12px; color:var(--mut); margin-top:6px; }
-    .rec-row{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; align-items:start; }
-    @media (max-width: 900px){ .rec-row{ grid-template-columns:1fr; } }
-    .days{ display:flex; flex-wrap:wrap; gap:10px; }
-    .day{ display:flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:var(--r); padding:8px 10px; background:rgba(255,255,255,.04); }
-    .day input{ width:auto; }
-    .chips{ display:flex; flex-wrap:wrap; gap:10px; }
-    .chip{ display:flex; gap:8px; align-items:center; border:1px solid var(--line); border-radius:var(--r); padding:8px; background:rgba(255,255,255,.04); }
-    .chip input{ width:170px; padding:8px; }
-    .chip button{ width:32px; height:32px; border-radius:var(--r); border:1px solid var(--line); background:rgba(0,0,0,.25); color:var(--fg); cursor:pointer; }
-    .pagination{ display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:12px; }
-    .pagination a{ color:var(--fg); text-decoration:none; padding:6px 10px; border:1px solid var(--line); border-radius:var(--r); }
-    .pagination a.is-active{ background:rgba(255,255,255,.10); }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>OpenCircle Admin</h1>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/assets/brand/favicon.ico" />
+    <title>OpenCircle Admin</title>
+    <style>
+      :root{
+        --bg:#0b1220; --card:#0f172a; --text:#e5e7eb; --muted:#94a3b8;
+        --line:rgba(148,163,184,.18);
+        --brand:#00c08b; --brand2:#323E48; --danger:#C3413A;
+        --shadow:0 10px 30px rgba(0,0,0,.35);
+        --radius:4px;
+      }
+      *{ box-sizing:border-box; }
+      body{
+        margin:0; background:var(--bg); color:var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        padding:24px;
+      }
+      .wrap{ max-width: 980px; margin: 0 auto; }
+      .topbar{ display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; }
+      .brand{ display:flex; align-items:center; gap:12px; }
+      .brand img{ height:42px; width:auto; display:block; }
+      .brand svg{ height:42px; width:auto; display:block; overflow:visible; }
+      .brand-title{ font-size:18px; font-weight:700; line-height:1; }
 
-    <div class="card">
-      <h2 style="margin:0 0 10px; font-size:16px;">Add event</h2>
-      <form action="/admin/events" method="post" enctype="multipart/form-data">
-        <div class="grid2">
+      .pill{
+        font-size:12px; color: var(--text);
+        background: rgba(63,171,209,.15);
+        border: 1px solid rgba(63,171,209,.35);
+        padding:6px 10px; border-radius:4px; font-weight:600;
+        display:inline-flex; align-items:center; gap:6px;
+      }
+
+      .card{
+        background:var(--card);
+        border:1px solid var(--line);
+        border-radius: 4px;
+        box-shadow: var(--shadow);
+        padding: 18px;
+      }
+      .card + .card{ margin-top: 16px; }
+      h1{ margin:0 0 8px; font-size:22px; }
+      .sub{ margin:0; color:var(--muted); }
+      .row{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+      @media (max-width: 900px){ .row{ grid-template-columns: 1fr; } }
+
+      label{ display:block; margin: 12px 0 6px; font-weight:700; font-size:13px; }
+      .ctrl, input, textarea, select{
+        width:100%; padding: 10px 12px; border: 1px solid rgba(148,163,184,.25);
+        border-radius: 4px; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
+      }
+      textarea{ min-height: 110px; resize: vertical; }
+      .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
+
+      .btn{
+        display:inline-flex; align-items:center; justify-content:center;
+        padding: 10px 14px; border-radius: 4px;
+        border: 1px solid rgba(148,163,184,.22);
+        background:#0b1220; cursor:pointer; font-weight:700; text-decoration:none; color: var(--text);
+      }
+      .btn-primary{ background: var(--brand); border-color: var(--brand); color:#06202b; }
+      .btn-primary:hover{ background: var(--brand2); border-color: var(--brand2); color:#071c24; }
+      .btn-danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.25); color: #fecaca; }
+      .btn-link{ background: transparent; border-color: transparent; color: var(--brand); padding: 8px 10px; }
+      .actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 14px; }
+
+      a{ color: var(--brand); text-decoration:none; font-weight:700; }
+      a:hover{ text-decoration:underline; }
+      .inline{ display:inline; margin:0; }
+      .muted{ color: var(--muted); }
+
+      .cat-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
+      @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
+
+
+/* ===== Recurrence UI polish ===== */
+.recurrence{
+  border-radius: 4px;
+  padding: 18px;
+  background: rgba(15,23,42,.25);
+}
+
+.rec-grid{
+  display:grid;
+  grid-template-columns: 1.2fr .8fr;
+  gap: 16px;
+  align-items: end;
+}
+
+@media (max-width: 900px){
+  .rec-grid{ grid-template-columns: 1fr; }
+}
+
+.rec-label{
+  font-weight: 900;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: var(--text);
+  letter-spacing: .2px;
+}
+
+.rec-help{
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* Pills for weekday selection */
+.dow{
+  display:flex;
+  flex-wrap:wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.dow-pill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  border: 1px solid rgba(148,163,184,.22);
+  background: rgba(11,18,32,.65);
+  color: var(--text);
+  font-weight: 800;
+  font-size: 13px;
+  cursor: pointer;
+  user-select:none;
+  transition: background .15s ease, border-color .15s ease, transform .05s ease;
+}
+
+/* Hide raw checkbox, keep accessible */
+.dow-pill input{
+  position:absolute;
+  opacity:0;
+  pointer-events:none;
+}
+
+/* Active state */
+.dow-pill:has(input:checked){
+  background: rgba(0,192,139,.18);
+  border-color: rgba(0,192,139,.45);
+  box-shadow: 0 0 0 3px rgba(0,192,139,.10);
+}
+
+.dow-pill:active{ transform: scale(.98); }
+
+/* Make select/input feel aligned */
+.recurrence .ctrl{
+  border-radius: 4px;
+}
+
+/* Make the two columns align cleanly */
+.rec-grid{
+  align-items: start;            /* was end */
+}
+
+/* Force consistent control height */
+.recurrence .ctrl{
+  height: 48px;                  /* matches your big select look */
+  padding: 0 14px;
+}
+
+/* Keep help text from "pushing" the second column weirdly */
+.recurrence #intervalRow .rec-help{
+  margin-top: 10px;
+}
+
+
+      .rec-box{
+        border:1px solid var(--line);
+        border-radius: 4px;
+        padding: 14px;
+        background: #0b1220;
+        margin-top: 10px;
+      }
+      .rec-row{
+        display:grid;
+        grid-template-columns: 1fr 1fr;
+        gap:12px;
+        align-items:end;
+      }
+      @media (max-width: 900px){ .rec-row{ grid-template-columns: 1fr; } }
+
+      .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:700; }
+      .checkbox input{ width:auto; }
+
+      .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top: 10px; }
+      .chip{
+        display:inline-flex; align-items:center; gap:8px;
+        border:1px solid var(--line);
+        border-radius:4px;
+        padding: 6px 10px;
+        background: #0b1220;
+        font-size: 13px;
+      }
+      .chip button{ border:0; background: transparent; cursor:pointer; font-weight:900; color: #fecaca; }
+
+      .event-card{ border: 1px solid var(--line); border-radius: 4px; padding: 14px; background: #0b1220; display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
+      .event-left{ flex: 1; min-width: 0; }
+      .event-title{ font-weight:800; margin-bottom:6px; }
+      .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
+      .event-actions{ margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+
+      .event-stats{
+        width: 160px;
+        flex: 0 0 160px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 12px;
+        background: rgba(15,23,42,.35);
+      }
+      .stat{ display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--muted); margin: 6px 0; }
+      .stat strong{ color: var(--text); font-size: 16px; }
+
+      .days{ display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+      .day{ display:flex; gap:8px; align-items:center; font-weight:700; }
+      .day input{ width:auto; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="topbar">
+        <div class="brand">
+          <img src="/assets/brand/oc-logo.svg" alt="OpenCircle API" style="height:72px; width:auto; display:block;" />
           <div>
-            <label>City</label>
-            <input name="city" value="Enumclaw" />
-          </div>
-          <div>
-            <label>Organizer</label>
-            <input name="organizer" placeholder="Organizer" required />
+            <div class="brand-title">OpenCircle Admin</div>
+            <div class="muted" style="font-size:12px; margin-top:4px;">Create and manage events (SQLite)</div>
           </div>
         </div>
+        <div class="pill">/admin</div>
+      </div>
 
-        <label>Title</label>
-        <input name="title" placeholder="Event title" required />
+      <div class="card">
+        <h1>${editEvent ? "Edit Event" : "Add Event"}</h1>
+        <p class="sub"><a href="/events" target="_blank" rel="noopener">View all events (JSON)</a></p>
 
-        <label>Description</label>
-        <textarea name="description" placeholder="Short description" required></textarea>
+        <form method="POST" action="/admin/events" enctype="multipart/form-data">
+          ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
 
-        <div class="grid2">
-          <div>
-            <label>Start date/time</label>
-            <input type="datetime-local" name="startDateTime" required />
+          <label>City</label>
+          <input class="ctrl" name="city" value="${esc(editEvent?.city || "Enumclaw")}" />
+
+          <div class="rec-box">
+            <div class="checkbox">
+              <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
+              <label for="featured" style="margin:0;font-size:13px;font-weight:900;">Mark as Featured Event</label>
+            </div>
+            <div class="note">Featured events show a badge on the event card and event page.</div>
           </div>
-          <div>
-            <label>End date/time</label>
-            <input type="datetime-local" name="endDateTime" required />
-          </div>
-        </div>
 
-        <label>Location</label>
-        <input name="location" placeholder="Location" required />
+          <div class="rec-box">
+            <div style="font-weight:900; margin-bottom:6px;">Categories (pick up to 3)</div>
+            <div class="cat-grid">
+              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 1</div>${categorySelect(0)}</div>
+              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 2</div>${categorySelect(1)}</div>
+              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 3</div>${categorySelect(2)}</div>
+            </div>
+            <div class="note">Only these 12 categories are allowed. Max 3 per event.</div>
+          </div>
 
-        <div class="grid2">
-          <div>
-            <label>Ticket URL</label>
-            <input name="ticketUrl" placeholder="https://" />
-          </div>
-          <div>
-            <label>Ticket label</label>
-            <input name="ticketLabel" placeholder="Buy tickets" />
-          </div>
-        </div>
+          <label>Title</label>
+          <input class="ctrl" name="title" value="${esc(editEvent?.title || "")}" required />
 
-        <div class="grid2">
-          <div>
-            <label>Flyer image (upload)</label>
-            <input type="file" name="flyer" accept="image/*" />
-            <div class="note">Uploads go to ${esc(UPLOADS_DIR)} and are served at /uploads/...</div>
-          </div>
-          <div>
-            <label>Or Image URL (optional)</label>
-            <input name="imageUrl" placeholder="https://..." />
-          </div>
-        </div>
+          <label>Description</label>
+          <textarea class="ctrl" name="description" required>${esc(editEvent?.description || "")}</textarea>
 
-        <div class="rec-box">
-          <div class="checkbox">
-            <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" />
-            <label for="hasRecurrence" style="margin:0;font-size:13px;font-weight:900;color:var(--fg);">Recurring Event</label>
-          </div>
-          <div class="note">Create a recurring rule (weekly/monthly) or a custom date list.</div>
+          <label>Event Details</label>
+          <textarea class="ctrl" name="eventDetails">${esc(editEvent?.eventDetails || "")}</textarea>
 
-          <div class="rec-row" style="margin-top:10px;">
+          <label>Good to Know</label>
+          <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
+
+          <div class="row">
             <div>
-              <label style="margin-top:0;">Recurrence Type</label>
-              <select id="recurrenceType" name="recurrenceType">
-                <option value="none">None</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="custom">Custom Dates</option>
-              </select>
+              <label>Start Date/Time</label>
+              <input id="startDateTime" class="ctrl" type="datetime-local" name="startDateTime"
+                value="${esc(toDateTimeLocalValue(editEvent?.startDateTime))}" required />
             </div>
-            <div id="intervalRow">
-              <label style="margin-top:0;">Interval</label>
-              <input type="number" min="1" name="recurrenceInterval" value="1" />
-              <div class="note">Example: every 1 week, every 2 weeks, every 1 month, etc.</div>
+            <div>
+              <label>End Date/Time</label>
+              <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
+                value="${esc(toDateTimeLocalValue(editEvent?.endDateTime))}" required />
             </div>
           </div>
 
-          <div id="weeklyBox" style="margin-top:10px;">
-            <label>Days of Week</label>
-            <div class="days">
-              ${["SU","MO","TU","WE","TH","FR","SA"].map(d=>{
-                const label = ({SU:"Sun",MO:"Mon",TU:"Tue",WE:"Wed",TH:"Thu",FR:"Fri",SA:"Sat"})[d];
-                return `<label class="day"><input type="checkbox" name="weeklyByDay" value="${d}" />${label}</label>`;
-              }).join("")}
-            </div>
-            <div class="note">Pick one or more days.</div>
-          </div>
-
-          <div id="monthlyBox" style="margin-top:10px;">
-            <div class="rec-row">
-              <div>
-                <label>Monthly Mode</label>
-                <select id="monthlyMode" name="monthlyMode">
-                  <option value="monthday">On day of month</option>
-                  <option value="nthweekday">On nth weekday</option>
-                </select>
-              </div>
-              <div></div>
-            </div>
-
-            <div id="monthdayBox" style="margin-top:10px;">
-              <label>Day of Month (1–31)</label>
-              <input type="number" min="1" max="31" name="byMonthday" value="1" />
-            </div>
-
-            <div id="nthweekdayBox" style="margin-top:10px; display:none;">
-              <div class="rec-row">
-                <div>
-                  <label>Which Week</label>
-                  <select name="setPos">
-                    <option value="1">1st</option>
-                    <option value="2">2nd</option>
-                    <option value="3">3rd</option>
-                    <option value="4">4th</option>
-                    <option value="-1">Last</option>
-                  </select>
-                </div>
-                <div>
-                  <label>Weekday</label>
-                  <select name="monthlyByDay">
-                    <option value="SU">Sunday</option>
-                    <option value="MO">Monday</option>
-                    <option value="TU">Tuesday</option>
-                    <option value="WE">Wednesday</option>
-                    <option value="TH">Thursday</option>
-                    <option value="FR">Friday</option>
-                    <option value="SA">Saturday</option>
-                  </select>
-                </div>
-              </div>
-              <div class="note">Example: 1st Thursday, Last Monday, etc.</div>
-            </div>
-          </div>
-
-          <div id="customBox" style="margin-top:10px; display:none;">
-            <label>Custom Dates</label>
-            <div class="note">Add specific dates (YYYY-MM-DD). Time comes from the Start/End above.</div>
-            <div id="customDatesWrap" class="chips"></div>
-            <div style="margin-top:10px;">
-              <button id="addCustomDate" type="button" class="btn secondary">+ Add Date</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="row" style="margin-top:14px;">
-          <button class="btn" type="submit">Save event</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="card">
-      <div class="events-head">
-        <h2 style="margin:0; font-size:16px;">Existing events <span class="pill">${total} total</span></h2>
-        <div class="small">Page ${page} of ${totalPages}</div>
-      </div>
-
-      <div style="overflow:auto; margin-top:10px;">
-        <table>
-          <thead>
-            <tr>
-              <th>Image</th>
-              <th>Title</th>
-              <th>Start</th>
-              <th>City</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map(r => {
-              const img = r.imageUrl ? esc(r.imageUrl) : "";
-              const rec = r.hasRecurrence ? "<span class=\"pill\">recurring</span>" : "";
-              return `
-              <tr>
-                <td>${img ? `<img class="thumb" src="${img}" alt="" />` : "<span class=\"small\">—</span>"}</td>
-                <td><strong>${esc(r.title)}</strong> ${rec}<div class="small">${esc(r.location || "")}</div></td>
-                <td>${esc(r.startDateTime)}</td>
-                <td>${esc(r.city || "")}</td>
-                <td>
-                  <form action="/admin/events/${r.id}/delete" method="post" style="margin:0" onsubmit="return confirm('Delete this event?');">
-                    <button class="btn danger" type="submit">Delete</button>
-                  </form>
-                </td>
-              </tr>`;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="pagination">
-        ${Array.from({length: totalPages}).slice(0, 12).map((_, i) => {
-          const p = i + 1;
-          const cls = p === page ? "is-active" : "";
-          return `<a class="${cls}" href="/admin?page=${p}">${p}</a>`;
-        }).join(" ")}
-      </div>
-    </div>
-
+         <!-- ✅ RESTORED: Recurring Events UI (polished layout) -->
+<div class="rec-box recurrence">
+  <div class="checkbox">
+    <input
+      type="checkbox"
+      id="hasRecurrence"
+      name="hasRecurrence"
+      value="1"
+      ${hasRecurrence ? "checked" : ""}
+    />
+    <label for="hasRecurrence" style="margin:0;font-size:13px;font-weight:900;">Recurring Event</label>
+  </div>
+  <div class="note">Create a recurring rule (weekly/monthly) or a custom date list.</div>
+<div class="row" style="margin-top:12px;">
+  <div>
+    <label style="margin-top:0;">First date (series starts)</label>
+    <input class="ctrl" type="date" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
+    <div class="note">First occurrence date for this recurring series.</div>
   </div>
 
-<script>
+  <div>
+    <label style="margin-top:0;">Until date (series ends)</label>
+    <input class="ctrl" type="date" name="recurrenceUntilDate" value="${esc(recurrenceUntilDateVal)}" />
+    <div class="note">No occurrences after this date.</div>
+  </div>
+</div>
+
+  <!-- Type + Interval in a clean grid -->
+  <div class="rec-grid" style="margin-top:12px;">
+    <div>
+      <div class="rec-label">Recurrence Type</div>
+      <select id="recurrenceType" name="recurrenceType" class="ctrl">
+        <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
+        <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
+        <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
+        <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Custom Dates</option>
+      </select>
+    </div>
+
+    <div id="intervalRow">
+      <div class="rec-label">Interval</div>
+      <input class="ctrl" type="number" min="1" name="recurrenceInterval" value="${esc(recurrenceInterval)}" />
+      <div class="rec-help">Example: every 1 week, every 2 weeks, every 1 month, etc.</div>
+    </div>
+  </div>
+
+  <!-- Weekly -->
+  <div id="weeklyBox" style="margin-top:14px;">
+    <div class="rec-label">Days of Week</div>
+
+    <!-- pill toggles -->
+    <div class="dow">
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="SU" ${isChecked(weeklyByDay, "SU")} />Sun
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="MO" ${isChecked(weeklyByDay, "MO")} />Mon
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="TU" ${isChecked(weeklyByDay, "TU")} />Tue
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="WE" ${isChecked(weeklyByDay, "WE")} />Wed
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="TH" ${isChecked(weeklyByDay, "TH")} />Thu
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="FR" ${isChecked(weeklyByDay, "FR")} />Fri
+      </label>
+      <label class="dow-pill">
+        <input type="checkbox" name="weeklyByDay" value="SA" ${isChecked(weeklyByDay, "SA")} />Sat
+      </label>
+    </div>
+
+    <div class="rec-help">Pick one or more days.</div>
+  </div>
+
+  <!-- Monthly -->
+  <div id="monthlyBox" style="margin-top:14px;">
+    <div class="rec-grid">
+      <div>
+        <div class="rec-label">Monthly Mode</div>
+        <select id="monthlyMode" name="monthlyMode" class="ctrl">
+          <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
+          <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday</option>
+        </select>
+      </div>
+      <div></div>
+    </div>
+
+    <div id="monthdayBox" style="margin-top:12px;">
+      <div class="rec-label">Day of Month (1–31)</div>
+      <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(byMonthday)}" />
+    </div>
+
+    <div id="nthweekdayBox" style="margin-top:12px;">
+      <div class="rec-grid">
+        <div>
+          <div class="rec-label">Which Week</div>
+          <select name="setPos" class="ctrl">
+            <option value="1" ${setPos === "1" ? "selected" : ""}>1st</option>
+            <option value="2" ${setPos === "2" ? "selected" : ""}>2nd</option>
+            <option value="3" ${setPos === "3" ? "selected" : ""}>3rd</option>
+            <option value="4" ${setPos === "4" ? "selected" : ""}>4th</option>
+            <option value="-1" ${setPos === "-1" ? "selected" : ""}>Last</option>
+          </select>
+        </div>
+        <div>
+          <div class="rec-label">Weekday</div>
+          <select name="monthlyByDay" class="ctrl">
+            <option value="SU" ${monthlyByDay === "SU" ? "selected" : ""}>Sunday</option>
+            <option value="MO" ${monthlyByDay === "MO" ? "selected" : ""}>Monday</option>
+            <option value="TU" ${monthlyByDay === "TU" ? "selected" : ""}>Tuesday</option>
+            <option value="WE" ${monthlyByDay === "WE" ? "selected" : ""}>Wednesday</option>
+            <option value="TH" ${monthlyByDay === "TH" ? "selected" : ""}>Thursday</option>
+            <option value="FR" ${monthlyByDay === "FR" ? "selected" : ""}>Friday</option>
+            <option value="SA" ${monthlyByDay === "SA" ? "selected" : ""}>Saturday</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom -->
+  <div id="customBox" style="margin-top:14px;">
+    <div class="rec-label">Custom Dates</div>
+    <div class="rec-help">Add specific dates (YYYY-MM-DD). Time comes from the Start/End above.</div>
+
+    <div id="customDatesWrap" class="chips" style="margin-top:10px;">
+      ${
+        (customDates || [])
+          .map((d) => {
+            return `
+              <span class="chip">
+                <input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="recurrenceDates" value="${esc(d)}" />
+                <button type="button" data-remove-date="1" aria-label="Remove">×</button>
+              </span>
+            `;
+          })
+          .join("")
+      }
+    </div>
+
+    <div class="actions" style="margin-top:10px;">
+      <button id="addCustomDate" type="button" class="btn">+ Add Date</button>
+    </div>
+  </div>
+</div>
+
+          <!-- ✅ END recurrence UI -->
+
+          <label>Flyer Image (Upload)</label>
+          <input class="ctrl" type="file" name="imageFile" accept="image/*" />
+          <div class="note">Uploading replaces the Image URL below.</div>
+
+          <label style="margin-top:12px;">Image URL (optional fallback)</label>
+          <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
+
+          ${
+            editEvent?.imageUrl
+              ? `<div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>`
+              : ""
+          }
+
+          <div class="row">
+            <div>
+              <label>Ticket Button Text</label>
+              <input class="ctrl" name="ticketLabel" value="${esc(editEvent?.ticketLabel || "Tickets")}" placeholder="Tickets / Reserve / Buy Tickets..." />
+            </div>
+            <div>
+              <label>Ticket Link (URL)</label>
+              <input class="ctrl" name="ticketUrl" value="${esc(editEvent?.ticketUrl || "")}" placeholder="https://..." />
+              <div class="note">If provided, a ticket button will show on the event page.</div>
+            </div>
+          </div>
+
+          <label>Location</label>
+          <input class="ctrl" name="location" value="${esc(editEvent?.location || "")}" required />
+
+          <label>Organizer</label>
+          <input class="ctrl" name="organizer" value="${esc(editEvent?.organizer || "")}" required />
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
+            ${editEvent ? `<a class="btn btn-link" href="/admin">Cancel</a>` : ""}
+            <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h1 style="margin-bottom:10px;">Existing Events (latest 50)</h1>
+
+<div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px;">
+  <input id="eventSearch" class="ctrl" type="text"
+         placeholder="Search by title, slug, location, or ID..." />
+  <button id="eventSearchClear" type="button" class="btn">Clear</button>
+</div>
+
+<div id="eventsList" style="display:grid; gap:12px;">${listHtml}</div>
+<div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
+
+      </div>
+    </div>
+
+    <script>
+      // Auto-set End = Start + 2 hours (only if end is empty)
+      (function(){
+        var startEl = document.getElementById("startDateTime");
+        var endEl = document.getElementById("endDateTime");
+        if (!startEl || !endEl) return;
+
+        function pad(n){ return String(n).padStart(2, "0"); }
+
+        startEl.addEventListener("change", function(){
+          if (!startEl.value) return;
+          if (!endEl.value) {
+            var d = new Date(startEl.value);
+            if (isNaN(d.getTime())) return;
+            d.setHours(d.getHours() + 2);
+            endEl.value =
+              d.getFullYear() + "-" +
+              pad(d.getMonth() + 1) + "-" +
+              pad(d.getDate()) + "T" +
+              pad(d.getHours()) + ":" +
+              pad(d.getMinutes());
+          }
+        });
+      })();
+
 (function(){
-  const hasRec = document.getElementById('hasRecurrence');
-  const typeSel = document.getElementById('recurrenceType');
-  const weeklyBox = document.getElementById('weeklyBox');
-  const monthlyBox = document.getElementById('monthlyBox');
-  const customBox = document.getElementById('customBox');
-  const intervalRow = document.getElementById('intervalRow');
-  const monthlyMode = document.getElementById('monthlyMode');
-  const monthdayBox = document.getElementById('monthdayBox');
-  const nthweekdayBox = document.getElementById('nthweekdayBox');
-  const wrap = document.getElementById('customDatesWrap');
-  const addBtn = document.getElementById('addCustomDate');
+  var input = document.getElementById('eventSearch');
+  var clearBtn = document.getElementById('eventSearchClear');
+  if(!input) return;
 
-  function applyVisibility(){
-    const enabled = !!hasRec.checked;
-    weeklyBox.style.display = 'none';
-    monthlyBox.style.display = 'none';
-    customBox.style.display = 'none';
-    intervalRow.style.display = 'block';
+  function normalize(s){ return String(s || '').toLowerCase(); }
 
-    if(!enabled){
-      intervalRow.style.display = 'none';
-      return;
+  function applyFilter(){
+    var q = normalize(input.value).trim();
+    var cards = document.querySelectorAll('.event-card[data-eid]');
+    var shown = 0;
+
+    for(var i=0;i<cards.length;i++){
+      var card = cards[i];
+      var hay = normalize(card.textContent);
+      var ok = !q || hay.indexOf(q) !== -1;
+      card.style.display = ok ? '' : 'none';
+      if(ok) shown++;
     }
 
-    const t = typeSel.value;
-    if(t === 'weekly') weeklyBox.style.display = '';
-    if(t === 'monthly') monthlyBox.style.display = '';
-    if(t === 'custom'){
-      customBox.style.display = '';
-      intervalRow.style.display = 'none';
-    }
+    var empty = document.getElementById('eventsEmpty');
+    if(empty) empty.style.display = shown ? 'none' : '';
   }
 
-  function applyMonthlyMode(){
-    const mode = monthlyMode.value;
-    if(mode === 'nthweekday'){
-      monthdayBox.style.display = 'none';
-      nthweekdayBox.style.display = '';
-    }else{
-      monthdayBox.style.display = '';
-      nthweekdayBox.style.display = 'none';
-    }
+  input.addEventListener('input', applyFilter);
+  if(clearBtn){
+    clearBtn.addEventListener('click', function(){
+      input.value = '';
+      applyFilter();
+      input.focus();
+    });
   }
 
-  function addDate(value=''){
-    const span = document.createElement('span');
-    span.className = 'chip';
-    span.innerHTML =
-      '<input type="date" name="recurrenceDates" value="' + (value || '') + '">' +
-      '<button type="button" aria-label="Remove">×</button>';
-    span.querySelector('button').addEventListener('click', ()=> span.remove());
-    wrap.appendChild(span);
-  }
-
-  hasRec.addEventListener('change', applyVisibility);
-  typeSel.addEventListener('change', applyVisibility);
-  monthlyMode.addEventListener('change', applyMonthlyMode);
-  addBtn.addEventListener('click', ()=> addDate(''));
-
-  applyVisibility();
-  applyMonthlyMode();
+  applyFilter();
 })();
-</script>
-</body>
+
+      // Recurrence UI show/hide
+      (function(){
+        var hasRecEl = document.getElementById("hasRecurrence");
+        var typeEl = document.getElementById("recurrenceType");
+        var intervalRow = document.getElementById("intervalRow");
+        var weeklyBox = document.getElementById("weeklyBox");
+        var monthlyBox = document.getElementById("monthlyBox");
+        var customBox = document.getElementById("customBox");
+
+        var monthlyModeEl = document.getElementById("monthlyMode");
+        var monthdayBox = document.getElementById("monthdayBox");
+        var nthweekdayBox = document.getElementById("nthweekdayBox");
+
+        function show(el, on){
+          if(!el) return;
+          el.style.display = on ? "" : "none";
+        }
+
+        function sync(){
+          var enabled = !!(hasRecEl && hasRecEl.checked);
+          var t = typeEl ? String(typeEl.value || "none") : "none";
+
+          if(!enabled){
+            show(intervalRow, false);
+            show(weeklyBox, false);
+            show(monthlyBox, false);
+            show(customBox, false);
+            return;
+          }
+
+          show(intervalRow, true);
+          show(weeklyBox, t === "weekly");
+          show(monthlyBox, t === "monthly");
+          show(customBox, t === "custom");
+
+          if(t === "monthly"){
+            var mm = monthlyModeEl ? String(monthlyModeEl.value || "monthday") : "monthday";
+            show(monthdayBox, mm === "monthday");
+            show(nthweekdayBox, mm === "nthweekday");
+          } else {
+            show(monthdayBox, false);
+            show(nthweekdayBox, false);
+          }
+        }
+
+        if(hasRecEl) hasRecEl.addEventListener("change", sync);
+        if(typeEl) typeEl.addEventListener("change", sync);
+        if(monthlyModeEl) monthlyModeEl.addEventListener("change", sync);
+        sync();
+
+        // Custom date chips
+        var addBtn = document.getElementById("addCustomDate");
+        var wrap = document.getElementById("customDatesWrap");
+
+        function attachRemove(){
+          if(!wrap) return;
+          var btns = wrap.querySelectorAll("button[data-remove-date]");
+          for(var i=0;i<btns.length;i++){
+            btns[i].onclick = function(){
+              var chip = this.closest(".chip");
+              if(chip) chip.remove();
+            };
+          }
+        }
+        attachRemove();
+
+        if(addBtn && wrap){
+          addBtn.addEventListener("click", function(){
+            var chip = document.createElement("span");
+            chip.className = "chip";
+
+            // no backticks in the HTML, avoid escaping issues
+            chip.innerHTML =
+              '<input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="recurrenceDates" value="" />' +
+              '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
+
+            wrap.appendChild(chip);
+            attachRemove();
+          });
+        }
+      })();
+
+      // Live going/interested refresh (optional, safe)
+      (function(){
+        async function refreshOne(card){
+          var id = card.getAttribute("data-eid");
+          if(!id) return;
+
+          try{
+            var res = await fetch("/events/" + encodeURIComponent(id), { headers: { "Accept": "application/json" } });
+            if(!res.ok) return;
+            var json = await res.json();
+            var e = (json && json.data) ? json.data : json;
+
+            var g = card.querySelector(".js-going");
+            var i = card.querySelector(".js-interested");
+
+            if(g && e && typeof e.goingCount !== "undefined") g.textContent = String(Number(e.goingCount || 0));
+            if(i && e && typeof e.interestedCount !== "undefined") i.textContent = String(Number(e.interestedCount || 0));
+          }catch(_){}
+        }
+
+        function tick(){
+          var cards = document.querySelectorAll(".event-card[data-eid]");
+          for(var j=0;j<cards.length;j++){
+            refreshOne(cards[j]);
+          }
+        }
+        tick();
+        setInterval(tick, 15000);
+      })();
+    </script>
+  </body>
 </html>`);
   } catch (err) {
-    console.error("[ADMIN] GET /admin failed", err);
+    console.error(err);
     res.status(500).send("Internal server error");
   }
 });
 
-router.post("/events", upload.single("flyer"), async (req, res) => {
+// POST /admin/events (create or update)
+router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
-    const b = req.body || {};
+    let {
+      id,
+      city = "Enumclaw",
+      title,
+      description,
+      eventDetails,
+      goodToKnow,
+      startDateTime,
+      endDateTime,
+      location,
+      organizer,
+      imageUrl,
+      ticketUrl,
+      ticketLabel,
+      categories,
+      featured,
 
-    const title = String(b.title || "").trim();
-    const description = String(b.description || "").trim();
-    const city = String(b.city || "").trim();
-    const location = String(b.location || "").trim();
-    const organizer = String(b.organizer || "").trim();
-    const startDateTime = String(b.startDateTime || "").trim();
-    const endDateTime = String(b.endDateTime || "").trim();
+      hasRecurrence,
+      recurrenceType,
+      recurrenceInterval,
+      weeklyByDay,
+      monthlyMode,
+      byMonthday,
+      setPos,
+      monthlyByDay,
+      recurrenceDates,
+    } = req.body;
 
-    if (!title || !description || !location || !organizer || !startDateTime || !endDateTime) {
-      return res.status(400).send("Missing required fields");
-    }
-
-    // image: prefer uploaded file if present
-    let imageUrl = String(b.imageUrl || "").trim();
+    // If a file was uploaded, prefer it over the URL field
     if (req.file && req.file.filename) {
-      imageUrl = `/uploads/${req.file.filename}`;
+      const proto = req.headers["x-forwarded-proto"] || req.protocol;
+      const host = req.headers["x-forwarded-host"] || req.get("host");
+      imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
     }
 
-    const ticketUrl = String(b.ticketUrl || "").trim();
-    const ticketLabel = String(b.ticketLabel || "").trim();
+    const featuredFlag = String(featured || "") === "1" ? 1 : 0;
 
-    const baseSlug = slugify(b.slug || title);
-    const slug = await ensureUniqueSlug(baseSlug);
+    startDateTime = toLocalISOWithOffset(startDateTime);
+    endDateTime = toLocalISOWithOffset(endDateTime);
 
-    const rec = readRecurrenceFromBody(b);
+    if (!title || !description || !startDateTime || !endDateTime || !location || !organizer) {
+      return res.status(400).send("Missing required fields.");
+    }
 
-    await run(
-      `INSERT INTO events (
-        slug, city, title, description,
-        startDateTime, endDateTime,
-        location, organizer,
-        imageUrl, ticketUrl, ticketLabel,
-        featured,
-        hasRecurrence, recurrenceRule, recurrenceDates
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        slug,
+    if (ticketUrl && !/^https?:\/\//i.test(ticketUrl)) {
+      return res.status(400).send("Ticket link must start with http:// or https://");
+    }
+
+    const finalTicketLabel =
+      ticketLabel && String(ticketLabel).trim() ? String(ticketLabel).trim() : "Tickets";
+
+    const startMs = Date.parse(startDateTime);
+    const endMs = Date.parse(endDateTime);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+      return res.status(400).send("Invalid date/time.");
+    }
+    if (endMs <= startMs) {
+      return res.status(400).send("End time must be after start time.");
+    }
+
+    const baseSlug = slugify(title);
+    const cats = normalizeCategories(categories);
+    const catsJson = JSON.stringify(cats);
+
+    // recurrence normalize (this matches your existing logic)
+    const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
+    const t = String(recurrenceType || "none").toLowerCase();
+
+    let recurrenceRule = null;
+    let recurrenceDatesJson = null;
+
+    if (hasRec && t !== "none") {
+      if (t === "custom") {
+        let arr = [];
+        if (Array.isArray(recurrenceDates)) arr = recurrenceDates;
+        else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "")
+          arr = [recurrenceDates];
+
+        const uniq = [];
+        for (const d of arr) {
+          const v = String(d || "").trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) continue;
+          if (!uniq.includes(v)) uniq.push(v);
+        }
+        uniq.sort();
+
+        recurrenceRule = { type: "custom" };
+        recurrenceDatesJson = JSON.stringify(uniq);
+      }
+
+      if (t === "weekly") {
+        let days = [];
+        if (Array.isArray(weeklyByDay)) days = weeklyByDay;
+        else if (typeof weeklyByDay === "string" && weeklyByDay.trim() !== "") days = [weeklyByDay];
+
+        const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
+        const uniq = [];
+        for (const d of days.map((x) => String(x).trim()).filter(Boolean)) {
+          if (!allowed.has(d)) continue;
+          if (!uniq.includes(d)) uniq.push(d);
+        }
+
+        const interval = Math.max(1, parseInt(recurrenceInterval || "1", 10) || 1);
+        recurrenceRule = { type: "weekly", interval, byDay: uniq };
+      }
+
+      if (t === "monthly") {
+        const interval = Math.max(1, parseInt(recurrenceInterval || "1", 10) || 1);
+        const mode = String(monthlyMode || "monthday");
+
+        if (mode === "nthweekday") {
+          const sp = parseInt(setPos || "1", 10);
+          const wd = String(monthlyByDay || "").trim();
+          recurrenceRule = { type: "monthly", interval, mode: "nthweekday", setPos: sp, byDay: wd };
+        } else {
+          const md = Math.max(1, Math.min(31, parseInt(byMonthday || "0", 10) || 0));
+          recurrenceRule = { type: "monthly", interval, mode: "monthday", byMonthday: md };
+        }
+      }
+    }
+
+    const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
+
+    // schema safety: only write recurrence cols if they exist
+    const cols = await getEventsColumns();
+    const hasRecCols = cols.has("hasRecurrence") && cols.has("recurrenceRule") && cols.has("recurrenceDates");
+
+    // UPDATE
+    if (id !== undefined && id !== null && String(id).trim() !== "") {
+      const eventId = parseInt(String(id).trim(), 10);
+      if (Number.isNaN(eventId)) return res.status(400).send("Invalid ID.");
+
+      const finalSlug = await ensureUniqueSlug(baseSlug, eventId);
+
+      const sets = [
+        "city=?",
+        "slug=?",
+        "title=?",
+        "description=?",
+        "eventDetails=?",
+        "goodToKnow=?",
+        "ticketUrl=?",
+        "ticketLabel=?",
+        "startDateTime=?",
+        "endDateTime=?",
+        "location=?",
+        "organizer=?",
+        "imageUrl=?",
+        "categories=?",
+        "featured=?",
+      ];
+
+      const vals = [
         city,
+        finalSlug,
         title,
         description,
+        eventDetails || null,
+        goodToKnow || null,
+        ticketUrl || null,
+        finalTicketLabel,
         startDateTime,
         endDateTime,
         location,
         organizer,
         imageUrl || null,
-        ticketUrl || null,
-        ticketLabel || null,
-        0,
-        rec.hasRecurrence,
-        rec.recurrenceRule,
-        rec.recurrenceDates,
-      ]
+        catsJson,
+        featuredFlag,
+      ];
+
+      if (hasRecCols) {
+        sets.push("hasRecurrence=?", "recurrenceRule=?", "recurrenceDates=?");
+        vals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
+      }
+
+      sets.push("updatedAt=datetime('now')");
+      vals.push(eventId);
+
+      const result = await run(
+        `UPDATE events SET ${sets.join(", ")} WHERE id=?`,
+        vals
+      );
+
+      if (result && typeof result.changes === "number" && result.changes === 0) {
+        return res.status(404).send("Event not found (ID does not exist).");
+      }
+
+      return res.redirect(`/admin?edit=${eventId}`);
+    }
+
+    // INSERT
+    const finalSlug = await ensureUniqueSlug(baseSlug);
+
+    const insertCols = [
+      "city",
+      "slug",
+      "title",
+      "description",
+      "eventDetails",
+      "goodToKnow",
+      "ticketUrl",
+      "ticketLabel",
+      "startDateTime",
+      "endDateTime",
+      "location",
+      "organizer",
+      "imageUrl",
+      "categories",
+      "featured",
+    ];
+
+    const insertVals = [
+      city,
+      finalSlug,
+      title,
+      description,
+      eventDetails || null,
+      goodToKnow || null,
+      ticketUrl || null,
+      finalTicketLabel,
+      startDateTime,
+      endDateTime,
+      location,
+      organizer,
+      imageUrl || null,
+      catsJson,
+      featuredFlag,
+    ];
+
+    if (hasRecCols) {
+      insertCols.push("hasRecurrence", "recurrenceRule", "recurrenceDates");
+      insertVals.push(hasRec, recurrenceRuleJson, recurrenceDatesJson);
+    }
+
+    insertCols.push("updatedAt");
+
+    const placeholders = insertCols.map(() => "?").join(", ");
+
+    const result = await run(
+      `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.replace(/\?$/, "datetime('now')")})`,
+      insertVals
     );
 
-    res.redirect("/admin");
+    return res.redirect(`/events/${result.lastID}`);
   } catch (err) {
-    console.error("[ADMIN] POST /admin/events failed", err);
-    res.status(500).send("Internal server error");
+    console.error(err);
+    res.status(500).send("Server error.");
   }
 });
 
+// POST /admin/events/:id/delete
 router.post("/events/:id/delete", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    if (!id) return res.redirect("/admin");
+    if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
 
-    // NOTE: we do NOT delete the file from disk automatically.
-    // That prevents accidental loss and keeps image persistence safe.
     await run("DELETE FROM events WHERE id = ?", [id]);
-
     res.redirect("/admin");
   } catch (err) {
-    console.error("[ADMIN] DELETE failed", err);
-    res.status(500).send("Internal server error");
+    console.error(err);
+    res.status(500).send("Server error.");
   }
 });
 
