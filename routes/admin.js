@@ -140,7 +140,7 @@ function toDateValue(isoWithOffset) {
 
 function toDateTimeLocalValue(isoWithOffset) {
   if (!isoWithOffset) return "";
-  return String(isoWithOffset).slice(0, 16);
+  return String(isoWithOffset).slice(0, 10);
 }
 
 function esc(s) {
@@ -174,18 +174,26 @@ router.get("/", async (req, res) => {
     let events = [];
     try {
       events = await all(
-        "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount FROM events ORDER BY startDateTime DESC LIMIT 50"
+        "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount, imageUrl FROM events ORDER BY startDateTime DESC LIMIT 50"
       );
-    } catch {
+    } catch (err) {
       events = await all(
         "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT 50"
       );
-      events = events.map((x) => ({ ...x, goingCount: 0, interestedCount: 0 }));
+      events = events.map((x) => ({
+        ...x,
+        goingCount: 0,
+        interestedCount: 0,
+        imageUrl: null,
+      }));
     }
 
     const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
     let editEvent = null;
     if (editId) editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
+
+    // ...the rest of your existing /admin rendering code continues here...
+
 
     const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
     const isFeatured = Number(editEvent?.featured || 0) === 1;
@@ -228,6 +236,9 @@ router.get("/", async (req, res) => {
 
             return `
           <div class="event-card" data-eid="${e.id}">
+              <div class="event-thumb">
+    ${thumbHtml}
+  </div>
             <div class="event-left">
               <div class="event-title">#${e.id} — ${esc(e.title)} ${
               Number(e.featured || 0) === 1 ? `<span class="pill" style="margin-left:8px;">Featured</span>` : ""
@@ -339,6 +350,48 @@ router.get("/", async (req, res) => {
 
       .cat-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
       @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
+
+
+.event-thumb{
+  width: 120px;
+  flex: 0 0 120px;
+}
+
+.thumb-link{
+  display:block;
+  text-decoration:none;
+}
+
+.event-thumb-img{
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  display:block;
+}
+
+.thumb-empty,
+.thumb-fallback{
+  width: 120px;
+  height: 120px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(15,23,42,.35);
+  text-align:center;
+  padding: 8px;
+}
+
+/* Show fallback text only if the image fails */
+.event-thumb .thumb-fallback{ display:none; }
+.event-thumb.broken .thumb-fallback{ display:flex; }
+
+
 
 
 /* ===== Recurrence UI polish ===== */
@@ -922,6 +975,26 @@ router.get("/", async (req, res) => {
             if(i && e && typeof e.interestedCount !== "undefined") i.textContent = String(Number(e.interestedCount || 0));
           }catch(_){}
         }
+
+
+(function(){
+  var fileInput = document.getElementById("imageFileInput");
+  var preview = document.getElementById("uploadPreview");
+  if(!fileInput || !preview) return;
+
+  fileInput.addEventListener("change", function(){
+    var f = fileInput.files && fileInput.files[0];
+    if(!f){
+      preview.style.display = "none";
+      preview.src = "";
+      return;
+    }
+    preview.src = URL.createObjectURL(f);
+    preview.style.display = "block";
+  });
+})();
+
+
 
         function tick(){
           var cards = document.querySelectorAll(".event-card[data-eid]");
