@@ -193,7 +193,43 @@ router.get("/", async (req, res) => {
     const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
     const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
     const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
-    const customDates = parseStoredDates(editEvent?.recurrenceDates);
+    const storedRecurrenceDates = parseStoredDates(editEvent?.recurrenceDates);
+
+    const customDates = (function(){
+      if (ruleType != "custom") return [];
+
+      const items = Array.isArray(rule?.items) ? rule.items : [];
+      if (items.length) {
+        return items
+          .map((it) => ({
+            start: String(it?.start || "").trim(),
+            end: String(it?.end || "").trim(),
+          }))
+          .filter((it) => it.start && it.end);
+      }
+
+      const baseStart = String(editEvent?.startDateTime || "").trim();
+      const baseEnd   = String(editEvent?.endDateTime || "").trim();
+
+      return (storedRecurrenceDates || [])
+        .map((d) => {
+          if (d && typeof d === "object") {
+            const s = String(d.start || "").trim();
+            const e = String(d.end || "").trim();
+            if (s && e) return { start: s, end: e };
+          }
+
+          const date = String(d || "").trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+
+          if (baseStart.length >= 16 && baseEnd.length >= 16) {
+            return { start: date + baseStart.slice(10), end: date + baseEnd.slice(10) };
+          }
+
+          return { start: date + "T00:00:00+00:00", end: date + "T00:00:00+00:00" };
+        })
+        .filter(Boolean);
+    })();
     const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
     const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
 
@@ -884,6 +920,39 @@ function toISOWithOffsetFromLocalInput(dtLocal) {
 
     if(startHidden) startHidden.value = startISO;
     if(endHidden) endHidden.value = endISO;
+
+    // For custom recurrence: serialize the chips into recurrenceDatesJson
+    const recHidden = document.getElementById("recurrenceDatesJson");
+    const hasRec = document.getElementById("hasRecurrence")?.checked;
+    const recType = (document.getElementById("recurrenceType")?.value || "").toLowerCase();
+
+    if (recHidden) {
+      if (hasRec && recType === "custom") {
+        const wrap = document.getElementById("customDatesWrap");
+        const chips = wrap ? wrap.querySelectorAll(".chip") : [];
+
+        const fallbackStart = (startLocal && startLocal.length >= 16) ? startLocal.slice(11,16) : "00:00";
+        const fallbackEnd = (endLocal && endLocal.length >= 16) ? endLocal.slice(11,16) : fallbackStart;
+
+        const items = [];
+        chips.forEach((chip) => {
+          const date = chip.querySelector('input[name="customDate"]')?.value || "";
+          if (!date) return;
+          const st = chip.querySelector('input[name="customStart"]')?.value || "";
+          const en = chip.querySelector('input[name="customEnd"]')?.value || "";
+
+          const startIso = toISOWithOffsetFromLocalInput(date + "T" + (st || fallbackStart));
+          const endIso   = toISOWithOffsetFromLocalInput(date + "T" + (en || fallbackEnd));
+          if (!startIso || !endIso) return;
+
+          items.push({ date: date, start: startIso, end: endIso });
+        });
+
+        recHidden.value = JSON.stringify(items);
+      } else {
+        recHidden.value = "";
+      }
+    }
   });
 })();
 
@@ -1037,16 +1106,31 @@ function toISOWithOffsetFromLocalInput(dtLocal) {
             var chip = document.createElement("span");
             chip.className = "chip";
 
+            // Prefill times from the main Start/End fields (HH:MM)
+            var startLocal = (document.getElementById("startDateTime") && document.getElementById("startDateTime").value) ? document.getElementById("startDateTime").value : "";
+            var endLocal   = (document.getElementById("endDateTime") && document.getElementById("endDateTime").value) ? document.getElementById("endDateTime").value : "";
+            var startTime = startLocal && startLocal.length >= 16 ? startLocal.slice(11,16) : "";
+            var endTime   = endLocal && endLocal.length >= 16 ? endLocal.slice(11,16) : startTime;
+
             // no backticks in the HTML, avoid escaping issues
             chip.innerHTML =
-              '<input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="recurrenceDates" value="" />' +
+              '<input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="customDate" value="" />' +
+              '<input class="ctrl" style="width:120px; padding:6px 8px;" type="time" name="customStart" value="" />' +
+              '<input class="ctrl" style="width:120px; padding:6px 8px;" type="time" name="customEnd" value="" />' +
               '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
 
             wrap.appendChild(chip);
+
+            // Set default times after append
+            var st = chip.querySelector('input[name="customStart"]');
+            var en = chip.querySelector('input[name="customEnd"]');
+            if(st && startTime) st.value = startTime;
+            if(en && endTime) en.value = endTime;
+
             attachRemove();
           });
         }
-      })();
+})();
 
       // Live going/interested refresh (optional, safe)
       (function(){
@@ -1181,20 +1265,80 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     if (hasRec && t !== "none") {
       if (t === "custom") {
-        let arr = [];
-        if (Array.isArray(recurrenceDates)) arr = recurrenceDates;
-        else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "")
-          arr = [recurrenceDates];
+        // Prefer the hidden JSON emitted by the admin UI (keeps per-date start/end)
+        let raw = safeParseJson((req.body.recurrenceDatesJson || "").trim(), []);
+        if (!Array.isArray(raw)) raw = [];
 
-        const uniq = [];
-        for (const d of arr) {
-          const v = String(d || "").trim();
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) continue;
-          if (!uniq.includes(v)) uniq.push(v);
+        // Back-compat: if hidden JSON missing, build from the visible fields
+        if (raw.length === 0) {
+          const dates  = Array.isArray(req.body.customDate)  ? req.body.customDate  : (req.body.customDate  ? [req.body.customDate]  : []);
+          const starts = Array.isArray(req.body.customStart) ? req.body.customStart : (req.body.customStart ? [req.body.customStart] : []);
+          const ends   = Array.isArray(req.body.customEnd)   ? req.body.customEnd   : (req.body.customEnd   ? [req.body.customEnd]   : []);
+
+          const baseStartTime = String(startDateTime || "").slice(11,16) || "00:00";
+          const baseEndTime   = String(endDateTime || "").slice(11,16) || baseStartTime;
+
+          for (let i = 0; i < dates.length; i++) {
+            const date = String(dates[i] || "").trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+            const st = String(starts[i] || "").trim();
+            const en = String(ends[i] || "").trim();
+
+            // NOTE: this is a fallback; the UI should normally submit full ISO strings.
+            const startIso = toLocalISOWithOffset(`${date}T${st || baseStartTime}`);
+            const endIso   = toLocalISOWithOffset(`${date}T${en || baseEndTime}`);
+
+            raw.push({ date, start: startIso, end: endIso });
+          }
         }
-        uniq.sort();
-        recurrenceRule = { type: "custom" };
-        recurrenceDatesJson = JSON.stringify(uniq);
+
+        // Legacy: accept recurrenceDates (date-only array)
+        if (raw.length === 0) {
+          let arr = [];
+          if (Array.isArray(recurrenceDates)) arr = recurrenceDates;
+          else if (typeof recurrenceDates === "string" && recurrenceDates.trim() !== "") arr = [recurrenceDates];
+          raw = arr;
+        }
+
+        const uniqDates = [];
+        const items = [];
+
+        for (const it of raw) {
+          // Date-only string
+          if (typeof it === "string") {
+            const date = String(it || "").trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+            if (!uniqDates.includes(date)) uniqDates.push(date);
+
+            // Create an item using the base times so the admin UI can round-trip
+            if (String(startDateTime || "").length >= 16 && String(endDateTime || "").length >= 16) {
+              items.push({
+                date,
+                start: date + String(startDateTime).slice(10),
+                end: date + String(endDateTime).slice(10),
+              });
+            }
+            continue;
+          }
+
+          // Object with start/end
+          if (it && typeof it === "object") {
+            const s = String(it.start || "").trim();
+            const e = String(it.end || "").trim();
+            let date = String(it.date || "").trim();
+            if (!date && s.length >= 10) date = s.slice(0,10);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+
+            if (!uniqDates.includes(date)) uniqDates.push(date);
+            if (s && e) items.push({ date, start: s, end: e });
+          }
+        }
+
+        uniqDates.sort();
+        items.sort((a,b) => String(a.start||"").localeCompare(String(b.start||"")));
+
+        recurrenceRule = items.length ? { type: "custom", items } : { type: "custom" };
+        recurrenceDatesJson = JSON.stringify(uniqDates);
       }
 
       if (t === "weekly") {
