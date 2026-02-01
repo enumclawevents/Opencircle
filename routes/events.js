@@ -433,7 +433,7 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
     hasRecurrence: Number(row.hasRecurrence || 0),
     recurrenceRule: recurRuleObj,
     recurrenceDates: Array.isArray(recurDatesArr) ? recurDatesArr : [],
-    featured: Number(row.featured || 0),
+    featured: readFeatured(row),
   };
 
   const baseStartUtc = Date.parse(base.startDateTime);
@@ -583,7 +583,7 @@ rows = rows.map(r => normalizeRowTimes(r));
       hasRecurrence: Number(r.hasRecurrence || 0),
       recurrenceRule: safeParseJson(r.recurrenceRule, null),
       recurrenceDates: safeParseJson(r.recurrenceDates, []),
-      featured: Number(r.featured || 0),
+      featured: readFeatured(r),
     }));
 
     // If no expand, treat each base row as one feed item (but still window filter)
@@ -704,6 +704,12 @@ router.get("/slug/:slug", async (req, res) => {
     const rowFixed = normalizeRowTimes(row);
 
     const cats = safeParseJson(rowFixed.categories, []);
+    function readFeatured(row) {
+  // supports legacy "Featured" column name too
+  const v = (row && (row.featured ?? row.Featured)) ?? 0;
+  const s = String(v).trim().toLowerCase();
+  return (s === "1" || s === "true" || s === "yes" || s === "on") ? 1 : 0;
+}
     const recurRuleObj = safeParseJson(rowFixed.recurrenceRule, null);
 
     const base = {
