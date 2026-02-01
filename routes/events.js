@@ -17,6 +17,47 @@ function safeParseJson(val, fallback) {
   }
 }
 
+function getCreatedTs(item) {
+  const candidates = [
+    "updatedAt", "updated_at",
+    "createdAt", "created_at",
+    "insertedAt", "inserted_at",
+    "addedAt", "added_at",
+    "publishedAt", "published_at",
+  ];
+
+  for (const k of candidates) {
+    const v = item && item[k];
+    if (!v) continue;
+    const t = Date.parse(String(v));
+    if (Number.isFinite(t)) return t;
+  }
+
+  // fallback: increasing id works as a rough "recent"
+  const id = Number(item && item.id) || 0;
+  return id > 0 ? id : 0;
+}
+
+function getTrendingScore(item) {
+  const candidates = [
+    "trendingScore", "trending_score",
+    "views", "viewCount", "view_count",
+    "clicks", "clickCount", "click_count",
+    "likes", "likeCount", "like_count",
+    "rsvps", "rsvpCount", "rsvp_count",
+    "popularity", "popularityScore",
+  ];
+
+  for (const k of candidates) {
+    if (item && item[k] !== undefined && item[k] !== null && item[k] !== "") {
+      const n = Number(item[k]);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return 0;
+}
+
+
 const { DateTime } = require("luxon");
 
 const DEFAULT_TZ = "America/Los_Angeles";
@@ -498,7 +539,14 @@ router.get("/", async (req, res) => {
     const city = (req.query.city || "Enumclaw").trim();
     const expand = String(req.query.expand ?? "1") !== "0";
 
-    const sort = String(req.query.sort || "soonest").toLowerCase() === "latest" ? "latest" : "soonest";
+    const sortRaw = String(req.query.sort || "soonest").toLowerCase().trim();
+
+// allow: soonest | latest | recent | trending
+const sort =
+  (sortRaw === "latest" || sortRaw === "soonest" || sortRaw === "recent" || sortRaw === "trending")
+    ? sortRaw
+    : "soonest";
+
     const q = String(req.query.q || "").trim();
     const category = String(req.query.category || "").trim();
     const featuredOnly = String(req.query.featured || "0") === "1";
@@ -510,9 +558,13 @@ router.get("/", async (req, res) => {
     const toISO = String(req.query.to || "").trim();
 
     const nowUtc = Date.now();
-    const windowDays = 90;
-    const windowStartUtc = nowUtc - 5 * 60 * 1000;
-    const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
+
+// recent should include events added now even if they occur far out
+const windowDays = sort === "recent" ? 365 : 90;
+
+const windowStartUtc = nowUtc - 5 * 60 * 1000;
+const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
+
 
     // Pull all city rows (we'll filter in JS because categories are JSON)
     let rows = await all(
@@ -549,10 +601,34 @@ rows = rows.map(r => normalizeRowTimes(r));
         });
 
       items.sort((a, b) => {
-        const at = Date.parse(a.startDateTime);
-        const bt = Date.parse(b.startDateTime);
-        return sort === "latest" ? (bt - at) : (at - bt);
-      });
+  if (sort === "recent") {
+    const ca = getCreatedTs(a);
+    const cb = getCreatedTs(b);
+    if (cb !== ca) return cb - ca; // newest added first
+
+    // tie-break: upcoming sooner first
+    const at = Date.parse(a.startDateTime);
+    const bt = Date.parse(b.startDateTime);
+    return (at - bt);
+  }
+
+  if (sort === "trending") {
+    const sa = getTrendingScore(a);
+    const sb = getTrendingScore(b);
+    if (sb !== sa) return sb - sa;
+
+    // tie-break: upcoming sooner first
+    const at = Date.parse(a.startDateTime);
+    const bt = Date.parse(b.startDateTime);
+    return (at - bt);
+  }
+
+  // soonest/latest (existing behavior)
+  const at = Date.parse(a.startDateTime);
+  const bt = Date.parse(b.startDateTime);
+  return sort === "latest" ? (bt - at) : (at - bt);
+});
+
 
       return res.json(paginate(items, limit, offset));
     }
@@ -574,10 +650,34 @@ rows = rows.map(r => normalizeRowTimes(r));
 
     // Sort
     expanded.sort((a, b) => {
-      const at = Date.parse(a.startDateTime);
-      const bt = Date.parse(b.startDateTime);
-      return sort === "latest" ? (bt - at) : (at - bt);
-    });
+  if (sort === "recent") {
+    const ca = getCreatedTs(a);
+    const cb = getCreatedTs(b);
+    if (cb !== ca) return cb - ca; // newest added first
+
+    // tie-break: upcoming sooner first
+    const at = Date.parse(a.startDateTime);
+    const bt = Date.parse(b.startDateTime);
+    return (at - bt);
+  }
+
+  if (sort === "trending") {
+    const sa = getTrendingScore(a);
+    const sb = getTrendingScore(b);
+    if (sb !== sa) return sb - sa;
+
+    // tie-break: upcoming sooner first
+    const at = Date.parse(a.startDateTime);
+    const bt = Date.parse(b.startDateTime);
+    return (at - bt);
+  }
+
+  // soonest/latest (existing behavior)
+  const at = Date.parse(a.startDateTime);
+  const bt = Date.parse(b.startDateTime);
+  return sort === "latest" ? (bt - at) : (at - bt);
+});
+
 
     // Paginate
     return res.json(paginate(expanded, limit, offset));
