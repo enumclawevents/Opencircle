@@ -865,7 +865,7 @@ function toISOWithOffsetFromLocalInput(dtLocal) {
   const offH = pad(Math.floor(abs / 60));
   const offM = pad(abs % 60);
 
-  return `${y}-${m}-${day}T${hh}:${mm}:${ss}${sign}${offH}:${offM}`;
+  return y + "-" + m + "-" + day + "T" + hh + ":" + mm + ":" + ss + sign + offH + ":" + offM;
 }
 
 (function(){
@@ -1114,6 +1114,11 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       byMonthday,
       setPos,
       monthlyByDay,
+
+      recurrenceStartDate,
+      recurrenceUntilDate,
+
+      // legacy/simple custom dates
       recurrenceDates,
     } = req.body;
 
@@ -1124,22 +1129,19 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
     }
 
-    const featuredFlag = String(featured || "") === "1" ? 1 : 0;
+    // Prefer browser-generated ISO with offset (prevents UTC shift)
+    const startISO = (req.body.startDateTimeISO || "").trim();
+    const endISO = (req.body.endDateTimeISO || "").trim();
 
-// Prefer browser-generated ISO with offset (prevents UTC shift on Render)
-const startISO = (req.body.startDateTimeISO || "").trim();
-const endISO   = (req.body.endDateTimeISO || "").trim();
+    if (startISO && endISO) {
+      startDateTime = startISO;
+      endDateTime = endISO;
+    } else {
+      startDateTime = toLocalISOWithOffset(startDateTime);
+      endDateTime = toLocalISOWithOffset(endDateTime);
+    }
 
-if (startISO && endISO) {
-  startDateTime = startISO;
-  endDateTime = endISO;
-} else {
-  // fallback to old behavior
-  startDateTime = toLocalISOWithOffset(startDateTime);
-  endDateTime = toLocalISOWithOffset(endDateTime);
-}
-
-
+    // Validate required fields
     if (!title || !description || !startDateTime || !endDateTime || !location || !organizer) {
       return res.status(400).send("Missing required fields.");
     }
@@ -1160,11 +1162,17 @@ if (startISO && endISO) {
       return res.status(400).send("End time must be after start time.");
     }
 
+    const featuredFlag = String(featured || "") === "1" ? 1 : 0;
+
+    // Slug
     const baseSlug = slugify(title);
+    const slug = await ensureUniqueSlug(baseSlug, id ? Number(id) : null);
+
+    // Categories (max 3, from allow-list)
     const cats = normalizeCategories(categories);
     const catsJson = JSON.stringify(cats);
 
-    // recurrence normalize (this matches your existing logic)
+    // ---- Recurrence normalize ----
     const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
     const t = String(recurrenceType || "none").toLowerCase();
 
@@ -1185,7 +1193,6 @@ if (startISO && endISO) {
           if (!uniq.includes(v)) uniq.push(v);
         }
         uniq.sort();
-
         recurrenceRule = { type: "custom" };
         recurrenceDatesJson = JSON.stringify(uniq);
       }
@@ -1212,7 +1219,7 @@ if (startISO && endISO) {
 
         if (mode === "nthweekday") {
           const sp = parseInt(setPos || "1", 10);
-          const wd = String(monthlyByDay || "").trim();
+          const wd = String(monthlyByDay || "").trim() || "MO";
           recurrenceRule = { type: "monthly", interval, mode: "nthweekday", setPos: sp, byDay: wd };
         } else {
           const md = Math.max(1, Math.min(31, parseInt(byMonthday || "0", 10) || 0));
@@ -1221,66 +1228,97 @@ if (startISO && endISO) {
       }
     }
 
-const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
+    const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
 
-// schema safety: only write recurrence cols if they exist
-const cols = await getEventsColumns();
+    const cols = await getEventsColumns();
 
-// ✅ include start/until columns too
-const hasRecCols =
-  cols.has("hasRecurrence") &&
-  cols.has("recurrenceRule") &&
-  cols.has("recurrenceDates") &&
-  cols.has("recurrenceStartDate") &&
-  cols.has("recurrenceUntilDate");
+    const normYmd = (v) => {
+      const s = String(v || "").trim();
+      return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+    };
 
-// normalize date-only fields
-const normYmd = (v) => {
-  const s = String(v || "").trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
-};
+    const recurrenceStartDateClean = normYmd(recurrenceStartDate);
+    const recurrenceUntilDateClean = normYmd(recurrenceUntilDate);
 
-const recurrenceStartDateClean = normYmd(recurrenceStartDate);
-const recurrenceUntilDateClean = normYmd(recurrenceUntilDate);
+    // ---- Build fields ----
+    const baseFields = [
+      ["city", city],
+      ["slug", slug],
+      ["title", title],
+      ["description", description],
+      ["eventDetails", eventDetails || ""],
+      ["goodToKnow", goodToKnow || ""],
+      ["startDateTime", startDateTime],
+      ["endDateTime", endDateTime],
+      ["location", location],
+      ["organizer", organizer],
+      ["imageUrl", imageUrl || null],
+      ["ticketUrl", ticketUrl || null],
+      ["ticketLabel", finalTicketLabel],
+      ["categories", catsJson],
+      ["featured", featuredFlag],
+    ];
 
-if (hasRecCols) {
-  // UPDATE
-  if (id !== undefined && id !== null && String(id).trim() !== "") {
-    // ... keep your existing update setup, then add these:
-    sets.push(
-      "hasRecurrence=?",
-      "recurrenceRule=?",
-      "recurrenceDates=?",
-      "recurrenceStartDate=?",
-      "recurrenceUntilDate=?"
-    );
-    vals.push(
-      hasRec,
-      recurrenceRuleJson,
-      recurrenceDatesJson,
-      recurrenceStartDateClean,
-      recurrenceUntilDateClean
-    );
-  } else {
-    // INSERT
-    insertCols.push(
-      "hasRecurrence",
-      "recurrenceRule",
-      "recurrenceDates",
-      "recurrenceStartDate",
-      "recurrenceUntilDate"
-    );
-    insertVals.push(
-      hasRec,
-      recurrenceRuleJson,
-      recurrenceDatesJson,
-      recurrenceStartDateClean,
-      recurrenceUntilDateClean
-    );
+    const recFields = [
+      ["hasRecurrence", hasRec],
+      ["recurrenceRule", recurrenceRuleJson],
+      ["recurrenceDates", recurrenceDatesJson],
+      ["recurrenceStartDate", recurrenceStartDateClean],
+      ["recurrenceUntilDate", recurrenceUntilDateClean],
+    ];
+
+    const fields = [...baseFields];
+
+    // Only include recurrence columns if they exist in DB
+    const hasRecCols =
+      cols.has("hasRecurrence") &&
+      cols.has("recurrenceRule") &&
+      cols.has("recurrenceDates") &&
+      cols.has("recurrenceStartDate") &&
+      cols.has("recurrenceUntilDate");
+
+    if (hasRecCols) fields.push(...recFields);
+
+    const isUpdate = id !== undefined && id !== null && String(id).trim() !== "";
+
+    if (isUpdate) {
+      const sets = [];
+      const vals = [];
+      for (const [k, v] of fields) {
+        if (!cols.size || cols.has(k)) {
+          sets.push(`${k}=?`);
+          vals.push(v);
+        }
+      }
+      vals.push(Number(id));
+
+      await run(`UPDATE events SET ${sets.join(", ")} WHERE id=?`, vals);
+      return res.redirect(`/admin?edit=${encodeURIComponent(id)}`);
+    } else {
+      const insertCols = [];
+      const placeholders = [];
+      const insertVals = [];
+
+      for (const [k, v] of fields) {
+        if (!cols.size || cols.has(k)) {
+          insertCols.push(k);
+          placeholders.push("?");
+          insertVals.push(v);
+        }
+      }
+
+      await run(
+        `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
+        insertVals
+      );
+      return res.redirect("/admin");
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Server error.");
   }
-}
+});
 
-// POST /admin/events/:id/delete
 router.post("/events/:id/delete", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
