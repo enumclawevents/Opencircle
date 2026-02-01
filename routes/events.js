@@ -17,6 +17,14 @@ function safeParseJson(val, fallback) {
   }
 }
 
+function readFeatured(row) {
+  // supports legacy "Featured" column name too, and common checkbox strings
+  const v = (row && (row.featured ?? row.Featured)) ?? 0;
+  const s = String(v).trim().toLowerCase();
+  return (s === "1" || s === "true" || s === "yes" || s === "on") ? 1 : 0;
+}
+
+
 function getCreatedTs(item) {
   const candidates = [
     "updatedAt", "updated_at",
@@ -704,13 +712,7 @@ router.get("/slug/:slug", async (req, res) => {
     const rowFixed = normalizeRowTimes(row);
 
     const cats = safeParseJson(rowFixed.categories, []);
-    function readFeatured(row) {
-  // supports legacy "Featured" column name too
-  const v = (row && (row.featured ?? row.Featured)) ?? 0;
-  const s = String(v).trim().toLowerCase();
-  return (s === "1" || s === "true" || s === "yes" || s === "on") ? 1 : 0;
-}
-    const recurRuleObj = safeParseJson(rowFixed.recurrenceRule, null);
+const recurRuleObj = safeParseJson(rowFixed.recurrenceRule, null);
 
     const base = {
       ...rowFixed, // ✅ was ...row
@@ -718,7 +720,7 @@ router.get("/slug/:slug", async (req, res) => {
       hasRecurrence: Number(rowFixed.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),
-      featured: Number(rowFixed.featured || 0),
+      featured: readFeatured(rowFixed),
 
       // pass through (these columns exist in DB)
       recurrenceStartDate: rowFixed.recurrenceStartDate || null,
@@ -773,7 +775,7 @@ router.get("/:idOrSlug", async (req, res) => {
       hasRecurrence: Number(rowFixed.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),
-      featured: Number(rowFixed.featured || 0),
+      featured: readFeatured(rowFixed),
       recurrenceStartDate: rowFixed.recurrenceStartDate || null,
       recurrenceUntilDate: rowFixed.recurrenceUntilDate || null,
     };
