@@ -600,18 +600,23 @@ router.get("/slug/:slug", async (req, res) => {
     const row = await get("SELECT * FROM events WHERE LOWER(slug) = LOWER(?) LIMIT 1", [slug]);
     if (!row) return res.status(404).json({ error: "Event not found" });
 
+    // ✅ IMPORTANT: use normalized row for the response + recurrence generation
     const rowFixed = normalizeRowTimes(row);
 
-    const cats = safeParseJson(row.categories, []);
-    const recurRuleObj = safeParseJson(row.recurrenceRule, null);
+    const cats = safeParseJson(rowFixed.categories, []);
+    const recurRuleObj = safeParseJson(rowFixed.recurrenceRule, null);
 
     const base = {
-      ...row,
+      ...rowFixed, // ✅ was ...row
       categories: Array.isArray(cats) ? cats : [],
-      hasRecurrence: Number(row.hasRecurrence || 0),
+      hasRecurrence: Number(rowFixed.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
-      recurrenceDates: safeParseJson(row.recurrenceDates, []),
-      featured: Number(row.featured || 0),
+      recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),
+      featured: Number(rowFixed.featured || 0),
+
+      // pass through (these columns exist in DB)
+      recurrenceStartDate: rowFixed.recurrenceStartDate || null,
+      recurrenceUntilDate: rowFixed.recurrenceUntilDate || null,
     };
 
     const nowUtc = Date.now();
@@ -650,16 +655,21 @@ router.get("/:idOrSlug", async (req, res) => {
 
     if (!row) return res.status(404).json({ error: "Event not found" });
 
-    const cats = safeParseJson(row.categories, []);
-    const recurRuleObj = safeParseJson(row.recurrenceRule, null);
+    // ✅ normalize here too
+    const rowFixed = normalizeRowTimes(row);
+
+    const cats = safeParseJson(rowFixed.categories, []);
+    const recurRuleObj = safeParseJson(rowFixed.recurrenceRule, null);
 
     const base = {
-      ...row,
+      ...rowFixed,
       categories: Array.isArray(cats) ? cats : [],
-      hasRecurrence: Number(row.hasRecurrence || 0),
+      hasRecurrence: Number(rowFixed.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
-      recurrenceDates: safeParseJson(row.recurrenceDates, []),
-      featured: Number(row.featured || 0),
+      recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),
+      featured: Number(rowFixed.featured || 0),
+      recurrenceStartDate: rowFixed.recurrenceStartDate || null,
+      recurrenceUntilDate: rowFixed.recurrenceUntilDate || null,
     };
 
     const nowUtc = Date.now();
