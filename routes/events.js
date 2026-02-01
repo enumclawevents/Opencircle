@@ -547,13 +547,18 @@ router.get("/", async (req, res) => {
     const city = (req.query.city || "Enumclaw").trim();
     const expand = String(req.query.expand ?? "1") !== "0";
 
-    const sortRaw = String(req.query.sort || "soonest").toLowerCase().trim();
+const sortRaw = String(req.query.sort || "soonest").toLowerCase().trim();
 
-// allow: soonest | latest | recent | trending
+// allow: soonest | latest | recent | trending | id_desc
 const sort =
-  (sortRaw === "latest" || sortRaw === "soonest" || sortRaw === "recent" || sortRaw === "trending")
+  (sortRaw === "latest" ||
+   sortRaw === "soonest" ||
+   sortRaw === "recent" ||
+   sortRaw === "trending" ||
+   sortRaw === "id_desc")
     ? sortRaw
     : "soonest";
+
 
     const q = String(req.query.q || "").trim();
     const category = String(req.query.category || "").trim();
@@ -625,6 +630,19 @@ rows = rows.map(r => normalizeRowTimes(r));
     const sb = getTrendingScore(b);
     if (sb !== sa) return sb - sa;
 
+  if (sort === "id_desc") {
+    const ia = Number(a && a.id) || 0;
+    const ib = Number(b && b.id) || 0;
+    if (ib !== ia) return ib - ia;
+
+    // tie-break: newer startDateTime first
+    const at = Date.parse(a.startDateTime);
+    const bt = Date.parse(b.startDateTime);
+    return bt - at;
+  }
+
+
+
     // tie-break: upcoming sooner first
     const at = Date.parse(a.startDateTime);
     const bt = Date.parse(b.startDateTime);
@@ -673,6 +691,17 @@ rows = rows.map(r => normalizeRowTimes(r));
     const sa = getTrendingScore(a);
     const sb = getTrendingScore(b);
     if (sb !== sa) return sb - sa;
+
+  if (sort === "id_desc") {
+    const ia = Number(a && a.id) || 0;
+    const ib = Number(b && b.id) || 0;
+    if (ib !== ia) return ib - ia;
+
+    const at = Date.parse(a.startDateTime);
+    const bt = Date.parse(b.startDateTime);
+    return bt - at;
+  }
+
 
     // tie-break: upcoming sooner first
     const at = Date.parse(a.startDateTime);
