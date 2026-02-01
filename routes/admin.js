@@ -24,6 +24,7 @@ const ALLOWED_CATEGORIES = [
   "Outdoors",
   "Business & Networking",
   "Charity & Fundraising",
+  "Seasonal & Holiday",
 ];
 
 // --- Uploads (local disk or Render disk mount) ---
