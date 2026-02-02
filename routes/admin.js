@@ -285,14 +285,19 @@ router.get("/", async (req, res) => {
                 <div><strong>Location:</strong> ${esc(e.location)}</div>
               </div>
               <div class="event-actions">
-                <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}" target="_blank" rel="noopener">View JSON</a>
-                <a href="/admin?edit=${e.id}">Edit</a>
-                <form method="POST"
-      action="/admin/events/${e.id}/delete"
-      class="inline"
-      onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
-  <button type="submit" class="btn btn-danger">Delete</button>
-</form>
+  <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}"
+     target="_blank" rel="noopener">View JSON</a>
+
+  <a class="btn btn-edit" href="/admin?edit=${e.id}">Edit</a>
+
+  <form method="POST"
+    action="/admin/events/${e.id}/delete"
+    class="inline"
+    onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
+    <button type="submit" class="btn btn-danger">Delete</button>
+  </form>
+</div>
+
 
               </div>
             </div>
@@ -404,6 +409,16 @@ router.get("/", async (req, res) => {
 
 @media (max-width: 900px){
   .rec-grid{ grid-template-columns: 1fr; }
+}
+
+.btn-edit{
+  background: rgba(59,130,246,.12);
+  border-color: rgba(59,130,246,.25);
+  color: #bfdbfe;
+}
+.btn-edit:hover{
+  background: rgba(59,130,246,.18);
+  border-color: rgba(59,130,246,.40);
 }
 
 .rec-label{
