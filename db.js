@@ -134,6 +134,13 @@ async function init() {
   `);
 
   await run(`CREATE INDEX IF NOT EXISTS idx_event_views_eventId_viewedAt ON event_views(eventId, viewedAt)`);
+  // Count unique views per event by sid (only when sid is present)
+await run(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_event_views_event_sid_unique
+  ON event_views(eventId, sid)
+  WHERE sid IS NOT NULL AND sid <> ''
+`);
+
   await run(`CREATE INDEX IF NOT EXISTS idx_event_views_eventId_occurrenceDate ON event_views(eventId, occurrenceDate)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_event_views_ipHash ON event_views(ipHash)`);
 

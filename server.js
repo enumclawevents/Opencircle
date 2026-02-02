@@ -81,6 +81,8 @@ app.get("/", (req, res) => {
 });
 
 app.get("/health", (req, res) => res.status(200).send("ok"));
+app.use(express.json());
+app.use(express.text({ type: "text/plain" })); // for sendBeacon payloads
 
 // Routes
 app.use("/events", eventsRouter);

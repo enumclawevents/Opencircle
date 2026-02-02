@@ -9,6 +9,84 @@ const crypto = require("crypto");
  * Helpers
  */
 
+router.post("/:idOrSlug/view", async (req, res) => {
+  try {
+    const idOrSlug = String(req.params.idOrSlug || "").trim();
+    if (!idOrSlug) return res.status(400).json({ ok: false, error: "Missing id/slug" });
+
+    // Resolve event id (by numeric id OR slug)
+    let row = null;
+    const asNum = Number(idOrSlug);
+    if (Number.isFinite(asNum) && String(asNum) === idOrSlug) {
+      row = await get("SELECT id FROM events WHERE id = ? LIMIT 1", [asNum]);
+    } else {
+      row = await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [idOrSlug]);
+    }
+    if (!row) return res.status(404).json({ ok: false, error: "Event not found" });
+
+    const eventId = Number(row.id);
+
+    // Parse body (supports JSON or text/plain containing JSON)
+    let body = req.body;
+    if (typeof body === "string" && body.trim()) {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    body = body && typeof body === "object" ? body : {};
+
+    const sid = String(body.sid || "").trim();
+    const ref = String(req.get("referer") || "").slice(0, 500);
+    const ua  = String(req.get("user-agent") || "").slice(0, 300);
+
+    // Optional: hash IP (simple + non-reversible enough for basic analytics)
+    const ipRaw = String(req.ip || "").trim();
+    const ipHash = ipRaw ? require("crypto").createHash("sha256").update(ipRaw).digest("hex") : null;
+
+    // Always record a row (for analytics)
+    await run(
+      `INSERT INTO event_views (eventId, occurrenceDate, ipHash, ua, ref, sid)
+       VALUES (?, NULL, ?, ?, ?, ?)`,
+      [eventId, ipHash, ua, ref, sid || null]
+    );
+
+    // Always increment total views + lastViewedAt
+    await run(
+      `UPDATE events
+       SET viewCount = COALESCE(viewCount,0) + 1,
+           lastViewedAt = datetime('now'),
+           updatedAt = datetime('now')
+       WHERE id = ?`,
+      [eventId]
+    );
+
+    // Unique logic: only if sid provided and not seen before
+    let unique = false;
+    if (sid) {
+      await run(
+        `INSERT OR IGNORE INTO event_views (eventId, sid) VALUES (?, ?)`,
+        [eventId, sid]
+      );
+
+      const ch = await get("SELECT changes() AS ch");
+      if (Number(ch?.ch || 0) > 0) {
+        unique = true;
+        await run(
+          `UPDATE events
+           SET uniqueViewCount = COALESCE(uniqueViewCount,0) + 1
+           WHERE id = ?`,
+          [eventId]
+        );
+      }
+    }
+
+    return res.json({ ok: true, eventId, unique });
+  } catch (e) {
+    console.error("[POST /events/:idOrSlug/view] error:", e);
+    return res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
+
+
 // --- helpers: parse rule + build occurrencesUpcoming correctly ---
 
 function safeJsonParse(v, fallback = null) {
