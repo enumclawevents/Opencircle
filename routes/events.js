@@ -7,6 +7,65 @@ const { all, get } = require("../db");
 /**
  * Helpers
  */
+
+// --- helpers: parse rule + build occurrencesUpcoming correctly ---
+
+function safeJsonParse(v, fallback = null) {
+  if (!v) return fallback;
+  if (typeof v === "object") return v;
+  try { return JSON.parse(v); } catch { return fallback; }
+}
+
+function toIsoIfValid(s) {
+  const v = String(s || "").trim();
+  if (!v) return "";
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? "" : v;
+}
+
+function labelFromIso(iso) {
+  // Use the date portion of the ISO; keep it simple and stable.
+  // Example: "Feb 7, 2026"
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
+function buildOccurrencesUpcomingFromRule(event) {
+  const rr = safeJsonParse(event.recurrenceRule, null);
+  if (!rr || !rr.type) return [];
+
+  // ✅ CUSTOM: items already contain true per-date start/end
+  if (rr.type === "custom" && Array.isArray(rr.items)) {
+    const out = rr.items
+      .map((it) => {
+        const start = toIsoIfValid(it?.start);
+        const end   = toIsoIfValid(it?.end);
+
+        if (!start) return null;
+
+        return {
+          startDateTime: start,
+          endDateTime: end || "",
+          label: String(it?.label || "").trim() || labelFromIso(start),
+        };
+      })
+      .filter(Boolean);
+
+    // sort soonest first
+    out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+    return out;
+  }
+
+  // If you later support weekly/monthly RRULE generation server-side,
+  // you'd add it here. For now, fall back to any precomputed occurrencesUpcoming on the row if you store it.
+  return [];
+}
+
 function safeParseJson(val, fallback) {
   if (val === null || val === undefined || val === "") return fallback;
   if (typeof val === "object") return val;
@@ -23,7 +82,6 @@ function readFeatured(row) {
   const s = String(v).trim().toLowerCase();
   return (s === "1" || s === "true" || s === "yes" || s === "on") ? 1 : 0;
 }
-
 
 function getCreatedTs(item) {
   const candidates = [
@@ -65,7 +123,6 @@ function getTrendingScore(item) {
   return 0;
 }
 
-
 const { DateTime } = require("luxon");
 
 const DEFAULT_TZ = "America/Los_Angeles";
@@ -104,8 +161,6 @@ function normalizeRowTimes(row, tz = DEFAULT_TZ) {
     endDateTime: normalizeIsoToTzKeepClock(row.endDateTime, tz),
   };
 }
-
-
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -229,7 +284,68 @@ function nthWeekdayOfMonth(year, month, weekdayKey, setPos) {
   return null;
 }
 
+/**
+ * ✅ FIX A:
+ * For recurrenceRule.type === "custom", prefer recurrenceRule.items[] (per-day start/end)
+ * so each date can have different hours.
+ *
+ * Falls back to old recurrenceDates[] behavior if items are missing.
+ */
 function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
+  // Base start/end (for duration fallback)
+  const baseStartUtc = Date.parse(eventRow.startDateTime);
+  const baseEndUtc = Date.parse(eventRow.endDateTime);
+  const durationMs = (Number.isFinite(baseStartUtc) && Number.isFinite(baseEndUtc))
+    ? Math.max(0, baseEndUtc - baseStartUtc)
+    : 0;
+
+  // 1) ✅ Preferred: recurrenceRule.items (true per-occurrence start/end)
+  const rule = safeParseJson(eventRow.recurrenceRule, null);
+  if (rule && String(rule.type || "").toLowerCase() === "custom" && Array.isArray(rule.items) && rule.items.length) {
+    const out = [];
+
+    for (const it of rule.items) {
+      const startIso = toIsoIfValid(it && it.start);
+      if (!startIso) continue;
+
+      const occStartUtc = Date.parse(startIso);
+      if (!Number.isFinite(occStartUtc)) continue;
+
+      if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+      if (Number.isFinite(baseStartUtc) && occStartUtc < baseStartUtc) continue;
+
+      let endIso = toIsoIfValid(it && it.end);
+      if (!endIso && durationMs > 0) {
+        // If item.end missing, compute end using base duration while keeping the item's offset
+        const sp = parseIsoParts(startIso);
+        if (sp) {
+          const occEndUtc = occStartUtc + durationMs;
+          const ep = utcMsToLocalParts(occEndUtc, sp.offset);
+          endIso = partsToIso(ep);
+        }
+      }
+
+      const sp = parseIsoParts(startIso);
+      const occurrenceDate =
+        (startIso.length >= 10 && /^\d{4}-\d{2}-\d{2}$/.test(startIso.slice(0, 10)))
+          ? startIso.slice(0, 10)
+          : (sp ? toYmd(sp) : "");
+
+      const label = String((it && it.label) || "").trim() || (sp ? formatLabelLocal(sp) : labelFromIso(startIso));
+
+      out.push({
+        occurrenceDate,
+        startDateTime: startIso,
+        endDateTime: endIso || "",
+        label,
+      });
+    }
+
+    out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+    return out;
+  }
+
+  // 2) Fallback: your old recurrenceDates[] list (date-only) using base start time
   const startParts = parseIsoParts(eventRow.startDateTime);
   if (!startParts) return [];
 
@@ -237,7 +353,7 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   const endUtc = Date.parse(eventRow.endDateTime);
   if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
 
-  const durationMs = Math.max(0, endUtc - startUtc);
+  const durationMs2 = Math.max(0, endUtc - startUtc);
   const offset = startParts.offset;
 
   const dates = safeParseJson(eventRow.recurrenceDates, []);
@@ -261,7 +377,7 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     };
 
     const occStartUtc = partsToUtcMs(occLocalParts);
-    const occEndUtc = occStartUtc + durationMs;
+    const occEndUtc = occStartUtc + durationMs2;
 
     if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
     if (occStartUtc < startUtc) continue;
@@ -547,18 +663,17 @@ router.get("/", async (req, res) => {
     const city = (req.query.city || "Enumclaw").trim();
     const expand = String(req.query.expand ?? "1") !== "0";
 
-const sortRaw = String(req.query.sort || "soonest").toLowerCase().trim();
+    const sortRaw = String(req.query.sort || "soonest").toLowerCase().trim();
 
-// allow: soonest | latest | recent | trending | id_desc
-const sort =
-  (sortRaw === "latest" ||
-   sortRaw === "soonest" ||
-   sortRaw === "recent" ||
-   sortRaw === "trending" ||
-   sortRaw === "id_desc")
-    ? sortRaw
-    : "soonest";
-
+    // allow: soonest | latest | recent | trending | id_desc
+    const sort =
+      (sortRaw === "latest" ||
+       sortRaw === "soonest" ||
+       sortRaw === "recent" ||
+       sortRaw === "trending" ||
+       sortRaw === "id_desc")
+        ? sortRaw
+        : "soonest";
 
     const q = String(req.query.q || "").trim();
     const category = String(req.query.category || "").trim();
@@ -572,22 +687,20 @@ const sort =
 
     const nowUtc = Date.now();
 
-// recent should include events added now even if they occur far out
-const windowDays = sort === "recent" ? 365 : 90;
+    // recent should include events added now even if they occur far out
+    const windowDays = sort === "recent" ? 365 : 90;
 
-const windowStartUtc = nowUtc - 5 * 60 * 1000;
-const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
-
+    const windowStartUtc = nowUtc - 5 * 60 * 1000;
+    const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
     // Pull all city rows (we'll filter in JS because categories are JSON)
     let rows = await all(
-  "SELECT * FROM events WHERE LOWER(city) = LOWER(?) ORDER BY startDateTime ASC",
-  [city]
-);
+      "SELECT * FROM events WHERE LOWER(city) = LOWER(?) ORDER BY startDateTime ASC",
+      [city]
+    );
 
-// normalize base times first so recurrence generation uses correct offset
-rows = rows.map(r => normalizeRowTimes(r));
-
+    // normalize base times first so recurrence generation uses correct offset
+    rows = rows.map(r => normalizeRowTimes(r));
 
     // Normalize base rows
     const normalizedRows = rows.map((r) => ({
@@ -614,47 +727,44 @@ rows = rows.map(r => normalizeRowTimes(r));
         });
 
       items.sort((a, b) => {
-  if (sort === "recent") {
-    const ca = getCreatedTs(a);
-    const cb = getCreatedTs(b);
-    if (cb !== ca) return cb - ca; // newest added first
+        if (sort === "recent") {
+          const ca = getCreatedTs(a);
+          const cb = getCreatedTs(b);
+          if (cb !== ca) return cb - ca; // newest added first
 
-    // tie-break: upcoming sooner first
-    const at = Date.parse(a.startDateTime);
-    const bt = Date.parse(b.startDateTime);
-    return (at - bt);
-  }
+          // tie-break: upcoming sooner first
+          const at = Date.parse(a.startDateTime);
+          const bt = Date.parse(b.startDateTime);
+          return (at - bt);
+        }
 
-  if (sort === "trending") {
-    const sa = getTrendingScore(a);
-    const sb = getTrendingScore(b);
-    if (sb !== sa) return sb - sa;
+        if (sort === "trending") {
+          const sa = getTrendingScore(a);
+          const sb = getTrendingScore(b);
+          if (sb !== sa) return sb - sa;
 
-  if (sort === "id_desc") {
-    const ia = Number(a && a.id) || 0;
-    const ib = Number(b && b.id) || 0;
-    if (ib !== ia) return ib - ia;
+          // tie-break: upcoming sooner first
+          const at = Date.parse(a.startDateTime);
+          const bt = Date.parse(b.startDateTime);
+          return (at - bt);
+        }
 
-    // tie-break: newer startDateTime first
-    const at = Date.parse(a.startDateTime);
-    const bt = Date.parse(b.startDateTime);
-    return bt - at;
-  }
+        if (sort === "id_desc") {
+          const ia = Number(a && a.id) || 0;
+          const ib = Number(b && b.id) || 0;
+          if (ib !== ia) return ib - ia;
 
+          // tie-break: newer startDateTime first
+          const at = Date.parse(a.startDateTime);
+          const bt = Date.parse(b.startDateTime);
+          return bt - at;
+        }
 
-
-    // tie-break: upcoming sooner first
-    const at = Date.parse(a.startDateTime);
-    const bt = Date.parse(b.startDateTime);
-    return (at - bt);
-  }
-
-  // soonest/latest (existing behavior)
-  const at = Date.parse(a.startDateTime);
-  const bt = Date.parse(b.startDateTime);
-  return sort === "latest" ? (bt - at) : (at - bt);
-});
-
+        // soonest/latest (existing behavior)
+        const at = Date.parse(a.startDateTime);
+        const bt = Date.parse(b.startDateTime);
+        return sort === "latest" ? (bt - at) : (at - bt);
+      });
 
       return res.json(paginate(items, limit, offset));
     }
@@ -676,45 +786,43 @@ rows = rows.map(r => normalizeRowTimes(r));
 
     // Sort
     expanded.sort((a, b) => {
-  if (sort === "recent") {
-    const ca = getCreatedTs(a);
-    const cb = getCreatedTs(b);
-    if (cb !== ca) return cb - ca; // newest added first
+      if (sort === "recent") {
+        const ca = getCreatedTs(a);
+        const cb = getCreatedTs(b);
+        if (cb !== ca) return cb - ca; // newest added first
 
-    // tie-break: upcoming sooner first
-    const at = Date.parse(a.startDateTime);
-    const bt = Date.parse(b.startDateTime);
-    return (at - bt);
-  }
+        // tie-break: upcoming sooner first
+        const at = Date.parse(a.startDateTime);
+        const bt = Date.parse(b.startDateTime);
+        return (at - bt);
+      }
 
-  if (sort === "trending") {
-    const sa = getTrendingScore(a);
-    const sb = getTrendingScore(b);
-    if (sb !== sa) return sb - sa;
+      if (sort === "trending") {
+        const sa = getTrendingScore(a);
+        const sb = getTrendingScore(b);
+        if (sb !== sa) return sb - sa;
 
-  if (sort === "id_desc") {
-    const ia = Number(a && a.id) || 0;
-    const ib = Number(b && b.id) || 0;
-    if (ib !== ia) return ib - ia;
+        // tie-break: upcoming sooner first
+        const at = Date.parse(a.startDateTime);
+        const bt = Date.parse(b.startDateTime);
+        return (at - bt);
+      }
 
-    const at = Date.parse(a.startDateTime);
-    const bt = Date.parse(b.startDateTime);
-    return bt - at;
-  }
+      if (sort === "id_desc") {
+        const ia = Number(a && a.id) || 0;
+        const ib = Number(b && b.id) || 0;
+        if (ib !== ia) return ib - ia;
 
+        const at = Date.parse(a.startDateTime);
+        const bt = Date.parse(b.startDateTime);
+        return bt - at;
+      }
 
-    // tie-break: upcoming sooner first
-    const at = Date.parse(a.startDateTime);
-    const bt = Date.parse(b.startDateTime);
-    return (at - bt);
-  }
-
-  // soonest/latest (existing behavior)
-  const at = Date.parse(a.startDateTime);
-  const bt = Date.parse(b.startDateTime);
-  return sort === "latest" ? (bt - at) : (at - bt);
-});
-
+      // soonest/latest (existing behavior)
+      const at = Date.parse(a.startDateTime);
+      const bt = Date.parse(b.startDateTime);
+      return sort === "latest" ? (bt - at) : (at - bt);
+    });
 
     // Paginate
     return res.json(paginate(expanded, limit, offset));
@@ -741,10 +849,10 @@ router.get("/slug/:slug", async (req, res) => {
     const rowFixed = normalizeRowTimes(row);
 
     const cats = safeParseJson(rowFixed.categories, []);
-const recurRuleObj = safeParseJson(rowFixed.recurrenceRule, null);
+    const recurRuleObj = safeParseJson(rowFixed.recurrenceRule, null);
 
     const base = {
-      ...rowFixed, // ✅ was ...row
+      ...rowFixed,
       categories: Array.isArray(cats) ? cats : [],
       hasRecurrence: Number(rowFixed.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
