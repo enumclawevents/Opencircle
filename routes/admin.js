@@ -15,6 +15,7 @@ const ALLOWED_CATEGORIES = [
   "Music",
   "Food & Drink",
   "Arts & Culture",
+  "Games & Trivia",
   "Community",
   "Family & Kids",
   "Sports & Fitness",
