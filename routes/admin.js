@@ -272,8 +272,9 @@ router.get("/", async (req, res) => {
           .map((e) => {
   const going = Number(e.goingCount || 0);
   const interested = Number(e.interestedCount || 0);
-  const views = Number(e.viewCount || 0);
-  const uniques = Number(e.uniqueViewCount || 0);
+const views = Number(e.viewCount || 0);
+const uniques = Number(e.uniqueViewCount || 0);
+
             const thumbHtml = e.imageUrl
               ? `
                 <a class="thumb-link" href="${esc(e.imageUrl)}" target="_blank" rel="noopener" title="View image">
@@ -319,12 +320,13 @@ return `
       </div>
     </div>
 <div class="event-stats">
-        <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
-        <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
-        <div class="stat"><span>Views</span><strong class="js-views">${views}</strong></div>
-        <div class="stat"><span>Unique</span><strong class="js-uniques">${uniques}</strong></div>
-        <div class="note" style="margin-top:10px;">Live</div>
-      </div>
+  <div class="stat"><span>Views</span><strong class="js-views">${views}</strong></div>
+  <div class="stat"><span>Unique</span><strong class="js-unique">${uniques}</strong></div>
+  <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
+  <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
+  <div class="note" style="margin-top:10px;">Live</div>
+</div>
+
     </div>
   `;
 })
@@ -1188,6 +1190,13 @@ function toISOWithOffsetFromLocalInput(dtLocal) {
         async function refreshOne(card){
           var id = card.getAttribute("data-eid");
           if(!id) return;
+
+            var v = card.querySelector(".js-views");
+var u = card.querySelector(".js-unique");
+
+if (v && e && typeof e.viewCount !== "undefined") v.textContent = String(Number(e.viewCount || 0));
+if (u && e && typeof e.uniqueViewCount !== "undefined") u.textContent = String(Number(e.uniqueViewCount || 0));
+
 
           try{
             var res = await fetch("/events/" + encodeURIComponent(id), { headers: { "Accept": "application/json" } });
