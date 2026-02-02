@@ -318,10 +318,6 @@ return `
         </form>
       </div>
     </div>
-
-const views = Number(e.viewCount || 0);
-const uniques = Number(e.uniqueViewCount || 0);
-
 <div class="event-stats">
         <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
         <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
