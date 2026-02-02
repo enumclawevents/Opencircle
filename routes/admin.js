@@ -1198,7 +1198,7 @@ function toISOWithOffsetFromLocalInput(dtLocal) {
           }
         }
         tick();
-        setInterval(tick, 15000);
+        setInterval(tick, 3000);
       })();
     </script>
   </body>
