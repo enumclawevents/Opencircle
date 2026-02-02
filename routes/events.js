@@ -662,12 +662,11 @@ function paginate(items, limit, offset) {
  */
 router.get("/", async (req, res) => {
   try {
-    const city = (req.query.city || "Enumclaw").trim();
+    const city = String(req.query.city ?? "Enumclaw").trim();
     const expand = String(req.query.expand ?? "1") !== "0";
 
-    const sortRaw = String(req.query.sort || "soonest").toLowerCase().trim();
+    const sortRaw = String(req.query.sort ?? "soonest").toLowerCase().trim();
 
-    // allow: soonest | latest | recent | trending | id_desc
     const sort =
       (sortRaw === "latest" ||
        sortRaw === "soonest" ||
@@ -677,25 +676,22 @@ router.get("/", async (req, res) => {
         ? sortRaw
         : "soonest";
 
-    const q = String(req.query.q || "").trim();
-    const category = String(req.query.category || "").trim();
-    const featuredOnly = String(req.query.featured || "0") === "1";
+    const q = String(req.query.q ?? "").trim();
+    const category = String(req.query.category ?? "").trim();
+    const featuredOnly = String(req.query.featured ?? "0") === "1";
 
-    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit || "40", 10)));
-    const offset = Math.max(0, parseInt(req.query.offset || "0", 10));
+    const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit ?? "40"), 10)));
+    const offset = Math.max(0, parseInt(String(req.query.offset ?? "0"), 10));
 
-    const fromISO = String(req.query.from || "").trim();
-    const toISO = String(req.query.to || "").trim();
+    const fromISO = String(req.query.from ?? "").trim();
+    const toISO = String(req.query.to ?? "").trim();
 
     const nowUtc = Date.now();
-
-    // recent should include events added now even if they occur far out
     const windowDays = sort === "recent" ? 365 : 90;
 
     const windowStartUtc = nowUtc - 5 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
 
-    // Pull all city rows (we'll filter in JS because categories are JSON)
     let rows = await all(
       "SELECT * FROM events WHERE LOWER(city) = LOWER(?) ORDER BY startDateTime ASC",
       [city]
@@ -829,7 +825,8 @@ router.get("/", async (req, res) => {
     // Paginate
     return res.json(paginate(expanded, limit, offset));
   } catch (err) {
-    console.error(err);
+    console.error("[/events] error:", err && err.stack ? err.stack : err);
+    console.error("[/events] query:", req.query);
     res.status(500).json({
       data: [],
       meta: { total: 0, limit: 40, offset: 0, hasMore: false, nextOffset: null },
