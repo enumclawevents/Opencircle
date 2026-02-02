@@ -2,7 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
-const { all, get } = require("../db");
+const { all, get, run } = require("../db");
 
 /**
  * Helpers
@@ -556,6 +556,8 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
     categories: Array.isArray(cats) ? cats : [],
     hasRecurrence: Number(row.hasRecurrence || 0),
     recurrenceRule: recurRuleObj,
+    goingCount: Number(rowFixed.goingCount || 0),
+    interestedCount: Number(rowFixed.interestedCount || 0),
     recurrenceDates: Array.isArray(recurDatesArr) ? recurDatesArr : [],
     featured: readFeatured(row),
   };
@@ -934,6 +936,73 @@ router.get("/:idOrSlug", async (req, res) => {
     res.json({ data: { ...base, occurrencesUpcoming } });
   } catch (err) {
     console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+// POST /events/:idOrSlug/engagement
+// Body supports either:
+//   { goingDelta: 1 } or { goingDelta: -1 }
+//   { interestedDelta: 1 } or { interestedDelta: -1 }
+//   OR absolute set: { going: 12, interested: 5 }
+router.post("/:idOrSlug/engagement", async (req, res) => {
+  try {
+    const raw = String(req.params.idOrSlug || "").trim();
+    if (!raw) return res.status(400).json({ error: "Missing id/slug" });
+
+    // allow id or slug
+    const asId = Number(raw);
+    const isId = Number.isInteger(asId) && asId > 0;
+
+    const row = isId
+      ? await get("SELECT id FROM events WHERE id = ? LIMIT 1", [asId])
+      : await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [raw]);
+
+    if (!row) return res.status(404).json({ error: "Event not found" });
+
+    const id = Number(row.id);
+
+    const body = req.body || {};
+    const hasAbsolute =
+      typeof body.going !== "undefined" || typeof body.interested !== "undefined";
+
+    if (hasAbsolute) {
+      const going = Math.max(0, parseInt(body.going ?? 0, 10) || 0);
+      const interested = Math.max(0, parseInt(body.interested ?? 0, 10) || 0);
+
+      await run(
+        `UPDATE events
+         SET goingCount = ?, interestedCount = ?, updatedAt = datetime('now')
+         WHERE id = ?`,
+        [going, interested, id]
+      );
+    } else {
+      const goingDelta = parseInt(body.goingDelta ?? 0, 10) || 0;
+      const interestedDelta = parseInt(body.interestedDelta ?? 0, 10) || 0;
+
+      await run(
+        `UPDATE events
+         SET
+           goingCount = MAX(0, COALESCE(goingCount, 0) + ?),
+           interestedCount = MAX(0, COALESCE(interestedCount, 0) + ?),
+           updatedAt = datetime('now')
+         WHERE id = ?`,
+        [goingDelta, interestedDelta, id]
+      );
+    }
+
+    const updated = await get(
+      `SELECT goingCount, interestedCount FROM events WHERE id = ?`,
+      [id]
+    );
+
+    res.json({
+      ok: true,
+      id,
+      goingCount: Number(updated?.goingCount || 0),
+      interestedCount: Number(updated?.interestedCount || 0),
+    });
+  } catch (err) {
+    console.error("[engagement] error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
