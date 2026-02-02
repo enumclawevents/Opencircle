@@ -547,6 +547,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
 }
 
 function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
+  const rowFixed = row;
   const cats = safeParseJson(row.categories, []);
   const recurRuleObj = safeParseJson(row.recurrenceRule, null);
   const recurDatesArr = safeParseJson(row.recurrenceDates, []);
@@ -769,9 +770,11 @@ router.get("/", async (req, res) => {
 
     // Expand into occurrences
     let expanded = [];
-    for (const r of normalizedRows) {
-      expanded.push(...expandEventIntoFeedItems(r, windowStartUtc, windowEndUtc));
-    }
+for (const r of normalizedRows) {
+  const rowFixed = r;
+  expanded.push(...expandEventIntoFeedItems(rowFixed, windowStartUtc, windowEndUtc));
+}
+
 
     // Apply filters
     expanded = expanded.filter((it) => {
