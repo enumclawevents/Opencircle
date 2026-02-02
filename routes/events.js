@@ -60,23 +60,23 @@ router.post("/:idOrSlug/view", async (req, res) => {
 
     // Unique logic: only if sid provided and not seen before
     let unique = false;
-    if (sid) {
-      await run(
-        `INSERT OR IGNORE INTO event_views (eventId, sid) VALUES (?, ?)`,
-        [eventId, sid]
-      );
+if (sid) {
+  await run(
+    `INSERT OR IGNORE INTO event_view_uniques (eventId, sid) VALUES (?, ?)`,
+    [eventId, sid]
+  );
+  const ch = await get("SELECT changes() AS ch");
+  if (Number(ch?.ch || 0) > 0) {
+    unique = true;
+    await run(
+      `UPDATE events
+       SET uniqueViewCount = COALESCE(uniqueViewCount,0) + 1
+       WHERE id = ?`,
+      [eventId]
+    );
+  }
+}
 
-      const ch = await get("SELECT changes() AS ch");
-      if (Number(ch?.ch || 0) > 0) {
-        unique = true;
-        await run(
-          `UPDATE events
-           SET uniqueViewCount = COALESCE(uniqueViewCount,0) + 1
-           WHERE id = ?`,
-          [eventId]
-        );
-      }
-    }
 
     return res.json({ ok: true, eventId, unique });
   } catch (e) {

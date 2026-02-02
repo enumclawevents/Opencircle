@@ -133,6 +133,16 @@ async function init() {
     )
   `);
 
+    await run(`
+  CREATE TABLE IF NOT EXISTS event_view_uniques (
+    eventId INTEGER NOT NULL,
+    sid TEXT NOT NULL,
+    firstSeenAt TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (eventId, sid)
+  )
+`);
+
+
   await run(`CREATE INDEX IF NOT EXISTS idx_event_views_eventId_viewedAt ON event_views(eventId, viewedAt)`);
   // Count unique views per event by sid (only when sid is present)
 await run(`
