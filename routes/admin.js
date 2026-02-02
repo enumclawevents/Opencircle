@@ -272,43 +272,49 @@ router.get("/", async (req, res) => {
               `
               : `<div class="thumb-empty">No image</div>`;
 
-            return `
-          <div class="event-card" data-eid="${e.id}">
-            <div class="event-thumb">${thumbHtml}</div>
-            <div class="event-left">
-              <div class="event-title">#${e.id} — ${esc(e.title)} ${
-              Number(e.featured || 0) === 1 ? `<span class="pill" style="margin-left:8px;">Featured</span>` : ""
-            }</div>
-              <div class="event-meta">
-                <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
-                <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
-                <div><strong>Location:</strong> ${esc(e.location)}</div>
-              </div>
-              <div class="event-actions">
-  <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}"
-     target="_blank" rel="noopener">View JSON</a>
+return `
+  <div class="event-card" data-eid="${e.id}">
+    <div class="event-thumb">${thumbHtml}</div>
 
-  <a class="btn btn-edit" href="/admin?edit=${e.id}">Edit</a>
+    <div class="event-left">
+      <div class="event-title">
+        #${e.id} — ${esc(e.title)}
+        ${
+          Number(e.featured || 0) === 1
+            ? `<span class="pill" style="margin-left:8px;">Featured</span>`
+            : ""
+        }
+      </div>
 
-  <form method="POST"
-    action="/admin/events/${e.id}/delete"
-    class="inline"
-    onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
-    <button type="submit" class="btn btn-danger">Delete</button>
-  </form>
-</div>
+      <div class="event-meta">
+        <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
+        <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
+        <div><strong>Location:</strong> ${esc(e.location)}</div>
+      </div>
 
+      <div class="event-actions">
+        <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}"
+           target="_blank" rel="noopener">View JSON</a>
 
-              </div>
-            </div>
+        <a class="btn btn-edit" href="/admin?edit=${e.id}">Edit</a>
 
-            <div class="event-stats">
-              <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
-              <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
-              <div class="note" style="margin-top:10px;">Live</div>
-            </div>
-          </div>
-        `;
+        <form method="POST"
+              action="/admin/events/${e.id}/delete"
+              class="inline"
+              onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
+          <button type="submit" class="btn btn-danger">Delete</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="event-stats">
+      <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
+      <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
+      <div class="note" style="margin-top:10px;">Live</div>
+    </div>
+  </div>
+`;
+
           })
           .join("")
       : `<div class="muted">No events yet.</div>`;
