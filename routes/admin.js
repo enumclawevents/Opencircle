@@ -175,13 +175,23 @@ router.get("/", async (req, res) => {
     let events = [];
     try {
       events = await all(
-        "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount, imageUrl FROM events ORDER BY startDateTime DESC LIMIT 50"
-      );
+  "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount, viewCount, uniqueViewCount, lastViewedAt, imageUrl FROM events ORDER BY startDateTime DESC LIMIT 50"
+);
+
     } catch (err) {
       events = await all(
         "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT 50"
       );
-      events = events.map((x) => ({ ...x, goingCount: 0, interestedCount: 0, imageUrl: null }));
+      events = events.map((x) => ({
+  ...x,
+  goingCount: 0,
+  interestedCount: 0,
+  viewCount: 0,
+  uniqueViewCount: 0,
+  lastViewedAt: null,
+  imageUrl: null
+}));
+
     }
 
     const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
@@ -308,12 +318,17 @@ return `
       </div>
     </div>
 
-    <div class="event-stats">
-      <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
-      <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
-      <div class="note" style="margin-top:10px;">Live</div>
-    </div>
-  </div>
+const views = Number(e.viewCount || 0);
+const uniques = Number(e.uniqueViewCount || 0);
+
+<div class="event-stats">
+  <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
+  <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
+  <div class="stat"><span>Views</span><strong class="js-views">${views}</strong></div>
+  <div class="stat"><span>Unique</span><strong class="js-uniques">${uniques}</strong></div>
+  <div class="note" style="margin-top:10px;">Live</div>
+</div>
+
 `;
 
           })

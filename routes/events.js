@@ -3,6 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const { all, get, run } = require("../db");
+const crypto = require("crypto");
 
 /**
  * Helpers
@@ -939,6 +940,95 @@ router.get("/:idOrSlug", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+function sha256(s) {
+  return crypto.createHash("sha256").update(String(s || "")).digest("hex");
+}
+
+// POST /events/:idOrSlug/view
+router.post("/:idOrSlug/view", async (req, res) => {
+  try {
+    const raw = String(req.params.idOrSlug || "").trim();
+    if (!raw) return res.status(400).json({ error: "Missing id/slug" });
+
+    const asId = Number(raw);
+    const isId = Number.isInteger(asId) && asId > 0;
+
+    const row = isId
+      ? await get("SELECT id FROM events WHERE id = ? LIMIT 1", [asId])
+      : await get("SELECT id FROM events WHERE LOWER(slug) = LOWER(?) LIMIT 1", [raw.toLowerCase()]);
+
+    if (!row) return res.status(404).json({ error: "Event not found" });
+
+    const eventId = Number(row.id);
+
+    const occurrenceDate = String(req.body?.occurrenceDate || "").trim() || null;
+
+    // Privacy-friendly dedupe key:
+    const sid = String(req.body?.sid || "").trim() || null;
+
+    const ip =
+      (req.headers["x-forwarded-for"]?.toString().split(",")[0] || req.socket.remoteAddress || "").trim();
+    const ua = (req.headers["user-agent"] || "").toString().slice(0, 255);
+    const ref = (req.headers["referer"] || req.headers["referrer"] || "").toString().slice(0, 500);
+
+    const ipHash = sid ? sha256(`sid:${sid}`) : sha256(`ip:${ip}|ua:${ua}`);
+
+    const UNIQUE_WINDOW_HOURS = 12;
+
+    const existing = await get(
+      `
+      SELECT id
+      FROM event_views
+      WHERE eventId = ?
+        AND ipHash = ?
+        AND viewedAt >= datetime('now', ?)
+      LIMIT 1
+      `,
+      [eventId, ipHash, `-${UNIQUE_WINDOW_HOURS} hours`]
+    );
+
+    // log hit
+    await run(
+      `
+      INSERT INTO event_views (eventId, occurrenceDate, ipHash, ua, ref, sid)
+      VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [eventId, occurrenceDate, ipHash, ua, ref, sid]
+    );
+
+    // update aggregates
+    if (!existing) {
+      await run(
+        `
+        UPDATE events
+        SET viewCount = COALESCE(viewCount,0) + 1,
+            uniqueViewCount = COALESCE(uniqueViewCount,0) + 1,
+            lastViewedAt = datetime('now')
+        WHERE id = ?
+        `,
+        [eventId]
+      );
+    } else {
+      await run(
+        `
+        UPDATE events
+        SET viewCount = COALESCE(viewCount,0) + 1,
+            lastViewedAt = datetime('now')
+        WHERE id = ?
+        `,
+        [eventId]
+      );
+    }
+
+    return res.json({ ok: true, unique: !existing });
+  } catch (err) {
+    console.error("[view] error:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+
 // POST /events/:idOrSlug/engagement
 // Body supports either:
 //   { goingDelta: 1 } or { goingDelta: -1 }

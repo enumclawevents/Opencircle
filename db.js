@@ -109,6 +109,9 @@ async function init() {
       recurrenceStartDate TEXT,
       recurrenceUntilDate TEXT,
 
+      viewCount INTEGER NOT NULL DEFAULT 0,
+      uniqueViewCount INTEGER NOT NULL DEFAULT 0,
+      lastViewedAt TEXT,
       goingCount INTEGER DEFAULT 0,
       interestedCount INTEGER DEFAULT 0,
 
@@ -116,6 +119,25 @@ async function init() {
       updatedAt TEXT DEFAULT (datetime('now'))
     )
   `);
+
+    await run(`
+    CREATE TABLE IF NOT EXISTS event_views (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      eventId INTEGER NOT NULL,
+      occurrenceDate TEXT,
+      viewedAt TEXT NOT NULL DEFAULT (datetime('now')),
+      ipHash TEXT,
+      ua TEXT,
+      ref TEXT,
+      sid TEXT
+    )
+  `);
+
+  await run(`CREATE INDEX IF NOT EXISTS idx_event_views_eventId_viewedAt ON event_views(eventId, viewedAt)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_event_views_eventId_occurrenceDate ON event_views(eventId, occurrenceDate)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_event_views_ipHash ON event_views(ipHash)`);
+
+
 
   // --- NORMALIZE LEGACY FEATURED COLUMN (Featured -> featured) ---
   try {
@@ -136,7 +158,9 @@ async function init() {
     `ALTER TABLE events ADD COLUMN featured INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0`,
-
+    `ALTER TABLE events ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE events ADD COLUMN uniqueViewCount INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE events ADD COLUMN lastViewedAt TEXT`,
     `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
     `ALTER TABLE events ADD COLUMN recurrenceDates TEXT`,
