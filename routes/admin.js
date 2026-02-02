@@ -171,28 +171,85 @@ async function getEventsColumns() {
 // GET /admin
 router.get("/", async (req, res) => {
   try {
-    // ✅ Resilient list query: supports optional columns
-    let events = [];
-    try {
-      events = await all(
-  "SELECT id, slug, title, startDateTime, location, featured, goingCount, interestedCount, viewCount, uniqueViewCount, lastViewedAt, imageUrl FROM events ORDER BY startDateTime DESC LIMIT 50"
-);
+    // ✅ Pagination + total count + optional server-side search
+const limit = Math.max(10, Math.min(200, parseInt(req.query.limit || "50", 10)));
+const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
+const offset = (pg - 1) * limit;
 
-    } catch (err) {
-      events = await all(
-        "SELECT id, slug, title, startDateTime, location, featured FROM events ORDER BY startDateTime DESC LIMIT 50"
-      );
-      events = events.map((x) => ({
-  ...x,
-  goingCount: 0,
-  interestedCount: 0,
-  viewCount: 0,
-  uniqueViewCount: 0,
-  lastViewedAt: null,
-  imageUrl: null
-}));
+const q = String(req.query.q || "").trim();
+let whereSql = "";
+let whereParams = [];
+if (q) {
+  const like = `%${q}%`;
+  whereSql = `WHERE (title LIKE ? OR slug LIKE ? OR location LIKE ? OR CAST(id AS TEXT) LIKE ?)`;
+  whereParams = [like, like, like, like];
+}
 
-    }
+const totalRow = await get(`SELECT COUNT(*) AS n FROM events ${whereSql}`, whereParams);
+const total = Number(totalRow?.n || 0);
+const pages = Math.max(1, Math.ceil(total / limit));
+const hasPrev = pg > 1;
+const hasNext = pg < pages;
+
+function adminUrl(nextPg) {
+  const sp = new URLSearchParams(req.query);
+  sp.set("pg", String(nextPg));
+  sp.set("limit", String(limit));
+  if (q) sp.set("q", q);
+  return `/admin?${sp.toString()}`;
+}
+
+const showingFrom = total ? offset + 1 : 0;
+const showingTo = Math.min(offset + limit, total);
+
+const pagerHtml = `
+  <div class="pager">
+    <div class="pager-left">
+      <span class="muted">Total: <strong style="color:var(--text)">${total}</strong></span>
+      <span class="muted">Showing ${showingFrom}–${showingTo}</span>
+    </div>
+    <div class="pager-right">
+      <a class="btn" href="${adminUrl(1)}" ${pg === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>First</a>
+      <a class="btn" href="${adminUrl(Math.max(1, pg - 1))}" ${!hasPrev ? 'style="opacity:.45; pointer-events:none;"' : ""}>Prev</a>
+      <span class="muted" style="padding:0 8px;">Page <strong style="color:var(--text)">${pg}</strong> / ${pages}</span>
+      <a class="btn" href="${adminUrl(Math.min(pages, pg + 1))}" ${!hasNext ? 'style="opacity:.45; pointer-events:none;"' : ""}>Next</a>
+      <a class="btn" href="${adminUrl(pages)}" ${pg === pages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Last</a>
+    </div>
+  </div>
+`;
+
+// ✅ Resilient list query: supports optional columns
+let events = [];
+try {
+  events = await all(
+    `SELECT id, slug, title, startDateTime, location, featured,
+            goingCount, interestedCount, viewCount, uniqueViewCount, lastViewedAt, imageUrl
+     FROM events
+     ${whereSql}
+     ORDER BY startDateTime DESC
+     LIMIT ? OFFSET ?`,
+    [...whereParams, limit, offset]
+  );
+} catch (err) {
+  events = await all(
+    `SELECT id, slug, title, startDateTime, location, featured
+     FROM events
+     ${whereSql}
+     ORDER BY startDateTime DESC
+     LIMIT ? OFFSET ?`,
+    [...whereParams, limit, offset]
+  );
+  events = events.map((x) => ({
+    ...x,
+    goingCount: 0,
+    interestedCount: 0,
+    viewCount: 0,
+    uniqueViewCount: 0,
+    lastViewedAt: null,
+    imageUrl: null,
+  }));
+}
+
 
     const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
     let editEvent = null;
@@ -618,6 +675,19 @@ a.btn:hover{
       .days{ display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
       .day{ display:flex; gap:8px; align-items:center; font-weight:700; }
       .day input{ width:auto; }
+
+
+      .pager{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin: 10px 0 14px;
+  flex-wrap:wrap;
+}
+.pager-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.pager-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+
     </style>
   </head>
   <body>
@@ -917,7 +987,7 @@ a.btn:hover{
       </div>
 
       <div class="card">
-        <h1 style="margin-bottom:10px;">Existing Events (latest 50)</h1>
+        <h1 style="margin-bottom:10px;">Existing Events</h1>
 
 <div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px;">
   <input id="eventSearch" class="ctrl" type="text"
