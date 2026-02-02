@@ -270,9 +270,10 @@ router.get("/", async (req, res) => {
     const listHtml = events.length
       ? events
           .map((e) => {
-            const going = Number(e.goingCount || 0);
-            const interested = Number(e.interestedCount || 0);
-
+  const going = Number(e.goingCount || 0);
+  const interested = Number(e.interestedCount || 0);
+  const views = Number(e.viewCount || 0);
+  const uniques = Number(e.uniqueViewCount || 0);
             const thumbHtml = e.imageUrl
               ? `
                 <a class="thumb-link" href="${esc(e.imageUrl)}" target="_blank" rel="noopener" title="View image">
@@ -322,16 +323,15 @@ const views = Number(e.viewCount || 0);
 const uniques = Number(e.uniqueViewCount || 0);
 
 <div class="event-stats">
-  <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
-  <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
-  <div class="stat"><span>Views</span><strong class="js-views">${views}</strong></div>
-  <div class="stat"><span>Unique</span><strong class="js-uniques">${uniques}</strong></div>
-  <div class="note" style="margin-top:10px;">Live</div>
-</div>
-
-`;
-
-          })
+        <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
+        <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
+        <div class="stat"><span>Views</span><strong class="js-views">${views}</strong></div>
+        <div class="stat"><span>Unique</span><strong class="js-uniques">${uniques}</strong></div>
+        <div class="note" style="margin-top:10px;">Live</div>
+      </div>
+    </div>
+  `;
+})
           .join("")
       : `<div class="muted">No events yet.</div>`;
 
