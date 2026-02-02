@@ -384,8 +384,25 @@ router.get("/", async (req, res) => {
       .btn-link{ background: transparent; border-color: transparent; color: var(--brand); padding: 8px 10px; }
       .actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 14px; }
 
-      a{ color: var(--brand); text-decoration:none; font-weight:700; }
-      a:hover{ text-decoration:underline; }
+/* Default links (NOT buttons) */
+a:not(.btn){
+  color: var(--brand);
+  text-decoration: none;
+  font-weight: 700;
+}
+a:not(.btn):hover{
+  text-decoration: underline;
+}
+
+/* Button links should look like buttons */
+a.btn{
+  color: var(--text);
+  text-decoration: none;
+}
+a.btn:hover{
+  text-decoration: none;
+}
+
       .inline{ display:inline; margin:0; }
       .muted{ color: var(--muted); }
 
