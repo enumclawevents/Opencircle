@@ -15,7 +15,7 @@ const DB_PATH =
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
-// single shared connection
+// Single shared connection
 const db = new sqlite3.Database(DB_PATH);
 
 // Promisified helpers
@@ -69,22 +69,12 @@ async function ensureUniqueSlug(baseSlug, eventId) {
   }
 }
 
-async function archiveExpiredEvents() {
-  // Choose ONE rule:
-  // 1) If you trust endDateTime:
-  await run(`
-    UPDATE events
-    SET archived = 1,
-        archived_at = datetime('now'),
-        archived_reason = 'expired'
-    WHERE archived = 0
-      AND endDateTime IS NOT NULL
-      AND datetime(endDateTime) < datetime('now')
-  `);
-
-  // If you don’t have endDateTime reliably, we can switch to expireDate or startDateTime.
+// Safe exec (ignore “already exists” type errors)
+async function tryExec(sql) {
+  try {
+    await run(sql);
+  } catch (_) {}
 }
-
 
 // Schema helpers
 async function tableInfo(table) {
@@ -93,11 +83,6 @@ async function tableInfo(table) {
 async function hasColumn(table, col) {
   const cols = await tableInfo(table);
   return cols.some((c) => c.name === col);
-}
-async function tryExec(sql) {
-  try {
-    await run(sql);
-  } catch (_) {}
 }
 
 // --------------------
@@ -108,7 +93,7 @@ async function initDB() {
   await tryExec(`PRAGMA journal_mode=WAL;`);
   await tryExec(`PRAGMA synchronous=NORMAL;`);
 
-  // Create table with the *camelCase* schema used by your API/admin
+  // Create table with the camelCase schema used by your API/admin
   await tryExec(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,12 +155,15 @@ async function initDB() {
   if (hasSnakeStart && !hasCamelStart) {
     await tryExec(`ALTER TABLE events ADD COLUMN startDateTime TEXT;`);
     await tryExec(`ALTER TABLE events ADD COLUMN endDateTime TEXT;`);
-    // copy data where possible
-    await tryExec(`UPDATE events SET startDateTime = start_datetime WHERE startDateTime IS NULL OR startDateTime = '';`);
-    await tryExec(`UPDATE events SET endDateTime = end_datetime WHERE endDateTime IS NULL OR endDateTime = '';`);
+    await tryExec(
+      `UPDATE events SET startDateTime = start_datetime WHERE startDateTime IS NULL OR startDateTime = '';`
+    );
+    await tryExec(
+      `UPDATE events SET endDateTime = end_datetime WHERE endDateTime IS NULL OR endDateTime = '';`
+    );
   }
 
-  // Add common columns if missing (idempotent-ish)
+  // Add common columns if missing
   const addCol = async (name, defSql) => {
     if (!(await hasColumn("events", name))) await tryExec(defSql);
   };
@@ -223,6 +211,50 @@ async function initDB() {
   console.log("[DB] init ok");
 }
 
+// --------------------
+// Auto-archive expired events (exported)
+// --------------------
+// Rule order (best-practice):
+// 1) expireDate (YYYY-MM-DD) if present
+// 2) endDateTime if present
+// 3) startDateTime fallback
+async function archiveExpiredEvents() {
+  const cols = await tableInfo("events");
+  const hasArchived = cols.some((c) => c.name === "archived");
+  if (!hasArchived) return { archived: 0 };
+
+  const hasExpireDate = cols.some((c) => c.name === "expireDate");
+  const hasEnd = cols.some((c) => c.name === "endDateTime");
+  const hasStart = cols.some((c) => c.name === "startDateTime");
+  const hasArchivedAt = cols.some((c) => c.name === "archived_at");
+  const hasReason = cols.some((c) => c.name === "archived_reason");
+
+  let where = "";
+  if (hasExpireDate) {
+    where =
+      "expireDate IS NOT NULL AND trim(expireDate) <> '' AND date(expireDate) < date('now')";
+  } else if (hasEnd) {
+    where =
+      "endDateTime IS NOT NULL AND trim(endDateTime) <> '' AND datetime(endDateTime) < datetime('now')";
+  } else if (hasStart) {
+    where = "datetime(startDateTime) < datetime('now')";
+  } else {
+    return { archived: 0 };
+  }
+
+  const setArchivedAt = hasArchivedAt ? ", archived_at = datetime('now')" : "";
+  const setReason = hasReason ? ", archived_reason = 'expired'" : "";
+
+  const r = await run(
+    `UPDATE events
+     SET archived = 1${setArchivedAt}${setReason}
+     WHERE archived = 0
+       AND ${where}`
+  );
+
+  return { archived: r.changes || 0 };
+}
+
 module.exports = {
   db,
   initDB,
@@ -231,5 +263,6 @@ module.exports = {
   all,
   slugify,
   ensureUniqueSlug,
+  archiveExpiredEvents,
   DB_PATH,
 };

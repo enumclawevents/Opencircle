@@ -7,25 +7,6 @@ const cors = require("cors");
 
 const { initDB, archiveExpiredEvents } = require("./db");
 
-initDB()
-  .then(async () => {
-    // run once on boot
-    await archiveExpiredEvents();
-
-    // run every 15 minutes
-    setInterval(() => {
-      archiveExpiredEvents().catch((e) => console.error("[ARCHIVE JOB]", e));
-    }, 15 * 60 * 1000);
-
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`OpenCircle API running on port ${PORT}`);
-    });
-  })
-  .catch((err) => {
-    console.error("[BOOT] DB init failed:", err);
-    process.exit(1);
-  });
-
 const eventsRouter = require("./routes/events");
 const adminRouter = require("./routes/admin");
 
@@ -117,7 +98,24 @@ app.use((err, req, res, next) => {
 const PORT = Number(process.env.PORT) || 3000;
 
 initDB()
-  .then(() => {
+  .then(async () => {
+    // Run once on boot
+    try {
+      const r = await archiveExpiredEvents();
+      if (r?.archived) console.log("[ARCHIVE] Archived on boot:", r.archived);
+    } catch (e) {
+      console.error("[ARCHIVE] Boot run failed:", e);
+    }
+
+    // Run every 15 minutes
+    setInterval(() => {
+      archiveExpiredEvents()
+        .then((r) => {
+          if (r?.archived) console.log("[ARCHIVE] Archived:", r.archived);
+        })
+        .catch((e) => console.error("[ARCHIVE] Interval failed:", e));
+    }, 15 * 60 * 1000);
+
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`OpenCircle API running on port ${PORT}`);
     });
