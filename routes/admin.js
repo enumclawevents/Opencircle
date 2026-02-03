@@ -172,7 +172,7 @@ async function getEventsColumns() {
 router.get("/", async (req, res) => {
   try {
     // ✅ Pagination + total count + optional server-side search
-const limit = Math.max(10, Math.min(200, parseInt(req.query.limit || "50", 10)));
+const limit = Math.max(5, Math.min(200, parseInt(req.query.limit || "20", 10)));
 const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
 const offset = (pg - 1) * limit;
 
@@ -852,10 +852,7 @@ return `
           </div>
 
         <nav class="nav">
-          <a class="active" href="/admin"><span class="n-dot"></span> Dashboard</a>
-          <a href="#manage"><span class="n-dot"></span> Manage events</a>
-          <a href="#analytics"><span class="n-dot"></span> Analytics</a>
-          <a href="#settings"><span class="n-dot"></span> Settings</a>
+          <a class="active" href="/admin"><span class="n-dot"></span> Events</a>
         </nav>
 
         <div style="margin-top:18px;">
