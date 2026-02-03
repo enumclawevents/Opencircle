@@ -1,245 +1,244 @@
-"use strict";
+const Database = require('better-sqlite3');
+const path = require('path');
 
-const path = require("path");
-const sqlite3 = require("sqlite3").verbose();
+const dbPath = process.env.DB_PATH || './opencircle.db';
+const db = new Database(path.resolve(dbPath));
+
+// Enable WAL mode for better performance
+db.pragma('journal_mode = WAL');
 
 /**
- * DB PATH
- * Priority:
- * 1) Explicit DB_PATH env var (Render recommended)
- * 2) Render disk mount (RENDER_DISK_PATH)
- * 3) Local fallback (project root)
+ * Initialize the database schema
  */
-const DB_PATH =
-  process.env.DB_PATH ||
-  (process.env.RENDER_DISK_PATH
-    ? path.join(process.env.RENDER_DISK_PATH, "opencircle.db")
-    : path.join(__dirname, "data.sqlite"));
-
-console.log("[DB] Using SQLite file:", DB_PATH);
-
-// Open database
-const db = new sqlite3.Database(DB_PATH);
-
-// ---------- PROMISIFIED HELPERS ----------
-function run(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) return reject(err);
-      resolve(this);
-    });
-  });
-}
-
-function get(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) return reject(err);
-      resolve(row);
-    });
-  });
-}
-
-function all(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) return reject(err);
-      resolve(rows);
-    });
-  });
-}
-
-// ---------- SLUG HELPERS ----------
-function slugify(input) {
-  return String(input || "")
-    .trim()
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-
-async function ensureUniqueSlug(baseSlug, excludeId = null) {
-  let slug = baseSlug || "event";
-  let i = 2;
-
-  while (true) {
-    const row = excludeId
-      ? await get("SELECT id FROM events WHERE slug = ? AND id != ? LIMIT 1", [slug, excludeId])
-      : await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [slug]);
-
-    if (!row) return slug;
-    slug = `${baseSlug}-${i++}`;
-  }
-}
-
-// ---------- INIT / MIGRATIONS ----------
-async function init() {
-  // Canonical schema (fresh DB)
-  await run(`
+function initializeDatabase() {
+  db.exec(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-      slug TEXT,
-
-      city TEXT,
+      city TEXT NOT NULL,
       title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      eventDetails TEXT,
-      goodToKnow TEXT,
+      description TEXT,
+      start_datetime TEXT NOT NULL,
+      end_datetime TEXT,
+      location TEXT,
+      organizer TEXT,
 
-      startDateTime TEXT NOT NULL,
-      endDateTime TEXT NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0,
+      archived_at TEXT,
+      archived_reason TEXT,
 
-      location TEXT NOT NULL,
-      organizer TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
 
-      imageUrl TEXT,
-      ticketUrl TEXT,
-      ticketLabel TEXT,
-
-      categories TEXT,
-
-      featured INTEGER DEFAULT 0,
-
-      hasRecurrence INTEGER DEFAULT 0,
-      recurrenceRule TEXT,
-      recurrenceDates TEXT,
-      recurrenceStartDate TEXT,
-      recurrenceUntilDate TEXT,
-
-      viewCount INTEGER NOT NULL DEFAULT 0,
-      uniqueViewCount INTEGER NOT NULL DEFAULT 0,
-      lastViewedAt TEXT,
-      goingCount INTEGER DEFAULT 0,
-      interestedCount INTEGER DEFAULT 0,
-
-      createdAt TEXT DEFAULT (datetime('now')),
-      updatedAt TEXT DEFAULT (datetime('now'))
-    )
+    CREATE INDEX IF NOT EXISTS idx_events_city ON events(city);
+    CREATE INDEX IF NOT EXISTS idx_events_start_datetime ON events(start_datetime);
+    CREATE INDEX IF NOT EXISTS idx_events_city_start ON events(city, start_datetime);
   `);
 
-    await run(`
-    CREATE TABLE IF NOT EXISTS event_views (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      eventId INTEGER NOT NULL,
-      occurrenceDate TEXT,
-      viewedAt TEXT NOT NULL DEFAULT (datetime('now')),
-      ipHash TEXT,
-      ua TEXT,
-      ref TEXT,
-      sid TEXT
-    )
-  `);
+  // --- Safe migrations for existing DBs ---
+  // These will throw if the column already exists; we intentionally ignore those errors.
+  const tryExec = (sql) => {
+    try { db.exec(sql); } catch (e) {}
+  };
 
-    await run(`
-  CREATE TABLE IF NOT EXISTS event_view_uniques (
-    eventId INTEGER NOT NULL,
-    sid TEXT NOT NULL,
-    firstSeenAt TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (eventId, sid)
-  )
-`);
+  tryExec(`ALTER TABLE events ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`);
+  tryExec(`ALTER TABLE events ADD COLUMN archived_at TEXT;`);
+  tryExec(`ALTER TABLE events ADD COLUMN archived_reason TEXT;`);
+  tryExec(`CREATE INDEX IF NOT EXISTS idx_events_archived ON events(archived);`);
 
-
-  await run(`CREATE INDEX IF NOT EXISTS idx_event_views_eventId_viewedAt ON event_views(eventId, viewedAt)`);
-  // Count unique views per event by sid (only when sid is present)
-await run(`
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_event_views_event_sid_unique
-  ON event_views(eventId, sid)
-  WHERE sid IS NOT NULL AND sid <> ''
-`);
-
-  await run(`CREATE INDEX IF NOT EXISTS idx_event_views_eventId_occurrenceDate ON event_views(eventId, occurrenceDate)`);
-  await run(`CREATE INDEX IF NOT EXISTS idx_event_views_ipHash ON event_views(ipHash)`);
-
-
-
-  // --- NORMALIZE LEGACY FEATURED COLUMN (Featured -> featured) ---
-  try {
-    await run(`ALTER TABLE events RENAME COLUMN Featured TO featured`);
-    console.log("[DB] Renamed column Featured -> featured");
-  } catch (_) {
-    // ignore
-  }
-
-  // Safe migrations (no data loss). These run on older DBs.
-  const migrations = [
-    `ALTER TABLE events ADD COLUMN eventDetails TEXT`,
-    `ALTER TABLE events ADD COLUMN goodToKnow TEXT`,
-    `ALTER TABLE events ADD COLUMN ticketUrl TEXT`,
-    `ALTER TABLE events ADD COLUMN ticketLabel TEXT`,
-    `ALTER TABLE events ADD COLUMN imageUrl TEXT`,
-    `ALTER TABLE events ADD COLUMN categories TEXT`,
-    `ALTER TABLE events ADD COLUMN featured INTEGER DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN goingCount INTEGER DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN interestedCount INTEGER DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN uniqueViewCount INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN lastViewedAt TEXT`,
-    `ALTER TABLE events ADD COLUMN hasRecurrence INTEGER DEFAULT 0`,
-    `ALTER TABLE events ADD COLUMN recurrenceRule TEXT`,
-    `ALTER TABLE events ADD COLUMN recurrenceDates TEXT`,
-    `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT`,
-    `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT`,
-
-    `ALTER TABLE events ADD COLUMN slug TEXT`,
-  ];
-
-  for (const sql of migrations) {
-    try {
-      await run(sql);
-    } catch (_) {
-      // column already exists
-    }
-  }
-
-  // Optional compat migrations (ignore if legacy cols don't exist)
-  try {
-    await run(`
-      UPDATE events
-      SET hasRecurrence = COALESCE(hasRecurrence, hasOccurrences, 0)
-      WHERE hasRecurrence IS NULL
-    `);
-  } catch (_) {}
-
-  try {
-    await run(`
-      UPDATE events
-      SET recurrenceDates = COALESCE(recurrenceDates, customDates)
-      WHERE recurrenceDates IS NULL
-    `);
-  } catch (_) {}
-
-  // Backfill slugs (once)
-  try {
-    const rows = await all("SELECT id, title, slug FROM events", []);
-    for (const r of rows) {
-      if (r.slug && String(r.slug).trim() !== "") continue;
-
-      const base = slugify(r.title) || `event-${r.id}`;
-      const unique = await ensureUniqueSlug(base);
-      await run("UPDATE events SET slug = ? WHERE id = ?", [unique, r.id]);
-    }
-  } catch (e) {
-    console.error("[DB] Slug backfill failed:", e);
-  }
-
-  console.log("[DB] Initialized & migrated");
+  console.log('Database initialized successfully');
 }
 
-// Server expects initDB() to exist and return a Promise
-async function initDB() {
-  return init();
+/**
+ * Get all events with filtering, pagination, and sorting
+ * archived: "0" (default active only) | "1" (archived only) | "all" (both)
+ */
+function getEvents({ city = 'Enumclaw', start, end, limit = 50, offset = 0, archived = '0' }) {
+  let query =
+    'SELECT id, title, description, start_datetime, end_datetime, location, organizer, archived FROM events WHERE city = ?';
+  const params = [city];
+
+  // archived filter: default active only
+  const arch = String(archived);
+  if (arch === '0') {
+    query += ' AND archived = 0';
+  } else if (arch === '1') {
+    query += ' AND archived = 1';
+  } // 'all' means no filter
+
+  if (start) {
+    query += ' AND start_datetime >= ?';
+    params.push(start);
+  }
+
+  if (end) {
+    query += ' AND start_datetime <= ?';
+    params.push(end);
+  }
+
+  query += ' ORDER BY start_datetime ASC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  const events = db.prepare(query).all(...params);
+
+  // Get total count for the city (without pagination)
+  let countQuery = 'SELECT COUNT(*) as count FROM events WHERE city = ?';
+  const countParams = [city];
+
+  if (arch === '0') {
+    countQuery += ' AND archived = 0';
+  } else if (arch === '1') {
+    countQuery += ' AND archived = 1';
+  }
+
+  if (start) {
+    countQuery += ' AND start_datetime >= ?';
+    countParams.push(start);
+  }
+
+  if (end) {
+    countQuery += ' AND start_datetime <= ?';
+    countParams.push(end);
+  }
+
+  const { count } = db.prepare(countQuery).get(...countParams);
+
+  return { city, count: events.length, total: count, events };
+}
+
+/**
+ * Get a single event by ID
+ */
+function getEventById(id) {
+  return db.prepare(`
+    SELECT id, city, title, description, start_datetime, end_datetime, location, organizer,
+           archived, archived_at, archived_reason,
+           created_at, updated_at
+    FROM events
+    WHERE id = ?
+  `).get(id);
+}
+
+/**
+ * Create a new event
+ */
+function createEvent({ city, title, description, start_datetime, end_datetime, location, organizer }) {
+  const now = new Date().toISOString();
+  const stmt = db.prepare(`
+    INSERT INTO events (city, title, description, start_datetime, end_datetime, location, organizer, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const result = stmt.run(
+    city,
+    title,
+    description || null,
+    start_datetime,
+    end_datetime || null,
+    location || null,
+    organizer || null,
+    now,
+    now
+  );
+
+  return getEventById(result.lastInsertRowid);
+}
+
+/**
+ * Update an existing event
+ */
+function updateEvent(id, updates) {
+  const existing = getEventById(id);
+  if (!existing) return null;
+
+  const fields = ['city', 'title', 'description', 'start_datetime', 'end_datetime', 'location', 'organizer'];
+  const setClauses = [];
+  const params = [];
+
+  for (const field of fields) {
+    if (updates[field] !== undefined) {
+      setClauses.push(`${field} = ?`);
+      params.push(updates[field]);
+    }
+  }
+
+  if (setClauses.length === 0) {
+    return existing;
+  }
+
+  setClauses.push('updated_at = ?');
+  params.push(new Date().toISOString());
+  params.push(id);
+
+  const query = `UPDATE events SET ${setClauses.join(', ')} WHERE id = ?`;
+  db.prepare(query).run(...params);
+
+  return getEventById(id);
+}
+
+/**
+ * Delete an event by ID
+ */
+function deleteEvent(id) {
+  const existing = getEventById(id);
+  if (!existing) return false;
+
+  db.prepare('DELETE FROM events WHERE id = ?').run(id);
+  return true;
+}
+
+/**
+ * Soft-archive an event by ID
+ */
+function archiveEvent(id, reason = 'manual') {
+  const existing = getEventById(id);
+  if (!existing) return false;
+
+  db.prepare(`
+    UPDATE events
+    SET archived = 1,
+        archived_at = datetime('now'),
+        archived_reason = ?
+    WHERE id = ?
+  `).run(String(reason).slice(0, 80), id);
+
+  return true;
+}
+
+/**
+ * Unarchive an event by ID
+ */
+function unarchiveEvent(id) {
+  const existing = getEventById(id);
+  if (!existing) return false;
+
+  db.prepare(`
+    UPDATE events
+    SET archived = 0,
+        archived_at = NULL,
+        archived_reason = NULL
+    WHERE id = ?
+  `).run(id);
+
+  return true;
+}
+
+/**
+ * Close the database connection
+ */
+function closeDatabase() {
+  db.close();
 }
 
 module.exports = {
   db,
-  run,
-  get,
-  all,
-  slugify,
-  ensureUniqueSlug,
-  initDB,
+  initializeDatabase,
+  getEvents,
+  getEventById,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+  archiveEvent,
+  unarchiveEvent,
+  closeDatabase
 };
