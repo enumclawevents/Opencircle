@@ -475,8 +475,8 @@ return `
     <style>
       :root{
         --bg:#0b0f14;
-        --panel:#111827;
-        --panel2:var(--text);
+        --panel:#0f172a;
+        --panel2:#0b1220;
         --text:#e5e7eb;
         --muted:#94a3b8;
         --line:rgba(148,163,184,.16);
@@ -893,11 +893,7 @@ return `
       <aside class="sidebar">
         <div class="sb-brand">
           <img src="/assets/brand/oc-logo.svg" alt="OpenCircle" onerror="this.style.display='none';" />
-          <div>
-            <div class="sb-title">Dashboard</div>
-            <div class="sb-sub">Events dashboard</div>
           </div>
-        </div>
 
         <nav class="nav">
           <a class="active" href="/admin"><span class="n-dot"></span> Dashboard</a>
@@ -1217,7 +1213,7 @@ return `
               <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
               <div class="note">Uploading replaces the Image URL below.</div>
 
-              <img id="uploadPreview" style="margin-top:10px; width:160px; height:160px; object-fit:cover; border-radius:14px; border:1px solid var(--line); display:none;" alt="Flyer upload preview" />
+              <img id="uploadPreview" style="margin-top:10px; width:160px; height:160px; object-fit:cover; border-radius:8px; border:1px solid var(--line); display:none;" alt="Flyer upload preview" />
 
               <label style="margin-top:12px;">Image URL (optional fallback)</label>
               <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
@@ -1228,7 +1224,7 @@ return `
                     <div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>
                     <div style="margin-top:10px;">
                       <img id="existingPreview" src="${esc(editEvent.imageUrl)}"
-                        style="width:160px; height:160px; object-fit:cover; border-radius:14px; border:1px solid var(--line);"
+                        style="width:160px; height:160px; object-fit:cover; border-radius:8px; border:1px solid var(--line);"
                         alt="Current flyer preview" onerror="this.style.display='none';" />
                     </div>
                   `
@@ -1588,7 +1584,7 @@ return `
 
           // axes
           ctx.globalAlpha = 1;
-          ctx.strokeStyle = "rgba(15,23,42,.10)";
+          ctx.strokeStyle = "rgba(148,163,184,.22)";
           ctx.beginPath();
           ctx.moveTo(padL, padT);
           ctx.lineTo(padL, padT + h);
@@ -1599,11 +1595,11 @@ return `
           for(var i=0;i<data.values.length;i++){ if(data.values[i] > maxV) maxV = data.values[i]; }
 
           // grid lines (4)
-          ctx.fillStyle = "rgba(15,23,42,.55)";
+          ctx.fillStyle = "rgba(229,231,235,.75)";
           ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
           for(var g=0; g<=4; g++){
             var y = padT + (h * g / 4);
-            ctx.strokeStyle = "rgba(15,23,42,.06)";
+            ctx.strokeStyle = "rgba(148,163,184,.14)";
             ctx.beginPath();
             ctx.moveTo(padL, y);
             ctx.lineTo(padL + w, y);
@@ -1626,7 +1622,7 @@ return `
             ctx.fillStyle = "rgba(0,192,139,.65)";
             ctx.fillRect(x, y2, barW, bh);
 
-            ctx.fillStyle = "rgba(15,23,42,.65)";
+            ctx.fillStyle = "rgba(229,231,235,.70)";
             ctx.font = "11px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
             var label = data.labels[b];
             ctx.save();
