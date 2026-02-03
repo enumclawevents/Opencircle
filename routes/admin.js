@@ -486,8 +486,7 @@ return `
         --shadow:0 18px 40px rgba(0,0,0,.45);
         --radius:4px;
         --radius2:4px;
-        --gap:var(--gap);
-        --gap:var(--gap);
+        --gap:22px;
       }
 
       *{ box-sizing:border-box; }
@@ -651,7 +650,7 @@ return `
       input[type="checkbox"]{
         -webkit-appearance:none; appearance:none;
         width:18px; height:18px;
-        border-radius: var(--radius);
+        border-radius: 0px;
         border:1px solid rgba(148,163,184,.28);
         background: var(--panel);
         display:inline-grid; place-content:center;
@@ -660,7 +659,7 @@ return `
       input[type="checkbox"]::before{
         content:"";
         width:10px; height:10px;
-        border-radius: 2px;
+        border-radius: 0px;
         transform: scale(0);
         transition: transform .12s ease;
         background: var(--brand);
@@ -758,7 +757,10 @@ return `
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
       .event-actions{ margin-top:10px; display:flex; gap:var(--gap); align-items:center; flex-wrap:wrap; }
 
-      .pill{
+      
+      .event-actions .btn{ min-width: 104px; height:40px; }
+      .event-actions .btn{ padding: 10px 14px; }
+.pill{
         font-size:12px;
         background: rgba(0,192,139,.12);
         border: 1px solid rgba(0,192,139,.22);
