@@ -69,6 +69,23 @@ async function ensureUniqueSlug(baseSlug, eventId) {
   }
 }
 
+async function archiveExpiredEvents() {
+  // Choose ONE rule:
+  // 1) If you trust endDateTime:
+  await run(`
+    UPDATE events
+    SET archived = 1,
+        archived_at = datetime('now'),
+        archived_reason = 'expired'
+    WHERE archived = 0
+      AND endDateTime IS NOT NULL
+      AND datetime(endDateTime) < datetime('now')
+  `);
+
+  // If you don’t have endDateTime reliably, we can switch to expireDate or startDateTime.
+}
+
+
 // Schema helpers
 async function tableInfo(table) {
   return await all(`PRAGMA table_info(${table})`);

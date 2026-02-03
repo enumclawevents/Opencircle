@@ -6,6 +6,26 @@ const express = require("express");
 const cors = require("cors");
 
 const { initDB } = require("./db");
+const { initDB, archiveExpiredEvents } = require("./db");
+
+initDB()
+  .then(async () => {
+    // run once on boot
+    await archiveExpiredEvents();
+
+    // run every 15 minutes
+    setInterval(() => {
+      archiveExpiredEvents().catch((e) => console.error("[ARCHIVE JOB]", e));
+    }, 15 * 60 * 1000);
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`OpenCircle API running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("[BOOT] DB init failed:", err);
+    process.exit(1);
+  });
 
 const eventsRouter = require("./routes/events");
 const adminRouter = require("./routes/admin");
