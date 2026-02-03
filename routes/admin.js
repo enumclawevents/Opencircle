@@ -484,8 +484,8 @@ return `
         --brand2:#0ea5e9;
         --danger:#ef4444;
         --shadow:0 18px 40px rgba(0,0,0,.45);
-        --radius:8px;
-        --radius2:8px;
+        --radius:4px;
+        --radius2:4px;
       }
 
       *{ box-sizing:border-box; }
@@ -498,39 +498,6 @@ return `
 
       /* Layout */
       .app{ display:flex; min-height:100vh; }
-      .rail{
-        width:72px; background:var(--panel);
-        border-right:1px solid var(--line);
-        display:flex; flex-direction:column; align-items:center;
-        padding:14px 10px; gap:14px;
-        position:sticky; top:0; height:100vh;
-      }
-      .rail .dot{
-        width:42px; height:42px; border-radius: 8px;
-        background: rgba(0,192,139,.12);
-        border: 1px solid rgba(0,192,139,.22);
-        display:flex; align-items:center; justify-content:center;
-      }
-      .rail .dot img{ width:26px; height:26px; display:block; }
-      .rail .ico{
-        width:42px; height:42px; border-radius: 8px;
-        display:flex; align-items:center; justify-content:center;
-        color: var(--muted);
-        border: 1px solid transparent;
-        cursor: default;
-        font-weight: 1000;
-      }
-      .rail .ico.active{
-        background: rgba(0,192,139,.12);
-        border-color: rgba(0,192,139,.22);
-        color: var(--text);
-      }
-      .rail .spacer{ flex:1; }
-      .rail .user{
-        width:42px; height:42px; border-radius: 8px;
-        background: linear-gradient(135deg, rgba(14,165,233,.18), rgba(0,192,139,.18));
-        border: 1px solid var(--line);
-      }
 
       .sidebar{
         width:260px; background:var(--panel);
@@ -541,20 +508,20 @@ return `
       .sb-brand{
         display:flex; align-items:center; gap:10px; margin-bottom:18px;
       }
-      .sb-brand img{ height:30px; width:auto; display:block; }
-      .sb-title{ font-weight:1000; letter-spacing:.2px; }
+      .sb-brand img{ height:46px; width:auto; display:block; }
+      .sb-title{ font-weight:650; letter-spacing:.2px; }
       .sb-sub{ font-size:12px; color:var(--muted); margin-top:2px; }
 
       .nav{ display:grid; gap:8px; margin-top:10px; }
       .nav a{
         text-decoration:none; color:var(--muted);
         display:flex; align-items:center; gap:10px;
-        padding:10px 12px; border-radius: 8px;
+        padding:10px 12px; border-radius: var(--radius);
         border:1px solid transparent;
-        font-weight:900; font-size:13px;
+        font-weight:650; font-size:13px;
       }
       .nav a .n-dot{
-        width:8px; height:8px; border-radius: 8px; background: rgba(100,116,139,.35);
+        width:8px; height:8px; border-radius:999px; background: rgba(100,116,139,.35);
       }
       .nav a.active{
         color:var(--text);
@@ -574,7 +541,7 @@ return `
         display:flex; align-items:center; justify-content:space-between; gap:14px;
         margin-bottom:16px;
       }
-      .h-left h1{ margin:0; font-size:22px; letter-spacing:.2px; }
+      .h-left h1{ margin:0; font-size:22px; letter-spacing:.2px; font-weight:650; }
       .h-left p{ margin:6px 0 0; color:var(--muted); font-size:13px; }
       .h-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 
@@ -582,21 +549,22 @@ return `
         display:flex; align-items:center; gap:10px;
         background:var(--panel);
         border:1px solid var(--line);
-        border-radius: 8px;
+        border-radius: var(--radius);
         padding: 10px 12px;
         box-shadow: var(--shadow);
       }
       .search input{
         border:0; outline:none; background:transparent;
-        min-width: 260px;
-        font-size:14px; font-weight:800; color:var(--text);
+        width: 520px;
+        min-width: 360px;
+        font-size:14px; font-weight:600; color:var(--text);
       }
 
       /* Cards + widgets */
       .card{
         background:var(--panel);
         border:1px solid var(--line);
-        border-radius: 8px;
+        border-radius: var(--radius);
         box-shadow: var(--shadow);
         padding: 16px;
       }
@@ -610,16 +578,16 @@ return `
       .metric{
         display:flex; align-items:flex-end; justify-content:space-between; gap:10px;
         padding:14px;
-        border-radius: 8px;
+        border-radius: var(--radius);
         background: var(--panel);
         border:1px solid var(--line);
         box-shadow: var(--shadow);
       }
-      .metric .k{ color:var(--muted); font-size:12px; font-weight:1000; }
-      .metric .v{ font-size:22px; font-weight:1100; letter-spacing:.2px; margin-top:6px; }
+      .metric .k{ color:var(--muted); font-size:12px; font-weight:650; }
+      .metric .v{ font-size:22px; font-weight:750; letter-spacing:.2px; margin-top:6px; }
       .metric .tag{
-        font-size:12px; font-weight:1000;
-        padding:6px 10px; border-radius: 8px;
+        font-size:12px; font-weight:650;
+        padding:6px 10px; border-radius: var(--radius);
         background: rgba(0,192,139,.12);
         border: 1px solid rgba(0,192,139,.22);
         color: #065f46;
@@ -659,12 +627,12 @@ return `
       .sub{ margin:0; color:var(--muted); font-size:13px; }
 
       /* Controls */
-      label{ display:block; margin: 12px 0 6px; font-weight:1000; font-size:12px; color:var(--text); }
+      label{ display:block; margin: 12px 0 6px; font-weight:650; font-size:12px; color:var(--text); }
       .ctrl, input, textarea, select{
         width:100%;
         padding: 11px 12px;
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: var(--radius);
         background: var(--panel2);
         color: var(--text);
         font-size: 14px;
@@ -681,11 +649,11 @@ return `
       .btn{
         display:inline-flex; align-items:center; justify-content:center;
         padding: 10px 14px;
-        border-radius: 8px;
+        border-radius: var(--radius);
         border: 1px solid var(--line);
         background: var(--panel);
         cursor:pointer;
-        font-weight:1000;
+        font-weight:650;
         text-decoration:none;
         color: var(--text);
       }
@@ -712,14 +680,14 @@ return `
       .inline{ display:inline; margin:0; }
       .muted{ color: var(--muted); }
 
-      a:not(.btn){ color: var(--brand2); text-decoration:none; font-weight:1000; }
+      a:not(.btn){ color: var(--brand2); text-decoration:none; font-weight:600; }
       a:not(.btn):hover{ text-decoration:underline; }
 
       /* Small widgets */
       .mini{
         border: 1px solid var(--line);
         background: var(--panel2);
-        border-radius: 8px;
+        border-radius: var(--radius);
         padding: 12px;
       }
       .mini + .mini{ margin-top:10px; }
@@ -733,7 +701,7 @@ return `
       /* Existing events list */
       .event-card{
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: var(--radius);
         padding: 14px;
         background: var(--panel);
         display:flex;
@@ -742,7 +710,7 @@ return `
         align-items:flex-start;
       }
       .event-left{ flex: 1; min-width: 0; }
-      .event-title{ font-weight:1000; margin-bottom:6px; }
+      .event-title{ font-weight:650; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
       .event-actions{ margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
 
@@ -751,8 +719,8 @@ return `
         background: rgba(0,192,139,.12);
         border: 1px solid rgba(0,192,139,.22);
         padding: 6px 10px;
-        border-radius: 8px;
-        font-weight:1000;
+        border-radius: var(--radius);
+        font-weight:650;
         color:#065f46;
         display:inline-flex; align-items:center; gap:6px;
       }
@@ -763,14 +731,14 @@ return `
       .event-thumb-img{
         width: 116px; height: 116px;
         object-fit: cover;
-        border-radius: 8px;
+        border-radius: var(--radius);
         border: 1px solid var(--line);
         display:block;
       }
       .thumb-empty,
       .thumb-fallback{
         width: 116px; height: 116px;
-        border-radius: 8px;
+        border-radius: var(--radius);
         border: 1px solid var(--line);
         display:flex; align-items:center; justify-content:center;
         font-size: 12px; color: var(--muted);
@@ -784,7 +752,7 @@ return `
       .event-stats{
         width: 170px; flex: 0 0 170px;
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: var(--radius);
         padding: 12px;
         background: var(--panel2);
       }
@@ -807,14 +775,14 @@ return `
       @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
 
       /* Recurrence UI polish (keep your functionality, just match the new look) */
-      .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: 8px; padding: 14px; }
+      .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: var(--radius); padding: 14px; }
       .rec-grid{ display:grid; grid-template-columns: 1.2fr .8fr; gap: 16px; align-items: start; }
       @media (max-width: 900px){ .rec-grid{ grid-template-columns: 1fr; } }
-      .rec-label{ font-weight:1100; font-size: 12px; margin-bottom: 8px; color: var(--text); letter-spacing: .2px; }
+      .rec-label{ font-weight:650; font-size: 12px; margin-bottom: 8px; color: var(--text); letter-spacing: .2px; }
       .rec-help{ margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.4; }
 
-      .rec-box{ border:1px solid var(--line); border-radius: 8px; padding: 14px; background: var(--panel2); margin-top: 10px; }
-      .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:1000; }
+      .rec-box{ border:1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--panel2); margin-top: 10px; }
+      .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:650; }
       .checkbox input{ width:auto; }
 
       .dow{ display:flex; flex-wrap:wrap; gap: 10px; margin-top: 10px; }
@@ -824,11 +792,11 @@ return `
         justify-content:center;
         gap: 8px;
         padding: 10px 12px;
-        border-radius: 8px;
+        border-radius: var(--radius);
         border: 1px solid var(--line);
         background: var(--panel);
         color: var(--text);
-        font-weight: 1000;
+        font-weight:650;
         font-size: 13px;
         cursor: pointer;
         user-select:none;
@@ -844,12 +812,12 @@ return `
       .chip{
         display:inline-flex; align-items:center; gap:8px;
         border:1px solid var(--line);
-        border-radius: 8px;
+        border-radius: var(--radius);
         padding: 8px 10px;
         background: var(--panel);
         font-size: 13px;
       }
-      .chip button{ border:0; background: transparent; cursor:pointer; font-weight:1000; color: #b91c1c; }
+      .chip button{ border:0; background: transparent; cursor:pointer; font-weight:650; color: #b91c1c; }
 
       .sectionTitle{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:10px; }
       .sectionTitle .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -876,18 +844,6 @@ return `
   </head>
   <body>
     <div class="app">
-      <!-- Icon rail -->
-      <div class="rail">
-        <div class="dot" title="OpenCircle">
-          <img src="/assets/brand/oc-logo.svg" alt="OC" onerror="this.style.display='none';" />
-        </div>
-        <div class="ico active" title="Dashboard">▦</div>
-        <div class="ico" title="Events">⧉</div>
-        <div class="ico" title="Analytics">⌁</div>
-        <div class="ico" title="Settings">⚙</div>
-        <div class="spacer"></div>
-        <div class="user" title="User"></div>
-      </div>
 
       <!-- Sidebar -->
       <aside class="sidebar">
@@ -1034,13 +990,13 @@ return `
               <div class="rec-box">
                 <div class="checkbox">
                   <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
-                  <label for="featured" style="margin:0;font-size:12px;font-weight:1100;">Featured event</label>
+                  <label for="featured" style="margin:0;font-size:12px;font-weight:650;">Featured event</label>
                 </div>
                 <div class="note">Featured events show a badge on the event card and event page.</div>
               </div>
 
               <div class="rec-box">
-                <div style="font-weight:1100; margin-bottom:6px;">Categories (pick up to 3)</div>
+                <div style="font-weight:650; margin-bottom:6px;">Categories (pick up to 3)</div>
                 <div class="cat-grid">
                   <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 1</div>${categorySelect(0)}</div>
                   <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 2</div>${categorySelect(1)}</div>
@@ -1078,7 +1034,7 @@ return `
               <div class="rec-box recurrence">
                 <div class="checkbox">
                   <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
-                  <label for="hasRecurrence" style="margin:0;font-size:12px;font-weight:1100;">Recurring event</label>
+                  <label for="hasRecurrence" style="margin:0;font-size:12px;font-weight:650;">Recurring event</label>
                 </div>
                 <div class="note">Weekly/monthly rule or custom dates list.</div>
 
@@ -1213,7 +1169,7 @@ return `
               <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
               <div class="note">Uploading replaces the Image URL below.</div>
 
-              <img id="uploadPreview" style="margin-top:10px; width:160px; height:160px; object-fit:cover; border-radius:8px; border:1px solid var(--line); display:none;" alt="Flyer upload preview" />
+              <img id="uploadPreview" style="margin-top:10px; width:160px; height:160px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); display:none;" alt="Flyer upload preview" />
 
               <label style="margin-top:12px;">Image URL (optional fallback)</label>
               <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
@@ -1224,7 +1180,7 @@ return `
                     <div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>
                     <div style="margin-top:10px;">
                       <img id="existingPreview" src="${esc(editEvent.imageUrl)}"
-                        style="width:160px; height:160px; object-fit:cover; border-radius:8px; border:1px solid var(--line);"
+                        style="width:160px; height:160px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line);"
                         alt="Current flyer preview" onerror="this.style.display='none';" />
                     </div>
                   `
