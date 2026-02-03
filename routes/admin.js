@@ -392,6 +392,79 @@ return `
 
     const isChecked = (arr, code) => (arr.includes(code) ? "checked" : "");
 
+    // ===== Dashboard metrics + widgets =====
+    const cols = await getEventsColumns();
+
+    // Counts
+    const upcomingRow = await get(
+      `SELECT COUNT(*) AS n FROM events WHERE datetime(startDateTime) >= datetime('now')`
+    );
+    const pastRow = await get(
+      `SELECT COUNT(*) AS n FROM events WHERE datetime(startDateTime) < datetime('now')`
+    );
+    const featuredRow = await get(`SELECT COUNT(*) AS n FROM events WHERE featured = 1`);
+
+    const upcoming = Number(upcomingRow?.n || 0);
+    const past = Number(pastRow?.n || 0);
+    const featuredCount = Number(featuredRow?.n || 0);
+
+    // Optional sums (only if columns exist)
+    let viewsSum = 0;
+    if (cols.has("viewCount")) {
+      const r = await get(`SELECT COALESCE(SUM(viewCount), 0) AS n FROM events`);
+      viewsSum = Number(r?.n || 0);
+    }
+
+    const fmt = (n) => Number(n || 0).toLocaleString("en-US");
+
+    const stats = {
+      total: fmt(total),
+      upcoming: fmt(upcoming),
+      past: fmt(past),
+      featured: fmt(featuredCount),
+      views: fmt(viewsSum),
+      serverTime: new Date().toISOString().replace("T", " ").slice(0, 19) + "Z",
+    };
+
+    // Top locations
+    const locRows = await all(
+      `SELECT location, COUNT(*) AS n FROM events
+       GROUP BY location
+       ORDER BY n DESC
+       LIMIT 7`
+    );
+
+    const topLocationsHtml =
+      (locRows || []).length
+        ? (locRows || [])
+            .map((r) => {
+              const name = String(r?.location || "").trim() || "(no location)";
+              return `<div class="kv"><span>${esc(name)}</span><strong>${fmt(r?.n || 0)}</strong></div>`;
+            })
+            .join("")
+        : `<div class="muted">No location data yet.</div>`;
+
+    // Chart: events per day (last 14 days)
+    const chartRows = await all(
+      `SELECT date(startDateTime) AS d, COUNT(*) AS n
+       FROM events
+       WHERE date(startDateTime) >= date('now','-13 day')
+       GROUP BY d
+       ORDER BY d`
+    );
+    const byDay = new Map((chartRows || []).map((r) => [String(r.d), Number(r.n || 0)]));
+
+    const labels = [];
+    const values = [];
+    for (let i = 13; i >= 0; i--) {
+      const dt = new Date();
+      dt.setDate(dt.getDate() - i);
+      const key = dt.toISOString().slice(0, 10); // YYYY-MM-DD
+      labels.push(key.slice(5)); // MM-DD
+      values.push(byDay.get(key) || 0);
+    }
+    const chartDataJson = JSON.stringify({ labels, values });
+
     res.send(`<!doctype html>
 <html>
   <head>
@@ -401,260 +474,307 @@ return `
     <title>OpenCircle Admin</title>
     <style>
       :root{
-        --bg:#0b1220; --card:#0f172a; --text:#e5e7eb; --muted:#94a3b8;
-        --line:rgba(148,163,184,.18);
-        --brand:#00c08b; --brand2:#323E48; --danger:#C3413A;
-        --shadow:0 10px 30px rgba(0,0,0,.35);
-        --radius:4px;
+        --bg:#f3f6fb;
+        --panel:#ffffff;
+        --panel2:#f8fafc;
+        --text:#0f172a;
+        --muted:#64748b;
+        --line:rgba(15,23,42,.10);
+        --brand:#00c08b;
+        --brand2:#0ea5e9;
+        --danger:#ef4444;
+        --shadow:0 18px 40px rgba(15,23,42,.08);
+        --radius:14px;
+        --radius2:10px;
       }
+
       *{ box-sizing:border-box; }
       body{
-        margin:0; background:var(--bg); color:var(--text);
+        margin:0;
+        background:var(--bg);
+        color:var(--text);
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-        padding:24px;
-      }
-      .wrap{ max-width: 980px; margin: 0 auto; }
-      .topbar{ display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; }
-      .brand{ display:flex; align-items:center; gap:12px; }
-      .brand img{ height:42px; width:auto; display:block; }
-      .brand svg{ height:42px; width:auto; display:block; overflow:visible; }
-      .brand-title{ font-size:18px; font-weight:700; line-height:1; }
-
-      .pill{
-        font-size:12px; color: var(--text);
-        background: rgba(63,171,209,.15);
-        border: 1px solid rgba(63,171,209,.35);
-        padding:6px 10px; border-radius:4px; font-weight:600;
-        display:inline-flex; align-items:center; gap:6px;
       }
 
-      .card{
-        background:var(--card);
+      /* Layout */
+      .app{ display:flex; min-height:100vh; }
+      .rail{
+        width:72px; background:var(--panel);
+        border-right:1px solid var(--line);
+        display:flex; flex-direction:column; align-items:center;
+        padding:14px 10px; gap:14px;
+        position:sticky; top:0; height:100vh;
+      }
+      .rail .dot{
+        width:42px; height:42px; border-radius:14px;
+        background: rgba(0,192,139,.12);
+        border: 1px solid rgba(0,192,139,.22);
+        display:flex; align-items:center; justify-content:center;
+      }
+      .rail .dot img{ width:26px; height:26px; display:block; }
+      .rail .ico{
+        width:42px; height:42px; border-radius:14px;
+        display:flex; align-items:center; justify-content:center;
+        color: var(--muted);
+        border: 1px solid transparent;
+        cursor: default;
+        font-weight: 1000;
+      }
+      .rail .ico.active{
+        background: rgba(0,192,139,.12);
+        border-color: rgba(0,192,139,.22);
+        color: var(--text);
+      }
+      .rail .spacer{ flex:1; }
+      .rail .user{
+        width:42px; height:42px; border-radius:14px;
+        background: linear-gradient(135deg, rgba(14,165,233,.18), rgba(0,192,139,.18));
+        border: 1px solid var(--line);
+      }
+
+      .sidebar{
+        width:260px; background:var(--panel);
+        border-right:1px solid var(--line);
+        padding:18px;
+        position:sticky; top:0; height:100vh; overflow:auto;
+      }
+      .sb-brand{
+        display:flex; align-items:center; gap:10px; margin-bottom:18px;
+      }
+      .sb-brand img{ height:30px; width:auto; display:block; }
+      .sb-title{ font-weight:1000; letter-spacing:.2px; }
+      .sb-sub{ font-size:12px; color:var(--muted); margin-top:2px; }
+
+      .nav{ display:grid; gap:8px; margin-top:10px; }
+      .nav a{
+        text-decoration:none; color:var(--muted);
+        display:flex; align-items:center; gap:10px;
+        padding:10px 12px; border-radius:12px;
+        border:1px solid transparent;
+        font-weight:900; font-size:13px;
+      }
+      .nav a .n-dot{
+        width:8px; height:8px; border-radius:999px; background: rgba(100,116,139,.35);
+      }
+      .nav a.active{
+        color:var(--text);
+        background: rgba(0,192,139,.10);
+        border-color: rgba(0,192,139,.22);
+      }
+      .nav a.active .n-dot{ background: var(--brand); }
+
+      .main{
+        flex:1;
+        padding:22px;
+        min-width:0;
+      }
+
+      /* Header */
+      .header{
+        display:flex; align-items:center; justify-content:space-between; gap:14px;
+        margin-bottom:16px;
+      }
+      .h-left h1{ margin:0; font-size:22px; letter-spacing:.2px; }
+      .h-left p{ margin:6px 0 0; color:var(--muted); font-size:13px; }
+      .h-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+
+      .search{
+        display:flex; align-items:center; gap:10px;
+        background:var(--panel);
         border:1px solid var(--line);
-        border-radius: 4px;
+        border-radius: 14px;
+        padding: 10px 12px;
         box-shadow: var(--shadow);
-        padding: 18px;
       }
-      .card + .card{ margin-top: 16px; }
-      h1{ margin:0 0 8px; font-size:22px; }
-      .sub{ margin:0; color:var(--muted); }
-      .row{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-      @media (max-width: 900px){ .row{ grid-template-columns: 1fr; } }
+      .search input{
+        border:0; outline:none; background:transparent;
+        min-width: 260px;
+        font-size:14px; font-weight:800; color:var(--text);
+      }
 
-      label{ display:block; margin: 12px 0 6px; font-weight:700; font-size:13px; }
+      /* Cards + widgets */
+      .card{
+        background:var(--panel);
+        border:1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 16px;
+      }
+
+      .metrics{
+        display:grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap:12px;
+        margin-bottom:12px;
+      }
+      .metric{
+        display:flex; align-items:flex-end; justify-content:space-between; gap:10px;
+        padding:14px;
+        border-radius: var(--radius);
+        background: var(--panel);
+        border:1px solid var(--line);
+        box-shadow: var(--shadow);
+      }
+      .metric .k{ color:var(--muted); font-size:12px; font-weight:1000; }
+      .metric .v{ font-size:22px; font-weight:1100; letter-spacing:.2px; margin-top:6px; }
+      .metric .tag{
+        font-size:12px; font-weight:1000;
+        padding:6px 10px; border-radius:999px;
+        background: rgba(0,192,139,.12);
+        border: 1px solid rgba(0,192,139,.22);
+        color: #065f46;
+        white-space:nowrap;
+      }
+      .metric .tag.blue{
+        background: rgba(14,165,233,.12);
+        border-color: rgba(14,165,233,.20);
+        color: #0c4a6e;
+      }
+
+      .grid2{
+        display:grid;
+        grid-template-columns: 1.25fr .75fr;
+        gap:12px;
+        margin-bottom:12px;
+      }
+
+      .gridMain{
+        display:grid;
+        grid-template-columns: 1.05fr .95fr;
+        gap:12px;
+        align-items:start;
+      }
+
+      @media (max-width: 1100px){
+        .metrics{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .grid2{ grid-template-columns: 1fr; }
+        .gridMain{ grid-template-columns: 1fr; }
+        .rail{ display:none; }
+        .sidebar{ display:none; }
+        .main{ padding:16px; }
+        .search input{ min-width: 160px; }
+      }
+
+      h2{ margin:0 0 10px; font-size:16px; }
+      .sub{ margin:0; color:var(--muted); font-size:13px; }
+
+      /* Controls */
+      label{ display:block; margin: 12px 0 6px; font-weight:1000; font-size:12px; color:var(--text); }
       .ctrl, input, textarea, select{
-        width:100%; padding: 10px 12px; border: 1px solid rgba(148,163,184,.25);
-        border-radius: 4px; background:#0b1220; color: var(--text); font-size: 14px; outline: none;
+        width:100%;
+        padding: 11px 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel2);
+        color: var(--text);
+        font-size: 14px;
+        outline: none;
+      }
+      .ctrl:focus, input:focus, textarea:focus, select:focus{
+        box-shadow: 0 0 0 4px rgba(0,192,139,.12);
+        border-color: rgba(0,192,139,.35);
+        background: #fff;
       }
       textarea{ min-height: 110px; resize: vertical; }
       .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
 
       .btn{
         display:inline-flex; align-items:center; justify-content:center;
-        padding: 10px 14px; border-radius: 4px;
-        border: 1px solid rgba(148,163,184,.22);
-        background:#0b1220; cursor:pointer; font-weight:700; text-decoration:none; color: var(--text);
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        cursor:pointer;
+        font-weight:1000;
+        text-decoration:none;
+        color: var(--text);
       }
-      .btn-primary{ background: var(--brand); border-color: var(--brand); color:#06202b; }
-      .btn-primary:hover{ background: var(--brand2); border-color: var(--brand2); color:#071c24; }
-      .btn-danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.25); color: #fecaca; }
-      .btn-link{ background: transparent; border-color: transparent; color: var(--brand); padding: 8px 10px; }
+      .btn:hover{ transform: translateY(-1px); }
+      .btn-primary{
+        background: var(--brand);
+        border-color: var(--brand);
+        color:#06202b;
+      }
+      .btn-primary:hover{ background: #00b681; border-color: #00b681; }
+      .btn-danger{
+        background: rgba(239,68,68,.10);
+        border-color: rgba(239,68,68,.18);
+        color: #991b1b;
+      }
+      .btn-link{
+        background: transparent;
+        border-color: transparent;
+        color: var(--brand);
+        padding: 8px 10px;
+      }
+
       .actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 14px; }
-
-/* Default links (NOT buttons) */
-a:not(.btn){
-  color: var(--brand);
-  text-decoration: none;
-  font-weight: 700;
-}
-a:not(.btn):hover{
-  text-decoration: underline;
-}
-
-/* Button links should look like buttons */
-a.btn{
-  color: var(--text);
-  text-decoration: none;
-}
-a.btn:hover{
-  text-decoration: none;
-}
-
       .inline{ display:inline; margin:0; }
       .muted{ color: var(--muted); }
 
-      .cat-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
-      @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
+      a:not(.btn){ color: var(--brand2); text-decoration:none; font-weight:1000; }
+      a:not(.btn):hover{ text-decoration:underline; }
 
+      /* Small widgets */
+      .mini{
+        border: 1px solid var(--line);
+        background: var(--panel2);
+        border-radius: var(--radius);
+        padding: 12px;
+      }
+      .mini + .mini{ margin-top:10px; }
+      .kv{ display:flex; justify-content:space-between; align-items:center; margin: 6px 0; color:var(--muted); font-size:13px; }
+      .kv strong{ color:var(--text); font-size:14px; }
 
-/* ===== Recurrence UI polish ===== */
-.recurrence{
-  border-radius: 4px;
-  padding: 18px;
-  background: rgba(15,23,42,.25);
-}
+      /* Chart */
+      .chartWrap{ height:220px; }
+      canvas{ width:100%; height:220px; display:block; }
 
-.rec-grid{
-  display:grid;
-  grid-template-columns: 1.2fr .8fr;
-  gap: 16px;
-  align-items: end;
-}
-
-@media (max-width: 900px){
-  .rec-grid{ grid-template-columns: 1fr; }
-}
-
-.btn-edit{
-  background: rgba(59,130,246,.12);
-  border-color: rgba(59,130,246,.25);
-  color: #bfdbfe;
-}
-.btn-edit:hover{
-  background: rgba(59,130,246,.18);
-  border-color: rgba(59,130,246,.40);
-}
-
-.rec-label{
-  font-weight: 900;
-  font-size: 14px;
-  margin-bottom: 8px;
-  color: var(--text);
-  letter-spacing: .2px;
-}
-
-.rec-help{
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.4;
-}
-
-/* Pills for weekday selection */
-.dow{
-  display:flex;
-  flex-wrap:wrap;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.dow-pill{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 4px;
-  border: 1px solid rgba(148,163,184,.22);
-  background: rgba(11,18,32,.65);
-  color: var(--text);
-  font-weight: 800;
-  font-size: 13px;
-  cursor: pointer;
-  user-select:none;
-  transition: background .15s ease, border-color .15s ease, transform .05s ease;
-}
-
-/* Hide raw checkbox, keep accessible */
-.dow-pill input{
-  position:absolute;
-  opacity:0;
-  pointer-events:none;
-}
-
-/* Active state */
-.dow-pill:has(input:checked){
-  background: rgba(0,192,139,.18);
-  border-color: rgba(0,192,139,.45);
-  box-shadow: 0 0 0 3px rgba(0,192,139,.10);
-}
-
-.dow-pill:active{ transform: scale(.98); }
-
-/* Make select/input feel aligned */
-.recurrence .ctrl{
-  border-radius: 4px;
-}
-
-/* Make the two columns align cleanly */
-.rec-grid{
-  align-items: start;            /* was end */
-}
-
-/* Force consistent control height */
-.recurrence .ctrl{
-  height: 48px;                  /* matches your big select look */
-  padding: 0 14px;
-}
-
-/* Keep help text from "pushing" the second column weirdly */
-.recurrence #intervalRow .rec-help{
-  margin-top: 10px;
-}
-
-
-      .rec-box{
-        border:1px solid var(--line);
-        border-radius: 4px;
+      /* Existing events list */
+      .event-card{
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
         padding: 14px;
-        background: #0b1220;
-        margin-top: 10px;
+        background: #fff;
+        display:flex;
+        justify-content:space-between;
+        gap:16px;
+        align-items:flex-start;
       }
-      .rec-row{
-        display:grid;
-        grid-template-columns: 1fr 1fr;
-        gap:12px;
-        align-items:end;
-      }
-      @media (max-width: 900px){ .rec-row{ grid-template-columns: 1fr; } }
-
-      .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:700; }
-      .checkbox input{ width:auto; }
-
-      .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top: 10px; }
-      .chip{
-        display:inline-flex; align-items:center; gap:8px;
-        border:1px solid var(--line);
-        border-radius:4px;
-        padding: 6px 10px;
-        background: #0b1220;
-        font-size: 13px;
-      }
-      .chip button{ border:0; background: transparent; cursor:pointer; font-weight:900; color: #fecaca; }
-
-      .event-card{ border: 1px solid var(--line); border-radius: 4px; padding: 14px; background: #0b1220; display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
       .event-left{ flex: 1; min-width: 0; }
-      .event-title{ font-weight:800; margin-bottom:6px; }
+      .event-title{ font-weight:1000; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
       .event-actions{ margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-      .event-thumb{
-        width: 120px;
-        flex: 0 0 120px;
+
+      .pill{
+        font-size:12px;
+        background: rgba(0,192,139,.12);
+        border: 1px solid rgba(0,192,139,.22);
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-weight:1000;
+        color:#065f46;
+        display:inline-flex; align-items:center; gap:6px;
       }
-      .thumb-link{
-        display:block;
-        text-decoration:none;
+
+      .event-thumb{
+        width: 116px; flex: 0 0 116px;
       }
       .event-thumb-img{
-        width: 120px;
-        height: 120px;
+        width: 116px; height: 116px;
         object-fit: cover;
-        border-radius: 4px;
+        border-radius: 14px;
         border: 1px solid var(--line);
         display:block;
       }
       .thumb-empty,
       .thumb-fallback{
-        width: 120px;
-        height: 120px;
-        border-radius: 4px;
+        width: 116px; height: 116px;
+        border-radius: 14px;
         border: 1px solid var(--line);
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        font-size: 12px;
-        color: var(--muted);
-        background: rgba(15,23,42,.35);
+        display:flex; align-items:center; justify-content:center;
+        font-size: 12px; color: var(--muted);
+        background: var(--panel2);
         text-align:center;
         padding: 8px;
       }
@@ -662,430 +782,564 @@ a.btn:hover{
       .event-thumb.broken .thumb-fallback{ display:flex; }
 
       .event-stats{
-        width: 160px;
-        flex: 0 0 160px;
+        width: 170px; flex: 0 0 170px;
         border: 1px solid var(--line);
-        border-radius: 4px;
+        border-radius: var(--radius);
         padding: 12px;
-        background: rgba(15,23,42,.35);
+        background: var(--panel2);
       }
       .stat{ display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--muted); margin: 6px 0; }
       .stat strong{ color: var(--text); font-size: 16px; }
 
-      .days{ display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
-      .day{ display:flex; gap:8px; align-items:center; font-weight:700; }
-      .day input{ width:auto; }
-
-
       .pager{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:12px;
-  margin: 10px 0 14px;
-  flex-wrap:wrap;
-}
-.pager-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-.pager-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:12px;
+        margin: 10px 0 14px;
+        flex-wrap:wrap;
+      }
+      .pager-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+      .pager-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 
+      /* Category selection */
+      .cat-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
+      @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
+
+      /* Recurrence UI polish (keep your functionality, just match the new look) */
+      .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+      .rec-grid{ display:grid; grid-template-columns: 1.2fr .8fr; gap: 16px; align-items: start; }
+      @media (max-width: 900px){ .rec-grid{ grid-template-columns: 1fr; } }
+      .rec-label{ font-weight:1100; font-size: 12px; margin-bottom: 8px; color: var(--text); letter-spacing: .2px; }
+      .rec-help{ margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.4; }
+
+      .rec-box{ border:1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--panel2); margin-top: 10px; }
+      .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:1000; }
+      .checkbox input{ width:auto; }
+
+      .dow{ display:flex; flex-wrap:wrap; gap: 10px; margin-top: 10px; }
+      .dow-pill{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--text);
+        font-weight: 1000;
+        font-size: 13px;
+        cursor: pointer;
+        user-select:none;
+      }
+      .dow-pill input{ position:absolute; opacity:0; pointer-events:none; }
+      .dow-pill:has(input:checked){
+        background: rgba(0,192,139,.12);
+        border-color: rgba(0,192,139,.28);
+        box-shadow: 0 0 0 4px rgba(0,192,139,.10);
+      }
+
+      .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top: 10px; }
+      .chip{
+        display:inline-flex; align-items:center; gap:8px;
+        border:1px solid var(--line);
+        border-radius: 14px;
+        padding: 8px 10px;
+        background: #fff;
+        font-size: 13px;
+      }
+      .chip button{ border:0; background: transparent; cursor:pointer; font-weight:1000; color: #b91c1c; }
+
+      .sectionTitle{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:10px; }
+      .sectionTitle .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
+      .small{ font-size:12px; color:var(--muted); font-weight:900; }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <div class="topbar">
-        <div class="brand">
-          <img src="/assets/brand/oc-logo.svg" alt="OpenCircle API" style="height:72px; width:auto; display:block;" />
+    <div class="app">
+      <!-- Icon rail -->
+      <div class="rail">
+        <div class="dot" title="OpenCircle">
+          <img src="/assets/brand/oc-logo.svg" alt="OC" onerror="this.style.display='none';" />
+        </div>
+        <div class="ico active" title="Dashboard">▦</div>
+        <div class="ico" title="Events">⧉</div>
+        <div class="ico" title="Analytics">⌁</div>
+        <div class="ico" title="Settings">⚙</div>
+        <div class="spacer"></div>
+        <div class="user" title="User"></div>
+      </div>
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sb-brand">
+          <img src="/assets/brand/oc-logo.svg" alt="OpenCircle" onerror="this.style.display='none';" />
           <div>
-            <div class="brand-title">OpenCircle Admin</div>
-            <div class="muted" style="font-size:12px; margin-top:4px;">Create and manage events (SQLite)</div>
+            <div class="sb-title">OpenCircle Admin</div>
+            <div class="sb-sub">Events dashboard</div>
           </div>
         </div>
-        <div class="pill">/admin</div>
-      </div>
 
-      <div class="card">
-        <h1>${editEvent ? "Edit Event" : "Add Event"}</h1>
-        <p class="sub"><a href="/events" target="_blank" rel="noopener">View all events (JSON)</a></p>
+        <nav class="nav">
+          <a class="active" href="/admin"><span class="n-dot"></span> Dashboard</a>
+          <a href="#manage"><span class="n-dot"></span> Manage events</a>
+          <a href="#analytics"><span class="n-dot"></span> Analytics</a>
+          <a href="#settings"><span class="n-dot"></span> Settings</a>
+        </nav>
 
-        <form method="POST" action="/admin/events" enctype="multipart/form-data">
-          ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
-
-          <label>City</label>
-          <input class="ctrl" name="city" value="${esc(editEvent?.city || "Enumclaw")}" />
-          <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
-          <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
-
-          <div class="rec-box">
-            <div class="checkbox">
-              <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
-              <label for="featured" style="margin:0;font-size:13px;font-weight:900;">Mark as Featured Event</label>
+        <div style="margin-top:18px;">
+          <div class="mini">
+            <div class="small">Quick links</div>
+            <div style="margin-top:10px; display:grid; gap:8px;">
+              <a href="/events" target="_blank" rel="noopener">View events API</a>
+              <a href="/uploads" target="_blank" rel="noopener">Uploads directory</a>
             </div>
-            <div class="note">Featured events show a badge on the event card and event page.</div>
           </div>
 
-          <div class="rec-box">
-            <div style="font-weight:900; margin-bottom:6px;">Categories (pick up to 3)</div>
-            <div class="cat-grid">
-              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 1</div>${categorySelect(0)}</div>
-              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 2</div>${categorySelect(1)}</div>
-              <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 3</div>${categorySelect(2)}</div>
+          <div class="mini" style="margin-top:10px;">
+            <div class="small">Tip</div>
+            <div class="note" style="margin-top:8px;">
+              Use the top search to filter server-side (fast + shareable URL). The list also has an instant filter.
             </div>
-            <div class="note">Only these 12 categories are allowed. Max 3 per event.</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="main">
+        <div class="header">
+          <div class="h-left">
+            <h1>Dashboard</h1>
+            <p>Overview + event management</p>
           </div>
 
-          <label>Title</label>
-          <input class="ctrl" name="title" value="${esc(editEvent?.title || "")}" required />
+          <div class="h-right">
+            <form class="search" method="GET" action="/admin">
+              <input name="q" value="${esc(q)}" placeholder="Search events (title, slug, location, ID)..." />
+              <input type="hidden" name="pg" value="1" />
+              <input type="hidden" name="limit" value="${esc(String(limit))}" />
+              <button class="btn btn-primary" type="submit">Search</button>
+              ${q ? `<a class="btn" href="/admin?pg=1&limit=${esc(String(limit))}">Reset</a>` : ``}
+            </form>
+          </div>
+        </div>
 
-          <label>Description</label>
-          <textarea class="ctrl" name="description" required>${esc(editEvent?.description || "")}</textarea>
-
-          <label>Event Details</label>
-          <textarea class="ctrl" name="eventDetails">${esc(editEvent?.eventDetails || "")}</textarea>
-
-          <label>Good to Know</label>
-          <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
-
-          <div class="row">
+        <!-- Metrics -->
+        <section class="metrics" id="analytics">
+          <div class="metric">
             <div>
-              <label>Start Date/Time</label>
-              <input id="startDateTime" class="ctrl" type="datetime-local" name="startDateTime"
-                value="${esc(toDateTimeLocalValue(editEvent?.startDateTime))}" required />
+              <div class="k">Total events</div>
+              <div class="v">${esc(stats.total)}</div>
             </div>
+            <div class="tag">All time</div>
+          </div>
+          <div class="metric">
             <div>
-              <label>End Date/Time</label>
-              <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
-                value="${esc(toDateTimeLocalValue(editEvent?.endDateTime))}" required />
+              <div class="k">Upcoming</div>
+              <div class="v">${esc(stats.upcoming)}</div>
+            </div>
+            <div class="tag blue">Next</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">Featured</div>
+              <div class="v">${esc(stats.featured)}</div>
+            </div>
+            <div class="tag">Pinned</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">Total views</div>
+              <div class="v">${esc(stats.views)}</div>
+            </div>
+            <div class="tag blue">Tracked</div>
+          </div>
+        </section>
+
+        <!-- Charts -->
+        <section class="grid2">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Events over time</h2>
+                <p class="sub">Last 14 days (by start date)</p>
+              </div>
+              <div class="right">
+                <span class="small">Past: <strong>${esc(stats.past)}</strong></span>
+                <span class="small">Upcoming: <strong>${esc(stats.upcoming)}</strong></span>
+              </div>
+            </div>
+            <div class="chartWrap">
+              <canvas id="eventsChart" width="900" height="220"></canvas>
             </div>
           </div>
 
-         <!-- ✅ RESTORED: Recurring Events UI (polished layout) -->
-<div class="rec-box recurrence">
-  <div class="checkbox">
-    <input
-      type="checkbox"
-      id="hasRecurrence"
-      name="hasRecurrence"
-      value="1"
-      ${hasRecurrence ? "checked" : ""}
-    />
-    <label for="hasRecurrence" style="margin:0;font-size:13px;font-weight:900;">Recurring Event</label>
-  </div>
-  <div class="note">Create a recurring rule (weekly/monthly) or a custom date list.</div>
-<div class="row" style="margin-top:12px;">
-  <div>
-    <label style="margin-top:0;">First date (series starts)</label>
-    <input class="ctrl" type="date" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
-    <div class="note">First occurrence date for this recurring series.</div>
-  </div>
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Top locations</h2>
+                <p class="sub">Most frequent locations</p>
+              </div>
+            </div>
 
-  <div>
-    <label style="margin-top:0;">Until date (series ends)</label>
-    <input class="ctrl" type="date" name="recurrenceUntilDate" value="${esc(recurrenceUntilDateVal)}" />
-    <div class="note">No occurrences after this date.</div>
-  </div>
-</div>
+            <div class="mini">
+              ${topLocationsHtml}
+            </div>
 
-  <!-- Type + Interval in a clean grid -->
-  <div class="rec-grid" style="margin-top:12px;">
-    <div>
-      <div class="rec-label">Recurrence Type</div>
-      <select id="recurrenceType" name="recurrenceType" class="ctrl">
-        <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
-        <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
-        <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
-        <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Custom Dates</option>
-      </select>
-    </div>
+            <div class="mini">
+              <div class="small">Status</div>
+              <div class="kv"><span>Server time</span><strong>${esc(stats.serverTime)}</strong></div>
+              <div class="kv"><span>Pagination</span><strong>${esc(String(limit))}/page</strong></div>
+            </div>
+          </div>
+        </section>
 
-    <div id="intervalRow">
-      <div class="rec-label">Interval</div>
-      <input class="ctrl" type="number" min="1" name="recurrenceInterval" value="${esc(recurrenceInterval)}" />
-      <div class="rec-help">Example: every 1 week, every 2 weeks, every 1 month, etc.</div>
-    </div>
-  </div>
+        <!-- Manage -->
+        <section class="gridMain" id="manage">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>${editEvent ? "Edit event" : "Create event"}</h2>
+                <p class="sub">This saves to SQLite and powers your API</p>
+              </div>
+              <div class="right">
+                <span class="pill">/admin</span>
+              </div>
+            </div>
 
-  <!-- Weekly -->
-  <div id="weeklyBox" style="margin-top:14px;">
-    <div class="rec-label">Days of Week</div>
+            <form method="POST" action="/admin/events" enctype="multipart/form-data">
+              ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
 
-    <!-- pill toggles -->
-    <div class="dow">
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="SU" ${isChecked(weeklyByDay, "SU")} />Sun
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="MO" ${isChecked(weeklyByDay, "MO")} />Mon
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="TU" ${isChecked(weeklyByDay, "TU")} />Tue
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="WE" ${isChecked(weeklyByDay, "WE")} />Wed
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="TH" ${isChecked(weeklyByDay, "TH")} />Thu
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="FR" ${isChecked(weeklyByDay, "FR")} />Fri
-      </label>
-      <label class="dow-pill">
-        <input type="checkbox" name="weeklyByDay" value="SA" ${isChecked(weeklyByDay, "SA")} />Sat
-      </label>
-    </div>
+              <label>City</label>
+              <input class="ctrl" name="city" value="${esc(editEvent?.city || "Enumclaw")}" />
 
-    <div class="rec-help">Pick one or more days.</div>
-  </div>
+              <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
+              <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
 
-  <!-- Monthly -->
-  <div id="monthlyBox" style="margin-top:14px;">
-    <div class="rec-grid">
-      <div>
-        <div class="rec-label">Monthly Mode</div>
-        <select id="monthlyMode" name="monthlyMode" class="ctrl">
-          <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
-          <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday</option>
-        </select>
-      </div>
-      <div></div>
-    </div>
-
-    <div id="monthdayBox" style="margin-top:12px;">
-      <div class="rec-label">Day of Month (1–31)</div>
-      <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(byMonthday)}" />
-    </div>
-
-    <div id="nthweekdayBox" style="margin-top:12px;">
-      <div class="rec-grid">
-        <div>
-          <div class="rec-label">Which Week</div>
-          <select name="setPos" class="ctrl">
-            <option value="1" ${setPos === "1" ? "selected" : ""}>1st</option>
-            <option value="2" ${setPos === "2" ? "selected" : ""}>2nd</option>
-            <option value="3" ${setPos === "3" ? "selected" : ""}>3rd</option>
-            <option value="4" ${setPos === "4" ? "selected" : ""}>4th</option>
-            <option value="-1" ${setPos === "-1" ? "selected" : ""}>Last</option>
-          </select>
-        </div>
-        <div>
-          <div class="rec-label">Weekday</div>
-          <select name="monthlyByDay" class="ctrl">
-            <option value="SU" ${monthlyByDay === "SU" ? "selected" : ""}>Sunday</option>
-            <option value="MO" ${monthlyByDay === "MO" ? "selected" : ""}>Monday</option>
-            <option value="TU" ${monthlyByDay === "TU" ? "selected" : ""}>Tuesday</option>
-            <option value="WE" ${monthlyByDay === "WE" ? "selected" : ""}>Wednesday</option>
-            <option value="TH" ${monthlyByDay === "TH" ? "selected" : ""}>Thursday</option>
-            <option value="FR" ${monthlyByDay === "FR" ? "selected" : ""}>Friday</option>
-            <option value="SA" ${monthlyByDay === "SA" ? "selected" : ""}>Saturday</option>
-          </select>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Custom -->
-  <div id="customBox" style="margin-top:14px;">
-  <div class="rec-label">Custom Dates</div>
-  <div class="rec-help">Add specific dates (YYYY-MM-DD) and set start/end time for each date.</div>
-
-  <div id="customDatesWrap" class="chips" style="margin-top:10px;">
-    ${
-      (customDates || [])
-        .map((row) => {
-          const startIso = String(row?.start || "").trim();
-          const endIso   = String(row?.end || "").trim();
-
-          const dateVal  = startIso ? startIso.slice(0, 10) : "";
-          const startVal = startIso ? startIso.slice(11, 16) : "";
-          const endVal   = endIso ? endIso.slice(11, 16) : "";
-
-          return `
-            <span class="chip">
-              <input class="ctrl" style="width:160px; padding:6px 8px;"
-                     type="date" name="customDate" value="${esc(dateVal)}" />
-
-              <input class="ctrl" style="width:120px; padding:6px 8px;"
-                     type="time" name="customStart" value="${esc(startVal)}" />
-
-              <input class="ctrl" style="width:120px; padding:6px 8px;"
-                     type="time" name="customEnd" value="${esc(endVal)}" />
-
-              <button type="button" data-remove-date="1" aria-label="Remove">×</button>
-            </span>
-          `;
-        })
-        .join("")
-    }
-  </div>
-
-  <!-- Hidden JSON field that JS will populate on submit -->
-  <input type="hidden" name="recurrenceDatesJson" id="recurrenceDatesJson" value="" />
-
-  <div class="actions" style="margin-top:10px;">
-    <button id="addCustomDate" type="button" class="btn">+ Add Date</button>
-  </div>
-</div>
-
-
-          <!-- ✅ END recurrence UI -->
-
-          <label>Flyer Image (Upload)</label>
-          <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
-          <div class="note">Uploading replaces the Image URL below.</div>
-
-          <!-- Live preview when choosing a file -->
-          <img
-            id="uploadPreview"
-            style="margin-top:10px; width:160px; height:160px; object-fit:cover; border-radius:4px; border:1px solid var(--line); display:none;"
-            alt="Flyer upload preview"
-          />
-
-          <label style="margin-top:12px;">Image URL (optional fallback)</label>
-          <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
-
-          ${
-            editEvent?.imageUrl
-              ? `
-                <div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>
-
-                <div style="margin-top:10px;">
-                  <img
-                    id="existingPreview"
-                    src="${esc(editEvent.imageUrl)}"
-                    style="width:160px; height:160px; object-fit:cover; border-radius:4px; border:1px solid var(--line);"
-                    alt="Current flyer preview"
-                    onerror="this.style.display='none';"
-                  />
+              <div class="rec-box">
+                <div class="checkbox">
+                  <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
+                  <label for="featured" style="margin:0;font-size:12px;font-weight:1100;">Featured event</label>
                 </div>
-              `
-              : ""
-          }
+                <div class="note">Featured events show a badge on the event card and event page.</div>
+              </div>
 
-          <div class="row">
-            <div>
-              <label>Ticket Button Text</label>
-              <input class="ctrl" name="ticketLabel" value="${esc(editEvent?.ticketLabel || "Tickets")}" placeholder="Tickets / Reserve / Buy Tickets..." />
-            </div>
-            <div>
-              <label>Ticket Link (URL)</label>
-              <input class="ctrl" name="ticketUrl" value="${esc(editEvent?.ticketUrl || "")}" placeholder="https://..." />
-              <div class="note">If provided, a ticket button will show on the event page.</div>
-            </div>
+              <div class="rec-box">
+                <div style="font-weight:1100; margin-bottom:6px;">Categories (pick up to 3)</div>
+                <div class="cat-grid">
+                  <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 1</div>${categorySelect(0)}</div>
+                  <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 2</div>${categorySelect(1)}</div>
+                  <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 3</div>${categorySelect(2)}</div>
+                </div>
+                <div class="note">Max 3. Only your allow-list categories are accepted.</div>
+              </div>
+
+              <label>Title</label>
+              <input class="ctrl" name="title" value="${esc(editEvent?.title || "")}" required />
+
+              <label>Description</label>
+              <textarea class="ctrl" name="description" required>${esc(editEvent?.description || "")}</textarea>
+
+              <label>Event Details</label>
+              <textarea class="ctrl" name="eventDetails">${esc(editEvent?.eventDetails || "")}</textarea>
+
+              <label>Good to Know</label>
+              <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Start</label>
+                  <input id="startDateTime" class="ctrl" type="datetime-local" name="startDateTime"
+                    value="${esc(toDateTimeLocalValue(editEvent?.startDateTime))}" required />
+                </div>
+                <div>
+                  <label style="margin-top:0;">End</label>
+                  <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
+                    value="${esc(toDateTimeLocalValue(editEvent?.endDateTime))}" required />
+                </div>
+              </div>
+
+              <!-- Recurring Events -->
+              <div class="rec-box recurrence">
+                <div class="checkbox">
+                  <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
+                  <label for="hasRecurrence" style="margin:0;font-size:12px;font-weight:1100;">Recurring event</label>
+                </div>
+                <div class="note">Weekly/monthly rule or custom dates list.</div>
+
+                <div class="rec-grid" style="margin-top:12px;">
+                  <div>
+                    <label style="margin-top:0;">First date (series starts)</label>
+                    <input class="ctrl" type="date" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
+                    <div class="note">First occurrence date for this series.</div>
+                  </div>
+
+                  <div>
+                    <label style="margin-top:0;">Until date (series ends)</label>
+                    <input class="ctrl" type="date" name="recurrenceUntilDate" value="${esc(recurrenceUntilDateVal)}" />
+                    <div class="note">No occurrences after this date.</div>
+                  </div>
+                </div>
+
+                <div class="rec-grid" style="margin-top:12px;">
+                  <div>
+                    <div class="rec-label">Recurrence Type</div>
+                    <select id="recurrenceType" name="recurrenceType" class="ctrl">
+                      <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
+                      <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
+                      <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
+                      <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Custom Dates</option>
+                    </select>
+                  </div>
+
+                  <div id="intervalRow">
+                    <div class="rec-label">Interval</div>
+                    <input class="ctrl" type="number" min="1" name="recurrenceInterval" value="${esc(recurrenceInterval)}" />
+                    <div class="rec-help">Example: every 1 week, every 2 weeks, every 1 month, etc.</div>
+                  </div>
+                </div>
+
+                <div id="weeklyBox" style="margin-top:14px;">
+                  <div class="rec-label">Days of Week</div>
+                  <div class="dow">
+                    <label class="dow-pill"><input type="checkbox" name="weeklyByDay" value="SU" ${isChecked(weeklyByDay, "SU")} />Sun</label>
+                    <label class="dow-pill"><input type="checkbox" name="weeklyByDay" value="MO" ${isChecked(weeklyByDay, "MO")} />Mon</label>
+                    <label class="dow-pill"><input type="checkbox" name="weeklyByDay" value="TU" ${isChecked(weeklyByDay, "TU")} />Tue</label>
+                    <label class="dow-pill"><input type="checkbox" name="weeklyByDay" value="WE" ${isChecked(weeklyByDay, "WE")} />Wed</label>
+                    <label class="dow-pill"><input type="checkbox" name="weeklyByDay" value="TH" ${isChecked(weeklyByDay, "TH")} />Thu</label>
+                    <label class="dow-pill"><input type="checkbox" name="weeklyByDay" value="FR" ${isChecked(weeklyByDay, "FR")} />Fri</label>
+                    <label class="dow-pill"><input type="checkbox" name="weeklyByDay" value="SA" ${isChecked(weeklyByDay, "SA")} />Sat</label>
+                  </div>
+                  <div class="rec-help">Pick one or more days.</div>
+                </div>
+
+                <div id="monthlyBox" style="margin-top:14px;">
+                  <div class="rec-grid">
+                    <div>
+                      <div class="rec-label">Monthly Mode</div>
+                      <select id="monthlyMode" name="monthlyMode" class="ctrl">
+                        <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
+                        <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday</option>
+                      </select>
+                    </div>
+                    <div></div>
+                  </div>
+
+                  <div id="monthdayBox" style="margin-top:12px;">
+                    <div class="rec-label">Day of Month (1–31)</div>
+                    <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(byMonthday)}" />
+                  </div>
+
+                  <div id="nthweekdayBox" style="margin-top:12px;">
+                    <div class="rec-grid">
+                      <div>
+                        <div class="rec-label">Which Week</div>
+                        <select name="setPos" class="ctrl">
+                          <option value="1" ${setPos === "1" ? "selected" : ""}>1st</option>
+                          <option value="2" ${setPos === "2" ? "selected" : ""}>2nd</option>
+                          <option value="3" ${setPos === "3" ? "selected" : ""}>3rd</option>
+                          <option value="4" ${setPos === "4" ? "selected" : ""}>4th</option>
+                          <option value="-1" ${setPos === "-1" ? "selected" : ""}>Last</option>
+                        </select>
+                      </div>
+                      <div>
+                        <div class="rec-label">Weekday</div>
+                        <select name="monthlyByDay" class="ctrl">
+                          <option value="SU" ${monthlyByDay === "SU" ? "selected" : ""}>Sunday</option>
+                          <option value="MO" ${monthlyByDay === "MO" ? "selected" : ""}>Monday</option>
+                          <option value="TU" ${monthlyByDay === "TU" ? "selected" : ""}>Tuesday</option>
+                          <option value="WE" ${monthlyByDay === "WE" ? "selected" : ""}>Wednesday</option>
+                          <option value="TH" ${monthlyByDay === "TH" ? "selected" : ""}>Thursday</option>
+                          <option value="FR" ${monthlyByDay === "FR" ? "selected" : ""}>Friday</option>
+                          <option value="SA" ${monthlyByDay === "SA" ? "selected" : ""}>Saturday</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="customBox" style="margin-top:14px;">
+                  <div class="rec-label">Custom Dates</div>
+                  <div class="rec-help">Add specific dates and set start/end time for each date.</div>
+
+                  <div id="customDatesWrap" class="chips" style="margin-top:10px;">
+                    ${
+                      (customDates || [])
+                        .map((row) => {
+                          const startIso = String(row?.start || "").trim();
+                          const endIso   = String(row?.end || "").trim();
+
+                          const dateVal  = startIso ? startIso.slice(0, 10) : "";
+                          const startVal = startIso ? startIso.slice(11, 16) : "";
+                          const endVal   = endIso ? endIso.slice(11, 16) : "";
+
+                          return `
+                            <span class="chip">
+                              <input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="${esc(dateVal)}" />
+                              <input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="${esc(startVal)}" />
+                              <input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="${esc(endVal)}" />
+                              <button type="button" data-remove-date="1" aria-label="Remove">×</button>
+                            </span>
+                          `;
+                        })
+                        .join("")
+                    }
+                  </div>
+
+                  <input type="hidden" name="recurrenceDatesJson" id="recurrenceDatesJson" value="" />
+
+                  <div class="actions" style="margin-top:10px;">
+                    <button id="addCustomDate" type="button" class="btn">+ Add Date</button>
+                  </div>
+                </div>
+              </div>
+
+              <label>Flyer Image (Upload)</label>
+              <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
+              <div class="note">Uploading replaces the Image URL below.</div>
+
+              <img id="uploadPreview" style="margin-top:10px; width:160px; height:160px; object-fit:cover; border-radius:14px; border:1px solid var(--line); display:none;" alt="Flyer upload preview" />
+
+              <label style="margin-top:12px;">Image URL (optional fallback)</label>
+              <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
+
+              ${
+                editEvent?.imageUrl
+                  ? `
+                    <div class="note">Current: <a href="${esc(editEvent.imageUrl)}" target="_blank" rel="noopener">View image</a></div>
+                    <div style="margin-top:10px;">
+                      <img id="existingPreview" src="${esc(editEvent.imageUrl)}"
+                        style="width:160px; height:160px; object-fit:cover; border-radius:14px; border:1px solid var(--line);"
+                        alt="Current flyer preview" onerror="this.style.display='none';" />
+                    </div>
+                  `
+                  : ""
+              }
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Ticket Button Text</label>
+                  <input class="ctrl" name="ticketLabel" value="${esc(editEvent?.ticketLabel || "Tickets")}" placeholder="Tickets / Reserve / Buy Tickets..." />
+                </div>
+                <div>
+                  <label style="margin-top:0;">Ticket Link (URL)</label>
+                  <input class="ctrl" name="ticketUrl" value="${esc(editEvent?.ticketUrl || "")}" placeholder="https://..." />
+                  <div class="note">If provided, a ticket button will show on the event page.</div>
+                </div>
+              </div>
+
+              <label>Location</label>
+              <input class="ctrl" name="location" value="${esc(editEvent?.location || "")}" required />
+
+              <label>Organizer</label>
+              <input class="ctrl" name="organizer" value="${esc(editEvent?.organizer || "")}" required />
+
+              <div class="actions">
+                <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
+                ${editEvent ? `<a class="btn btn-link" href="/admin?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}">Cancel</a>` : ""}
+                <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
+              </div>
+            </form>
           </div>
 
-          <label>Location</label>
-          <input class="ctrl" name="location" value="${esc(editEvent?.location || "")}" required />
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Existing events</h2>
+                <p class="sub">Edit, delete, and check stats</p>
+              </div>
+              <div class="right">
+                <span class="small">Showing <strong>${showingFrom}–${showingTo}</strong> of <strong>${total}</strong></span>
+              </div>
+            </div>
 
-          <label>Organizer</label>
-          <input class="ctrl" name="organizer" value="${esc(editEvent?.organizer || "")}" required />
+            ${pagerHtml}
 
-          <div class="actions">
-            <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
-            ${editEvent ? `<a class="btn btn-link" href="/admin">Cancel</a>` : ""}
-            <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
+            <div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px; flex-wrap:wrap;">
+              <input id="eventSearch" class="ctrl" type="text" placeholder="Instant filter on this page..." />
+              <button id="eventSearchClear" type="button" class="btn">Clear</button>
+            </div>
+
+            <div id="eventsList" style="display:grid; gap:12px;">${listHtml}</div>
+            <div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
+
+            ${pagerHtml}
           </div>
-        </form>
-      </div>
+        </section>
 
-      <div class="card">
-        <div class="card">
-  <h1 style="margin-bottom:10px;">Existing Events</h1>
-
-  ${pagerHtml}
-
-  <div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px;">
-    <input id="eventSearch" class="ctrl" type="text"
-           placeholder="Search by title, slug, location, or ID..." />
-    <button id="eventSearchClear" type="button" class="btn">Clear</button>
-  </div>
-
-  <div id="eventsList" style="display:grid; gap:12px;">${listHtml}</div>
-  <div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
-
-  ${pagerHtml}
-</div>
-
+      </main>
     </div>
 
     <script>
-
-
-function toISOWithOffsetFromLocalInput(dtLocal) {
-  // dtLocal like "2026-03-20T12:00"
-  const d = new Date(dtLocal);
-  if (isNaN(d.getTime())) return "";
-
-  const pad = (n) => String(n).padStart(2, "0");
-
-  const y = d.getFullYear();
-  const m = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const hh = pad(d.getHours());
-  const mm = pad(d.getMinutes());
-  const ss = "00";
-
-  const offsetMin = -d.getTimezoneOffset(); // browser tz
-  const sign = offsetMin >= 0 ? "+" : "-";
-  const abs = Math.abs(offsetMin);
-  const offH = pad(Math.floor(abs / 60));
-  const offM = pad(abs % 60);
-
-  return y + "-" + m + "-" + day + "T" + hh + ":" + mm + ":" + ss + sign + offH + ":" + offM;
-}
-
-(function(){
-  const form = document.querySelector('form[action="/admin/events"]');
-  if(!form) return;
-
-  form.addEventListener("submit", function(){
-    const startLocal = document.getElementById("startDateTime")?.value || "";
-    const endLocal   = document.getElementById("endDateTime")?.value || "";
-
-    const startISO = toISOWithOffsetFromLocalInput(startLocal);
-    const endISO   = toISOWithOffsetFromLocalInput(endLocal);
-
-    const startHidden = document.getElementById("startDateTimeISO");
-    const endHidden   = document.getElementById("endDateTimeISO");
-
-    if(startHidden) startHidden.value = startISO;
-    if(endHidden) endHidden.value = endISO;
-
-    // For custom recurrence: serialize the chips into recurrenceDatesJson
-    const recHidden = document.getElementById("recurrenceDatesJson");
-    const hasRec = document.getElementById("hasRecurrence")?.checked;
-    const recType = (document.getElementById("recurrenceType")?.value || "").toLowerCase();
-
-    if (recHidden) {
-      if (hasRec && recType === "custom") {
-        const wrap = document.getElementById("customDatesWrap");
-        const chips = wrap ? wrap.querySelectorAll(".chip") : [];
-
-        const fallbackStart = (startLocal && startLocal.length >= 16) ? startLocal.slice(11,16) : "00:00";
-        const fallbackEnd = (endLocal && endLocal.length >= 16) ? endLocal.slice(11,16) : fallbackStart;
-
-        const items = [];
-        chips.forEach((chip) => {
-          const date = chip.querySelector('input[name="customDate"]')?.value || "";
-          if (!date) return;
-          const st = chip.querySelector('input[name="customStart"]')?.value || "";
-          const en = chip.querySelector('input[name="customEnd"]')?.value || "";
-
-          const startIso = toISOWithOffsetFromLocalInput(date + "T" + (st || fallbackStart));
-          const endIso   = toISOWithOffsetFromLocalInput(date + "T" + (en || fallbackEnd));
-          if (!startIso || !endIso) return;
-
-          items.push({ date: date, start: startIso, end: endIso });
-        });
-
-        recHidden.value = JSON.stringify(items);
-      } else {
-        recHidden.value = "";
+      // ---- helpers ----
+      function toISOWithOffsetFromLocalInput(dtLocal) {
+        var d = new Date(dtLocal);
+        if (isNaN(d.getTime())) return "";
+        function pad(n){ return String(n).padStart(2, "0"); }
+        var y = d.getFullYear();
+        var m = pad(d.getMonth() + 1);
+        var day = pad(d.getDate());
+        var hh = pad(d.getHours());
+        var mm = pad(d.getMinutes());
+        var ss = "00";
+        var offsetMin = -d.getTimezoneOffset();
+        var sign = offsetMin >= 0 ? "+" : "-";
+        var abs = Math.abs(offsetMin);
+        var offH = pad(Math.floor(abs / 60));
+        var offM = pad(abs % 60);
+        return y + "-" + m + "-" + day + "T" + hh + ":" + mm + ":" + ss + sign + offH + ":" + offM;
       }
-    }
-  });
-})();
 
+      // ---- Date ISO fields on submit + custom recurrence serialization ----
+      (function(){
+        var form = document.querySelector('form[action="/admin/events"]');
+        if(!form) return;
 
-            
+        form.addEventListener("submit", function(){
+          var startLocal = (document.getElementById("startDateTime") || {}).value || "";
+          var endLocal   = (document.getElementById("endDateTime") || {}).value || "";
+
+          var startISO = toISOWithOffsetFromLocalInput(startLocal);
+          var endISO   = toISOWithOffsetFromLocalInput(endLocal);
+
+          var startHidden = document.getElementById("startDateTimeISO");
+          var endHidden   = document.getElementById("endDateTimeISO");
+          if(startHidden) startHidden.value = startISO;
+          if(endHidden) endHidden.value = endISO;
+
+          var recHidden = document.getElementById("recurrenceDatesJson");
+          var hasRec = !!((document.getElementById("hasRecurrence") || {}).checked);
+          var recType = String(((document.getElementById("recurrenceType") || {}).value) || "").toLowerCase();
+
+          if (recHidden) {
+            if (hasRec && recType === "custom") {
+              var wrap = document.getElementById("customDatesWrap");
+              var chips = wrap ? wrap.querySelectorAll(".chip") : [];
+              var fallbackStart = (startLocal && startLocal.length >= 16) ? startLocal.slice(11,16) : "00:00";
+              var fallbackEnd = (endLocal && endLocal.length >= 16) ? endLocal.slice(11,16) : fallbackStart;
+
+              var items = [];
+              for (var i=0;i<chips.length;i++){
+                var chip = chips[i];
+                var date = (chip.querySelector('input[name="customDate"]') || {}).value || "";
+                if (!date) continue;
+                var st = (chip.querySelector('input[name="customStart"]') || {}).value || "";
+                var en = (chip.querySelector('input[name="customEnd"]') || {}).value || "";
+                var sIso = toISOWithOffsetFromLocalInput(date + "T" + (st || fallbackStart));
+                var eIso = toISOWithOffsetFromLocalInput(date + "T" + (en || fallbackEnd));
+                if (!sIso || !eIso) continue;
+                items.push({ date: date, start: sIso, end: eIso });
+              }
+              recHidden.value = JSON.stringify(items);
+            } else {
+              recHidden.value = "";
+            }
+          }
+        });
+      })();
+
       // Auto-set End = Start + 2 hours (only if end is empty)
       (function(){
         var startEl = document.getElementById("startDateTime");
@@ -1110,60 +1364,61 @@ function toISOWithOffsetFromLocalInput(dtLocal) {
         });
       })();
 
-(function () {
-  var fileInput = document.getElementById("imageFileInput");
-  var preview = document.getElementById("uploadPreview");
-  if (!fileInput || !preview) return;
+      // Upload preview
+      (function () {
+        var fileInput = document.getElementById("imageFileInput");
+        var preview = document.getElementById("uploadPreview");
+        if (!fileInput || !preview) return;
 
-  fileInput.addEventListener("change", function () {
-    var f = fileInput.files && fileInput.files[0];
-    if (!f) {
-      preview.style.display = "none";
-      preview.src = "";
-      return;
-    }
-    preview.src = URL.createObjectURL(f);
-    preview.style.display = "block";
-  });
-})();
+        fileInput.addEventListener("change", function () {
+          var f = fileInput.files && fileInput.files[0];
+          if (!f) {
+            preview.style.display = "none";
+            preview.src = "";
+            return;
+          }
+          preview.src = URL.createObjectURL(f);
+          preview.style.display = "block";
+        });
+      })();
 
-(function(){
-  var input = document.getElementById('eventSearch');
-  var clearBtn = document.getElementById('eventSearchClear');
-  if(!input) return;
+      // Instant filter (page-only)
+      (function(){
+        var input = document.getElementById('eventSearch');
+        var clearBtn = document.getElementById('eventSearchClear');
+        if(!input) return;
 
-  function normalize(s){ return String(s || '').toLowerCase(); }
+        function normalize(s){ return String(s || '').toLowerCase(); }
 
-  function applyFilter(){
-    var q = normalize(input.value).trim();
-    var cards = document.querySelectorAll('.event-card[data-eid]');
-    var shown = 0;
+        function applyFilter(){
+          var q = normalize(input.value).trim();
+          var cards = document.querySelectorAll('.event-card[data-eid]');
+          var shown = 0;
 
-    for(var i=0;i<cards.length;i++){
-      var card = cards[i];
-      var hay = normalize(card.textContent);
-      var ok = !q || hay.indexOf(q) !== -1;
-      card.style.display = ok ? '' : 'none';
-      if(ok) shown++;
-    }
+          for(var i=0;i<cards.length;i++){
+            var card = cards[i];
+            var hay = normalize(card.textContent);
+            var ok = !q || hay.indexOf(q) !== -1;
+            card.style.display = ok ? '' : 'none';
+            if(ok) shown++;
+          }
 
-    var empty = document.getElementById('eventsEmpty');
-    if(empty) empty.style.display = shown ? 'none' : '';
-  }
+          var empty = document.getElementById('eventsEmpty');
+          if(empty) empty.style.display = shown ? 'none' : '';
+        }
 
-  input.addEventListener('input', applyFilter);
-  if(clearBtn){
-    clearBtn.addEventListener('click', function(){
-      input.value = '';
-      applyFilter();
-      input.focus();
-    });
-  }
+        input.addEventListener('input', applyFilter);
+        if(clearBtn){
+          clearBtn.addEventListener('click', function(){
+            input.value = '';
+            applyFilter();
+            input.focus();
+          });
+        }
+        applyFilter();
+      })();
 
-  applyFilter();
-})();
-
-      // Recurrence UI show/hide
+      // Recurrence UI show/hide + custom chips
       (function(){
         var hasRecEl = document.getElementById("hasRecurrence");
         var typeEl = document.getElementById("recurrenceType");
@@ -1234,22 +1489,19 @@ function toISOWithOffsetFromLocalInput(dtLocal) {
             var chip = document.createElement("span");
             chip.className = "chip";
 
-            // Prefill times from the main Start/End fields (HH:MM)
             var startLocal = (document.getElementById("startDateTime") && document.getElementById("startDateTime").value) ? document.getElementById("startDateTime").value : "";
             var endLocal   = (document.getElementById("endDateTime") && document.getElementById("endDateTime").value) ? document.getElementById("endDateTime").value : "";
             var startTime = startLocal && startLocal.length >= 16 ? startLocal.slice(11,16) : "";
             var endTime   = endLocal && endLocal.length >= 16 ? endLocal.slice(11,16) : startTime;
 
-            // no backticks in the HTML, avoid escaping issues
             chip.innerHTML =
-              '<input class="ctrl" style="width:160px; padding:6px 8px;" type="date" name="customDate" value="" />' +
-              '<input class="ctrl" style="width:120px; padding:6px 8px;" type="time" name="customStart" value="" />' +
-              '<input class="ctrl" style="width:120px; padding:6px 8px;" type="time" name="customEnd" value="" />' +
+              '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="" />' +
+              '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="" />' +
+              '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="" />' +
               '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
 
             wrap.appendChild(chip);
 
-            // Set default times after append
             var st = chip.querySelector('input[name="customStart"]');
             var en = chip.querySelector('input[name="customEnd"]');
             if(st && startTime) st.value = startTime;
@@ -1258,20 +1510,13 @@ function toISOWithOffsetFromLocalInput(dtLocal) {
             attachRemove();
           });
         }
-})();
+      })();
 
-      // Live going/interested refresh (optional, safe)
+      // Live going/interested/views refresh (safe)
       (function(){
         async function refreshOne(card){
           var id = card.getAttribute("data-eid");
           if(!id) return;
-
-            var v = card.querySelector(".js-views");
-var u = card.querySelector(".js-unique");
-
-if (v && e && typeof e.viewCount !== "undefined") v.textContent = String(Number(e.viewCount || 0));
-if (u && e && typeof e.uniqueViewCount !== "undefined") u.textContent = String(Number(e.uniqueViewCount || 0));
-
 
           try{
             var res = await fetch("/events/" + encodeURIComponent(id), { headers: { "Accept": "application/json" } });
@@ -1279,11 +1524,15 @@ if (u && e && typeof e.uniqueViewCount !== "undefined") u.textContent = String(N
             var json = await res.json();
             var e = (json && json.data) ? json.data : json;
 
+            var v = card.querySelector(".js-views");
+            var u = card.querySelector(".js-unique");
             var g = card.querySelector(".js-going");
             var i = card.querySelector(".js-interested");
 
-            if(g && e && typeof e.goingCount !== "undefined") g.textContent = String(Number(e.goingCount || 0));
-            if(i && e && typeof e.interestedCount !== "undefined") i.textContent = String(Number(e.interestedCount || 0));
+            if(v && typeof e.viewCount !== "undefined") v.textContent = String(Number(e.viewCount || 0));
+            if(u && typeof e.uniqueViewCount !== "undefined") u.textContent = String(Number(e.uniqueViewCount || 0));
+            if(g && typeof e.goingCount !== "undefined") g.textContent = String(Number(e.goingCount || 0));
+            if(i && typeof e.interestedCount !== "undefined") i.textContent = String(Number(e.interestedCount || 0));
           }catch(_){}
         }
 
@@ -1294,7 +1543,86 @@ if (u && e && typeof e.uniqueViewCount !== "undefined") u.textContent = String(N
           }
         }
         tick();
-        setInterval(tick, 3000);
+        setInterval(tick, 4000);
+      })();
+
+      // Simple bar chart (no libraries)
+      (function(){
+        var data = ${chartDataJson};
+        var c = document.getElementById("eventsChart");
+        if(!c || !c.getContext) return;
+        var ctx = c.getContext("2d");
+        if(!ctx) return;
+
+        function draw(){
+          // handle DPR
+          var dpr = window.devicePixelRatio || 1;
+          var cssW = c.clientWidth || 900;
+          var cssH = 220;
+          c.width = Math.floor(cssW * dpr);
+          c.height = Math.floor(cssH * dpr);
+          ctx.setTransform(dpr,0,0,dpr,0,0);
+
+          ctx.clearRect(0,0,cssW,cssH);
+
+          var padL = 36, padR = 12, padT = 10, padB = 28;
+          var w = cssW - padL - padR;
+          var h = cssH - padT - padB;
+
+          // axes
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = "rgba(15,23,42,.10)";
+          ctx.beginPath();
+          ctx.moveTo(padL, padT);
+          ctx.lineTo(padL, padT + h);
+          ctx.lineTo(padL + w, padT + h);
+          ctx.stroke();
+
+          var maxV = 1;
+          for(var i=0;i<data.values.length;i++){ if(data.values[i] > maxV) maxV = data.values[i]; }
+
+          // grid lines (4)
+          ctx.fillStyle = "rgba(15,23,42,.55)";
+          ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+          for(var g=0; g<=4; g++){
+            var y = padT + (h * g / 4);
+            ctx.strokeStyle = "rgba(15,23,42,.06)";
+            ctx.beginPath();
+            ctx.moveTo(padL, y);
+            ctx.lineTo(padL + w, y);
+            ctx.stroke();
+
+            var val = Math.round(maxV * (1 - g/4));
+            ctx.fillText(String(val), 6, y + 4);
+          }
+
+          // bars
+          var n = data.values.length;
+          var gap = 8;
+          var barW = Math.max(10, Math.floor((w - gap*(n-1)) / n));
+          for(var b=0;b<n;b++){
+            var v = data.values[b];
+            var bh = Math.round((v / maxV) * (h - 6));
+            var x = padL + b * (barW + gap);
+            var y2 = padT + h - bh;
+
+            ctx.fillStyle = "rgba(0,192,139,.65)";
+            ctx.fillRect(x, y2, barW, bh);
+
+            ctx.fillStyle = "rgba(15,23,42,.65)";
+            ctx.font = "11px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+            var label = data.labels[b];
+            ctx.save();
+            ctx.translate(x + barW/2, padT + h + 16);
+            ctx.rotate(-0.45);
+            ctx.textAlign = "center";
+            ctx.fillText(label, 0, 0);
+            ctx.restore();
+          }
+        }
+
+        draw();
+        window.addEventListener("resize", function(){ draw(); });
       })();
     </script>
   </body>
