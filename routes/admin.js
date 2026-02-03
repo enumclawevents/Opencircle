@@ -538,7 +538,7 @@ return `
     const chartRows = await all(
       `SELECT date(startDateTime) AS d, COUNT(*) AS n
        FROM events
-       ${dashAnd}date(startDateTime) >= date('now','-13 day')`
+       ${dashAnd}date(startDateTime) >= date('now','-13 day')
        GROUP BY d
        ORDER BY d`
     );
