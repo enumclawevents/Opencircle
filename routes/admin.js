@@ -471,21 +471,21 @@ return `
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/assets/brand/favicon.ico" />
-    <title>OpenCircle Admin</title>
+    <title>Dashboard</title>
     <style>
       :root{
-        --bg:#f3f6fb;
-        --panel:#ffffff;
-        --panel2:#f8fafc;
-        --text:#0f172a;
-        --muted:#64748b;
-        --line:rgba(15,23,42,.10);
+        --bg:#0b0f14;
+        --panel:#111827;
+        --panel2:var(--text);
+        --text:#e5e7eb;
+        --muted:#94a3b8;
+        --line:rgba(148,163,184,.16);
         --brand:#00c08b;
         --brand2:#0ea5e9;
         --danger:#ef4444;
-        --shadow:0 18px 40px rgba(15,23,42,.08);
-        --radius:14px;
-        --radius2:10px;
+        --shadow:0 18px 40px rgba(0,0,0,.45);
+        --radius:8px;
+        --radius2:8px;
       }
 
       *{ box-sizing:border-box; }
@@ -506,14 +506,14 @@ return `
         position:sticky; top:0; height:100vh;
       }
       .rail .dot{
-        width:42px; height:42px; border-radius:14px;
+        width:42px; height:42px; border-radius: 8px;
         background: rgba(0,192,139,.12);
         border: 1px solid rgba(0,192,139,.22);
         display:flex; align-items:center; justify-content:center;
       }
       .rail .dot img{ width:26px; height:26px; display:block; }
       .rail .ico{
-        width:42px; height:42px; border-radius:14px;
+        width:42px; height:42px; border-radius: 8px;
         display:flex; align-items:center; justify-content:center;
         color: var(--muted);
         border: 1px solid transparent;
@@ -527,7 +527,7 @@ return `
       }
       .rail .spacer{ flex:1; }
       .rail .user{
-        width:42px; height:42px; border-radius:14px;
+        width:42px; height:42px; border-radius: 8px;
         background: linear-gradient(135deg, rgba(14,165,233,.18), rgba(0,192,139,.18));
         border: 1px solid var(--line);
       }
@@ -549,12 +549,12 @@ return `
       .nav a{
         text-decoration:none; color:var(--muted);
         display:flex; align-items:center; gap:10px;
-        padding:10px 12px; border-radius:12px;
+        padding:10px 12px; border-radius: 8px;
         border:1px solid transparent;
         font-weight:900; font-size:13px;
       }
       .nav a .n-dot{
-        width:8px; height:8px; border-radius:999px; background: rgba(100,116,139,.35);
+        width:8px; height:8px; border-radius: 8px; background: rgba(100,116,139,.35);
       }
       .nav a.active{
         color:var(--text);
@@ -582,7 +582,7 @@ return `
         display:flex; align-items:center; gap:10px;
         background:var(--panel);
         border:1px solid var(--line);
-        border-radius: 14px;
+        border-radius: 8px;
         padding: 10px 12px;
         box-shadow: var(--shadow);
       }
@@ -596,7 +596,7 @@ return `
       .card{
         background:var(--panel);
         border:1px solid var(--line);
-        border-radius: var(--radius);
+        border-radius: 8px;
         box-shadow: var(--shadow);
         padding: 16px;
       }
@@ -610,7 +610,7 @@ return `
       .metric{
         display:flex; align-items:flex-end; justify-content:space-between; gap:10px;
         padding:14px;
-        border-radius: var(--radius);
+        border-radius: 8px;
         background: var(--panel);
         border:1px solid var(--line);
         box-shadow: var(--shadow);
@@ -619,7 +619,7 @@ return `
       .metric .v{ font-size:22px; font-weight:1100; letter-spacing:.2px; margin-top:6px; }
       .metric .tag{
         font-size:12px; font-weight:1000;
-        padding:6px 10px; border-radius:999px;
+        padding:6px 10px; border-radius: 8px;
         background: rgba(0,192,139,.12);
         border: 1px solid rgba(0,192,139,.22);
         color: #065f46;
@@ -664,7 +664,7 @@ return `
         width:100%;
         padding: 11px 12px;
         border: 1px solid var(--line);
-        border-radius: 12px;
+        border-radius: 8px;
         background: var(--panel2);
         color: var(--text);
         font-size: 14px;
@@ -673,7 +673,7 @@ return `
       .ctrl:focus, input:focus, textarea:focus, select:focus{
         box-shadow: 0 0 0 4px rgba(0,192,139,.12);
         border-color: rgba(0,192,139,.35);
-        background: #fff;
+        background: var(--panel);
       }
       textarea{ min-height: 110px; resize: vertical; }
       .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
@@ -681,7 +681,7 @@ return `
       .btn{
         display:inline-flex; align-items:center; justify-content:center;
         padding: 10px 14px;
-        border-radius: 12px;
+        border-radius: 8px;
         border: 1px solid var(--line);
         background: var(--panel);
         cursor:pointer;
@@ -719,7 +719,7 @@ return `
       .mini{
         border: 1px solid var(--line);
         background: var(--panel2);
-        border-radius: var(--radius);
+        border-radius: 8px;
         padding: 12px;
       }
       .mini + .mini{ margin-top:10px; }
@@ -733,9 +733,9 @@ return `
       /* Existing events list */
       .event-card{
         border: 1px solid var(--line);
-        border-radius: var(--radius);
+        border-radius: 8px;
         padding: 14px;
-        background: #fff;
+        background: var(--panel);
         display:flex;
         justify-content:space-between;
         gap:16px;
@@ -751,7 +751,7 @@ return `
         background: rgba(0,192,139,.12);
         border: 1px solid rgba(0,192,139,.22);
         padding: 6px 10px;
-        border-radius: 999px;
+        border-radius: 8px;
         font-weight:1000;
         color:#065f46;
         display:inline-flex; align-items:center; gap:6px;
@@ -763,14 +763,14 @@ return `
       .event-thumb-img{
         width: 116px; height: 116px;
         object-fit: cover;
-        border-radius: 14px;
+        border-radius: 8px;
         border: 1px solid var(--line);
         display:block;
       }
       .thumb-empty,
       .thumb-fallback{
         width: 116px; height: 116px;
-        border-radius: 14px;
+        border-radius: 8px;
         border: 1px solid var(--line);
         display:flex; align-items:center; justify-content:center;
         font-size: 12px; color: var(--muted);
@@ -784,7 +784,7 @@ return `
       .event-stats{
         width: 170px; flex: 0 0 170px;
         border: 1px solid var(--line);
-        border-radius: var(--radius);
+        border-radius: 8px;
         padding: 12px;
         background: var(--panel2);
       }
@@ -807,13 +807,13 @@ return `
       @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
 
       /* Recurrence UI polish (keep your functionality, just match the new look) */
-      .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+      .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: 8px; padding: 14px; }
       .rec-grid{ display:grid; grid-template-columns: 1.2fr .8fr; gap: 16px; align-items: start; }
       @media (max-width: 900px){ .rec-grid{ grid-template-columns: 1fr; } }
       .rec-label{ font-weight:1100; font-size: 12px; margin-bottom: 8px; color: var(--text); letter-spacing: .2px; }
       .rec-help{ margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.4; }
 
-      .rec-box{ border:1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--panel2); margin-top: 10px; }
+      .rec-box{ border:1px solid var(--line); border-radius: 8px; padding: 14px; background: var(--panel2); margin-top: 10px; }
       .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:1000; }
       .checkbox input{ width:auto; }
 
@@ -824,9 +824,9 @@ return `
         justify-content:center;
         gap: 8px;
         padding: 10px 12px;
-        border-radius: 12px;
+        border-radius: 8px;
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--panel);
         color: var(--text);
         font-weight: 1000;
         font-size: 13px;
@@ -844,9 +844,9 @@ return `
       .chip{
         display:inline-flex; align-items:center; gap:8px;
         border:1px solid var(--line);
-        border-radius: 14px;
+        border-radius: 8px;
         padding: 8px 10px;
-        background: #fff;
+        background: var(--panel);
         font-size: 13px;
       }
       .chip button{ border:0; background: transparent; cursor:pointer; font-weight:1000; color: #b91c1c; }
@@ -855,7 +855,24 @@ return `
       .sectionTitle .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 
       .small{ font-size:12px; color:var(--muted); font-weight:900; }
-    </style>
+    
+
+      /* Dark theme tweaks */
+      input, textarea, select{
+        background: var(--panel2);
+        color: var(--text);
+        border: 1px solid var(--line);
+      }
+      input::placeholder, textarea::placeholder{ color: rgba(148,163,184,.75); }
+      .btn, button{
+        border: 1px solid var(--line);
+      }
+      .chip{
+        background: rgba(148,163,184,.10);
+        border: 1px solid var(--line);
+      }
+      a{ color: var(--text); }
+</style>
   </head>
   <body>
     <div class="app">
@@ -877,7 +894,7 @@ return `
         <div class="sb-brand">
           <img src="/assets/brand/oc-logo.svg" alt="OpenCircle" onerror="this.style.display='none';" />
           <div>
-            <div class="sb-title">OpenCircle Admin</div>
+            <div class="sb-title">Dashboard</div>
             <div class="sb-sub">Events dashboard</div>
           </div>
         </div>
@@ -980,7 +997,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Top locations</h2>
-                <p class="sub">Most frequent locations</p>
+                <p class="sub">Most frequent event locations</p>
               </div>
             </div>
 
