@@ -366,10 +366,10 @@ return `
         <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}"
            target="_blank" rel="noopener">View JSON</a>
 
-        <a class="btn btn-edit" href="/admin?edit=${e.id}">Edit</a>
+        <a class="btn btn-edit" href="/admin?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}">Edit</a>
 
         <form method="POST"
-              action="/admin/events/${e.id}/delete"
+              action="/admin/events/${e.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}"
               class="inline"
               onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
           <button type="submit" class="btn btn-danger">Delete</button>
@@ -987,18 +987,23 @@ a.btn:hover{
       </div>
 
       <div class="card">
-        <h1 style="margin-bottom:10px;">Existing Events</h1>
+        <div class="card">
+  <h1 style="margin-bottom:10px;">Existing Events</h1>
 
-<div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px;">
-  <input id="eventSearch" class="ctrl" type="text"
-         placeholder="Search by title, slug, location, or ID..." />
-  <button id="eventSearchClear" type="button" class="btn">Clear</button>
+  ${pagerHtml}
+
+  <div style="display:flex; gap:12px; align-items:center; margin: 10px 0 14px;">
+    <input id="eventSearch" class="ctrl" type="text"
+           placeholder="Search by title, slug, location, or ID..." />
+    <button id="eventSearchClear" type="button" class="btn">Clear</button>
+  </div>
+
+  <div id="eventsList" style="display:grid; gap:12px;">${listHtml}</div>
+  <div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
+
+  ${pagerHtml}
 </div>
 
-<div id="eventsList" style="display:grid; gap:12px;">${listHtml}</div>
-<div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
-
-      </div>
     </div>
 
     <script>
@@ -1566,8 +1571,18 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       }
       vals.push(Number(id));
 
-      await run(`UPDATE events SET ${sets.join(", ")} WHERE id=?`, vals);
-      return res.redirect(`/admin?edit=${encodeURIComponent(id)}`);
+await run(`UPDATE events SET ${sets.join(", ")} WHERE id=?`, vals);
+
+// preserve list state (pg/limit/q) if present
+const pg = req.query.pg ? String(req.query.pg) : "1";
+const limit = req.query.limit ? String(req.query.limit) : "50";
+const q = req.query.q ? String(req.query.q) : "";
+
+const sp = new URLSearchParams({ edit: String(id), pg, limit });
+if (q) sp.set("q", q);
+
+return res.redirect(`/admin?${sp.toString()}`);
+
     } else {
       const insertCols = [];
       const placeholders = [];
@@ -1581,11 +1596,20 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         }
       }
 
-      await run(
-        `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
-        insertVals
-      );
-      return res.redirect("/admin");
+await run(
+  `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
+  insertVals
+);
+
+const pg = req.query.pg ? String(req.query.pg) : "1";
+const limit = req.query.limit ? String(req.query.limit) : "50";
+const q = req.query.q ? String(req.query.q) : "";
+
+const sp = new URLSearchParams({ pg, limit });
+if (q) sp.set("q", q);
+
+return res.redirect(`/admin?${sp.toString()}`);
+
     }
   } catch (err) {
     console.error(err);
@@ -1599,7 +1623,16 @@ router.post("/events/:id/delete", async (req, res) => {
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
 
     await run("DELETE FROM events WHERE id = ?", [id]);
-    res.redirect("/admin");
+
+const pg = req.query.pg ? String(req.query.pg) : "1";
+const limit = req.query.limit ? String(req.query.limit) : "50";
+const q = req.query.q ? String(req.query.q) : "";
+
+const sp = new URLSearchParams({ pg, limit });
+if (q) sp.set("q", q);
+
+res.redirect(`/admin?${sp.toString()}`);
+
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error.");
