@@ -1285,6 +1285,30 @@ return `
         .sectionTitle .rightRow{ flex-wrap:wrap; }
       }
 
+      /* Chart header layout */
+      .sectionTitle--chart{
+        flex-direction: row;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .sectionTitle--chart .left{
+        display:flex;
+        flex-direction:column;
+        gap:6px;
+      }
+      .sectionTitle--chart .subcounts{
+        display:flex;
+        gap:14px;
+        flex-wrap:wrap;
+      }
+      @media (max-width: 900px){
+        .sectionTitle--chart{
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        .sectionTitle--chart .right{ width:100%; }
+      }
 
       .small{ font-size:12px; color:var(--muted); font-weight:600; }
     
@@ -1392,10 +1416,14 @@ return `
         <!-- Charts -->
         <section class="grid2">
           <div class="card">
-            <div class="sectionTitle">
-              <div>
+            <div class="sectionTitle sectionTitle--chart">
+              <div class="left">
                 <h2>Events over time</h2>
                 <p class="sub" id="chartRangeLabel">Last 14 days (by start date)</p>
+                <div class="subcounts">
+                  <span class="small">Past: <strong>${esc(stats.past)}</strong></span>
+                  <span class="small">Upcoming: <strong>${esc(stats.upcoming)}</strong></span>
+                </div>
               </div>
               <div class="right">
                 <div class="seg" id="chartViewSeg" aria-label="Chart view">
@@ -1404,8 +1432,6 @@ return `
                   <button type="button" data-view="monthly">Monthly</button>
                   <button type="button" data-view="yearly">Yearly</button>
                 </div>
-                <span class="small">Past: <strong>${esc(stats.past)}</strong></span>
-                <span class="small">Upcoming: <strong>${esc(stats.upcoming)}</strong></span>
               </div>
             </div>
             <div class="chart-wrap" id="eventsChartWrap">
