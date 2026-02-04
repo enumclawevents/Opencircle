@@ -558,8 +558,8 @@ return `
         COUNT(*) AS c
       FROM events
       GROUP BY organizer
-      ORDER BY c DESC
-      LIMIT 7
+      ORDER BY c DESC, organizer ASC
+      LIMIT 12
     `);
 
     const topOrganizersHtml = orgRows
@@ -887,7 +887,6 @@ return `
       .grid2 > .card:last-child{ grid-column: span 1; display:flex; flex-direction:column; }
 
       .grid2 > .card:last-child .sectionTitle{ margin-bottom:12px; }
-      .grid2 > .card:last-child .mini{ flex:1 1 auto; }
       .grid2 > .card:last-child .mini + .mini{ margin-top:var(--gap); }
 
       .gridMain{
@@ -1045,18 +1044,21 @@ return `
         background: var(--brand);
         border-color: var(--brand);
         color:#ffffff;
+        font-size:14px;
       }
       .btn-primary:hover{ background: #00b681; border-color: #00b681; }
       .btn-danger{
         background: rgba(239,68,68,.10);
         border-color: rgba(239,68,68,.18);
         color: #991b1b;
+        font-size:14px;
       }
       .btn-link{
         background: transparent;
         border-color: transparent;
         color: var(--brand);
         padding: 8px 10px;
+        font-size:14px;
       }
 
       .actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 14px; }
@@ -1099,6 +1101,7 @@ return `
         padding: 7px 10px;
         border-radius: 999px;
         font-weight: 650;
+        font-size:14px;
         cursor: pointer;
         line-height: 1;
       }
