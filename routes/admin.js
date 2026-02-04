@@ -881,8 +881,12 @@ return `
         align-items: stretch;
       }
       .grid2 > .card{ height:100%; }
-      .grid2 > .card:first-child{ grid-column: span 3; }
-      .grid2 > .card:last-child{ grid-column: span 1; }
+      .grid2 > .card:first-child{ grid-column: span 3; display:flex; flex-direction:column; }
+      .grid2 > .card:last-child{ grid-column: span 1; display:flex; flex-direction:column; }
+
+      .grid2 > .card:last-child .sectionTitle{ margin-bottom:12px; }
+      .grid2 > .card:last-child .mini{ flex:1 1 auto; }
+      .grid2 > .card:last-child .mini + .mini{ margin-top:var(--gap); }
 
       .gridMain{
         display:grid;
