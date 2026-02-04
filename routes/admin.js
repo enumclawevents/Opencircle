@@ -617,7 +617,7 @@ return `
         --sidebar-bg:#0b1220;
         --sidebar-panel:#0f172a;
         --sidebar-text:#e5e7eb;
-        --sidebar-muted:#94a3b8;
+        --sidebar-muted:#475569;
         --sidebar-line:rgba(148,163,184,.16);
       }
 
@@ -977,8 +977,8 @@ return `
       .kv strong{ color:var(--text); font-size:14px; }
 
       /* Chart */
-      .chartWrap{ height:220px; padding-bottom:8px; }
-      canvas{ width:100%; height:220px; display:block; }
+      .chart-wrap{ position:relative; height:240px; min-height:240px; }
+      .chart-wrap canvas{ width:100%; height:240px; display:block; }
 
       /* Existing events list */
       .event-card{
@@ -1263,11 +1263,9 @@ return `
                 <span class="small">Upcoming: <strong>${esc(stats.upcoming)}</strong></span>
               </div>
             </div>
-            <div class="chartWrap">
-              <div class="chart-wrap" style="position:relative;">
-                <canvas id="eventsChart" width="900" height="220"></canvas>
+            <div class="chart-wrap">
+              <canvas id="eventsChart"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:0 8px 20px rgba(15,23,42,.12);"></div>
-              </div>
             </div>
           </div>
 
@@ -1878,8 +1876,12 @@ return `
         function draw(){
           // handle DPR
           var dpr = window.devicePixelRatio || 1;
-          var cssW = c.clientWidth || 900;
-          var cssH = 220;
+          var wrap = c.parentElement;
+          var cssW = (wrap && wrap.clientWidth) ? wrap.clientWidth : (c.clientWidth || 900);
+          var cssH = (wrap && wrap.clientHeight) ? wrap.clientHeight : 240;
+          if (cssW < 50) cssW = 900;
+          if (cssH < 50) cssH = 240;
+          c.style.height = cssH + "px";
           c.width = Math.floor(cssW * dpr);
           c.height = Math.floor(cssH * dpr);
           ctx.setTransform(dpr,0,0,dpr,0,0);
