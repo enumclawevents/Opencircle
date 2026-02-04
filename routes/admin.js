@@ -1704,6 +1704,7 @@ return `
 
             <div class="listSearchRow">
               <input id="eventSearch" class="ctrl" type="text" placeholder="Filter all events..." value="${esc(q)}" />
+              <button id="eventSearchApply" type="button" class="btn btn-primary">Apply</button>
               <button id="eventSearchClear" type="button" class="btn">Clear</button>
             </div>
 
@@ -1844,6 +1845,7 @@ return `
       // Server-side filter (applies across all pages)
       (function(){
         var input = document.getElementById('eventSearch');
+        var applyBtn = document.getElementById('eventSearchApply');
         var clearBtn = document.getElementById('eventSearchClear');
         if(!input) return;
 
@@ -1861,6 +1863,11 @@ return `
             go();
           }
         });
+        if(applyBtn){
+          applyBtn.addEventListener('click', function(){
+            go();
+          });
+        }
         if(clearBtn){
           clearBtn.addEventListener('click', function(){
             input.value = '';
