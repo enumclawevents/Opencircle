@@ -2009,7 +2009,7 @@ return `
     if (!$seg) return;
     $seg.querySelectorAll("[data-view]").forEach((b) => {
       const on = (b.getAttribute("data-view") === mode);
-      b.classList.toggle("is-active", on);
+      b.classList.toggle("on", on);
       b.setAttribute("aria-pressed", on ? "true" : "false");
     });
   }
@@ -2227,6 +2227,8 @@ return `
   }
 
   window.addEventListener("resize", () => window.requestAnimationFrame(draw));
+
+  initEventsChart();
 })();</script>
   </body>
 </html>`);
