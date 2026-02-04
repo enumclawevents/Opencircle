@@ -490,7 +490,6 @@ return `
   <div class="stat"><span>Unique</span><strong class="js-unique">${uniques}</strong></div>
   <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
   <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
-  <div class="note" style="margin-top:10px;">Live</div>
 </div>
 
     </div>
@@ -1111,17 +1110,17 @@ return `
       .event-card{
         border: 1px solid var(--line);
         border-radius: var(--radius);
-        padding: 14px;
+        padding: 12px;
         background: var(--panel);
         display:flex;
         justify-content:space-between;
-        gap:16px;
-        align-items:stretch;
+        gap:14px;
+        align-items:center;
       }
       .event-left{ flex: 1; min-width: 0; }
       .event-title{ font-weight:650; margin-bottom:6px; }
-      .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
-      .event-actions{ margin-top:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+      .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:2px; }
+      .event-actions{ margin-top:6px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 
       
       .event-actions .btn{ min-width: 96px; height:38px; }
@@ -1138,10 +1137,11 @@ return `
       }
 
       .event-thumb{
-        width: 96px; flex: 0 0 96px;
+        width: 120px; flex: 0 0 120px;
+        align-self: stretch;
       }
       .event-thumb-img{
-        width: 96px; height: 96px;
+        width: 120px; height: 120px;
         object-fit: cover;
         border-radius: var(--radius-inner);
         border: 1px solid var(--line);
@@ -1149,7 +1149,7 @@ return `
       }
       .thumb-empty,
       .thumb-fallback{
-        width: 96px; height: 96px;
+        width: 120px; height: 120px;
         border-radius: var(--radius-inner);
         border: 1px solid var(--line);
         display:flex; align-items:center; justify-content:center;
