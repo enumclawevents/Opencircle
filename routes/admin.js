@@ -720,6 +720,7 @@ return `
         --radius-inner:6px;
         --radius2:8px;
         --event-side-h: 140px;
+        --ctrl-h: 44px;
         --gap:22px;
 
         /* Sidebar (dark) */
@@ -835,6 +836,7 @@ return `
         width: 520px;
         min-width: 360px;
         font-size:14px; font-weight:500; color:var(--text);
+        height: var(--ctrl-h);
       }
 
       /* Cards + widgets */
@@ -929,18 +931,19 @@ return `
 
       /* Controls */
       label{ display:block; margin: 12px 0 6px; font-weight:600; font-size:12px; color:var(--text); }
-            .ctrl,
+      .ctrl,
       input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
       textarea,
       select{
         width:100%;
-        padding: 11px 12px;
+        padding: 10px 12px;
         border: 1px solid var(--line);
         border-radius: var(--radius-inner);
         background: var(--panel2);
         color: var(--text);
         font-size: 14px;
         outline: none;
+        height: var(--ctrl-h);
       }
 
       /* File input */
@@ -952,6 +955,7 @@ return `
         background: var(--panel2);
         color: var(--text);
         font-size: 14px;
+        height: var(--ctrl-h);
       }
       input[type="file"]::file-selector-button{
         margin-right: 12px;
@@ -1042,7 +1046,7 @@ return `
         border-color: rgba(0,192,139,.28);
         box-shadow: 0 0 0 4px rgba(0,192,139,.10);
       }
-      textarea{ min-height: 110px; resize: vertical; }
+      textarea{ height:auto; min-height: 110px; resize: vertical; }
       .note{ font-size: 12px; color: var(--muted); margin-top:8px; }
 
       .btn{
@@ -1057,6 +1061,7 @@ return `
         color: var(--text);
         font-size:14px;
         line-height:1;
+        height: var(--ctrl-h);
       }
       .btn:hover{ transform: translateY(-1px); }
       .btn-primary{
@@ -1217,7 +1222,7 @@ return `
         margin: 10px 0 14px;
       }
       .listSearchRow #eventSearch{ flex: 1 1 auto; min-width: 280px; }
-      .listSearchRow .btn{ height:44px; min-width:140px; }
+      .listSearchRow .btn{ min-width:140px; }
       @media (max-width: 900px){
         .listSearchRow{ flex-wrap: wrap; }
         .listSearchRow #eventSearch{ flex: 1 1 100%; min-width: 0; }
