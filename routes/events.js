@@ -83,6 +83,55 @@ if (sid) {
     console.error("[POST /events/:idOrSlug/view] error:", e);
     return res.status(500).json({ ok: false, error: "Server error" });
   }
+
+router.post("/:idOrSlug/engagement", async (req, res) => {
+  try {
+    const idOrSlug = String(req.params.idOrSlug || "").trim();
+    if (!idOrSlug) return res.status(400).json({ ok: false, error: "Missing id/slug" });
+
+    // Resolve event id (by numeric id OR slug)
+    let row = null;
+    const asNum = Number(idOrSlug);
+    if (Number.isFinite(asNum) && String(asNum) === idOrSlug) {
+      row = await get("SELECT id FROM events WHERE id = ? LIMIT 1", [asNum]);
+    } else {
+      row = await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [idOrSlug]);
+    }
+    if (!row) return res.status(404).json({ ok: false, error: "Event not found" });
+
+    const eventId = Number(row.id);
+
+    // Parse body (supports JSON or text/plain containing JSON)
+    let body = req.body;
+    if (typeof body === "string" && body.trim()) {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    body = body && typeof body === "object" ? body : {};
+
+    const going = Number(body.going);
+    const interested = Number(body.interested);
+
+    if (!Number.isFinite(going) || !Number.isFinite(interested) || going < 0 || interested < 0) {
+      return res.status(400).json({ ok: false, error: "Invalid counts" });
+    }
+
+    await run(
+      `UPDATE events
+       SET goingCount = ?,
+           interestedCount = ?,
+           updatedAt = datetime('now')
+       WHERE id = ?`,
+      [Math.floor(going), Math.floor(interested), eventId]
+    );
+
+    return res.json({ ok: true, eventId, going: Math.floor(going), interested: Math.floor(interested) });
+  } catch (e) {
+    console.error("[POST /events/:idOrSlug/engagement] error:", e);
+    return res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
+
 });
 
 
