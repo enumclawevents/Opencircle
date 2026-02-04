@@ -37,14 +37,24 @@ app.use("/assets", express.static(path.join(__dirname, "public")));
 const allowedOrigins = [
   "https://enumclawevents.org",
   "https://www.enumclawevents.org",
+  "https://api.opencircleapi.com",
 ].filter(Boolean);
+
+const envAllow = String(process.env.CORS_ALLOWLIST || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, cb) => {
       // allow server-to-server / curl with no origin
       if (!origin) return cb(null, true);
+
+      // allow explicit allowlist
       if (allowedOrigins.includes(origin)) return cb(null, true);
+      if (envAllow.includes(origin)) return cb(null, true);
+
       return cb(new Error("Not allowed by CORS"));
     },
     credentials: true,
