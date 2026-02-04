@@ -166,30 +166,36 @@ async function getEventsColumns() {
     _eventsColsCache = new Set();
     return _eventsColsCache;
   }
+}
 
 // --- Archive schema (soft-delete best practice) ---
 let _archiveSchemaEnsured = false;
 async function ensureArchiveSchema() {
   if (_archiveSchemaEnsured) return;
+
   const cols = await getEventsColumns();
 
-  if (!cols.has("isArchived")) {
-    await run(`ALTER TABLE events ADD COLUMN isArchived INTEGER DEFAULT 0`);
-    cols.add("isArchived");
+  // Prefer "archived" naming; support legacy "isArchived" if present.
+  if (!cols.has("archived") && !cols.has("isArchived")) {
+    await run(`ALTER TABLE events ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`);
+    cols.add("archived");
   }
-  if (!cols.has("archivedAt")) {
-    await run(`ALTER TABLE events ADD COLUMN archivedAt TEXT`);
-    cols.add("archivedAt");
+  if (!cols.has("archived_at") && !cols.has("archivedAt")) {
+    await run(`ALTER TABLE events ADD COLUMN archived_at TEXT`);
+    cols.add("archived_at");
+  }
+  if (!cols.has("archived_reason") && !cols.has("archivedReason")) {
+    await run(`ALTER TABLE events ADD COLUMN archived_reason TEXT`);
+    cols.add("archived_reason");
   }
 
   // Optional index for faster filtering
   try {
-    await run(`CREATE INDEX IF NOT EXISTS idx_events_isArchived ON events(isArchived)`);
+    if (cols.has("archived")) await run(`CREATE INDEX IF NOT EXISTS idx_events_archived ON events(archived)`);
+    if (cols.has("isArchived")) await run(`CREATE INDEX IF NOT EXISTS idx_events_isArchived ON events(isArchived)`);
   } catch (_) {}
 
   _archiveSchemaEnsured = true;
-}
-
 }
 
 // GET /admin
@@ -218,11 +224,20 @@ if (q) {
 
 // Archive constraints (only if DB has the columns)
 const colsForWhere = await getEventsColumns();
-const hasArchiveCols = colsForWhere.has("isArchived") && colsForWhere.has("archivedAt");
+const colArchived = colsForWhere.has("archived")
+  ? "archived"
+  : (colsForWhere.has("isArchived") ? "isArchived" : null);
 
-if (hasArchiveCols) {
-  if (archivedMode === "1") whereParts.push(`isArchived = 1`);
-  else if (archivedMode === "0") whereParts.push(`(isArchived IS NULL OR isArchived = 0)`);
+const colArchivedAt = colsForWhere.has("archived_at")
+  ? "archived_at"
+  : (colsForWhere.has("archivedAt") ? "archivedAt" : null);
+
+const selectArchived = colArchived ? `COALESCE(${colArchived},0) as isArchived` : `0 as isArchived`;
+const selectArchivedAt = colArchivedAt ? `${colArchivedAt} as archivedAt` : `NULL as archivedAt`;
+
+if (colArchived) {
+  if (archivedMode === "1") whereParts.push(`${colArchived} = 1`);
+  else if (archivedMode === "0") whereParts.push(`(${colArchived} IS NULL OR ${colArchived} = 0)`);
   // "all" => no clause
 } else {
   // If schema doesn't support archive yet, force active view behavior
@@ -289,7 +304,7 @@ try {
   events = await all(
     `SELECT id, slug, title, startDateTime, location, featured,
             goingCount, interestedCount, viewCount, uniqueViewCount, lastViewedAt, imageUrl,
-            COALESCE(isArchived,0) as isArchived, archivedAt
+            ${selectArchived}, ${selectArchivedAt}
      FROM events
      ${whereSql}
      ORDER BY ${orderBySql}
@@ -583,26 +598,34 @@ return `
     <title>Dashboard</title>
     <style>
       :root{
-        --bg:#0b0f14;
-        --panel:#0f172a;
-        --panel2:#0b1220;
-        --text:#e5e7eb;
-        --muted:#94a3b8;
-        --line:rgba(148,163,184,.16);
+        /* Main (light, WordPress-like) */
+        --bg:#eef2f6;
+        --panel:#ffffff;
+        --panel2:#f8fafc;
+        --text:#0f172a;
+        --muted:#475569;
+        --line:rgba(15,23,42,.12);
         --brand:#00c08b;
         --brand2:#0ea5e9;
         --danger:#ef4444;
-        --shadow:0 18px 40px rgba(0,0,0,.45);
-        --radius:4px;
-        --radius2:4px;
+        --shadow:0 10px 24px rgba(15,23,42,.10);
+        --radius:8px;
+        --radius2:8px;
         --gap:22px;
+
+        /* Sidebar (dark) */
+        --sidebar-bg:#0b1220;
+        --sidebar-panel:#0f172a;
+        --sidebar-text:#e5e7eb;
+        --sidebar-muted:#94a3b8;
+        --sidebar-line:rgba(148,163,184,.16);
       }
 
       *{ box-sizing:border-box; }
       body{
         margin:0;
         background:var(--bg);
-        color:var(--text);
+        color:var(--sidebar-text);
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       }
 
@@ -610,21 +633,27 @@ return `
       .app{ display:flex; min-height:100vh; }
 
       .sidebar{
-        width:260px; background:var(--panel);
-        border-right:1px solid var(--line);
+        width:260px;
+        background:var(--sidebar-panel);
+        border-right:1px solid var(--sidebar-line);
         padding:18px;
         position:sticky; top:0; height:100vh; overflow:auto;
+        display:flex; flex-direction:column;
+        color:var(--sidebar-text);
       }
       .sb-brand{
         display:flex; align-items:center; gap:10px; margin-bottom:18px;
       }
       .sb-brand img{ height:46px; width:auto; display:block; }
       .sb-title{ font-weight:650; letter-spacing:.2px; }
-      .sb-sub{ font-size:12px; color:var(--muted); margin-top:2px; }
+      .sb-sub{ font-size:12px; color:var(--sidebar-muted); margin-top:2px; }
 
       .nav{ display:grid; gap:8px; margin-top:10px; }
+      .sb-bottom{ margin-top:auto; display:grid; gap:10px; }
+      .sidebar .mini a{ color:#38bdf8; font-weight:600; }
+      .sidebar .mini a:hover{ color:#7dd3fc; }
       .nav a{
-        text-decoration:none; color:var(--muted);
+        text-decoration:none; color:var(--sidebar-muted);
         display:flex; align-items:center; gap:10px;
         padding:10px 12px; border-radius: var(--radius);
         border:1px solid transparent;
@@ -634,7 +663,7 @@ return `
         width:8px; height:8px; border-radius:999px; background: rgba(100,116,139,.35);
       }
       .nav a.active{
-        color:var(--text);
+        color:var(--sidebar-text);
         background: rgba(0,192,139,.10);
         border-color: rgba(0,192,139,.22);
       }
@@ -651,7 +680,7 @@ return `
         display:flex; align-items:center; justify-content:space-between; gap:14px;
         margin-bottom:var(--gap);
       }
-      .h-left h1{ margin:0; font-size:22px; letter-spacing:.2px; font-weight:650; }
+      .h-left h1{ margin:0; font-size:22px; letter-spacing:.2px; font-weight:600; }
       .h-left p{ margin:6px 0 0; color:var(--muted); font-size:13px; }
       .h-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 
@@ -694,7 +723,7 @@ return `
         box-shadow: var(--shadow);
       }
       .metric .k{ color:var(--muted); font-size:12px; font-weight:600; }
-      .metric .v{ font-size:22px; font-weight:750; letter-spacing:.2px; margin-top:6px; }
+      .metric .v{ font-size:22px; font-weight:650; letter-spacing:.2px; margin-top:6px; }
       .metric .tag{
         font-size:12px; font-weight:650;
         padding:6px 10px; border-radius: var(--radius);
@@ -813,7 +842,7 @@ return `
       .btn-primary{
         background: var(--brand);
         border-color: var(--brand);
-        color:#06202b;
+        color:#ffffff;
       }
       .btn-primary:hover{ background: #00b681; border-color: #00b681; }
       .btn-danger{
@@ -938,7 +967,8 @@ return `
 
       .rec-box{ border:1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--panel2); margin-top: 10px; }
       .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:650; }
-      .checkbox input{ width:18px !important; height:18px !important; }
+      input[type=checkbox]{ width:18px; height:18px; border-radius:3px !important; accent-color: var(--brand); }
+      .checkbox input{ width:18px !important; height:18px !important; border-radius:3px !important; }
 
       .dow{ display:flex; flex-wrap:wrap; gap: 10px; margin-top: 10px; }
       .dow-pill{
@@ -1010,7 +1040,7 @@ return `
           <a class="active" href="/admin"><span class="n-dot"></span> Events</a>
         </nav>
 
-        <div style="margin-top:18px;">
+        <div class="sb-bottom">
           <div class="mini">
             <div class="small">Quick links</div>
             <div style="margin-top:10px; display:grid; gap:8px;">
@@ -1374,17 +1404,17 @@ return `
               </div>
               <div class="right">
                 <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                  <a class="btn ${archivedMode === "0" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=0">Active</a>
-                  <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=1">Archived</a>
-                  <a class="btn ${archivedMode === "all" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=all">All
-                  <select id="sortBy" class="ctrl" style="width:220px; max-width:100%;">
-                    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
-                    <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Sort: Alphabetical (A–Z)</option>
-                    <option value="recent" ${sort === "recent" ? "selected" : ""}>Sort: Recently added</option>
-                    <option value="id" ${sort === "id" ? "selected" : ""}>Sort: ID (newest)</option>
-                  </select>
-</a>
-                </div>
+  <a class="btn ${archivedMode === "0" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=0">Active</a>
+  <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=1">Archived</a>
+  <a class="btn ${archivedMode === "all" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=all">All</a>
+
+  <select id="sortBy" class="ctrl" style="width:240px; max-width:100%;">
+    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
+    <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Sort: Alphabetical (A–Z)</option>
+    <option value="recent" ${sort === "recent" ? "selected" : ""}>Sort: Recently added</option>
+    <option value="id" ${sort === "id" ? "selected" : ""}>Sort: ID (newest)</option>
+  </select>
+</div>
                 <span class="small">Showing <strong>${showingFrom}–${showingTo}</strong> of <strong>${total}</strong></span>
               </div>
             </div>
