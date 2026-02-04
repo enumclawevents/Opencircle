@@ -877,7 +877,9 @@ return `
         grid-template-columns: 3fr 1fr;
         gap:var(--gap);
         margin-bottom:var(--gap);
+        align-items: stretch;
       }
+      .grid2 > .card{ height:100%; }
 
       .gridMain{
         display:grid;
@@ -1068,7 +1070,8 @@ return `
 
       /* Chart */
       .chart-wrap{ position:relative; height:320px; min-height:320px; }
-      .chart-wrap canvas{ width:100%; height:240px; display:block; }
+      /* Keep canvas CSS height aligned with the inline height attribute (260px) */
+      .chart-wrap canvas{ width:100%; height:260px; display:block; }
 
       .seg{
         display:inline-flex;
@@ -1984,246 +1987,247 @@ return `
         setInterval(tick, 4000);
       })();
 
-      // Simple bar chart (no libraries)
+      // Simple bar chart (no libraries) + hover tooltip + view toggles
 (function(){
-  // Chart data sets: { daily:{labels,values}, weekly:{...}, monthly:{...}, yearly:{...} }
-  var chartSets = ${chartDataJson};
-  var mode = "daily";
+  function initEventsChart(){
+    const chartSets = ${JSON.stringify(chartSets)};
+    const $canvas = document.getElementById("eventsChart");
+    const $wrap   = document.getElementById("eventsChartWrap");
+    const $tip    = document.getElementById("eventsChartTip");
+    const $seg    = document.getElementById("chartViewSeg");
+    const $range  = document.getElementById("chartRangeLabel");
 
-  const $canvas = document.getElementById("eventsChart");
-  const $tip = document.getElementById("eventsChartTip");
-  const $wrap = $canvas ? $canvas.closest(".chart-wrap") : null;
+    if (!$canvas || !$wrap) return;
+    const ctx = $canvas.getContext("2d");
+    if (!ctx) return;
 
-  if (!$canvas) return;
+    let mode = "daily";
+    let hoverIndex = -1;
+    let resizeRetry = 0;
 
-  const ctx = $canvas.getContext("2d", { alpha: true });
-
-  function getActiveSet() {
-    if (!chartSets || typeof chartSets !== "object") return { labels: [], values: [] };
-    const key = String(mode || "daily").toLowerCase();
-    return chartSets[key] || { labels: [], values: [] };
-  }
-
-  function setMode(next) {
-    const key = String(next || "daily").toLowerCase();
-    if (!chartSets || !chartSets[key]) return;
-    mode = key;
-
-    // update pills
-    const pills = document.querySelectorAll("[data-view]");
-    pills.forEach((b) => {
-      const on = String(b.getAttribute("data-view") || "").toLowerCase() === key;
+  function setActiveBtn(){
+    if (!$seg) return;
+    $seg.querySelectorAll("[data-view]").forEach((b) => {
+      const on = (b.getAttribute("data-view") === mode);
+      b.classList.toggle("is-active", on);
       b.setAttribute("aria-pressed", on ? "true" : "false");
-      b.classList.toggle("on", on);
     });
-
-    resize();
-    draw();
   }
 
-  function niceMax(n) {
-    const x = Math.max(1, n);
-    const pow = Math.pow(10, Math.floor(Math.log10(x)));
-    const t = x / pow;
-    const m = t <= 1 ? 1 : t <= 2 ? 2 : t <= 5 ? 5 : 10;
-    return m * pow;
+  function setRangeLabel(){
+    if (!$range) return;
+    const map = {
+      daily:  "Last 14 days (by start date)",
+      weekly: "Last 12 weeks (by start date)",
+      monthly:"Last 12 months (by start date)",
+      yearly: "Last 5 years (by start date)",
+    };
+    $range.textContent = map[mode] || map.daily;
   }
 
-  function clearTip() {
-    if (!$tip) return;
-    $tip.style.display = "none";
-  }
-
-  function resize() {
-    const host = $wrap || $canvas;
-    const rect = host.getBoundingClientRect();
+  function sizeCanvas(){
     const dpr = Math.max(1, window.devicePixelRatio || 1);
+    // Some layouts briefly report 0 widths while CSS loads; fall back to bounding boxes.
+    let w = $wrap.clientWidth;
+    if (!w || w < 10) w = Math.floor($wrap.getBoundingClientRect().width || 0);
+    if (!w || w < 10) w = Math.floor(($canvas.parentElement ? $canvas.parentElement.getBoundingClientRect().width : 0) || 0);
+    w = Math.max(320, w);
 
-    // Some layouts report 0 height/width on first paint; fall back to CSS height.
-    const cssH = parseFloat(getComputedStyle($canvas).height) || 260;
-    const w = rect.width || $canvas.parentElement?.getBoundingClientRect().width || 600;
-    const h = rect.height || cssH;
+    let h = $wrap.clientHeight;
+    if (!h || h < 10) h = Math.floor($wrap.getBoundingClientRect().height || 0);
+    h = Math.max(260, h || 360);
 
-    if (!w || !h) return;
+    $canvas.style.width  = w + "px";
+    $canvas.style.height = h + "px";
+    $canvas.width  = Math.floor(w * dpr);
+    $canvas.height = Math.floor(h * dpr);
 
-    $canvas.style.width = "100%";
-    $canvas.style.height = cssH + "px";
-    $canvas.width = Math.max(1, Math.floor(w * dpr));
-    $canvas.height = Math.max(1, Math.floor(cssH * dpr));
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(dpr,0,0,dpr,0,0); // draw in CSS pixels
+    return { w, h, ready: (w > 0 && h > 0) };
   }
 
-  function draw() {
-    // If we somehow got here before the canvas has measurable size, bail.
-    const rect = $canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
+  function draw(){
+    const set = chartSets[mode] || chartSets.daily;
+    const labels = (set && set.labels) ? set.labels : [];
+    const values = (set && set.values) ? set.values : [];
 
-    const set = getActiveSet();
-    const labels = Array.isArray(set.labels) ? set.labels : [];
-    const values = Array.isArray(set.values) ? set.values : [];
+    const { w, h, ready } = sizeCanvas();
+    if (!ready) {
+      window.requestAnimationFrame(draw);
+      return;
+    }
+    ctx.clearRect(0,0,w,h);
 
-    ctx.clearRect(0, 0, rect.width, rect.height);
-
-    if (!labels.length || !values.length) {
-      ctx.fillStyle = "rgba(15,23,42,.72)";
-      ctx.font = "600 16px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
-      ctx.fillText("No recent events", 18, 48);
+    if (!labels.length || !values.length){
+      ctx.fillStyle = "rgba(15,23,42,.75)";
+      ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.fillText("No recent events", 18, 90);
       return;
     }
 
-    const padL = 56, padR = 18, padT = 18, padB = 44;
-    const w = rect.width - padL - padR;
-    const h = rect.height - padT - padB;
+    const padL = 56, padR = 18, padT = 18, padB = 46;
+    const gw = w - padL - padR;
+    const gh = h - padT - padB;
 
-    const maxV = niceMax(Math.max(...values, 1));
-    const steps = 4;
+    const maxV = Math.max(1, ...values);
+    const yTicks = Math.min(6, maxV);
+    const tickStep = Math.max(1, Math.ceil(maxV / yTicks));
+    const yMax = tickStep * yTicks;
 
     // grid + y labels
-    // Slightly stronger grid to improve readability.
-    ctx.strokeStyle = "rgba(148,163,184,.48)";
     ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(15,23,42,.12)";
+    ctx.fillStyle = "rgba(15,23,42,.85)";
+    ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
-    ctx.fillStyle = "rgba(15,23,42,.88)"; // more contrast
-    ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
-
-    for (let i = 0; i <= steps; i++) {
-      const y = padT + (h * i) / steps;
-      ctx.beginPath();
-      ctx.moveTo(padL, y);
-      ctx.lineTo(padL + w, y);
-      ctx.stroke();
-
-      const v = Math.round(maxV * (1 - i / steps));
-      ctx.textAlign = "right";
-      ctx.textBaseline = "middle";
-      ctx.fillText(String(v), padL - 12, y);
+    for (let i=0;i<=yTicks;i++){
+      const v = i * tickStep;
+      const y = padT + gh - (v / yMax) * gh;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL+gw, y); ctx.stroke();
+      ctx.fillText(String(v), 18, y+4);
     }
 
-    // x labels
-    ctx.fillStyle = "rgba(15,23,42,.78)";
-    ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
+    // x labels + bars
+    const n = values.length;
+    const gap = 16;
+    const barW = Math.max(10, Math.floor((gw - gap*(n-1)) / n));
+    const totalW = barW*n + gap*(n-1);
+    const x0 = padL + Math.max(0, (gw-totalW)/2);
 
-    const n = labels.length;
-    const gap = w / n;
-    const bw = Math.max(10, gap * 0.72);
+    // x label style
+    ctx.fillStyle = "rgba(15,23,42,.75)";
+    ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
-    const bars = [];
-    for (let i = 0; i < n; i++) {
-      const v = values[i] || 0;
-      const bh = (v / maxV) * h;
-      const x = padL + i * gap + (gap - bw) / 2;
-      const y = padT + (h - bh);
+    for (let i=0;i<n;i++){
+      const v = values[i];
+      const bh = (v / yMax) * gh;
+      const x = x0 + i*(barW+gap);
+      const y = padT + gh - bh;
 
       // bar
-      ctx.fillStyle = "rgba(16,185,129,.32)";
-      ctx.fillRect(x, y, bw, bh);
+      ctx.fillStyle = "rgba(16,185,129,.45)";
+      ctx.fillRect(x, y, barW, bh);
 
-      bars.push({ i, x, y, w: bw, h: bh, v, label: labels[i] });
-
-      // show a subset of x labels to avoid clutter
-      const showEvery = n > 14 ? Math.ceil(n / 10) : 1;
-      if (i % showEvery === 0 || i === n - 1) {
-        ctx.save();
-        ctx.translate(x + bw / 2, padT + h + 12);
-        ctx.rotate(-0.42);
-        ctx.fillText(String(labels[i]), 0, 0);
-        ctx.restore();
-      }
-    }
-
-    // hover interaction
-    function findBarAt(clientX, clientY) {
-      const r = $canvas.getBoundingClientRect();
-      const px = clientX - r.left;
-      const py = clientY - r.top;
-      return bars.find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
-    }
-
-    function onMove(e) {
-      const b = findBarAt(e.clientX, e.clientY);
-      if (!b) {
-        clearTip();
-        draw(); // remove highlight
-        return;
+      // hover outline
+      if (i === hoverIndex){
+        ctx.strokeStyle = "rgba(16,185,129,.95)";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x+0.5, y+0.5, barW-1, bh-1);
+        ctx.lineWidth = 1;
       }
 
-      // redraw with highlight
-      draw();
-      ctx.fillStyle = "rgba(16,185,129,.55)";
-      ctx.fillRect(b.x, b.y, b.w, b.h);
-
-      if ($tip) {
-        $tip.innerHTML = "<strong>" + b.v + "</strong> event" + (b.v === 1 ? "" : "s") + "<br/><span style=\"opacity:.8\">" + String(b.label) + "</span>";
-        $tip.style.display = "block";
-
-        const r = $canvas.getBoundingClientRect();
-        const left = Math.min(r.width - 10, Math.max(10, b.x + b.w / 2));
-        const top = Math.max(10, b.y - 10);
-
-        $tip.style.left = left + "px";
-        $tip.style.top = top + "px";
-        $tip.style.transform = "translate(-50%, -100%)";
-      }
+      // label
+      const lab = labels[i] || "";
+      ctx.save();
+      ctx.translate(x + barW/2, padT + gh + 22);
+      ctx.rotate(-0.35);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(15,23,42,.75)";
+      ctx.fillText(lab, 0, 0);
+      ctx.restore();
     }
-
-    // remove previous listeners by resetting handlers (safe in this inline script)
-    $canvas.onmousemove = onMove;
-    $canvas.onmouseleave = function () { clearTip(); draw(); };
-
-    // make cursor feel interactive
-    $canvas.style.cursor = "default";
-    $canvas.onmousemove = function (e) {
-      const b = findBarAt(e.clientX, e.clientY);
-      $canvas.style.cursor = b ? "pointer" : "default";
-      onMove(e);
-    };
   }
 
-  // Tabs
-  const pillWrap = document.querySelector(".chartPills");
-  if (pillWrap) {
-    pillWrap.addEventListener("click", (e) => {
+  function getBarIndexFromEvent(ev){
+    const set = chartSets[mode] || chartSets.daily;
+    const values = (set && set.values) ? set.values : [];
+    if (!values.length) return -1;
+
+    const rect = $canvas.getBoundingClientRect();
+    const mx = ev.clientX - rect.left;
+    const my = ev.clientY - rect.top;
+
+    const padL = 56, padR = 18, padT = 18, padB = 46;
+    const gw = rect.width - padL - padR;
+    const gh = rect.height - padT - padB;
+
+    if (mx < padL || mx > padL+gw || my < padT || my > padT+gh) return -1;
+
+    const n = values.length;
+    const gap = 16;
+    const barW = Math.max(10, Math.floor((gw - gap*(n-1)) / n));
+    const totalW = barW*n + gap*(n-1);
+    const x0 = padL + Math.max(0, (gw-totalW)/2);
+
+    for (let i=0;i<n;i++){
+      const x = x0 + i*(barW+gap);
+      if (mx >= x && mx <= x+barW) return i;
+    }
+    return -1;
+  }
+
+  function showTip(ev, idx){
+    if (!$tip) return;
+    const set = chartSets[mode] || chartSets.daily;
+    const labels = (set && set.labels) ? set.labels : [];
+    const values = (set && set.values) ? set.values : [];
+
+    const rect = $canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+
+    const label = labels[idx] || "";
+    const value = values[idx] ?? 0;
+
+    $tip.textContent = label + ": " + value + " event" + (value === 1 ? "" : "s");
+    $tip.style.display = "block";
+
+    const tipRect = $tip.getBoundingClientRect();
+    const left = Math.min(rect.left + rect.width - tipRect.width - 10, rect.left + x + 12);
+    const top  = Math.max(rect.top + 10, rect.top + y - 32);
+
+    $tip.style.left = (left - rect.left) + "px";
+    $tip.style.top  = (top - rect.top) + "px";
+  }
+
+  function hideTip(){
+    if ($tip) $tip.style.display = "none";
+  }
+
+  // Bind toggle
+  if ($seg){
+    $seg.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-view]");
       if (!btn) return;
-      setMode(btn.getAttribute("data-view"));
-    });
-  }
-
-  // Resize observers
-  // Some runtimes (or very old browsers) may not support ResizeObserver.
-  if (window.ResizeObserver) {
-    const ro = new ResizeObserver(() => {
-      resize();
-      draw();
-    });
-    // Observing the wrapper is more reliable than observing the canvas,
-    // because the canvas' own size can be 0 until layout settles.
-    ro.observe($wrap || $canvas);
-  } else {
-    window.addEventListener("resize", () => {
-      resize();
+      mode = btn.getAttribute("data-view") || "daily";
+      hoverIndex = -1;
+      hideTip();
+      setActiveBtn();
+      setRangeLabel();
       draw();
     });
   }
 
-  // initial render (do one immediate paint, then another on next tick
-  // to catch any late layout changes).
-  setMode("daily");
-  (function attemptPaint(tries){
-    resize();
-    const r = ($wrap || $canvas).getBoundingClientRect();
-    if ((!r.width || !r.height) && tries < 30) {
-      return requestAnimationFrame(() => attemptPaint(tries + 1));
+  // Hover tooltip
+  $canvas.addEventListener("mousemove", (e) => {
+    const idx = getBarIndexFromEvent(e);
+    if (idx !== hoverIndex){
+      hoverIndex = idx;
+      draw();
     }
+    if (idx >= 0) showTip(e, idx); else hideTip();
+  });
+  $canvas.addEventListener("mouseleave", () => {
+    hoverIndex = -1;
+    hideTip();
     draw();
-  })(0);
+  });
 
-})();;
+  // Initial paint / resize
+  function init(){
+    setActiveBtn();
+    setRangeLabel();
+    draw();
+  }
 
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
+  } else {
+    init();
+  }
 
-    </script>
+  window.addEventListener("resize", () => window.requestAnimationFrame(draw));
+})();</script>
   </body>
 </html>`);
   } catch (err) {
