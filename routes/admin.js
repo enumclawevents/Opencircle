@@ -795,6 +795,7 @@ return `
         padding:10px 12px; border-radius: var(--radius);
         border:1px solid transparent;
         font-weight:600; font-size:13px;
+        width:100%;
       }
       .nav a .n-dot{
         width:8px; height:8px; border-radius:999px; background: rgba(100,116,139,.35);
