@@ -1167,23 +1167,22 @@ return `
       .stat strong{ color: var(--text); font-size: 16px; }
 
       .pager{
-        display:flex;
-        justify-content:space-between;
+        display:grid;
+        grid-template-columns: 1fr auto;
         align-items:center;
         gap:var(--gap);
         margin: 10px 0 14px;
-        flex-wrap:wrap;
       }
-      .pager-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-      .pager-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+      .pager-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-self:end; }
+      .pager-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; }
 
       /* Existing events: keep Clear inline with search (wrap only on small screens) */
       .listSearchRow{
-        display:flex;
+        display:grid;
+        grid-template-columns: 1fr auto;
         gap:var(--gap);
         align-items:center;
         margin: 10px 0 14px;
-        flex-wrap: nowrap;
       }
       .listSearchRow #eventSearch{ flex: 1 1 auto; min-width: 280px; }
       @media (max-width: 900px){
@@ -2168,10 +2167,9 @@ return `
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
 
-    const label = labels[idx] || "";
     const value = values[idx] ?? 0;
 
-    $tip.textContent = label + ": " + value + " event" + (value === 1 ? "" : "s");
+    $tip.textContent = String(value) + " event" + (value === 1 ? "" : "s");
     $tip.style.display = "block";
 
     const tipRect = $tip.getBoundingClientRect();
