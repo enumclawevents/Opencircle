@@ -34,7 +34,22 @@ app.use("/uploads", express.static(UPLOADS_DIR));
 app.use("/assets", express.static(path.join(__dirname, "public")));
 
 // Middleware
-app.use(cors());
+const allowedOrigins = [
+  "https://enumclawevents.org",
+  "https://www.enumclawevents.org",
+];
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // allow server-to-server / curl with no origin
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
