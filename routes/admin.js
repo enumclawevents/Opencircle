@@ -701,7 +701,7 @@ return `
         --radius:8px;
         --radius-inner:6px;
         --radius2:8px;
-        --event-side-h: 128px;
+        --event-side-h: 140px;
         --gap:22px;
 
         /* Sidebar (dark) */
