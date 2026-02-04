@@ -1067,6 +1067,8 @@ return `
         gap:10px;
         flex-wrap:nowrap;
       }
+      .sectionTitle .rightRow .sortBy{ flex:1; min-width:280px; }
+
       @media (max-width: 980px){
         .sectionTitle .rightRow{ flex-wrap:wrap; }
       }
@@ -1473,7 +1475,7 @@ return `
                   <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=1">Archived</a>
                   <a class="btn ${archivedMode === "all" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=all">All</a>
 
-                  <select id="sortBy" class="ctrl" style="width:240px; max-width:100%;">
+                  <select id="sortBy" class="ctrl sortBy">
                     <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
                     <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Sort: Alphabetical (A–Z)</option>
                     <option value="recent" ${sort === "recent" ? "selected" : ""}>Sort: Recently added</option>
