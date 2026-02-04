@@ -982,6 +982,20 @@ return `
       .pager-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
       .pager-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 
+      /* Existing events: keep Clear inline with search (wrap only on small screens) */
+      .listSearchRow{
+        display:flex;
+        gap:var(--gap);
+        align-items:center;
+        margin: 10px 0 14px;
+        flex-wrap: nowrap;
+      }
+      .listSearchRow #eventSearch{ flex: 1 1 auto; min-width: 280px; }
+      @media (max-width: 900px){
+        .listSearchRow{ flex-wrap: wrap; }
+        .listSearchRow #eventSearch{ flex: 1 1 100%; min-width: 0; }
+      }
+
       /* Category selection */
       .cat-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
       @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
@@ -1468,17 +1482,16 @@ return `
               </div>
             </div>
 
-            ${pagerHtml}
-
-            <div style="display:flex; gap:var(--gap); align-items:center; margin: 10px 0 14px; flex-wrap:wrap;">
+            <div class="listSearchRow">
               <input id="eventSearch" class="ctrl" type="text" placeholder="Instant filter on this page..." />
               <button id="eventSearchClear" type="button" class="btn">Clear</button>
             </div>
 
+            ${pagerHtml}
+
             <div id="eventsList" style="display:grid; gap:var(--gap);">${listHtml}</div>
             <div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
 
-            ${pagerHtml}
           </div>
         </section>
 
