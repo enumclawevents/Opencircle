@@ -1032,15 +1032,31 @@ return `
       }
       .chip button{ border:0; background: transparent; cursor:pointer; font-weight:650; color: #b91c1c; }
 
-      /* Section headers (title left, controls right) */
-      .sectionTitle{ display:flex; align-items:center; justify-content:space-between; gap:var(--gap); margin-bottom:10px; }
-      .sectionTitle .right{ display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+
+      /* Section headers (title above, controls below) */
+      .sectionTitle{
+        display:flex;
+        flex-direction:column;
+        align-items:flex-start;
+        justify-content:flex-start;
+        gap:10px;
+        margin-bottom:10px;
+      }
+      .sectionTitle > div{ width:100%; }
+      .sectionTitle .right{ width:100%; display:flex; justify-content:flex-start; }
       /* Keep controls in one line on desktop; allow wrap on small screens */
-      .sectionTitle .rightRow{ display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:nowrap; }
+      .sectionTitle .rightRow{
+        width:100%;
+        display:flex;
+        align-items:center;
+        justify-content:flex-start;
+        gap:10px;
+        flex-wrap:nowrap;
+      }
       @media (max-width: 980px){
-        .sectionTitle{ align-items:flex-start; }
         .sectionTitle .rightRow{ flex-wrap:wrap; }
       }
+
 
       .small{ font-size:12px; color:var(--muted); font-weight:600; }
     
