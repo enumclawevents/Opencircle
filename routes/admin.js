@@ -573,9 +573,14 @@ return `
     // ------------------------------
     // Chart: Daily / Weekly / Monthly / Yearly
     // ------------------------------
-    const buildDaily = async () => {
+    const hasViewsCol = cols.has("viewCount");
+    const countExpr = "COUNT(*)";
+    const viewsExpr = hasViewsCol ? "SUM(COALESCE(viewCount,0))" : "0";
+
+    const buildDaily = async (metric) => {
+      const agg = metric === "views" ? viewsExpr : countExpr;
       const rows = await all(
-        `SELECT date(startDateTime) AS d, COUNT(*) AS n
+        `SELECT date(startDateTime) AS d, ${agg} AS n
          FROM events
          ${dashAnd}date(startDateTime) >= date('now','-13 day')
          GROUP BY d
@@ -594,10 +599,11 @@ return `
       return { labels, values };
     };
 
-    const buildWeekly = async () => {
+    const buildWeekly = async (metric) => {
+      const agg = metric === "views" ? viewsExpr : countExpr;
       // Group by Monday week-start. Keep last 12 weeks.
       const rows = await all(
-        `SELECT date(startDateTime, 'weekday 1', '-7 day') AS wk, COUNT(*) AS n
+        `SELECT date(startDateTime, 'weekday 1', '-7 day') AS wk, ${agg} AS n
          FROM events
          ${dashAnd}date(startDateTime) >= date('now','-83 day')
          GROUP BY wk
@@ -624,10 +630,11 @@ return `
       return { labels, values };
     };
 
-    const buildMonthly = async () => {
+    const buildMonthly = async (metric) => {
+      const agg = metric === "views" ? viewsExpr : countExpr;
       // Last 12 months, group by YYYY-MM.
       const rows = await all(
-        `SELECT strftime('%Y-%m', startDateTime) AS ym, COUNT(*) AS n
+        `SELECT strftime('%Y-%m', startDateTime) AS ym, ${agg} AS n
          FROM events
          ${dashAnd}date(startDateTime) >= date('now','start of month','-11 month')
          GROUP BY ym
@@ -652,10 +659,11 @@ return `
       return { labels, values };
     };
 
-    const buildYearly = async () => {
+    const buildYearly = async (metric) => {
+      const agg = metric === "views" ? viewsExpr : countExpr;
       // Last 5 years, group by YYYY.
       const rows = await all(
-        `SELECT strftime('%Y', startDateTime) AS y, COUNT(*) AS n
+        `SELECT strftime('%Y', startDateTime) AS y, ${agg} AS n
          FROM events
          ${dashAnd}date(startDateTime) >= date('now','start of year','-4 year')
          GROUP BY y
@@ -673,10 +681,18 @@ return `
     };
 
     const chartSets = {
-      daily: await buildDaily(),
-      weekly: await buildWeekly(),
-      monthly: await buildMonthly(),
-      yearly: await buildYearly(),
+      events: {
+        daily: await buildDaily("events"),
+        weekly: await buildWeekly("events"),
+        monthly: await buildMonthly("events"),
+        yearly: await buildYearly("events"),
+      },
+      views: {
+        daily: await buildDaily("views"),
+        weekly: await buildWeekly("views"),
+        monthly: await buildMonthly("views"),
+        yearly: await buildYearly("views"),
+      },
     };
     const chartDataJson = JSON.stringify(chartSets);
 
@@ -1299,6 +1315,32 @@ return `
         flex-direction:column;
         gap:6px;
       }
+      .metricToggle{
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        font-size:16px;
+        font-weight:600;
+      }
+      .metricToggle button{
+        appearance:none;
+        border:1px solid var(--line);
+        background: var(--panel2);
+        color: var(--muted);
+        padding:6px 10px;
+        border-radius: var(--radius-inner);
+        font-weight:600;
+        cursor:pointer;
+      }
+      .metricToggle button.on{
+        background: rgba(0,192,139,.12);
+        border-color: rgba(0,192,139,.28);
+        color:#065f46;
+      }
+      .metricToggle .metricSuffix{
+        color: var(--text);
+        font-weight:600;
+      }
       .sectionTitle--chart .subcounts{
         display:flex;
         gap:14px;
@@ -1420,7 +1462,11 @@ return `
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
-                <h2>Events over time</h2>
+                <div class="metricToggle" id="chartMetricSeg" aria-label="Metric toggle">
+                  <button type="button" data-metric="events" class="on">Events</button>
+                  <button type="button" data-metric="views">Views</button>
+                  <span class="metricSuffix">over time</span>
+                </div>
                 <p class="sub" id="chartRangeLabel">Last 14 days (by start date)</p>
                 <div class="subcounts">
                   <span class="small">Past: <strong>${esc(stats.past)}</strong></span>
@@ -2066,16 +2112,26 @@ return `
     if (!ctx) return;
 
     let mode = "daily";
+    let metric = "events";
     let hoverIndex = -1;
     let resizeRetry = 0;
 
   function setActiveBtn(){
-    if (!$seg) return;
-    $seg.querySelectorAll("[data-view]").forEach((b) => {
-      const on = (b.getAttribute("data-view") === mode);
-      b.classList.toggle("on", on);
-      b.setAttribute("aria-pressed", on ? "true" : "false");
-    });
+    if ($seg) {
+      $seg.querySelectorAll("[data-view]").forEach((b) => {
+        const on = (b.getAttribute("data-view") === mode);
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+    }
+    const metricSeg = document.getElementById("chartMetricSeg");
+    if (metricSeg) {
+      metricSeg.querySelectorAll("[data-metric]").forEach((b) => {
+        const on = (b.getAttribute("data-metric") === metric);
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+    }
   }
 
   function setRangeLabel(){
@@ -2111,7 +2167,7 @@ return `
   }
 
   function draw(){
-    const set = chartSets[mode] || chartSets.daily;
+    const set = (chartSets[metric] && chartSets[metric][mode]) ? chartSets[metric][mode] : chartSets.events.daily;
     const labels = (set && set.labels) ? set.labels : [];
     const values = (set && set.values) ? set.values : [];
 
@@ -2193,7 +2249,7 @@ return `
   }
 
   function getBarIndexFromEvent(ev){
-    const set = chartSets[mode] || chartSets.daily;
+    const set = (chartSets[metric] && chartSets[metric][mode]) ? chartSets[metric][mode] : chartSets.events.daily;
     const values = (set && set.values) ? set.values : [];
     if (!values.length) return -1;
 
@@ -2222,7 +2278,7 @@ return `
 
   function showTip(ev, idx){
     if (!$tip) return;
-    const set = chartSets[mode] || chartSets.daily;
+    const set = (chartSets[metric] && chartSets[metric][mode]) ? chartSets[metric][mode] : chartSets.events.daily;
     const labels = (set && set.labels) ? set.labels : [];
     const values = (set && set.values) ? set.values : [];
 
@@ -2257,6 +2313,19 @@ return `
       hideTip();
       setActiveBtn();
       setRangeLabel();
+      draw();
+    });
+  }
+
+  const metricSeg = document.getElementById("chartMetricSeg");
+  if (metricSeg){
+    metricSeg.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-metric]");
+      if (!btn) return;
+      metric = btn.getAttribute("data-metric") || "events";
+      hoverIndex = -1;
+      hideTip();
+      setActiveBtn();
       draw();
     });
   }
