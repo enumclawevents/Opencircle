@@ -1196,12 +1196,13 @@ return `
       /* Existing events: keep Clear inline with search (wrap only on small screens) */
       .listSearchRow{
         display:grid;
-        grid-template-columns: 1fr auto;
+        grid-template-columns: 1fr auto auto;
         gap:var(--gap);
         align-items:center;
         margin: 10px 0 14px;
       }
       .listSearchRow #eventSearch{ flex: 1 1 auto; min-width: 280px; }
+      .listSearchRow .btn{ height:44px; min-width:120px; }
       @media (max-width: 900px){
         .listSearchRow{ flex-wrap: wrap; }
         .listSearchRow #eventSearch{ flex: 1 1 100%; min-width: 0; }
