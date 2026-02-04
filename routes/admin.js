@@ -700,6 +700,7 @@ return `
         --danger:#ef4444;
         --shadow:none;
         --radius:8px;
+        --radius-inner:6px;
         --radius2:8px;
         --gap:22px;
 
@@ -806,7 +807,7 @@ return `
         display:flex; align-items:center; gap:10px;
         background:var(--panel);
         border:1px solid var(--line);
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         padding: 10px 12px;
         box-shadow: var(--shadow);
       }
@@ -913,7 +914,7 @@ return `
         width:100%;
         padding: 11px 12px;
         border: 1px solid var(--line);
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         background: var(--panel2);
         color: var(--text);
         font-size: 14px;
@@ -925,7 +926,7 @@ return `
         width:100%;
         padding:10px 12px;
         border: 1px solid var(--line);
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         background: var(--panel2);
         color: var(--text);
         font-size: 14px;
@@ -933,7 +934,7 @@ return `
       input[type="file"]::file-selector-button{
         margin-right: 12px;
         padding: 10px 12px;
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         border: 1px solid var(--line);
         background: #ffffff;
         color: var(--text);
@@ -1011,7 +1012,7 @@ return `
         background: var(--panel);
         color: var(--text);
         padding:10px 12px;
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         font-weight:600;
         cursor:pointer;
       }
@@ -1025,7 +1026,7 @@ return `
       .btn{
         display:inline-flex; align-items:center; justify-content:center;
         padding: 10px 14px;
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         border: 1px solid var(--line);
         background: var(--panel);
         cursor:pointer;
@@ -1063,7 +1064,7 @@ return `
       .mini{
         border: 1px solid var(--line);
         background: var(--panel2);
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         padding: 12px;
       }
       .mini + .mini{ margin-top:var(--gap); }
@@ -1126,7 +1127,7 @@ return `
         background: rgba(0,192,139,.12);
         border: 1px solid rgba(0,192,139,.22);
         padding: 6px 10px;
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         font-weight:650;
         color:#065f46;
         display:inline-flex; align-items:center; gap:6px;
@@ -1138,14 +1139,14 @@ return `
       .event-thumb-img{
         width: 116px; height: 116px;
         object-fit: cover;
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         border: 1px solid var(--line);
         display:block;
       }
       .thumb-empty,
       .thumb-fallback{
         width: 116px; height: 116px;
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         border: 1px solid var(--line);
         display:flex; align-items:center; justify-content:center;
         font-size: 12px; color: var(--muted);
@@ -1159,7 +1160,7 @@ return `
       .event-stats{
         width: 170px; flex: 0 0 170px;
         border: 1px solid var(--line);
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         padding: 12px;
         background: var(--panel2);
       }
@@ -1195,13 +1196,13 @@ return `
       @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
 
       /* Recurrence UI polish (keep your functionality, just match the new look) */
-      .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+      .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: var(--radius-inner); padding: 14px; }
       .rec-grid{ display:grid; grid-template-columns: 1.2fr .8fr; gap: 16px; align-items: start; }
       @media (max-width: 900px){ .rec-grid{ grid-template-columns: 1fr; } }
       .rec-label{ font-weight:650; font-size: 12px; margin-bottom: 8px; color: var(--text); letter-spacing: .2px; }
       .rec-help{ margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.4; }
 
-      .rec-box{ border:1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--panel2); margin-top: 10px; }
+      .rec-box{ border:1px solid var(--line); border-radius: var(--radius-inner); padding: 14px; background: var(--panel2); margin-top: 10px; }
       .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:650; }
       input[type=checkbox]{ width:18px; height:18px; border-radius:0px !important; accent-color: var(--brand); }
       .checkbox input{ width:18px !important; height:18px !important; border-radius:0px !important; }
@@ -1233,7 +1234,7 @@ return `
       .chip{
         display:inline-flex; align-items:center; gap:8px;
         border:1px solid var(--line);
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         padding: 8px 10px;
         background: var(--panel);
         font-size: 13px;
