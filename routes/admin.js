@@ -569,26 +569,115 @@ return `
       })
       .join("");
 
-    // Chart: events per day (last 14 days)
-    const chartRows = await all(
-      `SELECT date(startDateTime) AS d, COUNT(*) AS n
-       FROM events
-       ${dashAnd}date(startDateTime) >= date('now','-13 day')
-       GROUP BY d
-       ORDER BY d`
-    );
-    const byDay = new Map((chartRows || []).map((r) => [String(r.d), Number(r.n || 0)]));
+    // ------------------------------
+    // Chart: Daily / Weekly / Monthly / Yearly
+    // ------------------------------
+    const buildDaily = async () => {
+      const rows = await all(
+        `SELECT date(startDateTime) AS d, COUNT(*) AS n
+         FROM events
+         ${dashAnd}date(startDateTime) >= date('now','-13 day')
+         GROUP BY d
+         ORDER BY d`
+      );
+      const byDay = new Map((rows || []).map((r) => [String(r.d), Number(r.n || 0)]));
+      const labels = [];
+      const values = [];
+      for (let i = 13; i >= 0; i--) {
+        const dt = new Date();
+        dt.setDate(dt.getDate() - i);
+        const key = dt.toISOString().slice(0, 10); // YYYY-MM-DD
+        labels.push(key.slice(5)); // MM-DD
+        values.push(byDay.get(key) || 0);
+      }
+      return { labels, values };
+    };
 
-    const labels = [];
-    const values = [];
-    for (let i = 13; i >= 0; i--) {
-      const dt = new Date();
-      dt.setDate(dt.getDate() - i);
-      const key = dt.toISOString().slice(0, 10); // YYYY-MM-DD
-      labels.push(key.slice(5)); // MM-DD
-      values.push(byDay.get(key) || 0);
-    }
-    const chartDataJson = JSON.stringify({ labels, values });
+    const buildWeekly = async () => {
+      // Group by Monday week-start. Keep last 12 weeks.
+      const rows = await all(
+        `SELECT date(startDateTime, 'weekday 1', '-7 day') AS wk, COUNT(*) AS n
+         FROM events
+         ${dashAnd}date(startDateTime) >= date('now','-83 day')
+         GROUP BY wk
+         ORDER BY wk`
+      );
+      const byWk = new Map((rows || []).map((r) => [String(r.wk), Number(r.n || 0)]));
+      const labels = [];
+      const values = [];
+      // Walk back 11 weeks to current week
+      const now = new Date();
+      const day = now.getDay(); // 0 Sun..6 Sat
+      // Monday start
+      const monday = new Date(now);
+      const diffToMon = (day + 6) % 7;
+      monday.setDate(monday.getDate() - diffToMon);
+      for (let i = 11; i >= 0; i--) {
+        const dt = new Date(monday);
+        dt.setDate(dt.getDate() - i * 7);
+        const key = dt.toISOString().slice(0, 10);
+        // Label as MM-DD of week start
+        labels.push(key.slice(5));
+        values.push(byWk.get(key) || 0);
+      }
+      return { labels, values };
+    };
+
+    const buildMonthly = async () => {
+      // Last 12 months, group by YYYY-MM.
+      const rows = await all(
+        `SELECT strftime('%Y-%m', startDateTime) AS ym, COUNT(*) AS n
+         FROM events
+         ${dashAnd}date(startDateTime) >= date('now','start of month','-11 month')
+         GROUP BY ym
+         ORDER BY ym`
+      );
+      const byYm = new Map((rows || []).map((r) => [String(r.ym), Number(r.n || 0)]));
+      const labels = [];
+      const values = [];
+      const d = new Date();
+      d.setDate(1);
+      for (let i = 11; i >= 0; i--) {
+        const dt = new Date(d);
+        dt.setMonth(dt.getMonth() - i);
+        const ym = dt.toISOString().slice(0, 7);
+        // Label as Mon (and year if different from current year)
+        const mon = dt.toLocaleString('en-US', { month: 'short' });
+        const yr = dt.getFullYear();
+        const curYr = new Date().getFullYear();
+        labels.push(yr === curYr ? mon : `${mon} ${String(yr).slice(-2)}`);
+        values.push(byYm.get(ym) || 0);
+      }
+      return { labels, values };
+    };
+
+    const buildYearly = async () => {
+      // Last 5 years, group by YYYY.
+      const rows = await all(
+        `SELECT strftime('%Y', startDateTime) AS y, COUNT(*) AS n
+         FROM events
+         ${dashAnd}date(startDateTime) >= date('now','start of year','-4 year')
+         GROUP BY y
+         ORDER BY y`
+      );
+      const byY = new Map((rows || []).map((r) => [String(r.y), Number(r.n || 0)]));
+      const labels = [];
+      const values = [];
+      const curY = new Date().getFullYear();
+      for (let y = curY - 4; y <= curY; y++) {
+        labels.push(String(y));
+        values.push(byY.get(String(y)) || 0);
+      }
+      return { labels, values };
+    };
+
+    const chartSets = {
+      daily: await buildDaily(),
+      weekly: await buildWeekly(),
+      monthly: await buildMonthly(),
+      yearly: await buildYearly(),
+    };
+    const chartDataJson = JSON.stringify(chartSets);
 
     res.send(`<!doctype html>
 <html>
@@ -981,6 +1070,33 @@ return `
       .chart-wrap{ position:relative; height:320px; min-height:320px; }
       .chart-wrap canvas{ width:100%; height:240px; display:block; }
 
+      .seg{
+        display:inline-flex;
+        align-items:center;
+        gap:6px;
+        padding:6px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--panel2);
+      }
+      .seg button{
+        appearance:none;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--muted);
+        padding: 7px 10px;
+        border-radius: 999px;
+        font-weight: 650;
+        cursor: pointer;
+        line-height: 1;
+      }
+      .seg button:hover{ color: var(--text); }
+      .seg button.on{
+        background: rgba(0,192,139,.14);
+        border-color: rgba(0,192,139,.28);
+        color: #065f46;
+      }
+
       /* Existing events list */
       .event-card{
         border: 1px solid var(--line);
@@ -1257,9 +1373,15 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Events over time</h2>
-                <p class="sub">Last 14 days (by start date)</p>
+                <p class="sub" id="chartRangeLabel">Last 14 days (by start date)</p>
               </div>
               <div class="right">
+                <div class="seg" id="chartViewSeg" aria-label="Chart view">
+                  <button type="button" data-view="daily" class="on">Daily</button>
+                  <button type="button" data-view="weekly">Weekly</button>
+                  <button type="button" data-view="monthly">Monthly</button>
+                  <button type="button" data-view="yearly">Yearly</button>
+                </div>
                 <span class="small">Past: <strong>${esc(stats.past)}</strong></span>
                 <span class="small">Upcoming: <strong>${esc(stats.upcoming)}</strong></span>
               </div>
@@ -1917,7 +2039,7 @@ return `
 
       // Grid + y labels
       ctx.strokeStyle = "rgba(15,23,42,.10)";
-      ctx.fillStyle = "rgba(15,23,42,.55)"; // higher contrast
+      ctx.fillStyle = "rgba(15,23,42,.72)"; // higher contrast
       ctx.font = "12px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial";
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
@@ -1932,7 +2054,7 @@ return `
       }
 
       // X labels
-      ctx.fillStyle = "rgba(15,23,42,.55)";
+      ctx.fillStyle = "rgba(15,23,42,.72)";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
 
@@ -1963,7 +2085,7 @@ return `
         ctx.save();
         ctx.translate(x + barW/2, padT + H + 10);
         ctx.rotate(-0.35);
-        ctx.fillStyle = "rgba(15,23,42,.55)";
+        ctx.fillStyle = "rgba(15,23,42,.72)";
         ctx.fillText(String(labels[k]), 0, 0);
         ctx.restore();
       }
@@ -2017,7 +2139,46 @@ return `
     draw();
   });
 
+  // View switcher (daily/weekly/monthly/yearly)
+  var rangeLabel = document.getElementById('chartRangeLabel');
+  var seg = document.getElementById('chartViewSeg');
+  var rangeText = {
+    daily:  'Last 14 days (by start date)',
+    weekly: 'Last 12 weeks',
+    monthly:'Last 12 months',
+    yearly: 'Last 5 years'
+  };
+
+  function setSegActive(v){
+    if(!seg) return;
+    var btns = seg.querySelectorAll('button[data-view]');
+    btns.forEach(function(b){
+      if(b.getAttribute('data-view') === v) b.classList.add('on');
+      else b.classList.remove('on');
+    });
+  }
+
+  function applyView(v){
+    currentView = v || 'daily';
+    data = getData();
+    hoverIdx = -1;
+    if(tip) tip.style.display = 'none';
+    if(rangeLabel) rangeLabel.textContent = rangeText[currentView] || rangeText.daily;
+    setSegActive(currentView);
+    draw();
+  }
+
+  if(seg){
+    seg.addEventListener('click', function(ev){
+      var t = ev.target;
+      if(!t) return;
+      var v = t.getAttribute && t.getAttribute('data-view');
+      if(v) applyView(v);
+    });
+  }
+
   // draw after layout settles
+  applyView('daily');
   requestAnimationFrame(draw);
   setTimeout(draw, 120);
   setTimeout(draw, 600);
