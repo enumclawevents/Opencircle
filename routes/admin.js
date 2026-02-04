@@ -1847,7 +1847,6 @@ return `
         var clearBtn = document.getElementById('eventSearchClear');
         if(!input) return;
 
-        var t = null;
         function go(){
           var q = String(input.value || '').trim();
           var sp = new URLSearchParams(window.location.search || '');
@@ -1856,10 +1855,6 @@ return `
           window.location.href = '/admin?' + sp.toString();
         }
 
-        input.addEventListener('input', function(){
-          if (t) clearTimeout(t);
-          t = setTimeout(go, 350);
-        });
         input.addEventListener('keydown', function(ev){
           if (ev.key === 'Enter') {
             ev.preventDefault();
