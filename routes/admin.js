@@ -1703,7 +1703,7 @@ return `
             </div>
 
             <div class="listSearchRow">
-              <input id="eventSearch" class="ctrl" type="text" placeholder="Instant filter on this page..." />
+              <input id="eventSearch" class="ctrl" type="text" placeholder="Filter all events..." value="${esc(q)}" />
               <button id="eventSearchClear" type="button" class="btn">Clear</button>
             </div>
 
@@ -1841,40 +1841,37 @@ return `
         });
       })();
 
-      // Instant filter (page-only)
+      // Server-side filter (applies across all pages)
       (function(){
         var input = document.getElementById('eventSearch');
         var clearBtn = document.getElementById('eventSearchClear');
         if(!input) return;
 
-        function normalize(s){ return String(s || '').toLowerCase(); }
-
-        function applyFilter(){
-          var q = normalize(input.value).trim();
-          var cards = document.querySelectorAll('.event-card[data-eid]');
-          var shown = 0;
-
-          for(var i=0;i<cards.length;i++){
-            var card = cards[i];
-            var hay = normalize(card.textContent);
-            var ok = !q || hay.indexOf(q) !== -1;
-            card.style.display = ok ? '' : 'none';
-            if(ok) shown++;
-          }
-
-          var empty = document.getElementById('eventsEmpty');
-          if(empty) empty.style.display = shown ? 'none' : '';
+        var t = null;
+        function go(){
+          var q = String(input.value || '').trim();
+          var sp = new URLSearchParams(window.location.search || '');
+          if (q) sp.set('q', q); else sp.delete('q');
+          sp.set('pg', '1');
+          window.location.href = '/admin?' + sp.toString();
         }
 
-        input.addEventListener('input', applyFilter);
+        input.addEventListener('input', function(){
+          if (t) clearTimeout(t);
+          t = setTimeout(go, 350);
+        });
+        input.addEventListener('keydown', function(ev){
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            go();
+          }
+        });
         if(clearBtn){
           clearBtn.addEventListener('click', function(){
             input.value = '';
-            applyFilter();
-            input.focus();
+            go();
           });
         }
-        applyFilter();
       })();
 
       // Recurrence UI show/hide + custom chips
