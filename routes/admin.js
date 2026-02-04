@@ -1116,16 +1116,16 @@ return `
         display:flex;
         justify-content:space-between;
         gap:16px;
-        align-items:flex-start;
+        align-items:stretch;
       }
       .event-left{ flex: 1; min-width: 0; }
       .event-title{ font-weight:650; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:4px; }
-      .event-actions{ margin-top:10px; display:flex; gap:var(--gap); align-items:center; flex-wrap:wrap; }
+      .event-actions{ margin-top:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 
       
-      .event-actions .btn{ min-width: 104px; height:40px; }
-      .event-actions .btn{ padding: 10px 14px; }
+      .event-actions .btn{ min-width: 96px; height:38px; }
+      .event-actions .btn{ padding: 8px 12px; }
 .pill{
         font-size:12px;
         background: rgba(0,192,139,.12);
@@ -1138,10 +1138,10 @@ return `
       }
 
       .event-thumb{
-        width: 116px; flex: 0 0 116px;
+        width: 96px; flex: 0 0 96px;
       }
       .event-thumb-img{
-        width: 116px; height: 116px;
+        width: 96px; height: 96px;
         object-fit: cover;
         border-radius: var(--radius-inner);
         border: 1px solid var(--line);
@@ -1149,7 +1149,7 @@ return `
       }
       .thumb-empty,
       .thumb-fallback{
-        width: 116px; height: 116px;
+        width: 96px; height: 96px;
         border-radius: var(--radius-inner);
         border: 1px solid var(--line);
         display:flex; align-items:center; justify-content:center;
@@ -1162,10 +1162,10 @@ return `
       .event-thumb.broken .thumb-fallback{ display:flex; }
 
       .event-stats{
-        width: 170px; flex: 0 0 170px;
+        width: 150px; flex: 0 0 150px;
         border: 1px solid var(--line);
         border-radius: var(--radius-inner);
-        padding: 12px;
+        padding: 10px;
         background: var(--panel2);
       }
       .stat{ display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--muted); margin: 6px 0; }
