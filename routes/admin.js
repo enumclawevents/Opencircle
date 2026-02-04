@@ -738,23 +738,21 @@ return `
 
       /* Chart card uses the original dark treatment so the canvas grid/ticks remain legible */
       .chartCard{
-        background: var(--sidebar-bg);
-        border-color: var(--sidebar-line);
-        box-shadow: none;
-        color: var(--sidebar-text);
-      }
-      .chartCard h2,
-      .chartCard h3{
-        color: var(--sidebar-text);
-      }
-      .chartCard .muted{
-        color: var(--sidebar-muted);
-      }
-      .chartCard .statLine{
-        color: var(--sidebar-muted);
-      }
+  background: var(--panel);
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+.chartCard h2,
+.chartCard h3{
+  color: var(--text);
+}
+.chartCard .muted,
+.chartCard .statLine{
+  color: var(--muted);
+}
 
-      .metrics{
+.metrics{
         display:grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap:var(--gap);
@@ -786,7 +784,7 @@ return `
 
       .grid2{
         display:grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 3fr 1fr;
         gap:var(--gap);
         margin-bottom:var(--gap);
       }
