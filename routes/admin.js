@@ -905,7 +905,7 @@ return `
 
       /* Chart */
       .chartWrap{ height:220px; padding-bottom:8px; }
-      canvas{        width:150px; height:220px; display:block; }
+      canvas{ width:100%; height:220px; display:block; }
 
       /* Existing events list */
       .event-card{
@@ -1056,11 +1056,11 @@ return `
         gap:10px;
         margin-bottom:10px;
       }
-      .sectionTitle > div{        width:150px; }
-      .sectionTitle .right{        width:150px; display:flex; justify-content:flex-start; }
+      .sectionTitle > div{ width:auto; }
+      .sectionTitle .right{ width:auto; display:flex; gap:12px; justify-content:flex-start; flex-wrap:wrap; }
       /* Keep controls in one line on desktop; allow wrap on small screens */
       .sectionTitle .rightRow{
-        width:150px;
+        width:100%;
         display:flex;
         align-items:center;
         justify-content:flex-start;
