@@ -550,7 +550,7 @@ return `
       serverTime: new Date().toISOString().replace("T", " ").slice(0, 19) + "Z",
     };
 
-    // Top locations
+    // Top organizers
     const orgRows = await all(`
       SELECT 
         COALESCE(NULLIF(TRIM(organizer), ''), '(unknown)') AS organizer,
@@ -1986,212 +1986,213 @@ return `
 
       // Simple bar chart (no libraries)
 (function(){
-  var data = ${chartDataJson};
-  var c = document.getElementById("eventsChart");
-  if(!c || !c.getContext) return;
-  var ctx = c.getContext("2d");
-  if(!ctx) return;
+  // Chart data sets: { daily:{labels,values}, weekly:{...}, monthly:{...}, yearly:{...} }
+  var chartSets = ${chartDataJson};
+  var mode = "daily";
 
-  var wrap = c.parentElement;
-  var tip = document.getElementById("eventsChartTip");
-  var hoverIdx = -1;
-  var bars = [];
+  const $canvas = document.getElementById("eventsChart");
+  const $tip = document.getElementById("eventsChartTip");
 
-  function draw(){
-    try{
-      if(!wrap) wrap = c.parentElement;
-      var rect = (wrap && wrap.getBoundingClientRect) ? wrap.getBoundingClientRect() : c.getBoundingClientRect();
-      var cssW = (rect && rect.width) ? rect.width : (wrap && wrap.clientWidth ? wrap.clientWidth : 900);
-      var cssH = 260;
+  if (!$canvas) return;
 
-      // If layout hasn't happened yet, try again shortly.
-      if(!cssW || cssW < 50){
-        setTimeout(draw, 80);
-        return;
-      }
+  const ctx = $canvas.getContext("2d", { alpha: true });
 
-      var dpr = window.devicePixelRatio || 1;
-      c.width  = Math.max(1, Math.floor(cssW * dpr));
-      c.height = Math.max(1, Math.floor(cssH * dpr));
-      c.style.width = cssW + "px";
-      c.style.height = cssH + "px";
+  function getActiveSet() {
+    if (!chartSets || typeof chartSets !== "object") return { labels: [], values: [] };
+    const key = String(mode || "daily").toLowerCase();
+    return chartSets[key] || { labels: [], values: [] };
+  }
 
-      ctx.setTransform(dpr,0,0,dpr,0,0);
-      ctx.clearRect(0,0,cssW,cssH);
+  function setMode(next) {
+    const key = String(next || "daily").toLowerCase();
+    if (!chartSets || !chartSets[key]) return;
+    mode = key;
 
-      if(!data || !data.labels || !data.values || !data.labels.length){
-        // Empty state label
-        ctx.fillStyle = "rgba(15,23,42,.65)";
-        ctx.font = "600 14px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial";
-        ctx.fillText("No recent events", 14, 26);
-        return;
-      }
+    // update pills
+    const pills = document.querySelectorAll("[data-view]");
+    pills.forEach((b) => {
+      const on = String(b.getAttribute("data-view") || "").toLowerCase() === key;
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      b.classList.toggle("on", on);
+    });
 
-      var labels = data.labels;
-      var values = data.values;
-      var maxV = 1;
-      for(var i=0;i<values.length;i++){ if(values[i] > maxV) maxV = values[i]; }
+    resize();
+    draw();
+  }
 
-      // Chart box
-      var padL = 52, padR = 18, padT = 18, padB = 42;
-      var W = cssW - padL - padR;
-      var H = cssH - padT - padB;
+  function niceMax(n) {
+    const x = Math.max(1, n);
+    const pow = Math.pow(10, Math.floor(Math.log10(x)));
+    const t = x / pow;
+    const m = t <= 1 ? 1 : t <= 2 ? 2 : t <= 5 ? 5 : 10;
+    return m * pow;
+  }
 
-      // Grid + y labels
-      ctx.strokeStyle = "rgba(15,23,42,.10)";
-      ctx.fillStyle = "rgba(15,23,42,.72)"; // higher contrast
-      ctx.font = "12px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial";
-      ctx.textAlign = "right";
-      ctx.textBaseline = "middle";
-      for(var g=0; g<=4; g++){
-        var y = padT + (H*(g/4));
-        ctx.beginPath();
-        ctx.moveTo(padL, y);
-        ctx.lineTo(padL+W, y);
-        ctx.stroke();
-        var v = Math.round(maxV*(1 - g/4));
-        ctx.fillText(String(v), padL-10, y);
-      }
+  function clearTip() {
+    if (!$tip) return;
+    $tip.style.display = "none";
+  }
 
-      // X labels
+  function resize() {
+    const rect = $canvas.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+
+    // Guard: if the card is not visible yet, wait a tick.
+    if (!rect.width || !rect.height) return;
+
+    $canvas.width = Math.floor(rect.width * dpr);
+    $canvas.height = Math.floor(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function draw() {
+    const rect = $canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const set = getActiveSet();
+    const labels = Array.isArray(set.labels) ? set.labels : [];
+    const values = Array.isArray(set.values) ? set.values : [];
+
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    if (!labels.length || !values.length) {
       ctx.fillStyle = "rgba(15,23,42,.72)";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
+      ctx.font = "600 16px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+      ctx.fillText("No recent events", 18, 48);
+      return;
+    }
 
-      var n = values.length;
-      var gap = 10;
-      var barW = Math.max(12, Math.floor((W - gap*(n-1)) / n));
-      var totalW = barW*n + gap*(n-1);
-      var x0 = padL + Math.max(0, (W - totalW)/2);
+    const padL = 56, padR = 18, padT = 18, padB = 44;
+    const w = rect.width - padL - padR;
+    const h = rect.height - padT - padB;
 
-      bars = [];
-      for(var k=0;k<n;k++){
-        var v2 = values[k] || 0;
-        var bh = Math.round((v2 / maxV) * (H-6));
-        var x = x0 + k*(barW+gap);
-        var y2 = padT + (H - bh);
+    const maxV = niceMax(Math.max(...values, 1));
+    const steps = 4;
 
-        // hover highlight
-        if(k === hoverIdx){
-          ctx.fillStyle = "rgba(16,185,129,.55)";
-        }else{
-          ctx.fillStyle = "rgba(16,185,129,.35)";
-        }
-        ctx.fillRect(x, y2, barW, bh);
+    // grid + y labels
+    ctx.strokeStyle = "rgba(148,163,184,.35)";
+    ctx.lineWidth = 1;
 
-        bars.push({x:x, y:y2, w:barW, h:bh, label:labels[k], value:v2});
+    ctx.fillStyle = "rgba(15,23,42,.78)"; // more contrast
+    ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
 
-        // Label (rotate slightly for density)
-        ctx.save();
-        ctx.translate(x + barW/2, padT + H + 10);
-        ctx.rotate(-0.35);
-        ctx.fillStyle = "rgba(15,23,42,.72)";
-        ctx.fillText(String(labels[k]), 0, 0);
-        ctx.restore();
-      }
-
-      // axis line
-      ctx.strokeStyle = "rgba(15,23,42,.18)";
+    for (let i = 0; i <= steps; i++) {
+      const y = padT + (h * i) / steps;
       ctx.beginPath();
-      ctx.moveTo(padL, padT+H);
-      ctx.lineTo(padL+W, padT+H);
+      ctx.moveTo(padL, y);
+      ctx.lineTo(padL + w, y);
       ctx.stroke();
 
-    }catch(e){
-      // swallow – chart is non-blocking
+      const v = Math.round(maxV * (1 - i / steps));
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(v), padL - 12, y);
     }
-  }
 
-  function hitTest(mx, my){
-    for(var i=0;i<bars.length;i++){
-      var b = bars[i];
-      if(mx>=b.x && mx<=b.x+b.w && my>=b.y && my<=b.y+b.h) return i;
-    }
-    return -1;
-  }
+    // x labels
+    ctx.fillStyle = "rgba(15,23,42,.62)";
+    ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
 
-  c.addEventListener("mousemove", function(ev){
-    if(!bars || !bars.length) return;
-    var r = c.getBoundingClientRect();
-    var mx = ev.clientX - r.left;
-    var my = ev.clientY - r.top;
-    var idx = hitTest(mx, my);
-    if(idx !== hoverIdx){
-      hoverIdx = idx;
-      draw();
-    }
-    if(tip){
-      if(idx>=0){
-        var b = bars[idx];
-        tip.style.display = "block";
-        tip.textContent = b.value + " event" + (b.value===1?\"\":\"s\") + \" on \" + b.label;
-        tip.style.left = Math.min(r.width-140, Math.max(8, mx + 12)) + "px";
-        tip.style.top  = Math.max(8, my - 28) + "px";
-      }else{
-        tip.style.display = "none";
+    const n = labels.length;
+    const gap = w / n;
+    const bw = Math.max(10, gap * 0.72);
+
+    const bars = [];
+    for (let i = 0; i < n; i++) {
+      const v = values[i] || 0;
+      const bh = (v / maxV) * h;
+      const x = padL + i * gap + (gap - bw) / 2;
+      const y = padT + (h - bh);
+
+      // bar
+      ctx.fillStyle = "rgba(16,185,129,.32)";
+      ctx.fillRect(x, y, bw, bh);
+
+      bars.push({ i, x, y, w: bw, h: bh, v, label: labels[i] });
+
+      // show a subset of x labels to avoid clutter
+      const showEvery = n > 14 ? Math.ceil(n / 10) : 1;
+      if (i % showEvery === 0 || i === n - 1) {
+        ctx.save();
+        ctx.translate(x + bw / 2, padT + h + 12);
+        ctx.rotate(-0.42);
+        ctx.fillText(String(labels[i]), 0, 0);
+        ctx.restore();
       }
     }
-  });
 
-  c.addEventListener("mouseleave", function(){
-    hoverIdx = -1;
-    if(tip) tip.style.display = "none";
-    draw();
-  });
-
-  // View switcher (daily/weekly/monthly/yearly)
-  var rangeLabel = document.getElementById('chartRangeLabel');
-  var seg = document.getElementById('chartViewSeg');
-  var rangeText = {
-    daily:  'Last 14 days (by start date)',
-    weekly: 'Last 12 weeks',
-    monthly:'Last 12 months',
-    yearly: 'Last 5 years'
-  };
-
-  function setSegActive(v){
-    if(!seg) return;
-    var btns = seg.querySelectorAll('button[data-view]');
-    btns.forEach(function(b){
-      if(b.getAttribute('data-view') === v) b.classList.add('on');
-      else b.classList.remove('on');
-    });
-  }
-
-  function applyView(v){
-    currentView = v || 'daily';
-    data = getData();
-    hoverIdx = -1;
-    if(tip) tip.style.display = 'none';
-    if(rangeLabel) rangeLabel.textContent = rangeText[currentView] || rangeText.daily;
-    setSegActive(currentView);
-    draw();
-  }
-
-  if(seg){
-    seg.addEventListener('click', function(ev){
-      var t = ev.target;
-      if(!t) return;
-      var v = t.getAttribute && t.getAttribute('data-view');
-      if(v) applyView(v);
-    });
-  }
-
-  // draw after layout settles
-  applyView('daily');
-  requestAnimationFrame(draw);
-  setTimeout(draw, 120);
-  setTimeout(draw, 600);
-
-  // keep in sync with layout
-  try{
-    if(window.ResizeObserver && wrap){
-      var ro = new ResizeObserver(function(){ draw(); });
-      ro.observe(wrap);
-    }else{
-      window.addEventListener(\"resize\", function(){ draw(); });
+    // hover interaction
+    function findBarAt(clientX, clientY) {
+      const r = $canvas.getBoundingClientRect();
+      const px = clientX - r.left;
+      const py = clientY - r.top;
+      return bars.find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
     }
-  }catch(e){}
+
+    function onMove(e) {
+      const b = findBarAt(e.clientX, e.clientY);
+      if (!b) {
+        clearTip();
+        draw(); // remove highlight
+        return;
+      }
+
+      // redraw with highlight
+      draw();
+      ctx.fillStyle = "rgba(16,185,129,.55)";
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+
+      if ($tip) {
+        $tip.innerHTML = "<strong>" + b.v + "</strong> event" + (b.v === 1 ? "" : "s") + "<br/><span style=\"opacity:.8\">" + String(b.label) + "</span>";
+        $tip.style.display = "block";
+
+        const r = $canvas.getBoundingClientRect();
+        const left = Math.min(r.width - 10, Math.max(10, b.x + b.w / 2));
+        const top = Math.max(10, b.y - 10);
+
+        $tip.style.left = left + "px";
+        $tip.style.top = top + "px";
+        $tip.style.transform = "translate(-50%, -100%)";
+      }
+    }
+
+    // remove previous listeners by resetting handlers (safe in this inline script)
+    $canvas.onmousemove = onMove;
+    $canvas.onmouseleave = function () { clearTip(); draw(); };
+
+    // make cursor feel interactive
+    $canvas.style.cursor = "default";
+    $canvas.onmousemove = function (e) {
+      const b = findBarAt(e.clientX, e.clientY);
+      $canvas.style.cursor = b ? "pointer" : "default";
+      onMove(e);
+    };
+  }
+
+  // Tabs
+  const pillWrap = document.querySelector(".chartPills");
+  if (pillWrap) {
+    pillWrap.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-view]");
+      if (!btn) return;
+      setMode(btn.getAttribute("data-view"));
+    });
+  }
+
+  // Resize observers
+  const ro = new ResizeObserver(() => {
+    resize();
+    draw();
+  });
+  ro.observe($canvas);
+
+  // initial render
+  // wait one tick to ensure layout is settled
+  setTimeout(() => {
+    setMode("daily");
+  }, 0);
 
 })();;
 
