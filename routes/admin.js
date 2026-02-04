@@ -736,6 +736,24 @@ return `
         padding: 16px;
       }
 
+      /* Chart card uses the original dark treatment so the canvas grid/ticks remain legible */
+      .chartCard{
+        background: var(--sidebar-bg);
+        border-color: var(--sidebar-line);
+        box-shadow: none;
+        color: var(--sidebar-text);
+      }
+      .chartCard h2,
+      .chartCard h3{
+        color: var(--sidebar-text);
+      }
+      .chartCard .muted{
+        color: var(--sidebar-muted);
+      }
+      .chartCard .statLine{
+        color: var(--sidebar-muted);
+      }
+
       .metrics{
         display:grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
