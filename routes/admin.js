@@ -1389,7 +1389,7 @@ return `
                 <span class="small">Upcoming: <strong>${esc(stats.upcoming)}</strong></span>
               </div>
             </div>
-            <div class="chart-wrap">
+            <div class="chart-wrap" id="eventsChartWrap">
               <canvas id="eventsChart" style="width:100%; height:260px; display:block;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:0 8px 20px rgba(15,23,42,.12);"></div>
             </div>
@@ -1990,7 +1990,7 @@ return `
       // Simple bar chart (no libraries) + hover tooltip + view toggles
 (function(){
   function initEventsChart(){
-    const chartSets = ${JSON.stringify(chartSets)};
+    const chartSets = ${chartDataJson};
     const $canvas = document.getElementById("eventsChart");
     const $wrap   = document.getElementById("eventsChartWrap");
     const $tip    = document.getElementById("eventsChartTip");
@@ -2077,7 +2077,7 @@ return `
     // grid + y labels
     ctx.lineWidth = 1;
     ctx.strokeStyle = "rgba(15,23,42,.12)";
-    ctx.fillStyle = "rgba(15,23,42,.85)";
+    ctx.fillStyle = "rgba(15,23,42,.92)";
     ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
     for (let i=0;i<=yTicks;i++){
@@ -2095,7 +2095,7 @@ return `
     const x0 = padL + Math.max(0, (gw-totalW)/2);
 
     // x label style
-    ctx.fillStyle = "rgba(15,23,42,.75)";
+    ctx.fillStyle = "rgba(15,23,42,.92)";
     ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
     for (let i=0;i<n;i++){
@@ -2122,7 +2122,7 @@ return `
       ctx.translate(x + barW/2, padT + gh + 22);
       ctx.rotate(-0.35);
       ctx.textAlign = "center";
-      ctx.fillStyle = "rgba(15,23,42,.75)";
+      ctx.fillStyle = "rgba(15,23,42,.92)";
       ctx.fillText(lab, 0, 0);
       ctx.restore();
     }
