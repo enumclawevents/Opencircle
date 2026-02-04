@@ -1080,9 +1080,8 @@ return `
       .kv strong{ color:var(--text); font-size:14px; }
 
       /* Chart */
-      .chart-wrap{ position:relative; height:320px; min-height:320px; }
-      /* Keep canvas CSS height aligned with the inline height attribute (260px) */
-      .chart-wrap canvas{ width:100%; height:260px; display:block; }
+      .chart-wrap{ position:relative; flex:1; min-height:0; }
+      .chart-wrap canvas{ width:100%; height:100%; display:block; }
 
       .seg{
         display:inline-flex;
@@ -1785,6 +1784,9 @@ return `
         if(!form) return;
 
         form.addEventListener("submit", function(){
+          try {
+            sessionStorage.setItem("oc_admin_scroll", String(window.scrollY || 0));
+          } catch (_) {}
           var startLocal = (document.getElementById("startDateTime") || {}).value || "";
           var endLocal   = (document.getElementById("endDateTime") || {}).value || "";
 
@@ -1877,6 +1879,9 @@ return `
         if(!input) return;
 
         function go(){
+          try {
+            sessionStorage.setItem("oc_admin_scroll", String(window.scrollY || 0));
+          } catch (_) {}
           var q = String(input.value || '').trim();
           var sp = new URLSearchParams(window.location.search || '');
           if (q) sp.set('q', q); else sp.delete('q');
@@ -1901,6 +1906,18 @@ return `
             go();
           });
         }
+      })();
+
+      // Restore scroll position after actions
+      (function(){
+        try {
+          var y = sessionStorage.getItem("oc_admin_scroll");
+          if (y !== null) {
+            sessionStorage.removeItem("oc_admin_scroll");
+            var n = parseInt(y, 10);
+            if (!isNaN(n) && n > 0) window.scrollTo({ top: n, left: 0, behavior: "auto" });
+          }
+        } catch (_) {}
       })();
 
       // Recurrence UI show/hide + custom chips
