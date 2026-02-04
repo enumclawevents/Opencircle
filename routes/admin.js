@@ -1266,7 +1266,10 @@ return `
               </div>
             </div>
             <div class="chartWrap">
-              <canvas id="eventsChart" width="900" height="220"></canvas>
+              <div class="chart-wrap" style="position:relative;">
+                <canvas id="eventsChart" width="900" height="220"></canvas>
+                <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:0 8px 20px rgba(15,23,42,.12);"></div>
+              </div>
             </div>
           </div>
 
@@ -1870,6 +1873,10 @@ return `
         var ctx = c.getContext("2d");
         if(!ctx) return;
 
+        var tip = document.getElementById("eventsChartTip");
+        var hoverIdx = -1;
+        var bars = [];
+
         function draw(){
           // handle DPR
           var dpr = window.devicePixelRatio || 1;
@@ -1898,7 +1905,8 @@ return `
           for(var i=0;i<data.values.length;i++){ if(data.values[i] > maxV) maxV = data.values[i]; }
 
           // grid lines (4)
-          ctx.fillStyle = "rgba(229,231,235,.75)";
+          // darker labels for light dashboard
+          ctx.fillStyle = "rgba(15,23,42,.72)";
           ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
           for(var g=0; g<=4; g++){
             var y = padT + (h * g / 4);
@@ -1913,6 +1921,7 @@ return `
           }
 
           // bars
+          bars.length = 0;
           var n = data.values.length;
           var gap = 8;
           var barW = Math.max(10, Math.floor((w - gap*(n-1)) / n));
@@ -1922,10 +1931,14 @@ return `
             var x = padL + b * (barW + gap);
             var y2 = padT + h - bh;
 
-            ctx.fillStyle = "rgba(0,192,139,.65)";
+            var isHover = (b === hoverIdx);
+            ctx.fillStyle = isHover ? "rgba(0,192,139,.92)" : "rgba(0,192,139,.68)";
             ctx.fillRect(x, y2, barW, bh);
 
-            ctx.fillStyle = "rgba(229,231,235,.70)";
+            bars.push({ x: x, y: y2, w: barW, h: bh, label: data.labels[b], value: v });
+
+            // x-axis labels: higher contrast
+            ctx.fillStyle = "rgba(15,23,42,.72)";
             ctx.font = "11px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
             var label = data.labels[b];
             ctx.save();
@@ -1935,6 +1948,43 @@ return `
             ctx.fillText(label, 0, 0);
             ctx.restore();
           }
+
+          // hover / tooltip
+          if (!tip) return;
+          c.onmousemove = function(ev){
+            var rect = c.getBoundingClientRect();
+            var mx = ev.clientX - rect.left;
+            var my = ev.clientY - rect.top;
+            var found = -1;
+            for (var i=0;i<bars.length;i++){
+              var bb = bars[i];
+              if (mx >= bb.x && mx <= (bb.x+bb.w) && my >= bb.y && my <= (bb.y+bb.h)) { found = i; break; }
+            }
+            if (found !== hoverIdx) {
+              hoverIdx = found;
+              draw();
+              return;
+            }
+            if (found >= 0) {
+              var bb2 = bars[found];
+              tip.style.display = "block";
+              var plural = bb2.value === 1 ? "event" : "events";
+              tip.innerHTML = "<b>" + bb2.value + "</b> " + plural + "<br><span style=\"opacity:.85\">" + bb2.label + "</span>";
+              var left = bb2.x + bb2.w/2;
+              var top = Math.max(6, bb2.y - 10);
+              tip.style.left = left + "px";
+              tip.style.top = top + "px";
+              tip.style.transform = "translate(-50%, -100%)";
+            } else {
+              tip.style.display = "none";
+            }
+          };
+
+          c.onmouseleave = function(){
+            hoverIdx = -1;
+            if (tip) tip.style.display = "none";
+            draw();
+          };
         }
 
         draw();
