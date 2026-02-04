@@ -2227,6 +2227,7 @@ return `
   }
 
   window.addEventListener("resize", () => window.requestAnimationFrame(draw));
+}
 
   initEventsChart();
 })();</script>
