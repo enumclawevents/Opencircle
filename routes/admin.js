@@ -977,7 +977,7 @@ return `
       .kv strong{ color:var(--text); font-size:14px; }
 
       /* Chart */
-      .chart-wrap{ position:relative; height:240px; min-height:240px; }
+      .chart-wrap{ position:relative; height:320px; min-height:320px; }
       .chart-wrap canvas{ width:100%; height:240px; display:block; }
 
       /* Existing events list */
@@ -1988,8 +1988,24 @@ return `
         }
 
         draw();
-        window.addEventListener("resize", function(){ draw(); });
-      })();
+  window.addEventListener("resize", function(){ draw(); });
+
+  // Ensure we redraw when the canvas container finishes layout (grid/flex can report 0 on first pass)
+  try{
+    if (window.ResizeObserver){
+      var ro = new ResizeObserver(function(){ draw(); });
+      ro.observe(wrap);
+    } else {
+      // fallback: a few extra draws shortly after load
+      setTimeout(draw, 100);
+      setTimeout(draw, 250);
+      setTimeout(draw, 500);
+    }
+  }catch(e){}
+
+})();
+
+
     </script>
   </body>
 </html>`);
