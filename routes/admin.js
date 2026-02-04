@@ -2185,22 +2185,24 @@ router.post("/events/:id/delete", async (req, res) => {
 
     await run("DELETE FROM events WHERE id = ?", [id]);
 
-const pg = req.query.pg ? String(req.query.pg) : "1";
-const limit = req.query.limit ? String(req.query.limit) : "20";
-const q = req.query.q ? String(req.query.q) : "";
+    const pg = req.query.pg ? String(req.query.pg) : "1";
+    const limit = req.query.limit ? String(req.query.limit) : "20";
+    const q = req.query.q ? String(req.query.q) : "";
+    const archived = req.query.archived ? String(req.query.archived) : "0";
+    const sort = req.query.sort ? String(req.query.sort) : "datetime";
 
-const archived = req.query.archived ? String(req.query.archived) : "0";
+    const sp = new URLSearchParams({ pg, limit, archived, sort });
+    if (q) sp.set("q", q);
 
-const sp = new URLSearchParams({ pg, limit, archived });
-if (q) sp.set("q", q);
-
-res.redirect(`/admin?${sp.toString()}`);
-
+    return res.redirect(`/admin?${sp.toString()}`);
   } catch (err) {
     console.error(err);
-    res.status(500).send("Server error.");
+    return res.status(500).send("Server error.");
   }
+});
 
+// Soft-archive (best practice) — works with either (archived, archived_at, archived_reason)
+// or legacy (isArchived, archivedAt) columns depending on what's present.
 router.post("/events/:id/archive", async (req, res) => {
   try {
     await ensureArchiveSchema();
@@ -2208,23 +2210,36 @@ router.post("/events/:id/archive", async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
 
-    await run(
-      "UPDATE events SET isArchived = 1, archivedAt = datetime('now') WHERE id = ?",
-      [id]
-    );
+    const cols = await getEventsColumns();
+
+    const colArchived = cols.has("archived") ? "archived" : (cols.has("isArchived") ? "isArchived" : null);
+    const colArchivedAt = cols.has("archived_at") ? "archived_at" : (cols.has("archivedAt") ? "archivedAt" : null);
+    const colReason = cols.has("archived_reason") ? "archived_reason" : (cols.has("archivedReason") ? "archivedReason" : null);
+
+    const sets = [];
+    const params = [];
+
+    if (colArchived) sets.push(`${colArchived} = 1`);
+    if (colArchivedAt) sets.push(`${colArchivedAt} = datetime('now')`);
+    if (colReason) { sets.push(`${colReason} = ?`); params.push("manual"); }
+
+    if (sets.length === 0) return res.status(400).send("Archive not supported by schema.");
+
+    await run(`UPDATE events SET ${sets.join(", ")} WHERE id = ?`, [...params, id]);
 
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";
     const q = req.query.q ? String(req.query.q) : "";
     const archived = req.query.archived ? String(req.query.archived) : "0";
+    const sort = req.query.sort ? String(req.query.sort) : "datetime";
 
-    const sp = new URLSearchParams({ pg, limit, archived });
+    const sp = new URLSearchParams({ pg, limit, archived, sort });
     if (q) sp.set("q", q);
 
-    res.redirect(`/admin?${sp.toString()}`);
+    return res.redirect(`/admin?${sp.toString()}`);
   } catch (err) {
     console.error(err);
-    res.status(500).send("Server error.");
+    return res.status(500).send("Server error.");
   }
 });
 
@@ -2235,26 +2250,35 @@ router.post("/events/:id/unarchive", async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
 
-    await run(
-      "UPDATE events SET isArchived = 0, archivedAt = NULL WHERE id = ?",
-      [id]
-    );
+    const cols = await getEventsColumns();
+
+    const colArchived = cols.has("archived") ? "archived" : (cols.has("isArchived") ? "isArchived" : null);
+    const colArchivedAt = cols.has("archived_at") ? "archived_at" : (cols.has("archivedAt") ? "archivedAt" : null);
+    const colReason = cols.has("archived_reason") ? "archived_reason" : (cols.has("archivedReason") ? "archivedReason" : null);
+
+    const sets = [];
+    if (colArchived) sets.push(`${colArchived} = 0`);
+    if (colArchivedAt) sets.push(`${colArchivedAt} = NULL`);
+    if (colReason) sets.push(`${colReason} = NULL`);
+
+    if (sets.length === 0) return res.status(400).send("Unarchive not supported by schema.");
+
+    await run(`UPDATE events SET ${sets.join(", ")} WHERE id = ?`, [id]);
 
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";
     const q = req.query.q ? String(req.query.q) : "";
     const archived = req.query.archived ? String(req.query.archived) : "0";
+    const sort = req.query.sort ? String(req.query.sort) : "datetime";
 
-    const sp = new URLSearchParams({ pg, limit, archived });
+    const sp = new URLSearchParams({ pg, limit, archived, sort });
     if (q) sp.set("q", q);
 
-    res.redirect(`/admin?${sp.toString()}`);
+    return res.redirect(`/admin?${sp.toString()}`);
   } catch (err) {
     console.error(err);
-    res.status(500).send("Server error.");
+    return res.status(500).send("Server error.");
   }
-});
-
 });
 
 module.exports = router;
