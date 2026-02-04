@@ -775,7 +775,8 @@ return `
 
       .gridMain{
         display:grid;
-        grid-template-columns: 1.05fr .95fr;
+        /* 40% Create form / 60% Existing events */
+        grid-template-columns: 2fr 3fr;
         gap:var(--gap);
         align-items:start;
       }
