@@ -1041,6 +1041,9 @@ return `
         border-radius: var(--radius-inner);
         font-weight:600;
         cursor:pointer;
+        height: var(--ctrl-h);
+        display:inline-flex;
+        align-items:center;
       }
       input[type="file"]::file-selector-button:hover{
         border-color: rgba(0,192,139,.28);
