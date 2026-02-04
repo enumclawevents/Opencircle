@@ -26,7 +26,6 @@ const ALLOWED_CATEGORIES = [
   "Business & Networking",
   "Charity & Fundraising",
   "Seasonal & Holiday",
-  "Health & Wellness",
 ];
 
 // --- Uploads (local disk or Render disk mount) ---
@@ -1033,8 +1032,15 @@ return `
       }
       .chip button{ border:0; background: transparent; cursor:pointer; font-weight:650; color: #b91c1c; }
 
-      .sectionTitle{ display:flex; align-items:flex-end; justify-content:space-between; gap:var(--gap); margin-bottom:10px; }
-      .sectionTitle .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+      /* Section headers (title left, controls right) */
+      .sectionTitle{ display:flex; align-items:center; justify-content:space-between; gap:var(--gap); margin-bottom:10px; }
+      .sectionTitle .right{ display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+      /* Keep controls in one line on desktop; allow wrap on small screens */
+      .sectionTitle .rightRow{ display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:nowrap; }
+      @media (max-width: 980px){
+        .sectionTitle{ align-items:flex-start; }
+        .sectionTitle .rightRow{ flex-wrap:wrap; }
+      }
 
       .small{ font-size:12px; color:var(--muted); font-weight:600; }
     
@@ -1432,19 +1438,20 @@ return `
                 <p class="sub">Edit, delete, and check stats</p>
               </div>
               <div class="right">
-                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-  <a class="btn ${archivedMode === "0" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=0">Active</a>
-  <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=1">Archived</a>
-  <a class="btn ${archivedMode === "all" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=all">All</a>
+                <div class="rightRow">
+                  <a class="btn ${archivedMode === "0" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=0">Active</a>
+                  <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=1">Archived</a>
+                  <a class="btn ${archivedMode === "all" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=all">All</a>
 
-  <select id="sortBy" class="ctrl" style="width:240px; max-width:100%;">
-    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
-    <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Sort: Alphabetical (A–Z)</option>
-    <option value="recent" ${sort === "recent" ? "selected" : ""}>Sort: Recently added</option>
-    <option value="id" ${sort === "id" ? "selected" : ""}>Sort: ID (newest)</option>
-  </select>
-</div>
-                <span class="small">Showing <strong>${showingFrom}–${showingTo}</strong> of <strong>${total}</strong></span>
+                  <select id="sortBy" class="ctrl" style="width:240px; max-width:100%;">
+                    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
+                    <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Sort: Alphabetical (A–Z)</option>
+                    <option value="recent" ${sort === "recent" ? "selected" : ""}>Sort: Recently added</option>
+                    <option value="id" ${sort === "id" ? "selected" : ""}>Sort: ID (newest)</option>
+                  </select>
+
+                  <span class="small">Showing <strong>${showingFrom}–${showingTo}</strong> of <strong>${total}</strong></span>
+                </div>
               </div>
             </div>
 
