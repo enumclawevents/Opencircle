@@ -874,12 +874,14 @@ return `
 
       .grid2{
         display:grid;
-        grid-template-columns: 3fr 1fr;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap:var(--gap);
         margin-bottom:var(--gap);
         align-items: stretch;
       }
       .grid2 > .card{ height:100%; }
+      .grid2 > .card:first-child{ grid-column: span 3; }
+      .grid2 > .card:last-child{ grid-column: span 1; }
 
       .gridMain{
         display:grid;
