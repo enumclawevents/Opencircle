@@ -633,7 +633,7 @@ return `
       .app{ display:flex; min-height:100vh; }
 
       .sidebar{
-        width:260px;
+        width:220px;
         background:var(--sidebar-panel);
         border-right:1px solid var(--sidebar-line);
         padding:18px;
@@ -649,11 +649,11 @@ return `
       }
       .sidebar .card .muted{ color: var(--sidebar-muted); }
       .sb-brand{
-        display:flex; align-items:center; justify-content:center; margin-bottom:18px;
+        display:flex; align-items:center; justify-content:flex-start; margin-bottom:14px;
       }
       .sb-brand img{
-        width:100%;
-        max-width:180px;
+        width:150px;
+        max-width:150px;
         height:auto;
         display:block;
       }
@@ -796,7 +796,7 @@ return `
       /* Controls */
       label{ display:block; margin: 12px 0 6px; font-weight:600; font-size:12px; color:var(--text); }
       .ctrl, input, textarea, select{
-        width:100%;
+        width:150px;
         padding: 11px 12px;
         border: 1px solid var(--line);
         border-radius: var(--radius);
@@ -905,7 +905,7 @@ return `
 
       /* Chart */
       .chartWrap{ height:220px; padding-bottom:8px; }
-      canvas{ width:100%; height:220px; display:block; }
+      canvas{        width:150px; height:220px; display:block; }
 
       /* Existing events list */
       .event-card{
@@ -1056,11 +1056,11 @@ return `
         gap:10px;
         margin-bottom:10px;
       }
-      .sectionTitle > div{ width:100%; }
-      .sectionTitle .right{ width:100%; display:flex; justify-content:flex-start; }
+      .sectionTitle > div{        width:150px; }
+      .sectionTitle .right{        width:150px; display:flex; justify-content:flex-start; }
       /* Keep controls in one line on desktop; allow wrap on small screens */
       .sectionTitle .rightRow{
-        width:100%;
+        width:150px;
         display:flex;
         align-items:center;
         justify-content:flex-start;
