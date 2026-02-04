@@ -1465,7 +1465,6 @@ return `
                 <div class="metricToggle" id="chartMetricSeg" aria-label="Metric toggle">
                   <button type="button" data-metric="events" class="on">Events</button>
                   <button type="button" data-metric="views">Views</button>
-                  <span class="metricSuffix">over time</span>
                 </div>
                 <p class="sub" id="chartRangeLabel">Last 14 days (by start date)</p>
                 <div class="subcounts">
