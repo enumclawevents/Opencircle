@@ -768,7 +768,7 @@ return `
 
       .grid2{
         display:grid;
-        grid-template-columns: 1.25fr .75fr;
+        grid-template-columns: .8fr 1.2fr;
         gap:var(--gap);
         margin-bottom:var(--gap);
       }
