@@ -1387,7 +1387,7 @@ return `
               </div>
             </div>
             <div class="chart-wrap">
-              <canvas id="eventsChart"></canvas>
+              <canvas id="eventsChart" style="width:100%; height:260px; display:block;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:0 8px 20px rgba(15,23,42,.12);"></div>
             </div>
           </div>
@@ -1992,6 +1992,7 @@ return `
 
   const $canvas = document.getElementById("eventsChart");
   const $tip = document.getElementById("eventsChartTip");
+  const $wrap = $canvas ? $canvas.closest(".chart-wrap") : null;
 
   if (!$canvas) return;
 
@@ -2034,18 +2035,26 @@ return `
   }
 
   function resize() {
-    const rect = $canvas.getBoundingClientRect();
+    const host = $wrap || $canvas;
+    const rect = host.getBoundingClientRect();
     const dpr = Math.max(1, window.devicePixelRatio || 1);
 
-    // Guard: if the card is not visible yet, wait a tick.
-    if (!rect.width || !rect.height) return;
+    // Some layouts report 0 height/width on first paint; fall back to CSS height.
+    const cssH = parseFloat(getComputedStyle($canvas).height) || 260;
+    const w = rect.width || $canvas.parentElement?.getBoundingClientRect().width || 600;
+    const h = rect.height || cssH;
 
-    $canvas.width = Math.floor(rect.width * dpr);
-    $canvas.height = Math.floor(rect.height * dpr);
+    if (!w || !h) return;
+
+    $canvas.style.width = "100%";
+    $canvas.style.height = cssH + "px";
+    $canvas.width = Math.max(1, Math.floor(w * dpr));
+    $canvas.height = Math.max(1, Math.floor(cssH * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
   function draw() {
+    // If we somehow got here before the canvas has measurable size, bail.
     const rect = $canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
 
@@ -2189,7 +2198,9 @@ return `
       resize();
       draw();
     });
-    ro.observe($canvas);
+    // Observing the wrapper is more reliable than observing the canvas,
+    // because the canvas' own size can be 0 until layout settles.
+    ro.observe($wrap || $canvas);
   } else {
     window.addEventListener("resize", () => {
       resize();
@@ -2200,10 +2211,14 @@ return `
   // initial render (do one immediate paint, then another on next tick
   // to catch any late layout changes).
   setMode("daily");
-  requestAnimationFrame(() => {
+  (function attemptPaint(tries){
     resize();
+    const r = ($wrap || $canvas).getBoundingClientRect();
+    if ((!r.width || !r.height) && tries < 30) {
+      return requestAnimationFrame(() => attemptPaint(tries + 1));
+    }
     draw();
-  });
+  })(0);
 
 })();;
 
