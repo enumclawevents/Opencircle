@@ -431,24 +431,26 @@ return `
     <div class="event-thumb">${thumbHtml}</div>
 
     <div class="event-left">
-      <div class="event-title">
-        #${e.id} — ${esc(e.title)}
-        ${
-          Number(e.featured || 0) === 1
-            ? `<span class="pill" style="margin-left:8px;">Featured</span>`
-            : ""
-        }
-        ${
-          Number(e.isArchived || 0) === 1
-            ? `<span class="pill" style="margin-left:8px; background: rgba(148,163,184,.12); border-color: rgba(148,163,184,.22); color: rgba(229,231,235,.85);">Archived</span>`
-            : ""
-        }
-      </div>
+      <div class="event-main">
+        <div class="event-title">
+          #${e.id} — ${esc(e.title)}
+          ${
+            Number(e.featured || 0) === 1
+              ? `<span class="pill" style="margin-left:8px;">Featured</span>`
+              : ""
+          }
+          ${
+            Number(e.isArchived || 0) === 1
+              ? `<span class="pill" style="margin-left:8px; background: rgba(148,163,184,.12); border-color: rgba(148,163,184,.22); color: rgba(229,231,235,.85);">Archived</span>`
+              : ""
+          }
+        </div>
 
-      <div class="event-meta">
-        <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
-        <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
-        <div><strong>Location:</strong> ${esc(e.location)}</div>
+        <div class="event-meta">
+          <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
+          <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
+          <div><strong>Location:</strong> ${esc(e.location)}</div>
+        </div>
       </div>
 
       <div class="event-actions">
@@ -1118,13 +1120,14 @@ return `
         gap:14px;
         align-items:center;
       }
-      .event-left{ flex: 1; min-width: 0; }
+      .event-left{ flex: 1; min-width: 0; display:flex; flex-direction:column; height: var(--event-side-h); justify-content:space-between; }
+      .event-main{ min-width:0; }
       .event-title{ font-weight:650; margin-bottom:6px; }
       .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:2px; }
       .event-actions{ margin-top:6px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 
       
-      .event-actions .btn{ min-width: 96px; height:38px; }
+      .event-actions .btn{ min-width: 96px; height:38px; font-size:14px; }
       .event-actions .btn{ padding: 8px 12px; }
 .pill{
         font-size:12px;
