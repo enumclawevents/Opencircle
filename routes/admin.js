@@ -795,8 +795,11 @@ return `
 
       /* Controls */
       label{ display:block; margin: 12px 0 6px; font-weight:600; font-size:12px; color:var(--text); }
-      .ctrl, input, textarea, select{
-        width:150px;
+            .ctrl,
+      input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+      textarea,
+      select{
+        width:100%;
         padding: 11px 12px;
         border: 1px solid var(--line);
         border-radius: var(--radius);
@@ -805,7 +808,60 @@ return `
         font-size: 14px;
         outline: none;
       }
-      .ctrl:focus, input:focus, textarea:focus, select:focus{
+
+      /* File input */
+      input[type="file"]{
+        width:100%;
+        padding:10px 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--panel2);
+        color: var(--text);
+        font-size: 14px;
+      }
+      input[type="file"]::file-selector-button{
+        margin-right: 12px;
+        padding: 10px 12px;
+        border-radius: var(--radius);
+        border: 1px solid var(--line);
+        background: #ffffff;
+        color: var(--text);
+        font-weight:600;
+        cursor:pointer;
+      }
+      input[type="file"]::file-selector-button:hover{
+        background: #f1f5f9;
+      }
+
+      /* Square checkboxes */
+      input[type="checkbox"]{
+        width:18px;
+        height:18px;
+        border-radius:4px;
+        border:1px solid var(--line);
+        background:#ffffff;
+        appearance:none;
+        -webkit-appearance:none;
+        display:inline-grid;
+        place-content:center;
+      }
+      input[type="checkbox"]::before{
+        content:"";
+        width:10px;
+        height:10px;
+        transform: scale(0);
+        transition: transform .08s ease-in-out;
+        background: var(--brand);
+        border-radius:2px;
+      }
+      input[type="checkbox"]:checked::before{
+        transform: scale(1);
+      }
+      input[type="checkbox"]:focus{
+        box-shadow: 0 0 0 4px rgba(0,192,139,.12);
+        border-color: rgba(0,192,139,.35);
+      }
+      .ctrl:focus, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus, textarea:focus, select:focus{
         box-shadow: 0 0 0 4px rgba(0,192,139,.12);
         border-color: rgba(0,192,139,.35);
         background: var(--panel);
