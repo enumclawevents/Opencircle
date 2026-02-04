@@ -26,6 +26,7 @@ const ALLOWED_CATEGORIES = [
   "Business & Networking",
   "Charity & Fundraising",
   "Seasonal & Holiday",
+  "Health & Wellness",
 ];
 
 // --- Uploads (local disk or Render disk mount) ---
@@ -653,7 +654,7 @@ return `
       }
       .sb-brand img{
         width:100%;
-        max-width:210px;
+        max-width:180px;
         height:auto;
         display:block;
       }
@@ -664,6 +665,22 @@ return `
       .sb-bottom{ margin-top:auto; display:grid; gap:10px; }
       .sidebar .mini a{ color:#38bdf8; font-weight:600; }
       .sidebar .mini a:hover{ color:#7dd3fc; }
+
+      /* Keep sidebar widgets dark (Quick links / Tip) */
+      .sidebar .mini{
+        border: 1px solid var(--sidebar-line);
+        background: rgba(255,255,255,.04);
+        color: var(--sidebar-text);
+      }
+      .sidebar .mini .small{ color: var(--sidebar-muted); }
+      .sidebar .note{ color: var(--sidebar-muted); }
+
+      /* Sidebar checkboxes should stay dark */
+      .sidebar input[type="checkbox"]{
+        border-color: rgba(148,163,184,.35) !important;
+        background: rgba(255,255,255,.04) !important;
+      }
+      .sidebar .note{ color: var(--sidebar-muted); }
       .nav a{
         text-decoration:none; color:var(--sidebar-muted);
         display:flex; align-items:center; gap:10px;
