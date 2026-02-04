@@ -568,10 +568,6 @@ return `
         return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
       })
       .join("");
-              return `<div class="kv"><span>${esc(name)}</span><strong>${fmt(r?.n || 0)}</strong></div>`;
-            })
-            .join("")
-        : `<div class="muted">No location data yet.</div>`;
 
     // Chart: events per day (last 14 days)
     const chartRows = await all(
