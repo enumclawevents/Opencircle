@@ -452,9 +452,6 @@ return `
       </div>
 
       <div class="event-actions">
-        <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}"
-           target="_blank" rel="noopener">View JSON</a>
-
         <a class="btn btn-edit" href="/admin?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}">Edit</a>
 
         <form method="POST"
@@ -483,6 +480,9 @@ return `
               </form>
             `
         }
+
+        <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}"
+           target="_blank" rel="noopener">View JSON</a>
       </div>
     </div>
 <div class="event-stats">
