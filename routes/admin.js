@@ -551,18 +551,23 @@ return `
     };
 
     // Top locations
-    const locRows = await all(
-      `SELECT location, COUNT(*) AS n FROM events
-       ${dashWhereSql}GROUP BY location
-       ORDER BY n DESC
-       LIMIT 7`
-    );
+    const orgRows = await all(`
+      SELECT 
+        COALESCE(NULLIF(TRIM(organizer), ''), '(unknown)') AS organizer,
+        COUNT(*) AS c
+      FROM events
+      GROUP BY organizer
+      ORDER BY c DESC
+      LIMIT 7
+    `);
 
-    const topLocationsHtml =
-      (locRows || []).length
-        ? (locRows || [])
-            .map((r) => {
-              const name = String(r?.location || "").trim() || "(no location)";
+    const topOrganizersHtml = orgRows
+      .map((r) => {
+        const label = esc(r.organizer);
+        const count = Number(r.c || 0);
+        return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
+      })
+      .join("");
               return `<div class="kv"><span>${esc(name)}</span><strong>${fmt(r?.n || 0)}</strong></div>`;
             })
             .join("")
@@ -1272,13 +1277,13 @@ return `
           <div class="card">
             <div class="sectionTitle">
               <div>
-                <h2>Top locations</h2>
-                <p class="sub">Most frequent event locations</p>
+                <h2>Top organizers</h2>
+                <p class="sub">Most frequent organizers</p>
               </div>
             </div>
 
             <div class="mini">
-              ${topLocationsHtml}
+              ${topOrganizersHtml}
             </div>
 
             <div class="mini">
