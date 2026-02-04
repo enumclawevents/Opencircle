@@ -201,6 +201,7 @@ const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
 const offset = (pg - 1) * limit;
 
 const q = String(req.query.q || "").trim();
+const sort = String(req.query.sort || "datetime"); // datetime | alpha | recent | id
 
 // Archive filter (best practice: soft-delete via archived_at + is_archived)
 const archivedMode = String(req.query.archived || "0"); // "0"=active, "1"=archived, "all"=all
@@ -240,6 +241,7 @@ function adminUrl(nextPg) {
   const sp = new URLSearchParams(req.query);
   sp.set("pg", String(nextPg));
   sp.set("limit", String(limit));
+  if (sort) sp.set("sort", sort);
   if (q) sp.set("q", q);
   if (archivedMode) sp.set("archived", archivedMode);
   return `/admin?${sp.toString()}`;
@@ -264,6 +266,23 @@ const pagerHtml = `
   </div>
 `;
 
+
+// Sort for listing
+let orderBySql = "startDateTime ASC";
+try {
+  const colsForSort = await getEventsColumns();
+  if (sort === "alpha") orderBySql = "title COLLATE NOCASE ASC";
+  else if (sort === "recent") {
+    orderBySql = colsForSort.has("createdAt") ? "datetime(createdAt) DESC" : "id DESC";
+  } else if (sort === "id") orderBySql = "id DESC";
+  else orderBySql = "startDateTime ASC";
+} catch (_) {
+  if (sort === "alpha") orderBySql = "title COLLATE NOCASE ASC";
+  else if (sort === "recent") orderBySql = "id DESC";
+  else if (sort === "id") orderBySql = "id DESC";
+  else orderBySql = "startDateTime ASC";
+}
+
 // ✅ Resilient list query: supports optional columns
 let events = [];
 try {
@@ -273,7 +292,7 @@ try {
             COALESCE(isArchived,0) as isArchived, archivedAt
      FROM events
      ${whereSql}
-     ORDER BY startDateTime DESC
+     ORDER BY ${orderBySql}
      LIMIT ? OFFSET ?`,
     [...whereParams, limit, offset]
   );
@@ -282,7 +301,7 @@ try {
     `SELECT id, slug, title, startDateTime, location, featured
      FROM events
      ${whereSql}
-     ORDER BY startDateTime DESC
+     ORDER BY ${orderBySql}
      LIMIT ? OFFSET ?`,
     [...whereParams, limit, offset]
   );
@@ -630,7 +649,7 @@ return `
       /* Header */
       .header{
         display:flex; align-items:center; justify-content:space-between; gap:14px;
-        margin-bottom:16px;
+        margin-bottom:var(--gap);
       }
       .h-left h1{ margin:0; font-size:22px; letter-spacing:.2px; font-weight:650; }
       .h-left p{ margin:6px 0 0; color:var(--muted); font-size:13px; }
@@ -739,8 +758,8 @@ return `
       /* Checkbox + file input (avoid stock UI) */
       input[type="checkbox"]{
         -webkit-appearance:none; appearance:none;
-        width:18px; height:18px;
-        border-radius: 0px;
+        width:18px !important; height:18px !important;
+        border-radius: 0 !important;
         border:1px solid rgba(148,163,184,.28);
         background: var(--panel);
         display:inline-grid; place-content:center;
@@ -749,7 +768,7 @@ return `
       input[type="checkbox"]::before{
         content:"";
         width:10px; height:10px;
-        border-radius: 0px;
+        border-radius: 0 !important;
         transform: scale(0);
         transition: transform .12s ease;
         background: var(--brand);
@@ -919,7 +938,7 @@ return `
 
       .rec-box{ border:1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--panel2); margin-top: 10px; }
       .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:650; }
-      .checkbox input{ width:auto; }
+      .checkbox input{ width:18px !important; height:18px !important; }
 
       .dow{ display:flex; flex-wrap:wrap; gap: 10px; margin-top: 10px; }
       .dow-pill{
@@ -1355,9 +1374,16 @@ return `
               </div>
               <div class="right">
                 <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                  <a class="btn ${archivedMode === "0" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&archived=0">Active</a>
-                  <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&archived=1">Archived</a>
-                  <a class="btn ${archivedMode === "all" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&archived=all">All</a>
+                  <a class="btn ${archivedMode === "0" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=0">Active</a>
+                  <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=1">Archived</a>
+                  <a class="btn ${archivedMode === "all" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=all">All
+                  <select id="sortBy" class="ctrl" style="width:220px; max-width:100%;">
+                    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
+                    <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Sort: Alphabetical (A–Z)</option>
+                    <option value="recent" ${sort === "recent" ? "selected" : ""}>Sort: Recently added</option>
+                    <option value="id" ${sort === "id" ? "selected" : ""}>Sort: ID (newest)</option>
+                  </select>
+</a>
                 </div>
                 <span class="small">Showing <strong>${showingFrom}–${showingTo}</strong> of <strong>${total}</strong></span>
               </div>
@@ -1382,6 +1408,19 @@ return `
 
     <script>
       // ---- helpers ----
+      // ---- sort dropdown (server-side) ----
+      (function(){
+        var sel = document.getElementById("sortBy");
+        if (!sel) return;
+        sel.addEventListener("change", function(){
+          var sp = new URLSearchParams(window.location.search || "");
+          sp.set("sort", sel.value);
+          sp.set("pg", "1");
+          window.location.href = "/admin?" + sp.toString();
+        });
+      })();
+
+
       function toISOWithOffsetFromLocalInput(dtLocal) {
         var d = new Date(dtLocal);
         if (isNaN(d.getTime())) return "";
