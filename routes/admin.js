@@ -1464,10 +1464,7 @@ return `
                     <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Sort: Alphabetical (A–Z)</option>
                     <option value="recent" ${sort === "recent" ? "selected" : ""}>Sort: Recently added</option>
                     <option value="id" ${sort === "id" ? "selected" : ""}>Sort: ID (newest)</option>
-                  </select>
-
-                  <span class="small">Showing <strong>${showingFrom}–${showingTo}</strong> of <strong>${total}</strong></span>
-                </div>
+                  </select></div>
               </div>
             </div>
 
