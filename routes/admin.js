@@ -2288,7 +2288,11 @@ return `
 
     const value = values[idx] ?? 0;
 
-    $tip.textContent = String(value) + " event" + (value === 1 ? "" : "s");
+    if (metric === "views") {
+      $tip.textContent = String(value) + " view" + (value === 1 ? "" : "s");
+    } else {
+      $tip.textContent = String(value) + " event" + (value === 1 ? "" : "s");
+    }
     $tip.style.display = "block";
 
     const tipRect = $tip.getBoundingClientRect();
