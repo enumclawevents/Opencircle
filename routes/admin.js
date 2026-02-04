@@ -1862,148 +1862,176 @@ return `
       })();
 
       // Simple bar chart (no libraries)
-      (function(){
-        var data = ${chartDataJson};
-        var c = document.getElementById("eventsChart");
-        if(!c || !c.getContext) return;
-        var ctx = c.getContext("2d");
-        if(!ctx) return;
+(function(){
+  var data = ${chartDataJson};
+  var c = document.getElementById("eventsChart");
+  if(!c || !c.getContext) return;
+  var ctx = c.getContext("2d");
+  if(!ctx) return;
 
-        var tip = document.getElementById("eventsChartTip");
-        var hoverIdx = -1;
-        var bars = [];
+  var wrap = c.parentElement;
+  var tip = document.getElementById("eventsChartTip");
+  var hoverIdx = -1;
+  var bars = [];
 
-        function draw(){
-          // handle DPR
-          var dpr = window.devicePixelRatio || 1;
-          var wrap = c.parentElement;
-          var cssW = (wrap && wrap.clientWidth) ? wrap.clientWidth : (c.clientWidth || 900);
-          var cssH = (wrap && wrap.clientHeight) ? wrap.clientHeight : 240;
-          if (cssW < 50) cssW = 900;
-          if (cssH < 50) cssH = 240;
-          c.style.height = cssH + "px";
-          c.width = Math.floor(cssW * dpr);
-          c.height = Math.floor(cssH * dpr);
-          ctx.setTransform(dpr,0,0,dpr,0,0);
+  function draw(){
+    try{
+      if(!wrap) wrap = c.parentElement;
+      var rect = (wrap && wrap.getBoundingClientRect) ? wrap.getBoundingClientRect() : c.getBoundingClientRect();
+      var cssW = (rect && rect.width) ? rect.width : (wrap && wrap.clientWidth ? wrap.clientWidth : 900);
+      var cssH = 260;
 
-          ctx.clearRect(0,0,cssW,cssH);
+      // If layout hasn't happened yet, try again shortly.
+      if(!cssW || cssW < 50){
+        setTimeout(draw, 80);
+        return;
+      }
 
-          var padL = 36, padR = 12, padT = 10, padB = 40;
-          var w = cssW - padL - padR;
-          var h = cssH - padT - padB;
+      var dpr = window.devicePixelRatio || 1;
+      c.width  = Math.max(1, Math.floor(cssW * dpr));
+      c.height = Math.max(1, Math.floor(cssH * dpr));
+      c.style.width = cssW + "px";
+      c.style.height = cssH + "px";
 
-          // axes
-          ctx.globalAlpha = 1;
-          ctx.strokeStyle = "rgba(148,163,184,.22)";
-          ctx.beginPath();
-          ctx.moveTo(padL, padT);
-          ctx.lineTo(padL, padT + h);
-          ctx.lineTo(padL + w, padT + h);
-          ctx.stroke();
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      ctx.clearRect(0,0,cssW,cssH);
 
-          var maxV = 1;
-          for(var i=0;i<data.values.length;i++){ if(data.values[i] > maxV) maxV = data.values[i]; }
+      if(!data || !data.labels || !data.values || !data.labels.length){
+        // Empty state label
+        ctx.fillStyle = "rgba(15,23,42,.65)";
+        ctx.font = "600 14px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial";
+        ctx.fillText("No recent events", 14, 26);
+        return;
+      }
 
-          // grid lines (4)
-          // darker labels for light dashboard
-          ctx.fillStyle = "rgba(15,23,42,.72)";
-          ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
-          for(var g=0; g<=4; g++){
-            var y = padT + (h * g / 4);
-            ctx.strokeStyle = "rgba(148,163,184,.14)";
-            ctx.beginPath();
-            ctx.moveTo(padL, y);
-            ctx.lineTo(padL + w, y);
-            ctx.stroke();
+      var labels = data.labels;
+      var values = data.values;
+      var maxV = 1;
+      for(var i=0;i<values.length;i++){ if(values[i] > maxV) maxV = values[i]; }
 
-            var val = Math.round(maxV * (1 - g/4));
-            ctx.fillText(String(val), 6, y + 4);
-          }
+      // Chart box
+      var padL = 52, padR = 18, padT = 18, padB = 42;
+      var W = cssW - padL - padR;
+      var H = cssH - padT - padB;
 
-          // bars
-          bars.length = 0;
-          var n = data.values.length;
-          var gap = 8;
-          var barW = Math.max(10, Math.floor((w - gap*(n-1)) / n));
-          for(var b=0;b<n;b++){
-            var v = data.values[b];
-            var bh = Math.round((v / maxV) * (h - 6));
-            var x = padL + b * (barW + gap);
-            var y2 = padT + h - bh;
+      // Grid + y labels
+      ctx.strokeStyle = "rgba(15,23,42,.10)";
+      ctx.fillStyle = "rgba(15,23,42,.55)"; // higher contrast
+      ctx.font = "12px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      for(var g=0; g<=4; g++){
+        var y = padT + (H*(g/4));
+        ctx.beginPath();
+        ctx.moveTo(padL, y);
+        ctx.lineTo(padL+W, y);
+        ctx.stroke();
+        var v = Math.round(maxV*(1 - g/4));
+        ctx.fillText(String(v), padL-10, y);
+      }
 
-            var isHover = (b === hoverIdx);
-            ctx.fillStyle = isHover ? "rgba(0,192,139,.92)" : "rgba(0,192,139,.68)";
-            ctx.fillRect(x, y2, barW, bh);
+      // X labels
+      ctx.fillStyle = "rgba(15,23,42,.55)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
 
-            bars.push({ x: x, y: y2, w: barW, h: bh, label: data.labels[b], value: v });
+      var n = values.length;
+      var gap = 10;
+      var barW = Math.max(12, Math.floor((W - gap*(n-1)) / n));
+      var totalW = barW*n + gap*(n-1);
+      var x0 = padL + Math.max(0, (W - totalW)/2);
 
-            // x-axis labels: higher contrast
-            ctx.fillStyle = "rgba(15,23,42,.72)";
-            ctx.font = "11px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
-            var label = data.labels[b];
-            ctx.save();
-            ctx.translate(x + barW/2, padT + h + 24);
-            ctx.rotate(-0.45);
-            ctx.textAlign = "center";
-            ctx.fillText(label, 0, 0);
-            ctx.restore();
-          }
+      bars = [];
+      for(var k=0;k<n;k++){
+        var v2 = values[k] || 0;
+        var bh = Math.round((v2 / maxV) * (H-6));
+        var x = x0 + k*(barW+gap);
+        var y2 = padT + (H - bh);
 
-          // hover / tooltip
-          if (!tip) return;
-          c.onmousemove = function(ev){
-            var rect = c.getBoundingClientRect();
-            var mx = ev.clientX - rect.left;
-            var my = ev.clientY - rect.top;
-            var found = -1;
-            for (var i=0;i<bars.length;i++){
-              var bb = bars[i];
-              if (mx >= bb.x && mx <= (bb.x+bb.w) && my >= bb.y && my <= (bb.y+bb.h)) { found = i; break; }
-            }
-            if (found !== hoverIdx) {
-              hoverIdx = found;
-              draw();
-              return;
-            }
-            if (found >= 0) {
-              var bb2 = bars[found];
-              tip.style.display = "block";
-              var plural = bb2.value === 1 ? "event" : "events";
-              tip.innerHTML = "<b>" + bb2.value + "</b> " + plural + "<br><span style=\"opacity:.85\">" + bb2.label + "</span>";
-              var left = bb2.x + bb2.w/2;
-              var top = Math.max(6, bb2.y - 10);
-              tip.style.left = left + "px";
-              tip.style.top = top + "px";
-              tip.style.transform = "translate(-50%, -100%)";
-            } else {
-              tip.style.display = "none";
-            }
-          };
-
-          c.onmouseleave = function(){
-            hoverIdx = -1;
-            if (tip) tip.style.display = "none";
-            draw();
-          };
+        // hover highlight
+        if(k === hoverIdx){
+          ctx.fillStyle = "rgba(16,185,129,.55)";
+        }else{
+          ctx.fillStyle = "rgba(16,185,129,.35)";
         }
+        ctx.fillRect(x, y2, barW, bh);
 
-        draw();
-  window.addEventListener("resize", function(){ draw(); });
+        bars.push({x:x, y:y2, w:barW, h:bh, label:labels[k], value:v2});
 
-  // Ensure we redraw when the canvas container finishes layout (grid/flex can report 0 on first pass)
+        // Label (rotate slightly for density)
+        ctx.save();
+        ctx.translate(x + barW/2, padT + H + 10);
+        ctx.rotate(-0.35);
+        ctx.fillStyle = "rgba(15,23,42,.55)";
+        ctx.fillText(String(labels[k]), 0, 0);
+        ctx.restore();
+      }
+
+      // axis line
+      ctx.strokeStyle = "rgba(15,23,42,.18)";
+      ctx.beginPath();
+      ctx.moveTo(padL, padT+H);
+      ctx.lineTo(padL+W, padT+H);
+      ctx.stroke();
+
+    }catch(e){
+      // swallow – chart is non-blocking
+    }
+  }
+
+  function hitTest(mx, my){
+    for(var i=0;i<bars.length;i++){
+      var b = bars[i];
+      if(mx>=b.x && mx<=b.x+b.w && my>=b.y && my<=b.y+b.h) return i;
+    }
+    return -1;
+  }
+
+  c.addEventListener("mousemove", function(ev){
+    if(!bars || !bars.length) return;
+    var r = c.getBoundingClientRect();
+    var mx = ev.clientX - r.left;
+    var my = ev.clientY - r.top;
+    var idx = hitTest(mx, my);
+    if(idx !== hoverIdx){
+      hoverIdx = idx;
+      draw();
+    }
+    if(tip){
+      if(idx>=0){
+        var b = bars[idx];
+        tip.style.display = "block";
+        tip.textContent = b.value + " event" + (b.value===1?\"\":\"s\") + \" on \" + b.label;
+        tip.style.left = Math.min(r.width-140, Math.max(8, mx + 12)) + "px";
+        tip.style.top  = Math.max(8, my - 28) + "px";
+      }else{
+        tip.style.display = "none";
+      }
+    }
+  });
+
+  c.addEventListener("mouseleave", function(){
+    hoverIdx = -1;
+    if(tip) tip.style.display = "none";
+    draw();
+  });
+
+  // draw after layout settles
+  requestAnimationFrame(draw);
+  setTimeout(draw, 120);
+  setTimeout(draw, 600);
+
+  // keep in sync with layout
   try{
-    if (window.ResizeObserver){
+    if(window.ResizeObserver && wrap){
       var ro = new ResizeObserver(function(){ draw(); });
       ro.observe(wrap);
-    } else {
-      // fallback: a few extra draws shortly after load
-      setTimeout(draw, 100);
-      setTimeout(draw, 250);
-      setTimeout(draw, 500);
+    }else{
+      window.addEventListener(\"resize\", function(){ draw(); });
     }
   }catch(e){}
 
-})();
+})();;
 
 
     </script>
