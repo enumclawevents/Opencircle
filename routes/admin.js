@@ -2070,10 +2070,11 @@ return `
     const steps = 4;
 
     // grid + y labels
-    ctx.strokeStyle = "rgba(148,163,184,.35)";
+    // Slightly stronger grid to improve readability.
+    ctx.strokeStyle = "rgba(148,163,184,.48)";
     ctx.lineWidth = 1;
 
-    ctx.fillStyle = "rgba(15,23,42,.78)"; // more contrast
+    ctx.fillStyle = "rgba(15,23,42,.88)"; // more contrast
     ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
 
     for (let i = 0; i <= steps; i++) {
@@ -2090,7 +2091,7 @@ return `
     }
 
     // x labels
-    ctx.fillStyle = "rgba(15,23,42,.62)";
+    ctx.fillStyle = "rgba(15,23,42,.78)";
     ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
@@ -2182,17 +2183,27 @@ return `
   }
 
   // Resize observers
-  const ro = new ResizeObserver(() => {
+  // Some runtimes (or very old browsers) may not support ResizeObserver.
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => {
+      resize();
+      draw();
+    });
+    ro.observe($canvas);
+  } else {
+    window.addEventListener("resize", () => {
+      resize();
+      draw();
+    });
+  }
+
+  // initial render (do one immediate paint, then another on next tick
+  // to catch any late layout changes).
+  setMode("daily");
+  requestAnimationFrame(() => {
     resize();
     draw();
   });
-  ro.observe($canvas);
-
-  // initial render
-  // wait one tick to ensure layout is settled
-  setTimeout(() => {
-    setMode("daily");
-  }, 0);
 
 })();;
 
