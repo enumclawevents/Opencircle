@@ -870,7 +870,7 @@ return `
         color: var(--sidebar-text);
         font-weight:600;
         font-size:13px;
-        padding:0 10px 0 12px;
+        padding:4px 10px 0 12px;
         height:100%;
         width:100%;
         outline:none;
@@ -878,7 +878,7 @@ return `
         -webkit-appearance:none;
         appearance:none;
         display:block;
-        line-height:55px;
+        line-height:1.2;
       }
       .sb-city:focus,
       .sb-city:focus-visible{
