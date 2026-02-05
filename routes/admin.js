@@ -5,6 +5,7 @@ const router = express.Router();
 const { run, all, get, slugify, ensureUniqueSlug } = require("../db");
 const path = require("path");
 const fs = require("fs");
+const { execSync } = require("child_process");
 const multer = require("multer");
 
 /**
@@ -150,6 +151,41 @@ function esc(s) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function bytesToHuman(bytes) {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v = v / 1024;
+    i += 1;
+  }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function getDiskInfo() {
+  try {
+    const target =
+      process.env.RENDER_DISK_PATH ||
+      process.env.UPLOADS_DIR ||
+      process.cwd();
+    const out = execSync(`df -k "${target}"`, { encoding: "utf8" });
+    const lines = String(out || "").trim().split(/\r?\n/);
+    if (lines.length < 2) return null;
+    const parts = lines[1].split(/\s+/);
+    // Filesystem 1K-blocks Used Available Use% Mounted on
+    const totalKB = parseInt(parts[1] || "0", 10) || 0;
+    const availKB = parseInt(parts[3] || "0", 10) || 0;
+    return {
+      totalBytes: totalKB * 1024,
+      freeBytes: availKB * 1024,
+    };
+  } catch (_) {
+    return null;
+  }
 }
 
 /**
@@ -542,6 +578,10 @@ return `
 
     const fmt = (n) => Number(n || 0).toLocaleString("en-US");
 
+    const diskInfo = getDiskInfo();
+    const diskFree = diskInfo ? bytesToHuman(diskInfo.freeBytes) : "N/A";
+    const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
+
     const stats = {
       total: fmt(total),
       upcoming: fmt(upcoming),
@@ -549,6 +589,8 @@ return `
       featured: fmt(featuredCount),
       views: fmt(viewsSum),
       serverTime: new Date().toISOString().replace("T", " ").slice(0, 19) + "Z",
+      diskFree,
+      diskTotal,
     };
 
     // Top organizers
@@ -1525,7 +1567,7 @@ return `
             <div class="mini">
               <div class="small">Status</div>
               <div class="kv"><span>Server time</span><strong>${esc(stats.serverTime)}</strong></div>
-              <div class="kv"><span>Pagination</span><strong>${esc(String(limit))}/page</strong></div>
+              <div class="kv"><span>Disk free</span><strong>${esc(stats.diskFree)} / ${esc(stats.diskTotal)}</strong></div>
             </div>
           </div>
         </section>
