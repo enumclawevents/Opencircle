@@ -1303,7 +1303,12 @@ return `
       input[type=checkbox]{ width:18px; height:18px; border-radius:0px !important; accent-color: var(--brand); }
       .checkbox input{ width:18px !important; height:18px !important; border-radius:0px !important; }
 
-      .dow{ display:flex; flex-wrap:wrap; gap: 10px; margin-top: 10px; }
+      .dow{
+        display:grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+      }
       .dow-pill{
         display:inline-flex;
         align-items:center;
@@ -1318,6 +1323,7 @@ return `
         font-size: 13px;
         cursor: pointer;
         user-select:none;
+        width:100%;
       }
       .dow-pill input{ position:absolute; opacity:0; pointer-events:none; }
       .dow-pill:has(input:checked){
