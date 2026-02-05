@@ -1167,17 +1167,17 @@ router.get("/rss", async (req, res) => {
       const bodyFont = "font-family:'Open Sans', Arial, sans-serif;";
       if (variant === "featured") {
         return `
-          <div style="text-align:center;padding:20px 22px 12px;${bodyFont}">
+          <div style="text-align:center;padding:40px 44px 24px;${bodyFont}">
             <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
               ${imgHtml}
-              <div style="font-size:28px;font-weight:700;${bodyFont}color:#111;line-height:1.2;margin:16px 0 8px;">
+              <div style="font-size:28px;font-weight:700;${bodyFont}color:#111;line-height:1.2;margin:24px 0 12px;">
                 ${escXml(title)}
               </div>
-              <div style="font-size:13px;${bodyFont}letter-spacing:.08em;color:#6b7280;margin:0 0 12px;text-transform:uppercase;">
+              <div style="font-size:13px;${bodyFont}letter-spacing:.08em;color:#6b7280;margin:0 0 20px;text-transform:uppercase;">
                 ${escXml(date)}${time ? " • " + escXml(time) : ""}
               </div>
             </a>
-            ${blurb ? `<div style="font-size:15px;${bodyFont}color:#4b5563;line-height:1.6;margin:0 0 18px;">${escXml(blurb)}</div>` : ""}
+            ${blurb ? `<div style="font-size:15px;${bodyFont}color:#4b5563;line-height:1.6;margin:0 0 32px;">${escXml(blurb)}</div>` : ""}
             <a href="${link}" style="display:inline-block;padding:12px 24px;border-radius:999px;background:#48a7c7;color:#fff;text-decoration:none;font-weight:600;font-size:14px;${bodyFont}">
               View Event
             </a>
@@ -1202,15 +1202,15 @@ router.get("/rss", async (req, res) => {
       const rest = list.length > 1 ? list.slice(1) : [];
 
       const featuredHtml = featured
-        ? `<div style="margin:24px 0 34px;">${buildCardHtml(featured, "featured")}</div>`
+        ? `<div style="margin:48px 0 64px;">${buildCardHtml(featured, "featured")}</div>`
         : "";
 
       const gridHtml = rest.length
-        ? `<div style="font-size:0;padding:0 10px;">
+        ? `<div style="font-size:0;padding:0 20px;">
             ${rest
               .map(
                 (e) => `
-                <div style="display:inline-block;width:48%;vertical-align:top;margin:0 1% 20px;font-size:16px;">
+                <div style="display:inline-block;width:48%;vertical-align:top;margin:0 1% 32px;font-size:16px;">
                   ${buildCardHtml(e, "grid")}
                 </div>`
               )
