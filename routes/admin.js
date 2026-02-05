@@ -1161,6 +1161,7 @@ return `
 
       a:not(.btn){ color: var(--brand2); text-decoration:none; font-weight:600; }
       a:not(.btn):hover{ text-decoration:underline; }
+      .event-actions a:not(.btn){ font-size:14px; }
 
       /* Small widgets */
       .mini{
