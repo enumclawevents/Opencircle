@@ -838,7 +838,7 @@ return `
         display:flex;
         align-items:center;
         height:36px;
-        padding:0 12px;
+        padding:0;
         border-radius:6px;
         border:1px solid var(--sidebar-line);
         background: rgba(255,255,255,.02);
@@ -853,6 +853,15 @@ return `
         padding:0;
         height:100%;
         width:100%;
+        outline:none;
+        box-shadow:none;
+        -webkit-appearance:none;
+        appearance:none;
+      }
+      .sb-city:focus,
+      .sb-city:focus-visible{
+        outline:none;
+        box-shadow:none;
       }
       .sb-city:focus{ outline:none; box-shadow: 0 0 0 4px rgba(0,192,139,.12); }
       .sb-brand img{
