@@ -1209,7 +1209,9 @@ return `
         margin: 10px 0;
         padding: 2px 0;
       }
-      .kv strong{ color:var(--text); font-size:14px; }
+      .kv strong{ color:var(--text); font-size:14px; text-align:right; }
+      .sidebar .mini .kv{ color: var(--sidebar-muted); }
+      .sidebar .mini .kv strong{ color: var(--sidebar-text); }
 
       /* Chart */
       .chart-wrap{ position:relative; flex:1; min-height:0; }
