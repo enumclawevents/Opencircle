@@ -7,6 +7,8 @@ const path = require("path");
 const fs = require("fs");
 const { execSync } = require("child_process");
 const multer = require("multer");
+const { S3Client } = require("@aws-sdk/client-s3");
+const multerS3 = require("multer-s3");
 
 /**
  * Fixed category list (12 total)
@@ -29,29 +31,60 @@ const ALLOWED_CATEGORIES = [
   "Seasonal & Holiday",
 ];
 
-// --- Uploads (local disk or Render disk mount) ---
+// --- Uploads (R2 preferred; fallback to local disk) ---
+const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || "";
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || "";
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || "";
+const R2_BUCKET = process.env.R2_BUCKET || "";
+const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || "";
+
+const useR2 =
+  R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET && R2_PUBLIC_URL;
+
 const UPLOAD_DIR =
   process.env.UPLOADS_DIR ||
   (process.env.RENDER_DISK_PATH
     ? path.join(process.env.RENDER_DISK_PATH, "uploads")
     : path.join(process.cwd(), "uploads"));
 
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+if (!useR2) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || "").toLowerCase() || ".jpg";
-    const base = path
-      .basename(file.originalname || "image", ext)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
+const r2Client = useR2
+  ? new S3Client({
+      region: "auto",
+      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY_ID,
+        secretAccessKey: R2_SECRET_ACCESS_KEY,
+      },
+      forcePathStyle: true,
+    })
+  : null;
 
-    const stamp = Date.now();
-    cb(null, `${base || "event"}-${stamp}${ext}`);
-  },
-});
+function buildUploadKey(file) {
+  const ext = path.extname(file.originalname || "").toLowerCase() || ".jpg";
+  const base = path
+    .basename(file.originalname || "image", ext)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  const stamp = Date.now();
+  return `${base || "event"}-${stamp}${ext}`;
+}
+
+const storage = useR2
+  ? multerS3({
+      s3: r2Client,
+      bucket: R2_BUCKET,
+      contentType: multerS3.AUTO_CONTENT_TYPE,
+      key: (req, file, cb) => cb(null, buildUploadKey(file)),
+    })
+  : multer.diskStorage({
+      destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+      filename: (req, file, cb) => cb(null, buildUploadKey(file)),
+    });
 
 function fileFilter(req, file, cb) {
   const ok = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.mimetype || "");
@@ -2779,10 +2812,16 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     } = req.body;
 
     // If a file was uploaded, prefer it over the URL field
-    if (req.file && req.file.filename) {
-      const proto = req.headers["x-forwarded-proto"] || req.protocol;
-      const host = req.headers["x-forwarded-host"] || req.get("host");
-      imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
+    if (req.file) {
+      if (useR2) {
+        const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
+        const key = req.file.key || req.file.filename || "";
+        if (base && key) imageUrl = `${base}/${key}`;
+      } else if (req.file.filename) {
+        const proto = req.headers["x-forwarded-proto"] || req.protocol;
+        const host = req.headers["x-forwarded-host"] || req.get("host");
+        imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
+      }
     }
 
     // Prefer browser-generated ISO with offset (prevents UTC shift)
