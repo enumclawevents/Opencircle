@@ -827,6 +827,7 @@ return `
       .sidebar .card .muted{ color: var(--sidebar-muted); }
       .sb-brand{
         display:flex; align-items:center; justify-content:flex-start; margin-bottom:24px;
+        margin-left:-10px;
       }
       .sb-top{
         display:flex;
@@ -838,7 +839,7 @@ return `
         display:flex;
         align-items:center;
         height:36px;
-        padding:0 12px;
+        padding:0;
         border-radius:6px;
         border:1px solid var(--sidebar-line);
         background: rgba(255,255,255,.02);
@@ -864,7 +865,7 @@ return `
         outline:none;
         box-shadow:none;
       }
-      .sb-city:focus{ outline:none; box-shadow: 0 0 0 4px rgba(0,192,139,.12); }
+      .sb-city:focus{ outline:none; box-shadow:none; }
       .sb-brand img{
         width:32px;
         max-width:32px;
