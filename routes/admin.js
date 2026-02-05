@@ -853,7 +853,7 @@ return `
         content:"";
         position:absolute;
         top:0;
-        bottom:0;
+        bottom:-10px;
         right:-10px;
         width:1px;
         background: var(--sidebar-line);
