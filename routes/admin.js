@@ -1034,7 +1034,7 @@ return `
         color: var(--muted);
       }
       input[type="file"]::file-selector-button{
-        margin-right:12px;
+        margin:6px 12px 6px 0;
         border:1px solid var(--line);
         background: var(--panel);
         color: var(--text);
@@ -1042,10 +1042,10 @@ return `
         border-radius: var(--radius-inner);
         font-weight:600;
         cursor:pointer;
-        height: var(--ctrl-h);
+        height:40px;
         display:inline-flex;
         align-items:center;
-        line-height: 52px;
+        line-height: 40px;
       }
       input[type="file"]::file-selector-button:hover{
         border-color: rgba(0,192,139,.28);
