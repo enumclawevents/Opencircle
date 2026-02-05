@@ -949,14 +949,14 @@ return `
       /* File input */
       input[type="file"]{
         width:100%;
-        padding:0 12px;
+        padding:6px 12px;
         border: 1px solid var(--line);
         border-radius: var(--radius-inner);
         background: var(--panel2);
         color: var(--text);
         font-size: 14px;
         height: 52px;
-        line-height: 52px;
+        line-height: 1;
       }
       input[type="file"]::file-selector-button{
         margin-right: 12px;
@@ -1034,7 +1034,7 @@ return `
         color: var(--muted);
       }
       input[type="file"]::file-selector-button{
-        margin:6px 12px 6px 0;
+        margin:0 12px 0 0;
         border:1px solid var(--line);
         background: var(--panel);
         color: var(--text);
@@ -1042,10 +1042,22 @@ return `
         border-radius: var(--radius-inner);
         font-weight:600;
         cursor:pointer;
-        height:40px;
+        height:38px;
         display:inline-flex;
         align-items:center;
-        line-height: 40px;
+        line-height: 38px;
+      }
+      input[type="file"]::-webkit-file-upload-button{
+        margin:0 12px 0 0;
+        border:1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+        padding:0 16px;
+        border-radius: var(--radius-inner);
+        font-weight:600;
+        cursor:pointer;
+        height:38px;
+        line-height:38px;
       }
       input[type="file"]::file-selector-button:hover{
         border-color: rgba(0,192,139,.28);
