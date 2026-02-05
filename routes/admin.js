@@ -940,11 +940,9 @@ return `
       .sb-city-menu{
         position:absolute;
         top:100%;
-        left:0;
-        right:0;
-        width:100%;
-        margin-left:0;
-        margin-right:0;
+        left:-40px;
+        right:-18px;
+        width:auto;
         box-sizing:border-box;
         margin-top:8px;
         background: var(--sidebar-panel);
