@@ -842,13 +842,13 @@ return `
       .sb-city-wrap{
         display:flex;
         align-items:center;
-        height:36px;
+        height:32px;
         padding:0;
         border-radius:0;
         border:1px solid var(--sidebar-line);
         background: rgba(255,255,255,.02);
-        width: calc(100% + 36px - 44px);
-        margin-left: calc(-18px + 44px);
+        width: calc(100% + 36px - 40px);
+        margin-left: calc(-18px + 40px);
         margin-right: -18px;
         margin-top: -18px;
         margin-bottom: 0;
