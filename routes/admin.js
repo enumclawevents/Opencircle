@@ -847,7 +847,7 @@ return `
       .sb-icon{
         position: relative;
         width: 28px;
-        height: 55px;
+        height: 46px;
         display:flex;
         align-items:center;
         justify-content:center;
@@ -873,7 +873,7 @@ return `
       }
       .sb-city-wrap{
         position: relative;
-        height:55px;
+        height:46px;
         width: calc(100% + 36px - 40px);
         margin-left: calc(-18px + 40px);
         margin-right: -18px;
