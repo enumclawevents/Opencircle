@@ -444,6 +444,12 @@ try {
       `;
     };
 
+    const ALLOWED_CITIES = ["Enumclaw"];
+    const cityOptions = ALLOWED_CITIES.map((c) => {
+      const sel = String(editEvent?.city || "Enumclaw") === c ? "selected" : "";
+      return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
+    }).join("");
+
     const listHtml = events.length
       ? events
           .map((e) => {
@@ -1610,7 +1616,9 @@ return `
               ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
 
               <label>City</label>
-              <input class="ctrl" name="city" value="${esc(editEvent?.city || "Enumclaw")}" />
+              <select class="ctrl" name="city">
+                ${cityOptions}
+              </select>
 
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
               <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
