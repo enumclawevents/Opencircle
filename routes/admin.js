@@ -915,7 +915,7 @@ return `
       .sb-city-btn .caret{
         margin-left:auto;
         width:10px;
-        height:16px;
+        height:14px;
         position:relative;
       }
       .sb-city-btn .caret::before,
@@ -923,8 +923,8 @@ return `
         content:"";
         position:absolute;
         left:50%;
-        width:5px;
-        height:5px;
+        width:4px;
+        height:4px;
         border-right:1.5px solid rgba(229,231,235,.75);
         border-bottom:1.5px solid rgba(229,231,235,.75);
         transform-origin:center;
@@ -1058,7 +1058,7 @@ return `
         padding: 10px 12px;
         box-shadow: var(--shadow);
         width:100%;
-        max-width:760px;
+        max-width:700px;
       }
       .search input{
         border:0; outline:none; background:transparent;
