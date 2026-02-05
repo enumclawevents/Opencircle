@@ -1419,6 +1419,7 @@ return `
       }
       .sectionTitle > div{ width:auto; }
       .sectionTitle .right{ width:auto; display:flex; gap:12px; justify-content:flex-start; flex-wrap:wrap; }
+      .sectionTitle .right{ width:100%; justify-content:flex-end; }
       /* Keep controls in one line on desktop; allow wrap on small screens */
       .sectionTitle .rightRow{
         width:100%;
@@ -1522,14 +1523,6 @@ return `
         </nav>
 
         <div class="sb-bottom">
-          <div class="mini">
-            <div class="small">Quick links</div>
-            <div style="margin-top:10px; display:grid; gap:8px;">
-              <a href="/events" target="_blank" rel="noopener">View events API</a>
-              <a href="/uploads" target="_blank" rel="noopener">Uploads directory</a>
-            </div>
-          </div>
-
           <div class="mini" style="margin-top:10px;">
             <div class="small">Status</div>
             <div style="height:6px;"></div>
