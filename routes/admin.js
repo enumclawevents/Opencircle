@@ -460,6 +460,10 @@ try {
       const sel = currentCity === c ? "selected" : "";
       return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
     }).join("");
+    const cityListHtml = ALLOWED_CITIES.map((c) => {
+      const active = currentCity === c ? " is-active" : "";
+      return `<button type="button" class="sb-city-opt${active}" data-city="${esc(c)}">${esc(c)}</button>`;
+    }).join("");
 
     const listHtml = events.length
       ? events
@@ -868,43 +872,73 @@ return `
         background: var(--sidebar-line);
       }
       .sb-city-wrap{
-        display:flex;
-        align-items:center;
+        position: relative;
         height:55px;
-        padding:0;
-        border-radius:0;
-        border:0;
-        background: transparent;
         width: calc(100% + 36px - 40px);
         margin-left: calc(-18px + 40px);
         margin-right: -18px;
         margin-top: 0;
         margin-bottom: 0;
-        border-bottom: 0;
       }
-      .sb-city{
-        border:1px solid rgba(148,163,184,.35);
-        background: rgba(255,255,255,.08) !important;
+      .sb-city-dd{
+        position: relative;
+        height:100%;
+      }
+      .sb-city-btn{
+        width:100%;
+        height:100%;
+        display:flex;
+        align-items:center;
+        gap:10px;
+        padding:0 36px 0 14px;
+        border:0;
+        background: transparent;
         color: var(--sidebar-text);
         font-weight:600;
         font-size:14px;
-        padding:0 36px 0 14px;
-        height:40px;
+        cursor:pointer;
+        text-align:left;
+      }
+      .sb-city-btn .caret{
+        margin-left:auto;
+        width:10px;
+        height:10px;
+        border-right:2px solid rgba(229,231,235,.8);
+        border-bottom:2px solid rgba(229,231,235,.8);
+        transform: rotate(45deg);
+      }
+      .sb-city-menu{
+        position:absolute;
+        top:100%;
+        left:0;
+        right:0;
+        margin-top:8px;
+        background:#fff;
+        border:1px solid rgba(15,23,42,.12);
+        border-radius:12px;
+        padding:8px;
+        display:none;
+        z-index: 30;
+        box-shadow: 0 16px 40px rgba(15,23,42,.18);
+      }
+      .sb-city-dd.is-open .sb-city-menu{ display:block; }
+      .sb-city-opt{
         width:100%;
-        outline:none;
-        box-shadow:none;
-        -webkit-appearance:none;
-        appearance:none;
-        display:block;
-        line-height:40px;
-        border-radius:10px;
+        border:0;
+        background: transparent;
+        padding:10px 12px;
+        text-align:left;
+        border-radius:8px;
+        font-weight:600;
+        font-size:14px;
+        color:#111;
+        cursor:pointer;
       }
-      .sb-city:focus,
-      .sb-city:focus-visible{
-        outline:none;
-        box-shadow:none;
+      .sb-city-opt:hover{ background:#f1f5f9; }
+      .sb-city-opt.is-active{
+        background:#eef2ff;
+        color:#111;
       }
-      .sb-city:focus{ outline:none; box-shadow:none; }
       .sb-brand img{
         width:28px;
         max-width:28px;
@@ -1628,9 +1662,15 @@ return `
             <img src="/assets/brand/sidebar-icon.png" alt="OpenCircle" onerror="this.style.display='none';" />
           </div>
             <div class="sb-city-wrap">
-              <select class="sb-city" id="sbCitySelect" aria-label="City">
-                ${cityOptions}
-              </select>
+              <div class="sb-city-dd" id="sbCityDD">
+                <button type="button" class="sb-city-btn" id="sbCityBtn" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="sbCityLabel">${esc(currentCity)}</span>
+                  <span class="caret" aria-hidden="true"></span>
+                </button>
+                <div class="sb-city-menu" id="sbCityMenu" role="listbox" aria-label="City">
+                  ${cityListHtml}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2169,13 +2209,48 @@ return `
         });
       })();
 
-      // Sidebar city select -> hidden input
+      // Sidebar city dropdown -> hidden input
       (function(){
-        var sb = document.getElementById("sbCitySelect");
+        var dd = document.getElementById("sbCityDD");
+        var btn = document.getElementById("sbCityBtn");
+        var menu = document.getElementById("sbCityMenu");
+        var label = document.getElementById("sbCityLabel");
         var hidden = document.getElementById("cityHidden");
-        if (!sb || !hidden) return;
-        sb.addEventListener("change", function(){
-          hidden.value = sb.value;
+        if (!dd || !btn || !menu || !label || !hidden) return;
+
+        function closeMenu(){
+          dd.classList.remove("is-open");
+          btn.setAttribute("aria-expanded", "false");
+        }
+        function openMenu(){
+          dd.classList.add("is-open");
+          btn.setAttribute("aria-expanded", "true");
+        }
+
+        btn.addEventListener("click", function(){
+          if (dd.classList.contains("is-open")) closeMenu();
+          else openMenu();
+        });
+
+        menu.addEventListener("click", function(e){
+          var opt = e.target.closest(".sb-city-opt");
+          if (!opt) return;
+          var city = opt.getAttribute("data-city") || "";
+          if (city){
+            label.textContent = city;
+            hidden.value = city;
+            menu.querySelectorAll(".sb-city-opt").forEach(function(b){
+              b.classList.toggle("is-active", b === opt);
+            });
+          }
+          closeMenu();
+        });
+
+        document.addEventListener("click", function(e){
+          if (!dd.contains(e.target)) closeMenu();
+        });
+        document.addEventListener("keydown", function(e){
+          if (e.key === "Escape") closeMenu();
         });
       })();
 
