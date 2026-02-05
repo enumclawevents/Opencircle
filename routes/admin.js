@@ -854,7 +854,7 @@ return `
         position:absolute;
         top:0;
         bottom:-10px;
-        right:-16px;
+        right:-20px;
         width:1px;
         background: var(--sidebar-line);
       }
