@@ -813,7 +813,7 @@ return `
         width:220px;
         background:var(--sidebar-panel);
         border-right:1px solid var(--sidebar-line);
-        padding:18px;
+        padding:5px 18px 18px;
         position:sticky; top:0; height:100vh; overflow:auto;
         display:flex; flex-direction:column;
         color:var(--sidebar-text);
