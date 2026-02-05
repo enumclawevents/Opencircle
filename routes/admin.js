@@ -955,7 +955,7 @@ return `
         background: var(--panel2);
         color: var(--text);
         font-size: 14px;
-        height: 56px;
+        height: 60px;
         line-height: 1;
       }
       input[type="file"]::file-selector-button{
