@@ -588,6 +588,7 @@ return `
     const diskFree = diskInfo ? bytesToHuman(diskInfo.freeBytes) : "N/A";
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
 
+    const appVersion = String(process.env.APP_VERSION || "v0.0.0");
     const stats = {
       total: fmt(total),
       upcoming: fmt(upcoming),
@@ -597,6 +598,7 @@ return `
       serverTime: new Date().toISOString().replace("T", " ").slice(0, 19) + "Z",
       diskFree,
       diskTotal,
+      appVersion,
     };
 
     // Top organizers
@@ -1494,6 +1496,9 @@ return `
             <div class="small">Tip</div>
             <div class="note" style="margin-top:8px;">
               Use the top search to filter server-side (fast + shareable URL). The list also has an instant filter.
+            </div>
+            <div class="note" style="margin-top:10px; font-size:11px; opacity:.7;">
+              Build ${esc(stats.appVersion)}
             </div>
           </div>
         </div>
