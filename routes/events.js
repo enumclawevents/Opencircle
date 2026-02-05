@@ -1164,20 +1164,21 @@ router.get("/rss", async (req, res) => {
            </div>`
         : "";
 
+      const bodyFont = "font-family:'Open Sans', Arial, sans-serif;";
       if (variant === "featured") {
         return `
-          <div style="text-align:center;padding:10px 12px 6px;">
+          <div style="text-align:center;padding:20px 22px 12px;${bodyFont}">
             <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
               ${imgHtml}
-              <div style="font-size:28px;font-weight:700;font-family:'Open Sans', Arial, sans-serif;color:#111;line-height:1.2;margin:14px 0 6px;">
+              <div style="font-size:28px;font-weight:700;${bodyFont}color:#111;line-height:1.2;margin:16px 0 8px;">
                 ${escXml(title)}
               </div>
-              <div style="font-size:13px;letter-spacing:.08em;color:#6b7280;margin:0 0 10px;text-transform:uppercase;">
+              <div style="font-size:13px;${bodyFont}letter-spacing:.08em;color:#6b7280;margin:0 0 12px;text-transform:uppercase;">
                 ${escXml(date)}${time ? " • " + escXml(time) : ""}
               </div>
             </a>
-            ${blurb ? `<div style="font-size:15px;color:#4b5563;line-height:1.5;margin:0 0 16px;">${escXml(blurb)}</div>` : ""}
-            <a href="${link}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#48a7c7;color:#fff;text-decoration:none;font-weight:600;font-size:14px;">
+            ${blurb ? `<div style="font-size:15px;${bodyFont}color:#4b5563;line-height:1.6;margin:0 0 18px;">${escXml(blurb)}</div>` : ""}
+            <a href="${link}" style="display:inline-block;padding:12px 24px;border-radius:999px;background:#48a7c7;color:#fff;text-decoration:none;font-weight:600;font-size:14px;${bodyFont}">
               View Event
             </a>
           </div>
@@ -1185,10 +1186,10 @@ router.get("/rss", async (req, res) => {
       }
 
       return `
-        <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
+        <a href="${link}" style="text-decoration:none;color:inherit;display:block;${bodyFont}">
           ${imgHtml}
-          <div style="font-size:18px;font-weight:700;font-family:'Open Sans', Arial, sans-serif;color:#111;line-height:1.2;margin:8px 0 4px;">${escXml(title)}</div>
-          <div style="font-size:13px;color:#6b7280;margin:0 0 4px;text-transform:uppercase;letter-spacing:.06em;">${escXml(date)}${time ? " • " + escXml(time) : ""}</div>
+          <div style="font-size:18px;font-weight:700;${bodyFont}color:#111;line-height:1.2;margin:10px 0 6px;">${escXml(title)}</div>
+          <div style="font-size:13px;${bodyFont}color:#6b7280;margin:0 0 6px;text-transform:uppercase;letter-spacing:.06em;">${escXml(date)}${time ? " • " + escXml(time) : ""}</div>
         </a>
       `;
     };
@@ -1201,11 +1202,11 @@ router.get("/rss", async (req, res) => {
       const rest = list.length > 1 ? list.slice(1) : [];
 
       const featuredHtml = featured
-        ? `<div style="margin:20px 0 30px;">${buildCardHtml(featured, "featured")}</div>`
+        ? `<div style="margin:24px 0 34px;">${buildCardHtml(featured, "featured")}</div>`
         : "";
 
       const gridHtml = rest.length
-        ? `<div style="font-size:0;">
+        ? `<div style="font-size:0;padding:0 10px;">
             ${rest
               .map(
                 (e) => `
