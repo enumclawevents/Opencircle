@@ -883,20 +883,21 @@ return `
         border-bottom: 0;
       }
       .sb-city{
-        border:0;
-        background: transparent !important;
+        border:1px solid rgba(148,163,184,.35);
+        background: rgba(255,255,255,.08) !important;
         color: var(--sidebar-text);
         font-weight:600;
-        font-size:13px;
-        padding:4px 10px 0 12px;
-        height:100%;
+        font-size:14px;
+        padding:0 36px 0 14px;
+        height:40px;
         width:100%;
         outline:none;
         box-shadow:none;
         -webkit-appearance:none;
         appearance:none;
         display:block;
-        line-height:1.2;
+        line-height:40px;
+        border-radius:10px;
       }
       .sb-city:focus,
       .sb-city:focus-visible{
