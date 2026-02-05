@@ -1027,6 +1027,9 @@ router.get("/rss", async (req, res) => {
       String(req.query.weekend || "").trim() === "1" ||
       String(req.query.window || "").trim().toLowerCase() === "next_weekend";
 
+    const featuredMode = String(req.query.featured || "").trim().toLowerCase();
+    const prependFeatured = featuredMode === "prepend";
+
     let windowStartIso = null;
     let windowEndIso = null;
     if (weekendOnly) {
@@ -1067,6 +1070,40 @@ router.get("/rss", async (req, res) => {
        LIMIT ?`,
       [...params, limit]
     );
+
+    let finalRows = rows || [];
+
+    if (featuredMode === "1" || featuredMode === "true") {
+      const fWhere = [...whereParts, "featured = 1"];
+      const fParams = [...params];
+      const featuredRows = await all(
+        `SELECT id, slug, title, description, startDateTime, imageUrl
+         FROM events
+         WHERE ${fWhere.join(" AND ")}
+         ORDER BY datetime(startDateTime) ASC
+         LIMIT ?`,
+        [...fParams, limit]
+      );
+      finalRows = featuredRows || [];
+    } else if (prependFeatured) {
+      const fWhere = [...whereParts, "featured = 1"];
+      const fParams = [...params];
+      const featuredRows = await all(
+        `SELECT id, slug, title, description, startDateTime, imageUrl
+         FROM events
+         WHERE ${fWhere.join(" AND ")}
+         ORDER BY datetime(startDateTime) ASC
+         LIMIT 1`,
+        fParams
+      );
+      if (featuredRows && featuredRows.length) {
+        const f = featuredRows[0];
+        const filtered = (finalRows || []).filter(
+          (e) => String(e.id) !== String(f.id)
+        );
+        finalRows = [f, ...filtered];
+      }
+    }
 
     const siteBase =
       (process.env.PUBLIC_SITE_URL || process.env.EVENTS_SITE_URL || "").trim() ||
