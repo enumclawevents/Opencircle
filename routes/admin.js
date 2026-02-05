@@ -842,15 +842,15 @@ return `
       .sb-city-wrap{
         display:flex;
         align-items:center;
-        height:40px;
+        height:50px;
         padding:0;
         border-radius:0;
-        border:1px solid var(--sidebar-line);
-        background: rgba(255,255,255,.02);
+        border:0;
+        background: transparent;
         width: calc(100% + 36px - 40px);
         margin-left: calc(-18px + 40px);
         margin-right: -18px;
-        margin-top: -18px;
+        margin-top: 0;
         margin-bottom: 0;
         border-bottom: 1px solid var(--sidebar-line);
       }
