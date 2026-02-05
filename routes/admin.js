@@ -455,8 +455,9 @@ try {
     };
 
     const ALLOWED_CITIES = ["Enumclaw"];
+    const currentCity = String(editEvent?.city || "Enumclaw");
     const cityOptions = ALLOWED_CITIES.map((c) => {
-      const sel = String(editEvent?.city || "Enumclaw") === c ? "selected" : "";
+      const sel = currentCity === c ? "selected" : "";
       return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
     }).join("");
 
@@ -827,6 +828,22 @@ return `
       .sb-brand{
         display:flex; align-items:center; justify-content:flex-start; margin-bottom:24px;
       }
+      .sb-top{
+        display:flex;
+        align-items:center;
+        gap:10px;
+      }
+      .sb-city{
+        height:36px;
+        padding:0 10px;
+        border-radius: 999px;
+        border:1px solid var(--sidebar-line);
+        background: rgba(255,255,255,.06);
+        color: var(--sidebar-text);
+        font-weight:600;
+        font-size:12px;
+      }
+      .sb-city:focus{ outline:none; box-shadow: 0 0 0 4px rgba(0,192,139,.12); }
       .sb-brand img{
         width:150px;
         max-width:150px;
@@ -1515,8 +1532,13 @@ return `
       <!-- Sidebar -->
       <aside class="sidebar">
         <div class="sb-brand">
-          <img src="/assets/brand/oc-logo.svg" alt="OpenCircle" onerror="this.style.display='none';" />
+          <div class="sb-top">
+            <img src="/assets/brand/oc-logo.svg" alt="OpenCircle" onerror="this.style.display='none';" />
+            <select class="sb-city" id="sbCitySelect" aria-label="City">
+              ${cityOptions}
+            </select>
           </div>
+        </div>
 
         <nav class="nav">
           <a class="active" href="/admin"><span class="n-dot"></span> Events</a>
@@ -1650,17 +1672,14 @@ return `
                 <p class="sub">This saves to SQLite and powers your API</p>
               </div>
               <div class="right">
-                <span class="pill">/admin</span>
+                <span class="pill">/enumclaw</span>
               </div>
             </div>
 
             <form method="POST" action="/admin/events" enctype="multipart/form-data">
               ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
 
-              <label>City</label>
-              <select class="ctrl" name="city">
-                ${cityOptions}
-              </select>
+              <input type="hidden" name="city" id="cityHidden" value="${esc(currentCity)}" />
 
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
               <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
@@ -2052,6 +2071,16 @@ return `
           }
           preview.src = URL.createObjectURL(f);
           preview.style.display = "block";
+        });
+      })();
+
+      // Sidebar city select -> hidden input
+      (function(){
+        var sb = document.getElementById("sbCitySelect");
+        var hidden = document.getElementById("cityHidden");
+        if (!sb || !hidden) return;
+        sb.addEventListener("change", function(){
+          hidden.value = sb.value;
         });
       })();
 
