@@ -878,6 +878,7 @@ return `
         -webkit-appearance:none;
         appearance:none;
         display:block;
+        line-height:55px;
       }
       .sb-city:focus,
       .sb-city:focus-visible{
