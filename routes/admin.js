@@ -845,8 +845,8 @@ return `
       }
       .sb-city:focus{ outline:none; box-shadow: 0 0 0 4px rgba(0,192,139,.12); }
       .sb-brand img{
-        width:120px;
-        max-width:120px;
+        width:32px;
+        max-width:32px;
         height:auto;
         display:block;
       }
@@ -1533,7 +1533,7 @@ return `
       <aside class="sidebar">
         <div class="sb-brand">
           <div class="sb-top">
-            <img src="/assets/brand/oc-logo.svg" alt="OpenCircle" onerror="this.style.display='none';" />
+            <img src="/assets/brand/favicon.ico" alt="OpenCircle" onerror="this.style.display='none';" />
             <select class="sb-city" id="sbCitySelect" aria-label="City">
               ${cityOptions}
             </select>
