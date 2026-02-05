@@ -842,7 +842,7 @@ return `
         display:flex; align-items:center; gap:10px;
         padding:10px 18px; border-radius: 0;
         border:1px solid transparent;
-        font-weight:600; font-size:13px;
+        font-weight:600; font-size:15px;
         width:100%;
         margin:0;
       }
@@ -853,6 +853,7 @@ return `
         color:var(--sidebar-text);
         background: rgba(0,192,139,.10);
         border-color: rgba(0,192,139,.22);
+        text-decoration:none;
       }
       .nav a.active .n-dot{ background: var(--brand); }
 
