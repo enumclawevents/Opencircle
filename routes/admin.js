@@ -838,6 +838,16 @@ return `
         gap:10px;
         width:100%;
         position: relative;
+        padding-bottom:10px;
+      }
+      .sb-top::after{
+        content:"";
+        position:absolute;
+        left:-18px;
+        right:-18px;
+        bottom:0;
+        height:1px;
+        background: var(--sidebar-line);
       }
       .sb-city-wrap{
         display:flex;
@@ -852,7 +862,7 @@ return `
         margin-right: -18px;
         margin-top: 0;
         margin-bottom: 0;
-        border-bottom: 1px solid var(--sidebar-line);
+        border-bottom: 0;
       }
       .sb-city{
         border:0;
