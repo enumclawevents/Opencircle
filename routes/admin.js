@@ -842,7 +842,7 @@ return `
       .sb-city-wrap{
         display:flex;
         align-items:center;
-        height:32px;
+        height:40px;
         padding:0;
         border-radius:0;
         border:1px solid var(--sidebar-line);
