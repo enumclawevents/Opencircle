@@ -942,7 +942,9 @@ return `
         top:100%;
         left:0;
         right:0;
-        width:100%;
+        width:calc(100% + 36px);
+        margin-left:-18px;
+        margin-right:-18px;
         box-sizing:border-box;
         margin-top:8px;
         background:#fff;
