@@ -1121,18 +1121,94 @@ router.get("/rss", async (req, res) => {
     const channelLink = `${siteBase}/events`;
     const channelDesc = "Upcoming events";
 
-    const itemsXml = (rows || [])
-      .map((e) => {
-        const key = e.slug ? String(e.slug) : String(e.id);
-        const link = `${siteBase}/events/${encodeURIComponent(key)}/`;
-        const title = escXml(e.title || "Event");
-        const descRaw = String(e.description || "");
-        const img = String(e.imageUrl || "").trim();
-        const imgTag = img ? `<img src="${escXml(img)}" alt="" style="max-width:100%;height:auto;" />` : "";
-        const desc = escXml(imgTag + descRaw);
-        const pubDate = e.startDateTime ? new Date(e.startDateTime).toUTCString() : new Date().toUTCString();
+    const layoutMode = String(req.query.layout || "").trim().toLowerCase();
 
-        return `
+    const formatDate = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    };
+
+    const formatTime = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).toLowerCase();
+    };
+
+    const buildCardHtml = (e, variant) => {
+      const key = e.slug ? String(e.slug) : String(e.id);
+      const link = `${siteBase}/events/${encodeURIComponent(key)}/`;
+      const title = String(e.title || "Event");
+      const img = String(e.imageUrl || "").trim();
+      const date = formatDate(e.startDateTime);
+      const time = formatTime(e.startDateTime);
+
+      const imgHtml = img
+        ? `<div style="width:100%;overflow:hidden;">
+             <img src="${img}" alt="" style="width:100%;height:auto;display:block;max-width:${variant === "featured" ? "600px" : "280px"};" />
+           </div>`
+        : "";
+
+      return `
+        <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
+          ${imgHtml}
+          <div style="font-size:14px;color:#6b7280;margin:8px 0 4px;">${escXml(date)}${time ? " • " + escXml(time) : ""}</div>
+          <div style="font-size:${variant === "featured" ? "24px" : "18px"};font-weight:700;color:#111;line-height:1.2;">${escXml(title)}</div>
+        </a>
+      `;
+    };
+
+    let itemsXml = "";
+
+    if (layoutMode === "mailchimp") {
+      const list = finalRows || [];
+      const featured = list.length ? list[0] : null;
+      const rest = list.length > 1 ? list.slice(1) : [];
+
+      const featuredHtml = featured
+        ? `<div style="margin:20px 0 30px;">${buildCardHtml(featured, "featured")}</div>`
+        : "";
+
+      const gridHtml = rest.length
+        ? `<div style="font-size:0;">
+            ${rest
+              .map(
+                (e) => `
+                <div style="display:inline-block;width:48%;vertical-align:top;margin:0 1% 20px;font-size:16px;">
+                  ${buildCardHtml(e, "grid")}
+                </div>`
+              )
+              .join("")}
+           </div>`
+        : "";
+
+      const descriptionHtml = `${featuredHtml}${gridHtml}`;
+      const link = channelLink;
+      const pubDate = new Date().toUTCString();
+
+      itemsXml = `
+  <item>
+    <title>${escXml(channelTitle)}</title>
+    <link>${escXml(link)}</link>
+    <guid isPermaLink="true">${escXml(link)}</guid>
+    <description><![CDATA[${descriptionHtml}]]></description>
+    <pubDate>${escXml(pubDate)}</pubDate>
+  </item>`;
+    } else {
+      itemsXml = (finalRows || [])
+        .map((e) => {
+          const key = e.slug ? String(e.slug) : String(e.id);
+          const link = `${siteBase}/events/${encodeURIComponent(key)}/`;
+          const title = escXml(e.title || "Event");
+          const descRaw = String(e.description || "");
+          const img = String(e.imageUrl || "").trim();
+          const imgTag = img ? `<img src="${escXml(img)}" alt="" style="max-width:100%;height:auto;" />` : "";
+          const desc = escXml(imgTag + descRaw);
+          const pubDate = e.startDateTime ? new Date(e.startDateTime).toUTCString() : new Date().toUTCString();
+
+          return `
   <item>
     <title>${title}</title>
     <link>${escXml(link)}</link>
@@ -1141,8 +1217,9 @@ router.get("/rss", async (req, res) => {
     ${img ? `<media:content url="${escXml(img)}" medium="image" />` : ""}
     <pubDate>${escXml(pubDate)}</pubDate>
   </item>`;
-      })
-      .join("");
+        })
+        .join("");
+    }
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
