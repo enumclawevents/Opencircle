@@ -838,7 +838,7 @@ return `
         display:flex;
         align-items:center;
         height:36px;
-        padding:0;
+        padding:0 12px;
         border-radius:6px;
         border:1px solid var(--sidebar-line);
         background: rgba(255,255,255,.02);
@@ -846,7 +846,7 @@ return `
       }
       .sb-city{
         border:0;
-        background: transparent;
+        background: transparent !important;
         color: var(--sidebar-text);
         font-weight:600;
         font-size:13px;
@@ -857,6 +857,7 @@ return `
         box-shadow:none;
         -webkit-appearance:none;
         appearance:none;
+        display:block;
       }
       .sb-city:focus,
       .sb-city:focus-visible{
