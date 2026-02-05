@@ -1532,6 +1532,7 @@ return `
 
           <div class="mini" style="margin-top:10px;">
             <div class="small">Status</div>
+            <div style="height:6px;"></div>
             <div class="kv"><span>Server time</span><strong>${esc(stats.serverTime)}</strong></div>
             <div class="kv"><span>Disk free</span><strong>${esc(stats.diskFree)} / ${esc(stats.diskTotal)}</strong></div>
             <div class="kv"><span>API version</span><strong>${esc(stats.appVersion)}</strong></div>
