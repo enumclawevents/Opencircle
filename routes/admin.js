@@ -812,7 +812,7 @@ return `
       .sb-title{ font-weight:650; letter-spacing:.2px; }
       .sb-sub{ font-size:12px; color:var(--sidebar-muted); margin-top:2px; }
 
-      .nav{ display:grid; gap:8px; margin-top:10px; }
+      .nav{ display:grid; gap:8px; margin-top:10px; width:100%; }
       .sb-bottom{ margin-top:auto; display:grid; gap:10px; }
       .sidebar .mini a{ color:#38bdf8; font-weight:600; }
       .sidebar .mini a:hover{ color:#7dd3fc; }
@@ -839,6 +839,7 @@ return `
         border:1px solid transparent;
         font-weight:600; font-size:13px;
         width:100%;
+        margin:0;
       }
       .nav a .n-dot{
         width:8px; height:8px; border-radius:999px; background: rgba(100,116,139,.35);
