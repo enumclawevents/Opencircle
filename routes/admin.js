@@ -812,7 +812,14 @@ return `
       .sb-title{ font-weight:650; letter-spacing:.2px; }
       .sb-sub{ font-size:12px; color:var(--sidebar-muted); margin-top:2px; }
 
-      .nav{ display:grid; gap:8px; margin-top:10px; width:100%; }
+      .nav{
+        display:grid;
+        gap:8px;
+        margin-top:10px;
+        width:100%;
+        margin-left:-18px;
+        margin-right:-18px;
+      }
       .sb-bottom{ margin-top:auto; display:grid; gap:10px; }
       .sidebar .mini a{ color:#38bdf8; font-weight:600; }
       .sidebar .mini a:hover{ color:#7dd3fc; }
@@ -835,7 +842,7 @@ return `
       .nav a{
         text-decoration:none; color:var(--sidebar-muted);
         display:flex; align-items:center; gap:10px;
-        padding:10px 12px; border-radius: var(--radius);
+        padding:10px 18px; border-radius: 0;
         border:1px solid transparent;
         font-weight:600; font-size:13px;
         width:100%;
