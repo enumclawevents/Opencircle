@@ -902,7 +902,7 @@ return `
       .sb-city-btn .caret{
         margin-left:auto;
         width:10px;
-        height:14px;
+        height:12px;
         position:relative;
       }
       .sb-city-btn .caret::before,
@@ -910,19 +910,19 @@ return `
         content:"";
         position:absolute;
         left:50%;
-        width:7px;
-        height:7px;
+        width:6px;
+        height:6px;
         border-right:2px solid rgba(229,231,235,.75);
         border-bottom:2px solid rgba(229,231,235,.75);
-        transform: translateX(-50%) rotate(225deg);
+        transform-origin:center;
       }
       .sb-city-btn .caret::before{
         top:0;
-        transform: translateX(-50%) rotate(45deg);
+        transform: translateX(-50%) rotate(-135deg);
       }
       .sb-city-btn .caret::after{
         bottom:0;
-        transform: translateX(-50%) rotate(225deg);
+        transform: translateX(-50%) rotate(45deg);
       }
       .sb-city-menu{
         position:absolute;
