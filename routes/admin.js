@@ -835,13 +835,14 @@ return `
         gap:10px;
         width:100%;
         position: relative;
+        padding-bottom:10px;
       }
       .sb-top::after{
         content:"";
         position:absolute;
         left:-18px;
         right:-18px;
-        bottom:-10px;
+        bottom:0;
         height:1px;
         background: var(--sidebar-line);
       }
@@ -856,7 +857,8 @@ return `
         width: calc(100% + 36px);
         margin-left: -18px;
         margin-right: -18px;
-        margin-top: -6px;
+        margin-top: -8px;
+        margin-bottom: -2px;
       }
       .sb-city{
         border:0;
