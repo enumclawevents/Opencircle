@@ -940,8 +940,8 @@ return `
       .sb-city-menu{
         position:absolute;
         top:100%;
-        left:-40px;
-        right:-18px;
+        left: -58px;
+        right: -18px;
         width:auto;
         box-sizing:border-box;
         margin-top:8px;
