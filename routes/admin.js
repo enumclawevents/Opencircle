@@ -955,7 +955,9 @@ return `
         background: var(--panel2);
         color: var(--text);
         font-size: 14px;
-        height: var(--ctrl-h);
+        height: 52px;
+        display:flex;
+        align-items:center;
       }
       input[type="file"]::file-selector-button{
         margin-right: 12px;
