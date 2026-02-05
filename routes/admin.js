@@ -890,7 +890,7 @@ return `
         display:flex;
         align-items:center;
         gap:10px;
-        padding:0 20px 0 14px;
+        padding:0 20px 0 18px;
         border:0;
         background: transparent;
         color: var(--sidebar-text);
