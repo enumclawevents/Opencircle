@@ -851,6 +851,7 @@ return `
         margin-left: -18px;
         margin-right: -18px;
         margin-top: -18px;
+        padding-left: 44px;
         margin-bottom: 0;
         border-bottom: 1px solid var(--sidebar-line);
       }
