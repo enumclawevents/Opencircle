@@ -1137,6 +1137,18 @@ router.get("/rss", async (req, res) => {
       return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).toLowerCase();
     };
 
+    const stripHtml = (html) =>
+      String(html || "")
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const excerpt = (html, max = 220) => {
+      const txt = stripHtml(html);
+      if (txt.length <= max) return txt;
+      return txt.slice(0, max).replace(/\s+\S*$/, "") + "...";
+    };
+
     const buildCardHtml = (e, variant) => {
       const key = e.slug ? String(e.slug) : String(e.id);
       const link = `${siteBase}/events/${encodeURIComponent(key)}/`;
@@ -1144,18 +1156,39 @@ router.get("/rss", async (req, res) => {
       const img = String(e.imageUrl || "").trim();
       const date = formatDate(e.startDateTime);
       const time = formatTime(e.startDateTime);
+      const blurb = excerpt(e.description || "", 240);
 
       const imgHtml = img
-        ? `<div style="width:100%;overflow:hidden;">
+        ? `<div style="width:100%;overflow:hidden;border-radius:${variant === "featured" ? "14px" : "8px"};background:#f3f4f6;">
              <img src="${img}" alt="" style="width:100%;height:auto;display:block;max-width:${variant === "featured" ? "600px" : "280px"};" />
            </div>`
         : "";
 
+      if (variant === "featured") {
+        return `
+          <div style="text-align:center;padding:10px 12px 6px;">
+            <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
+              ${imgHtml}
+              <div style="font-size:13px;letter-spacing:.08em;color:#6b7280;margin:14px 0 6px;text-transform:uppercase;">
+                ${escXml(date)}${time ? " • " + escXml(time) : ""}
+              </div>
+              <div style="font-size:28px;font-weight:700;color:#111;line-height:1.2;margin:0 0 10px;">
+                ${escXml(title)}
+              </div>
+            </a>
+            ${blurb ? `<div style="font-size:15px;color:#4b5563;line-height:1.5;margin:0 0 16px;">${escXml(blurb)}</div>` : ""}
+            <a href="${link}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#48a7c7;color:#fff;text-decoration:none;font-weight:600;font-size:14px;">
+              View Event
+            </a>
+          </div>
+        `;
+      }
+
       return `
         <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
           ${imgHtml}
-          <div style="font-size:14px;color:#6b7280;margin:8px 0 4px;">${escXml(date)}${time ? " • " + escXml(time) : ""}</div>
-          <div style="font-size:${variant === "featured" ? "24px" : "18px"};font-weight:700;color:#111;line-height:1.2;">${escXml(title)}</div>
+          <div style="font-size:13px;color:#6b7280;margin:8px 0 4px;">${escXml(date)}${time ? " • " + escXml(time) : ""}</div>
+          <div style="font-size:18px;font-weight:700;color:#111;line-height:1.2;">${escXml(title)}</div>
         </a>
       `;
     };
