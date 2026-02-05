@@ -942,6 +942,8 @@ return `
         top:100%;
         left:0;
         right:0;
+        width:100%;
+        box-sizing:border-box;
         margin-top:8px;
         background:#fff;
         border:1px solid rgba(15,23,42,.12);
