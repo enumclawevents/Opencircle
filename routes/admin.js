@@ -815,10 +815,8 @@ return `
       .nav{
         display:grid;
         gap:8px;
-        margin-top:10px;
-        width:100%;
-        margin-left:-18px;
-        margin-right:-18px;
+        margin:10px -18px 0;
+        width:calc(100% + 36px);
       }
       .sb-bottom{ margin-top:auto; display:grid; gap:10px; }
       .sidebar .mini a{ color:#38bdf8; font-weight:600; }
