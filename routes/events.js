@@ -1020,13 +1020,17 @@ router.get("/rss", async (req, res) => {
   try {
     const limit = Math.max(1, Math.min(200, parseInt(req.query.limit || "50", 10)));
 
+    const cityRaw = String(req.query.city || "").trim();
+    const hasCity = cityRaw !== "";
+
     const rows = await all(
       `SELECT id, slug, title, description, startDateTime
        FROM events
        WHERE datetime(startDateTime) >= datetime('now')
+       ${hasCity ? "AND LOWER(city) = LOWER(?)" : ""}
        ORDER BY datetime(startDateTime) ASC
        LIMIT ?`,
-      [limit]
+      hasCity ? [cityRaw, limit] : [limit]
     );
 
     const siteBase =
