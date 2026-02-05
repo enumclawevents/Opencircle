@@ -1123,18 +1123,19 @@ router.get("/rss", async (req, res) => {
 
     const layoutMode = String(req.query.layout || "").trim().toLowerCase();
 
+    const rssTz = "America/Los_Angeles";
     const formatDate = (iso) => {
       if (!iso) return "";
       const d = new Date(iso);
       if (isNaN(d.getTime())) return "";
-      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      return d.toLocaleDateString("en-US", { timeZone: rssTz, month: "short", day: "numeric", year: "numeric" });
     };
 
     const formatTime = (iso) => {
       if (!iso) return "";
       const d = new Date(iso);
       if (isNaN(d.getTime())) return "";
-      return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).toLowerCase();
+      return d.toLocaleTimeString("en-US", { timeZone: rssTz, hour: "numeric", minute: "2-digit" }).toLowerCase();
     };
 
     const stripHtml = (html) =>
