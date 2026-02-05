@@ -1210,7 +1210,11 @@ return `
         padding: 2px 0;
       }
       .kv strong{ color:var(--text); font-size:14px; text-align:right; }
-      .sidebar .mini .kv{ color: var(--sidebar-muted); }
+      .sidebar .mini .kv{
+        color: var(--sidebar-muted);
+        font-size:11px;
+        font-weight:600;
+      }
       .sidebar .mini .kv strong{
         color: var(--sidebar-muted);
         font-size:11px;
