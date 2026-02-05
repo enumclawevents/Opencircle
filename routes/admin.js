@@ -898,6 +898,19 @@ return `
         font-size:13px;
         cursor:pointer;
         text-align:left;
+        outline:none;
+        box-shadow:none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .sb-city-btn:focus,
+      .sb-city-btn:focus-visible{
+        outline:none;
+        box-shadow:none;
+      }
+      .sb-city-btn:active{
+        background: transparent;
+        box-shadow:none;
+        outline:none;
       }
       .sb-city-btn .caret{
         margin-left:auto;
@@ -932,8 +945,8 @@ return `
         margin-top:8px;
         background:#fff;
         border:1px solid rgba(15,23,42,.12);
-        border-radius:12px;
-        padding:8px;
+        border-radius:0;
+        padding:6px;
         display:none;
         z-index: 30;
         box-shadow: 0 16px 40px rgba(15,23,42,.18);
@@ -945,7 +958,7 @@ return `
         background: transparent;
         padding:10px 12px;
         text-align:left;
-        border-radius:8px;
+        border-radius:0;
         font-weight:600;
         font-size:14px;
         color:#111;
