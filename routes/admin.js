@@ -1227,14 +1227,14 @@ return `
         gap:var(--gap);
         margin: 10px 0 14px;
       }
-      .pager-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-self:end; }
+      .pager-right{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-self:end; }
       .pager-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; }
 
       /* Existing events: keep Clear inline with search (wrap only on small screens) */
       .listSearchRow{
         display:grid;
         grid-template-columns: 1fr auto auto;
-        gap:var(--gap);
+        gap:12px;
         align-items:center;
         margin: 10px 0 14px;
       }
@@ -1251,7 +1251,7 @@ return `
 
       /* Recurrence UI polish (keep your functionality, just match the new look) */
       .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: var(--radius-inner); padding: 14px; }
-      .rec-grid{ display:grid; grid-template-columns: 1.2fr .8fr; gap: 16px; align-items: start; }
+      .rec-grid{ display:grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
       @media (max-width: 900px){ .rec-grid{ grid-template-columns: 1fr; } }
       .rec-label{ font-weight:650; font-size: 12px; margin-bottom: 8px; color: var(--text); letter-spacing: .2px; }
       .rec-help{ margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.4; }
@@ -1313,7 +1313,7 @@ return `
         display:flex;
         align-items:center;
         justify-content:flex-start;
-        gap:10px;
+        gap:12px;
         flex-wrap:nowrap;
       }
       .sectionTitle .rightRow .sortBy{
