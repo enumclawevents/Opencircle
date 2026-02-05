@@ -827,7 +827,10 @@ return `
       .sidebar .card .muted{ color: var(--sidebar-muted); }
       .sb-brand{
         display:flex; align-items:center; justify-content:flex-start; margin-bottom:24px;
-        margin-left:-10px;
+        margin-left:-18px;
+        margin-right:-18px;
+        margin-top:-18px;
+        padding:18px 18px 0;
       }
       .sb-top{
         display:flex;
@@ -835,16 +838,6 @@ return `
         gap:10px;
         width:100%;
         position: relative;
-        padding-bottom:10px;
-      }
-      .sb-top::after{
-        content:"";
-        position:absolute;
-        left:-18px;
-        right:-18px;
-        bottom:0;
-        height:1px;
-        background: var(--sidebar-line);
       }
       .sb-city-wrap{
         display:flex;
@@ -857,8 +850,9 @@ return `
         width: calc(100% + 36px);
         margin-left: -18px;
         margin-right: -18px;
-        margin-top: -8px;
-        margin-bottom: -2px;
+        margin-top: -18px;
+        margin-bottom: 0;
+        border-bottom: 1px solid var(--sidebar-line);
       }
       .sb-city{
         border:0;
