@@ -1060,7 +1060,7 @@ router.get("/rss", async (req, res) => {
     }
 
     const rows = await all(
-      `SELECT id, slug, title, description, startDateTime
+      `SELECT id, slug, title, description, startDateTime, imageUrl
        FROM events
        WHERE ${whereParts.join(" AND ")}
        ORDER BY datetime(startDateTime) ASC
@@ -1089,7 +1089,10 @@ router.get("/rss", async (req, res) => {
         const key = e.slug ? String(e.slug) : String(e.id);
         const link = `${siteBase}/events/${encodeURIComponent(key)}/`;
         const title = escXml(e.title || "Event");
-        const desc = escXml(e.description || "");
+        const descRaw = String(e.description || "");
+        const img = String(e.imageUrl || "").trim();
+        const imgTag = img ? `<img src="${escXml(img)}" alt="" style="max-width:100%;height:auto;" />` : "";
+        const desc = escXml(imgTag + descRaw);
         const pubDate = e.startDateTime ? new Date(e.startDateTime).toUTCString() : new Date().toUTCString();
 
         return `
@@ -1098,13 +1101,14 @@ router.get("/rss", async (req, res) => {
     <link>${escXml(link)}</link>
     <guid isPermaLink="true">${escXml(link)}</guid>
     <description>${desc}</description>
+    ${img ? `<media:content url="${escXml(img)}" medium="image" />` : ""}
     <pubDate>${escXml(pubDate)}</pubDate>
   </item>`;
       })
       .join("");
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
 <channel>
   <title>${escXml(channelTitle)}</title>
   <link>${escXml(channelLink)}</link>
