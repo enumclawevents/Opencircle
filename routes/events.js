@@ -1023,14 +1023,49 @@ router.get("/rss", async (req, res) => {
     const cityRaw = String(req.query.city || "").trim();
     const hasCity = cityRaw !== "";
 
+    const weekendOnly =
+      String(req.query.weekend || "").trim() === "1" ||
+      String(req.query.window || "").trim().toLowerCase() === "next_weekend";
+
+    let windowStartIso = null;
+    let windowEndIso = null;
+    if (weekendOnly) {
+      const now = new Date();
+      const dow = now.getDay(); // 0 Sun .. 6 Sat
+      const daysToFri = (5 - dow + 7) % 7; // Fri = 5
+      const fri = new Date(now);
+      fri.setHours(0, 0, 0, 0);
+      fri.setDate(fri.getDate() + daysToFri);
+
+      const mon = new Date(fri);
+      mon.setDate(mon.getDate() + 3); // Mon 00:00 after Fri/Sat/Sun
+
+      windowStartIso = fri.toISOString();
+      windowEndIso = mon.toISOString();
+    }
+
+    const whereParts = [
+      "datetime(startDateTime) >= datetime('now')",
+    ];
+    const params = [];
+
+    if (hasCity) {
+      whereParts.push("LOWER(city) = LOWER(?)");
+      params.push(cityRaw);
+    }
+    if (windowStartIso && windowEndIso) {
+      whereParts.push("datetime(startDateTime) >= datetime(?)");
+      whereParts.push("datetime(startDateTime) < datetime(?)");
+      params.push(windowStartIso, windowEndIso);
+    }
+
     const rows = await all(
       `SELECT id, slug, title, description, startDateTime
        FROM events
-       WHERE datetime(startDateTime) >= datetime('now')
-       ${hasCity ? "AND LOWER(city) = LOWER(?)" : ""}
+       WHERE ${whereParts.join(" AND ")}
        ORDER BY datetime(startDateTime) ASC
        LIMIT ?`,
-      hasCity ? [cityRaw, limit] : [limit]
+      [...params, limit]
     );
 
     const siteBase =
