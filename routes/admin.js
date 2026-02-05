@@ -847,11 +847,10 @@ return `
         border-radius:0;
         border:1px solid var(--sidebar-line);
         background: rgba(255,255,255,.02);
-        width: calc(100% + 36px);
-        margin-left: -18px;
+        width: calc(100% + 36px - 44px);
+        margin-left: calc(-18px + 44px);
         margin-right: -18px;
         margin-top: -18px;
-        padding-left: 44px;
         margin-bottom: 0;
         border-bottom: 1px solid var(--sidebar-line);
       }
