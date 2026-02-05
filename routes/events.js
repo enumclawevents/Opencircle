@@ -1015,6 +1015,73 @@ router.get("/slug/:slug", async (req, res) => {
   }
 });
 
+// GET /events/rss (upcoming events)
+router.get("/rss", async (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit || "50", 10)));
+
+    const rows = await all(
+      `SELECT id, slug, title, description, startDateTime
+       FROM events
+       WHERE datetime(startDateTime) >= datetime('now')
+       ORDER BY datetime(startDateTime) ASC
+       LIMIT ?`,
+      [limit]
+    );
+
+    const siteBase =
+      (process.env.PUBLIC_SITE_URL || process.env.EVENTS_SITE_URL || "").trim() ||
+      `${req.headers["x-forwarded-proto"] || req.protocol}://${req.headers["x-forwarded-host"] || req.get("host")}`;
+
+    const escXml = (s) =>
+      String(s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+
+    const channelTitle = "OpenCircle Events";
+    const channelLink = `${siteBase}/events`;
+    const channelDesc = "Upcoming events";
+
+    const itemsXml = (rows || [])
+      .map((e) => {
+        const key = e.slug ? String(e.slug) : String(e.id);
+        const link = `${siteBase}/events/${encodeURIComponent(key)}/`;
+        const title = escXml(e.title || "Event");
+        const desc = escXml(e.description || "");
+        const pubDate = e.startDateTime ? new Date(e.startDateTime).toUTCString() : new Date().toUTCString();
+
+        return `
+  <item>
+    <title>${title}</title>
+    <link>${escXml(link)}</link>
+    <guid isPermaLink="true">${escXml(link)}</guid>
+    <description>${desc}</description>
+    <pubDate>${escXml(pubDate)}</pubDate>
+  </item>`;
+      })
+      .join("");
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+  <title>${escXml(channelTitle)}</title>
+  <link>${escXml(channelLink)}</link>
+  <description>${escXml(channelDesc)}</description>
+  ${itemsXml}
+</channel>
+</rss>`;
+
+    res.setHeader("Content-Type", "application/rss+xml; charset=utf-8");
+    return res.send(xml);
+  } catch (err) {
+    console.error("[/events/rss] error:", err && err.stack ? err.stack : err);
+    return res.status(500).send("Server error");
+  }
+});
+
 // GET /events/:idOrSlug
 router.get("/:idOrSlug", async (req, res) => {
   try {
