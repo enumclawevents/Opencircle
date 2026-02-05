@@ -884,6 +884,7 @@ return `
       .h-left h1{ margin:0; font-size:22px; letter-spacing:.2px; font-weight:600; }
       .h-left p{ margin:6px 0 0; color:var(--muted); font-size:13px; }
       .h-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+      .h-right{ flex:1; justify-content:flex-end; }
 
       .search{
         display:flex; align-items:center; gap:10px;
@@ -892,11 +893,13 @@ return `
         border-radius: var(--radius-inner);
         padding: 10px 12px;
         box-shadow: var(--shadow);
+        width:100%;
       }
       .search input{
         border:0; outline:none; background:transparent;
-        width: 520px;
-        min-width: 360px;
+        width:auto;
+        min-width:0;
+        flex:1 1 auto;
         font-size:14px; font-weight:500; color:var(--text);
         height: var(--ctrl-h);
       }
@@ -1165,7 +1168,7 @@ return `
       .inline{ display:inline; margin:0; }
       .muted{ color: var(--muted); }
 
-      a:not(.btn){ color: var(--brand2); text-decoration:none; font-weight:600; }
+      a:not(.btn){ color: var(--brand2); text-decoration:none; font-weight:600; font-size:14px; }
       a:not(.btn):hover{ text-decoration:underline; }
       .event-actions a:not(.btn){ font-size:14px; }
 
@@ -1379,16 +1382,15 @@ return `
       /* Keep controls in one line on desktop; allow wrap on small screens */
       .sectionTitle .rightRow{
         width:100%;
-        display:flex;
+        display:grid;
+        grid-template-columns: auto auto auto 1fr;
         align-items:center;
-        justify-content:flex-start;
         gap:12px;
-        flex-wrap:nowrap;
       }
       .sectionTitle .rightRow .sortBy{
-        flex:1;
-        min-width:240px;
-        max-width:360px;
+        width:100%;
+        min-width:0;
+        max-width:none;
       }
 
       @media (max-width: 980px){
