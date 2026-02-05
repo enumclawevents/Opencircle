@@ -1545,6 +1545,36 @@ return `
         border: 1px solid var(--line);
       }
       a{ color: var(--text); }
+
+      /* Slight global type scale up */
+      :root{ --font-up: 1px; }
+      body{ font-size: 15px; }
+      .h-left h1{ font-size: calc(22px + var(--font-up)); }
+      .h-left p{ font-size: calc(13px + var(--font-up)); }
+      .search input{ font-size: calc(14px + var(--font-up)); }
+      .metric .k{ font-size: calc(12px + var(--font-up)); }
+      .metric .v{ font-size: calc(22px + var(--font-up)); }
+      .metric .tag{ font-size: calc(12px + var(--font-up)); }
+      .sub{ font-size: calc(13px + var(--font-up)); }
+      .small{ font-size: calc(12px + var(--font-up)); }
+      label{ font-size: calc(12px + var(--font-up)); }
+      .ctrl,
+      input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+      textarea,
+      select{ font-size: calc(14px + var(--font-up)); }
+      input[type="file"]{ font-size: calc(14px + var(--font-up)); }
+      input[type="file"]::file-selector-button{ font-size: calc(14px + var(--font-up)); }
+      .btn,
+      .btn-primary,
+      .btn-danger,
+      .btn-link{ font-size: calc(14px + var(--font-up)); }
+      .seg button{ font-size: calc(14px + var(--font-up)); }
+      .event-title{ font-size: calc(16px + var(--font-up)); }
+      .event-meta{ font-size: calc(13px + var(--font-up)); }
+      .stat{ font-size: calc(13px + var(--font-up)); }
+      .stat strong{ font-size: calc(16px + var(--font-up)); }
+      .note{ font-size: calc(12px + var(--font-up)); }
+      .kv{ font-size: calc(13px + var(--font-up)); }
 </style>
   </head>
   <body>
