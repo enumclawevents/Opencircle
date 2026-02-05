@@ -1169,11 +1169,11 @@ router.get("/rss", async (req, res) => {
           <div style="text-align:center;padding:10px 12px 6px;">
             <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
               ${imgHtml}
-              <div style="font-size:13px;letter-spacing:.08em;color:#6b7280;margin:14px 0 6px;text-transform:uppercase;">
-                ${escXml(date)}${time ? " • " + escXml(time) : ""}
-              </div>
-              <div style="font-size:28px;font-weight:700;color:#111;line-height:1.2;margin:0 0 10px;">
+              <div style="font-size:28px;font-weight:700;font-family:'Open Sans', Arial, sans-serif;color:#111;line-height:1.2;margin:14px 0 6px;">
                 ${escXml(title)}
+              </div>
+              <div style="font-size:13px;letter-spacing:.08em;color:#6b7280;margin:0 0 10px;text-transform:uppercase;">
+                ${escXml(date)}${time ? " • " + escXml(time) : ""}
               </div>
             </a>
             ${blurb ? `<div style="font-size:15px;color:#4b5563;line-height:1.5;margin:0 0 16px;">${escXml(blurb)}</div>` : ""}
@@ -1187,8 +1187,8 @@ router.get("/rss", async (req, res) => {
       return `
         <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
           ${imgHtml}
-          <div style="font-size:13px;color:#6b7280;margin:8px 0 4px;">${escXml(date)}${time ? " • " + escXml(time) : ""}</div>
-          <div style="font-size:18px;font-weight:700;color:#111;line-height:1.2;">${escXml(title)}</div>
+          <div style="font-size:18px;font-weight:700;font-family:'Open Sans', Arial, sans-serif;color:#111;line-height:1.2;margin:8px 0 4px;">${escXml(title)}</div>
+          <div style="font-size:13px;color:#6b7280;margin:0 0 4px;text-transform:uppercase;letter-spacing:.06em;">${escXml(date)}${time ? " • " + escXml(time) : ""}</div>
         </a>
       `;
     };
