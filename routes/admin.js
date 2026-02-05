@@ -801,7 +801,7 @@ return `
       }
       .sidebar .card .muted{ color: var(--sidebar-muted); }
       .sb-brand{
-        display:flex; align-items:center; justify-content:flex-start; margin-bottom:14px;
+        display:flex; align-items:center; justify-content:flex-start; margin-bottom:24px;
       }
       .sb-brand img{
         width:150px;
