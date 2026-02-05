@@ -846,6 +846,13 @@ return `
         width:100%;
         margin:0;
       }
+      .nav a:hover,
+      .nav a:focus,
+      .nav a:active,
+      .nav a:visited,
+      .nav a.active{
+        text-decoration:none !important;
+      }
       .nav a .n-dot{
         width:8px; height:8px; border-radius:999px; background: rgba(100,116,139,.35);
       }
