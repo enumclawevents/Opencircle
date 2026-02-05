@@ -1214,11 +1214,13 @@ return `
         color: var(--sidebar-muted);
         font-size:11px;
         font-weight:600;
+        opacity:.7;
       }
       .sidebar .mini .kv strong{
         color: var(--sidebar-muted);
         font-size:11px;
         font-weight:600;
+        opacity:.7;
       }
 
       /* Chart */
