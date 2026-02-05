@@ -949,15 +949,14 @@ return `
       /* File input */
       input[type="file"]{
         width:100%;
-        padding:10px 12px;
+        padding:0 12px;
         border: 1px solid var(--line);
         border-radius: var(--radius-inner);
         background: var(--panel2);
         color: var(--text);
         font-size: 14px;
         height: 52px;
-        display:flex;
-        align-items:center;
+        line-height: 52px;
       }
       input[type="file"]::file-selector-button{
         margin-right: 12px;
@@ -1039,13 +1038,14 @@ return `
         border:1px solid var(--line);
         background: var(--panel);
         color: var(--text);
-        padding:10px 12px;
+        padding:0 16px;
         border-radius: var(--radius-inner);
         font-weight:600;
         cursor:pointer;
         height: var(--ctrl-h);
         display:inline-flex;
         align-items:center;
+        line-height: 52px;
       }
       input[type="file"]::file-selector-button:hover{
         border-color: rgba(0,192,139,.28);
