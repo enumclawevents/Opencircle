@@ -840,6 +840,24 @@ return `
         position: relative;
         padding-bottom:10px;
       }
+      .sb-icon{
+        position: relative;
+        width: 32px;
+        height: 55px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        flex: 0 0 32px;
+      }
+      .sb-icon::after{
+        content:"";
+        position:absolute;
+        top:0;
+        bottom:0;
+        right:-10px;
+        width:1px;
+        background: var(--sidebar-line);
+      }
       .sb-top::after{
         content:"";
         position:absolute;
@@ -887,9 +905,9 @@ return `
       }
       .sb-city:focus{ outline:none; box-shadow:none; }
       .sb-brand img{
-        width:32px;
-        max-width:32px;
-        height:auto;
+        width:28px;
+        max-width:28px;
+        height:28px;
         display:block;
       }
       .sb-title{ font-weight:650; letter-spacing:.2px; }
@@ -1605,7 +1623,9 @@ return `
       <aside class="sidebar">
         <div class="sb-brand">
           <div class="sb-top">
-          <img src="/assets/brand/sidebar-icon.png" alt="OpenCircle" onerror="this.style.display='none';" />
+          <div class="sb-icon">
+            <img src="/assets/brand/sidebar-icon.png" alt="OpenCircle" onerror="this.style.display='none';" />
+          </div>
             <div class="sb-city-wrap">
               <select class="sb-city" id="sbCitySelect" aria-label="City">
                 ${cityOptions}
