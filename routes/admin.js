@@ -1486,7 +1486,7 @@ return `
       <main class="main">
         <div class="header">
           <div class="h-left">
-            <h1>Dashboard</h1>
+            <h1>Events Dashboard</h1>
             <p>Overview + event management</p>
           </div>
 
