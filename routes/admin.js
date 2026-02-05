@@ -1058,6 +1058,7 @@ return `
         padding: 10px 12px;
         box-shadow: var(--shadow);
         width:100%;
+        max-width:760px;
       }
       .search input{
         border:0; outline:none; background:transparent;
