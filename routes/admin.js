@@ -836,24 +836,11 @@ return `
       .sb-city-wrap{
         display:flex;
         align-items:center;
-        gap:10px;
         height:36px;
         padding:0 12px;
         border-radius:6px;
         border:1px solid var(--sidebar-line);
         background: rgba(255,255,255,.02);
-      }
-      .sb-city-dot{
-        width:22px;
-        height:22px;
-        border-radius:50%;
-        display:inline-flex;
-        align-items:center;
-        justify-content:center;
-        background: rgba(0,192,139,.18);
-        color: var(--sidebar-text);
-        font-size:12px;
-        font-weight:700;
       }
       .sb-city{
         border:0;
@@ -1556,7 +1543,6 @@ return `
           <div class="sb-top">
             <img src="/assets/brand/favicon.ico" alt="OpenCircle" onerror="this.style.display='none';" />
             <div class="sb-city-wrap">
-              <span class="sb-city-dot">${esc(String(currentCity || "E").trim()[0] || "E")}</span>
               <select class="sb-city" id="sbCitySelect" aria-label="City">
                 ${cityOptions}
               </select>
