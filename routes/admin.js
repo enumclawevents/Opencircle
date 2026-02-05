@@ -845,8 +845,8 @@ return `
       }
       .sb-city:focus{ outline:none; box-shadow: 0 0 0 4px rgba(0,192,139,.12); }
       .sb-brand img{
-        width:150px;
-        max-width:150px;
+        width:120px;
+        max-width:120px;
         height:auto;
         display:block;
       }
