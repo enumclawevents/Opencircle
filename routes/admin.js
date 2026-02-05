@@ -1313,8 +1313,7 @@ return `
       .rec-help{ margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.4; }
 
       .rec-box{ border:1px solid var(--line); border-radius: var(--radius-inner); padding: 14px; background: var(--panel2); margin-top: 10px; }
-      .checkbox{ display:flex; gap:10px; align-items:center; margin-top: 8px; font-weight:650; }
-      .checkbox{ padding:12px; margin:0; }
+      .checkbox{ display:flex; gap:10px; align-items:center; margin:0; font-weight:650; padding:8px 0; }
       input[type=checkbox]{ width:18px; height:18px; border-radius:0px !important; accent-color: var(--brand); }
       .checkbox input{ width:18px !important; height:18px !important; border-radius:0px !important; }
 
