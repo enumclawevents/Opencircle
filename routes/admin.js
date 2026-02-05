@@ -902,7 +902,7 @@ return `
       .sb-city-btn .caret{
         margin-left:auto;
         width:10px;
-        height:12px;
+        height:16px;
         position:relative;
       }
       .sb-city-btn .caret::before,
@@ -910,10 +910,10 @@ return `
         content:"";
         position:absolute;
         left:50%;
-        width:6px;
-        height:6px;
-        border-right:2px solid rgba(229,231,235,.75);
-        border-bottom:2px solid rgba(229,231,235,.75);
+        width:5px;
+        height:5px;
+        border-right:1.5px solid rgba(229,231,235,.75);
+        border-bottom:1.5px solid rgba(229,231,235,.75);
         transform-origin:center;
       }
       .sb-city-btn .caret::before{
