@@ -177,6 +177,7 @@ async function initDB() {
   await addCol("host", `ALTER TABLE events ADD COLUMN host TEXT;`);
   await addCol("imageUrl", `ALTER TABLE events ADD COLUMN imageUrl TEXT;`);
   await addCol("featured", `ALTER TABLE events ADD COLUMN featured INTEGER NOT NULL DEFAULT 0;`);
+  await addCol("eddiesPick", `ALTER TABLE events ADD COLUMN eddiesPick INTEGER NOT NULL DEFAULT 0;`);
   await addCol("categories", `ALTER TABLE events ADD COLUMN categories TEXT;`);
   await addCol("tags", `ALTER TABLE events ADD COLUMN tags TEXT;`);
 

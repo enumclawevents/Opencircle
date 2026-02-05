@@ -277,9 +277,22 @@ async function ensureArchiveSchema() {
   _archiveSchemaEnsured = true;
 }
 
+// --- Eddie's Pick schema (flag) ---
+let _pickSchemaEnsured = false;
+async function ensurePickSchema() {
+  if (_pickSchemaEnsured) return;
+  const cols = await getEventsColumns();
+  if (!cols.has("eddiesPick")) {
+    await run(`ALTER TABLE events ADD COLUMN eddiesPick INTEGER NOT NULL DEFAULT 0`);
+    cols.add("eddiesPick");
+  }
+  _pickSchemaEnsured = true;
+}
+
 // GET /admin
 router.get("/", async (req, res) => {
   try {
+    await ensurePickSchema();
     // ✅ Pagination + total count + optional server-side search
 const limit = Math.max(5, Math.min(200, parseInt(req.query.limit || "20", 10)));
 const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
@@ -381,7 +394,7 @@ try {
 let events = [];
 try {
   events = await all(
-    `SELECT id, slug, title, startDateTime, location, featured,
+    `SELECT id, slug, title, startDateTime, location, featured, eddiesPick,
             goingCount, interestedCount, viewCount, uniqueViewCount, lastViewedAt, imageUrl,
             ${selectArchived}, ${selectArchivedAt}
      FROM events
@@ -392,7 +405,7 @@ try {
   );
 } catch (err) {
   events = await all(
-    `SELECT id, slug, title, startDateTime, location, featured
+    `SELECT id, slug, title, startDateTime, location, featured, eddiesPick
      FROM events
      ${whereSql}
      ORDER BY ${orderBySql}
@@ -407,6 +420,7 @@ try {
     uniqueViewCount: 0,
     lastViewedAt: null,
     imageUrl: null,
+    eddiesPick: 0,
     isArchived: 0,
     archivedAt: null,
     imageUrl: null,
@@ -420,6 +434,7 @@ try {
 
     const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
     const isFeatured = Number(editEvent?.featured || 0) === 1;
+    const isEddiesPick = Number(editEvent?.eddiesPick || 0) === 1;
 
     // ✅ recurrence values for UI (these existed in your file, UI block was missing)
     const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
@@ -527,6 +542,11 @@ return `
           ${
             Number(e.featured || 0) === 1
               ? `<span class="pill" style="margin-left:8px;">Featured</span>`
+              : ""
+          }
+          ${
+            Number(e.eddiesPick || 0) === 1
+              ? `<span class="pill" style="margin-left:8px; background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.22); color: #1e3a8a;">Eddie's Pick</span>`
               : ""
           }
           ${
@@ -1891,6 +1911,11 @@ return `
                   <label for="featured" style="margin:0;font-size:12px;font-weight:650;">Featured event</label>
                 </div>
                 <div class="note">Featured events show a badge on the event card and event page.</div>
+                <div class="checkbox" style="margin-top:10px;">
+                  <input type="checkbox" id="eddiesPick" name="eddiesPick" value="1" ${isEddiesPick ? "checked" : ""} />
+                  <label for="eddiesPick" style="margin:0;font-size:12px;font-weight:650;">Eddie's Pick</label>
+                </div>
+                <div class="note">Shows this event as Eddie's Pick in weekend emails.</div>
               </div>
 
               <div class="rec-box">
@@ -2778,6 +2803,7 @@ return `
 // POST /admin/events (create or update)
 router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
+    await ensurePickSchema();
     let {
       id,
       city = "Enumclaw",
@@ -2794,6 +2820,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ticketLabel,
       categories,
       featured,
+      eddiesPick,
 
       hasRecurrence,
       recurrenceType,
@@ -2858,6 +2885,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     }
 
     const featuredFlag = String(featured || "") === "1" ? 1 : 0;
+    const eddiesPickFlag = String(eddiesPick || "") === "1" ? 1 : 0;
 
     // Slug
     const baseSlug = slugify(title);
@@ -3012,6 +3040,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["ticketLabel", finalTicketLabel],
       ["categories", catsJson],
       ["featured", featuredFlag],
+      ["eddiesPick", eddiesPickFlag],
     ];
 
     const recFields = [

@@ -211,6 +211,12 @@ function readFeatured(row) {
   return (s === "1" || s === "true" || s === "yes" || s === "on") ? 1 : 0;
 }
 
+function readEddiesPick(row) {
+  const v = (row && (row.eddiesPick ?? row.eddies_pick ?? row.EddiesPick)) ?? 0;
+  const s = String(v).trim().toLowerCase();
+  return (s === "1" || s === "true" || s === "yes" || s === "on") ? 1 : 0;
+}
+
 function getCreatedTs(item) {
   const candidates = [
     "updatedAt", "updated_at",
@@ -689,6 +695,7 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
     interestedCount: Number(rowFixed.interestedCount || 0),
     recurrenceDates: Array.isArray(recurDatesArr) ? recurDatesArr : [],
     featured: readFeatured(row),
+    eddiesPick: readEddiesPick(row),
   };
 
   const baseStartUtc = Date.parse(base.startDateTime);
@@ -837,6 +844,8 @@ router.get("/", async (req, res) => {
       recurrenceRule: safeParseJson(r.recurrenceRule, null),
       recurrenceDates: safeParseJson(r.recurrenceDates, []),
       featured: readFeatured(r),
+      eddiesPick: readEddiesPick(r),
+      eddiesPick: readEddiesPick(r),
     }));
 
     // If no expand, treat each base row as one feed item (but still window filter)
@@ -988,6 +997,8 @@ router.get("/slug/:slug", async (req, res) => {
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),
       featured: readFeatured(rowFixed),
+      eddiesPick: readEddiesPick(rowFixed),
+      eddiesPick: readEddiesPick(rowFixed),
 
       // pass through (these columns exist in DB)
       recurrenceStartDate: rowFixed.recurrenceStartDate || null,
@@ -1027,8 +1038,17 @@ router.get("/rss", async (req, res) => {
       String(req.query.weekend || "").trim() === "1" ||
       String(req.query.window || "").trim().toLowerCase() === "next_weekend";
 
+    const layoutMode = String(req.query.layout || "").trim().toLowerCase();
+
     const featuredMode = String(req.query.featured || "").trim().toLowerCase();
     const prependFeatured = featuredMode === "prepend";
+
+    const pickMode = String(req.query.pick || "").trim().toLowerCase();
+    const includePick =
+      pickMode === "1" ||
+      pickMode === "true" ||
+      pickMode === "prepend" ||
+      layoutMode === "mailchimp";
 
     let windowStartIso = null;
     let windowEndIso = null;
@@ -1063,7 +1083,7 @@ router.get("/rss", async (req, res) => {
     }
 
     const rows = await all(
-      `SELECT id, slug, title, description, startDateTime, imageUrl
+      `SELECT id, slug, title, description, startDateTime, imageUrl, eddiesPick
        FROM events
        WHERE ${whereParts.join(" AND ")}
        ORDER BY datetime(startDateTime) ASC
@@ -1077,7 +1097,7 @@ router.get("/rss", async (req, res) => {
       const fWhere = [...whereParts, "featured = 1"];
       const fParams = [...params];
       const featuredRows = await all(
-        `SELECT id, slug, title, description, startDateTime, imageUrl
+        `SELECT id, slug, title, description, startDateTime, imageUrl, eddiesPick
          FROM events
          WHERE ${fWhere.join(" AND ")}
          ORDER BY datetime(startDateTime) ASC
@@ -1089,7 +1109,7 @@ router.get("/rss", async (req, res) => {
       const fWhere = [...whereParts, "featured = 1"];
       const fParams = [...params];
       const featuredRows = await all(
-        `SELECT id, slug, title, description, startDateTime, imageUrl
+        `SELECT id, slug, title, description, startDateTime, imageUrl, eddiesPick
          FROM events
          WHERE ${fWhere.join(" AND ")}
          ORDER BY datetime(startDateTime) ASC
@@ -1102,6 +1122,27 @@ router.get("/rss", async (req, res) => {
           (e) => String(e.id) !== String(f.id)
         );
         finalRows = [f, ...filtered];
+      }
+    }
+
+    let pickRows = [];
+    if (includePick) {
+      const pWhere = [...whereParts, "eddiesPick = 1"];
+      const pParams = [...params];
+      pickRows = await all(
+        `SELECT id, slug, title, description, startDateTime, imageUrl, eddiesPick
+         FROM events
+         WHERE ${pWhere.join(" AND ")}
+         ORDER BY datetime(startDateTime) ASC
+         LIMIT 1`,
+        pParams
+      );
+
+      if (pickMode === "1" || pickMode === "true") {
+        finalRows = pickRows || [];
+      } else if (pickRows && pickRows.length) {
+        const p = pickRows[0];
+        finalRows = (finalRows || []).filter((e) => String(e.id) !== String(p.id));
       }
     }
 
@@ -1120,8 +1161,6 @@ router.get("/rss", async (req, res) => {
     const channelTitle = "OpenCircle Events";
     const channelLink = `${siteBase}/events`;
     const channelDesc = "Upcoming events";
-
-    const layoutMode = String(req.query.layout || "").trim().toLowerCase();
 
     const rssTz = "America/Los_Angeles";
     const formatDate = (iso) => {
@@ -1199,15 +1238,37 @@ router.get("/rss", async (req, res) => {
 
     if (layoutMode === "mailchimp") {
       const list = finalRows || [];
-      const featured = list.length ? list[0] : null;
-      const rest = list.length > 1 ? list.slice(1) : [];
+      const useFeatured = (featuredMode === "prepend" || featuredMode === "1" || featuredMode === "true");
+      const featured = useFeatured && list.length ? list[0] : null;
+      const pick = (pickRows && pickRows.length) ? pickRows[0] : null;
+      const pickIsFeatured = pick && featured && String(pick.id) === String(featured.id);
+      const safePick = pickIsFeatured ? null : pick;
+
+      const rest = useFeatured ? (list.length > 1 ? list.slice(1) : []) : list;
 
       const featuredHtml = featured
         ? `<div style="margin:48px 0 64px;">${buildCardHtml(featured, "featured")}</div>`
         : "";
 
+      const pickHtml = safePick
+        ? `<div style="margin:0 0 48px;">${buildCardHtml(safePick, "featured")}</div>`
+        : "";
+
+      const picksHeader = safePick
+        ? `<div style="text-align:center;margin:0 0 24px;font-family:'Open Sans', Arial, sans-serif;color:#111;">
+             <div style="font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:#6b7280;">Eddie's Pick</div>
+           </div>`
+        : "";
+
+      const moreHeader = rest.length
+        ? `<div style="text-align:center;margin:0 0 24px;font-family:'Open Sans', Arial, sans-serif;color:#111;">
+             <div style="font-size:20px;font-weight:700;margin-top:6px;">More Events</div>
+           </div>`
+        : "";
+
       const gridHtml = rest.length
-        ? `<div style="font-size:0;padding:0 20px;">
+        ? `${moreHeader}
+           <div style="font-size:0;padding:0 20px;">
             ${rest
               .map(
                 (e) => `
@@ -1219,7 +1280,7 @@ router.get("/rss", async (req, res) => {
            </div>`
         : "";
 
-      const descriptionHtml = `${featuredHtml}${gridHtml}`;
+      const descriptionHtml = `${featuredHtml}${picksHeader}${pickHtml}${gridHtml}`;
       const link = channelLink;
       const pubDate = new Date().toUTCString();
 
