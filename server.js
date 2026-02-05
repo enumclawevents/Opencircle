@@ -11,6 +11,7 @@ const eventsRouter = require("./routes/events");
 const adminRouter = require("./routes/admin");
 
 const app = express();
+app.locals.reqTimes = [];
 
 // If behind Render proxy, this helps req.protocol be correct
 app.set("trust proxy", 1);
@@ -44,6 +45,16 @@ const envAllow = String(process.env.CORS_ALLOWLIST || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+
+app.use((req, _res, next) => {
+  const now = Date.now();
+  const arr = app.locals.reqTimes || [];
+  arr.push(now);
+  const cutoff = now - 5 * 60 * 1000;
+  while (arr.length && arr[0] < cutoff) arr.shift();
+  app.locals.reqTimes = arr;
+  next();
+});
 
 app.use(
   cors({

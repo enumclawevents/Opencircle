@@ -2,7 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
-const { run, all, get, slugify, ensureUniqueSlug } = require("../db");
+const { run, all, get, slugify, ensureUniqueSlug, DB_PATH } = require("../db");
 const path = require("path");
 const fs = require("fs");
 const { execSync } = require("child_process");
@@ -185,6 +185,16 @@ function getDiskInfo() {
     };
   } catch (_) {
     return null;
+  }
+}
+
+function getDbSizeBytes() {
+  try {
+    if (!DB_PATH || !fs.existsSync(DB_PATH)) return 0;
+    const st = fs.statSync(DB_PATH);
+    return Number(st.size || 0);
+  } catch (_) {
+    return 0;
   }
 }
 
@@ -587,8 +597,12 @@ return `
     const diskInfo = getDiskInfo();
     const diskFree = diskInfo ? bytesToHuman(diskInfo.freeBytes) : "N/A";
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
+    const dbSize = bytesToHuman(getDbSizeBytes());
 
     const appVersion = String(process.env.APP_VERSION || "v0.0.0");
+    const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
+      ? req.app.locals.reqTimes.length
+      : 0;
     const stats = {
       total: fmt(total),
       upcoming: fmt(upcoming),
@@ -599,6 +613,8 @@ return `
       diskFree,
       diskTotal,
       appVersion,
+      dbSize,
+      reqCount5m: fmt(reqCount5m),
     };
 
     // Top organizers
@@ -1183,6 +1199,16 @@ return `
       }
       .mini + .mini{ margin-top:var(--gap); }
       .kv{ display:flex; justify-content:space-between; align-items:center; margin: 6px 0; color:var(--muted); font-size:13px; }
+      .mini-organizers{
+        flex:1;
+        display:flex;
+        flex-direction:column;
+        justify-content:space-between;
+      }
+      .mini-organizers .kv{
+        margin: 10px 0;
+        padding: 2px 0;
+      }
       .kv strong{ color:var(--text); font-size:14px; }
 
       /* Chart */
@@ -1493,6 +1519,15 @@ return `
           </div>
 
           <div class="mini" style="margin-top:10px;">
+            <div class="small">Status</div>
+            <div class="kv"><span>Server time</span><strong>${esc(stats.serverTime)}</strong></div>
+            <div class="kv"><span>Disk free</span><strong>${esc(stats.diskFree)} / ${esc(stats.diskTotal)}</strong></div>
+            <div class="kv"><span>API version</span><strong>${esc(stats.appVersion)}</strong></div>
+            <div class="kv"><span>Requests (5m)</span><strong>${esc(stats.reqCount5m)}</strong></div>
+            <div class="kv"><span>DB size</span><strong>${esc(stats.dbSize)}</strong></div>
+          </div>
+
+          <div class="mini" style="margin-top:10px;">
             <div class="small">Tip</div>
             <div class="note" style="margin-top:8px;">
               Use the top search to filter server-side (fast + shareable URL). The list also has an instant filter.
@@ -1594,14 +1629,8 @@ return `
               </div>
             </div>
 
-            <div class="mini">
+            <div class="mini mini-organizers">
               ${topOrganizersHtml}
-            </div>
-
-            <div class="mini">
-              <div class="small">Status</div>
-              <div class="kv"><span>Server time</span><strong>${esc(stats.serverTime)}</strong></div>
-              <div class="kv"><span>Disk free</span><strong>${esc(stats.diskFree)} / ${esc(stats.diskTotal)}</strong></div>
             </div>
           </div>
         </section>
