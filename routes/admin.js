@@ -1584,7 +1584,7 @@ return `
       <aside class="sidebar">
         <div class="sb-brand">
           <div class="sb-top">
-            <img src="/assets/brand/favicon.ico" alt="OpenCircle" onerror="this.style.display='none';" />
+          <img src="/assets/brand/sidebar-icon.png" alt="OpenCircle" onerror="this.style.display='none';" />
             <div class="sb-city-wrap">
               <select class="sb-city" id="sbCitySelect" aria-label="City">
                 ${cityOptions}
