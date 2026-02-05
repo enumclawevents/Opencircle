@@ -1211,7 +1211,11 @@ return `
       }
       .kv strong{ color:var(--text); font-size:14px; text-align:right; }
       .sidebar .mini .kv{ color: var(--sidebar-muted); }
-      .sidebar .mini .kv strong{ color: var(--sidebar-text); font-size:11px; }
+      .sidebar .mini .kv strong{
+        color: var(--sidebar-muted);
+        font-size:11px;
+        font-weight:600;
+      }
 
       /* Chart */
       .chart-wrap{ position:relative; flex:1; min-height:0; }
