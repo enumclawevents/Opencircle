@@ -834,16 +834,29 @@ return `
         align-items:center;
         gap:10px;
         width:100%;
+        position: relative;
+      }
+      .sb-top::after{
+        content:"";
+        position:absolute;
+        left:-18px;
+        right:-18px;
+        bottom:-10px;
+        height:1px;
+        background: var(--sidebar-line);
       }
       .sb-city-wrap{
         display:flex;
         align-items:center;
         height:36px;
         padding:0;
-        border-radius:6px;
+        border-radius:0;
         border:1px solid var(--sidebar-line);
         background: rgba(255,255,255,.02);
-        width: 100%;
+        width: calc(100% + 36px);
+        margin-left: -18px;
+        margin-right: -18px;
+        margin-top: -6px;
       }
       .sb-city{
         border:0;
@@ -851,7 +864,7 @@ return `
         color: var(--sidebar-text);
         font-weight:600;
         font-size:13px;
-        padding:0;
+        padding:0 10px 0 12px;
         height:100%;
         width:100%;
         outline:none;
