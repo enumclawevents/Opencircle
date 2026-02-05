@@ -895,16 +895,16 @@ return `
         background: transparent;
         color: var(--sidebar-text);
         font-weight:600;
-        font-size:14px;
+        font-size:13px;
         cursor:pointer;
         text-align:left;
       }
       .sb-city-btn .caret{
         margin-left:auto;
-        width:10px;
-        height:10px;
-        border-right:2px solid rgba(229,231,235,.8);
-        border-bottom:2px solid rgba(229,231,235,.8);
+        width:7px;
+        height:7px;
+        border-right:2px solid rgba(229,231,235,.75);
+        border-bottom:2px solid rgba(229,231,235,.75);
         transform: rotate(45deg);
       }
       .sb-city-menu{
@@ -940,9 +940,9 @@ return `
         color:#111;
       }
       .sb-brand img{
-        width:28px;
-        max-width:28px;
-        height:28px;
+        width:22px;
+        max-width:22px;
+        height:22px;
         display:block;
       }
       .sb-title{ font-weight:650; letter-spacing:.2px; }
