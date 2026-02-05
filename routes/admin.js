@@ -832,6 +832,7 @@ return `
         display:flex;
         align-items:center;
         gap:10px;
+        width:100%;
       }
       .sb-city-wrap{
         display:flex;
@@ -841,6 +842,7 @@ return `
         border-radius:6px;
         border:1px solid var(--sidebar-line);
         background: rgba(255,255,255,.02);
+        width: 100%;
       }
       .sb-city{
         border:0;
@@ -850,6 +852,7 @@ return `
         font-size:13px;
         padding:0;
         height:100%;
+        width:100%;
       }
       .sb-city:focus{ outline:none; box-shadow: 0 0 0 4px rgba(0,192,139,.12); }
       .sb-brand img{
