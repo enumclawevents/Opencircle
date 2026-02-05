@@ -839,19 +839,19 @@ return `
       .sb-top{
         display:flex;
         align-items:center;
-        gap:10px;
+        gap:6px;
         width:100%;
         position: relative;
         padding-bottom:10px;
       }
       .sb-icon{
         position: relative;
-        width: 32px;
+        width: 28px;
         height: 55px;
         display:flex;
         align-items:center;
         justify-content:center;
-        flex: 0 0 32px;
+        flex: 0 0 28px;
       }
       .sb-icon::after{
         content:"";
@@ -901,11 +901,28 @@ return `
       }
       .sb-city-btn .caret{
         margin-left:auto;
+        width:10px;
+        height:14px;
+        position:relative;
+      }
+      .sb-city-btn .caret::before,
+      .sb-city-btn .caret::after{
+        content:"";
+        position:absolute;
+        left:50%;
         width:7px;
         height:7px;
         border-right:2px solid rgba(229,231,235,.75);
         border-bottom:2px solid rgba(229,231,235,.75);
-        transform: rotate(45deg);
+        transform: translateX(-50%) rotate(225deg);
+      }
+      .sb-city-btn .caret::before{
+        top:0;
+        transform: translateX(-50%) rotate(45deg);
+      }
+      .sb-city-btn .caret::after{
+        bottom:0;
+        transform: translateX(-50%) rotate(225deg);
       }
       .sb-city-menu{
         position:absolute;
