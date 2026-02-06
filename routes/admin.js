@@ -926,7 +926,7 @@ return `
       }
       .sb-city-wrap{
         position: relative;
-        height:42px;
+        height:38px;
         width: calc(100% + 36px - 40px);
         margin-left: calc(-18px + 40px);
         margin-right: -18px;
