@@ -1209,7 +1209,12 @@ router.get("/rss", async (req, res) => {
         return `
           <div style="text-align:center;padding:40px 44px 24px;${bodyFont}">
             <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
-              ${imgHtml}
+              <div style="position:relative;">
+                ${imgHtml}
+                <div style="position:absolute;top:16px;left:16px;background:#00add4;color:#fff;font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;letter-spacing:.08em;text-transform:uppercase;">
+                  Featured
+                </div>
+              </div>
               <div style="font-size:28px;font-weight:700;${bodyFont}color:#111;line-height:1.2;margin:24px 0 12px;">
                 ${escXml(title)}
               </div>
@@ -1220,6 +1225,28 @@ router.get("/rss", async (req, res) => {
             ${blurb ? `<div style="font-size:15px;${bodyFont}color:#4b5563;line-height:1.6;margin:0 0 32px;">${escXml(blurb)}</div>` : ""}
             <a href="${link}" style="display:inline-block;padding:12px 24px;border-radius:999px;background:#48a7c7;color:#fff;text-decoration:none;font-weight:600;font-size:14px;${bodyFont}">
               View Event
+            </a>
+          </div>
+        `;
+      }
+
+      if (variant === "pick") {
+        return `
+          <div style="padding:18px 22px;background:#00add4;color:#fff;${bodyFont}">
+            <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
+              <div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;opacity:.75;margin-bottom:10px;">Eddie's Pick</div>
+              <div style="display:inline-block;vertical-align:middle;width:34%;">
+                ${img ? `<img src="${img}" alt="" style="width:100%;height:auto;display:block;border-radius:8px;">` : ""}
+              </div>
+              <div style="display:inline-block;vertical-align:middle;width:62%;margin-left:4%;">
+                <div style="font-size:20px;font-weight:700;${bodyFont}line-height:1.2;margin:0 0 8px;">
+                  ${escXml(title)}
+                </div>
+                <div style="font-size:13px;${bodyFont}opacity:.85;margin:0 0 8px;text-transform:uppercase;letter-spacing:.06em;">
+                  ${escXml(date)}${time ? " • " + escXml(time) : ""}
+                </div>
+                ${blurb ? `<div style="font-size:14px;${bodyFont}opacity:.9;line-height:1.5;margin:0;">${escXml(blurb)}</div>` : ""}
+              </div>
             </a>
           </div>
         `;
@@ -1251,13 +1278,11 @@ router.get("/rss", async (req, res) => {
         : "";
 
       const pickHtml = safePick
-        ? `<div style="margin:0 0 48px;">${buildCardHtml(safePick, "featured")}</div>`
+        ? `<div style="margin:0 0 32px;">${buildCardHtml(safePick, "pick")}</div>`
         : "";
 
       const picksHeader = safePick
-        ? `<div style="text-align:center;margin:0 0 24px;font-family:'Open Sans', Arial, sans-serif;color:#111;">
-             <div style="font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:#6b7280;">Eddie's Pick</div>
-           </div>`
+        ? ``
         : "";
 
       const moreHeader = rest.length
