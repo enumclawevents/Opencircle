@@ -993,15 +993,15 @@ return `
       .sb-city-menu{
         position:absolute;
         top:100%;
-        left: -58px;
-        right: -18px;
+        left: 0;
+        right: 0;
         width:auto;
         box-sizing:border-box;
-        margin-top:8px;
+        margin-top:0;
         background: var(--sidebar-panel);
         border:1px solid var(--sidebar-line);
         border-radius:0;
-        padding:6px;
+        padding:0;
         display:none;
         z-index: 30;
         box-shadow: 0 16px 40px rgba(2,6,23,.45);
