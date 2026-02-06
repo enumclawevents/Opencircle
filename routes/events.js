@@ -1235,18 +1235,21 @@ router.get("/rss", async (req, res) => {
           <div style="padding:18px 22px;background:#00add4;color:#fff;${bodyFont}">
             <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
               <div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;opacity:.75;margin-bottom:10px;">Eddie's Pick</div>
-              <div style="display:inline-block;vertical-align:middle;width:34%;">
-                ${img ? `<img src="${img}" alt="" style="width:100%;height:auto;display:block;border-radius:8px;">` : ""}
-              </div>
-              <div style="display:inline-block;vertical-align:middle;width:62%;margin-left:4%;">
-                <div style="font-size:20px;font-weight:700;${bodyFont}line-height:1.2;margin:0 0 8px;">
-                  ${escXml(title)}
-                </div>
-                <div style="font-size:13px;${bodyFont}opacity:.85;margin:0 0 8px;text-transform:uppercase;letter-spacing:.06em;">
-                  ${escXml(date)}${time ? " • " + escXml(time) : ""}
-                </div>
-                ${blurb ? `<div style="font-size:14px;${bodyFont}opacity:.9;line-height:1.5;margin:0;">${escXml(blurb)}</div>` : ""}
-              </div>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                <tr>
+                  <td width="34%" valign="top" style="padding:0;">
+                    ${img ? `<img src="${img}" alt="" style="width:100%;height:auto;display:block;border-radius:8px;">` : ""}
+                  </td>
+                  <td width="66%" valign="top" style="padding:0 0 0 16px;">
+                    <div style="font-size:20px;font-weight:700;${bodyFont}line-height:1.25;margin:0 0 8px;">
+                      ${escXml(title)}
+                    </div>
+                    <div style="font-size:13px;${bodyFont}opacity:.85;margin:0;text-transform:uppercase;letter-spacing:.06em;">
+                      ${escXml(date)}${time ? " • " + escXml(time) : ""}
+                    </div>
+                  </td>
+                </tr>
+              </table>
             </a>
           </div>
         `;
