@@ -1039,6 +1039,37 @@ return `
         margin:10px -18px 0;
         width:calc(100% + 36px);
       }
+      .nav-group{
+        display:grid;
+        gap:6px;
+      }
+      .nav-title{
+        color: var(--sidebar-muted);
+        font-size:12px;
+        font-weight:700;
+        letter-spacing:.08em;
+        text-transform:uppercase;
+        padding:6px 18px 2px;
+      }
+      .subnav-link{
+        text-decoration:none;
+        color:var(--sidebar-text);
+        display:flex;
+        align-items:center;
+        padding:8px 18px;
+        font-weight:600;
+        font-size:14px;
+        border-left:2px solid transparent;
+      }
+      .subnav-link:hover{
+        color:#ffffff;
+        background: rgba(255,255,255,.04);
+      }
+      .subnav-link:focus,
+      .subnav-link:active,
+      .subnav-link:visited{
+        text-decoration:none;
+      }
       .sb-bottom{ margin-top:auto; display:grid; gap:10px; }
       .sidebar .mini a{ color:#38bdf8; font-weight:600; }
       .sidebar .mini a:hover{ color:#7dd3fc; }
@@ -1762,7 +1793,13 @@ return `
         </div>
 
         <nav class="nav">
-          <a class="active" href="/admin"><span class="n-dot"></span> Events</a>
+          <div class="nav-group">
+            <div class="nav-title">Events</div>
+            <a class="subnav-link" href="/admin#create">Create Event</a>
+            <a class="subnav-link" href="/admin#approve">Approve Event</a>
+            <a class="subnav-link" href="/admin#existing">Existing Events</a>
+            <a class="subnav-link" href="/admin#analytics">Analytics</a>
+          </div>
         </nav>
 
         <div class="sb-bottom">
@@ -1884,9 +1921,20 @@ return `
           </div>
         </section>
 
+        <!-- Approvals -->
+        <section class="card" id="approve" style="margin-bottom:var(--gap);">
+          <div class="sectionTitle">
+            <div>
+              <h2>Approve events</h2>
+              <p class="sub">Review and approve pending submissions</p>
+            </div>
+          </div>
+          <div class="muted">No pending approvals.</div>
+        </section>
+
         <!-- Manage -->
         <section class="gridMain" id="manage">
-          <div class="card">
+          <div class="card" id="create">
             <div class="sectionTitle">
               <div>
                 <h2>${editEvent ? "Edit event" : "Create event"}</h2>
@@ -2136,7 +2184,7 @@ return `
             </form>
           </div>
 
-          <div class="card">
+          <div class="card" id="existing">
             <div class="sectionTitle">
               <div>
                 <h2>Existing events</h2>
