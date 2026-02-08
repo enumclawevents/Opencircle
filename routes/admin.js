@@ -658,7 +658,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.0.1");
+const appVersion = String(process.env.APP_VERSION || "v0.0.2");
     const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
       ? req.app.locals.reqTimes.length
       : 0;
@@ -1489,7 +1489,18 @@ return `
       }
       .mini + .mini{ margin-top:var(--gap); }
       .kv{ display:flex; justify-content:space-between; align-items:center; margin: 10px 0; color:var(--muted); font-size:13px; }
-      .mini .kv{ margin: 12px 0; }
+      .kv .k{
+        flex: 1 1 auto;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding-right: 10px;
+      }
+      .kv .v{
+        flex: 0 0 auto;
+      }
+      /* spacing tweaks only for specific widgets */
       .mini-organizers{
         flex:1;
         display:flex;
@@ -1497,8 +1508,12 @@ return `
         justify-content:space-between;
       }
       .mini-organizers .kv{
-        margin: 10px 0;
-        padding: 2px 0;
+        margin: 14px 0;
+        padding: 4px 0;
+      }
+      .mini-spaced .kv{
+        margin: 14px 0;
+        padding: 4px 0;
       }
       .kv strong{ color:var(--text); font-size:14px; text-align:right; }
       .sidebar .mini .kv{
@@ -2015,7 +2030,7 @@ return `
                 <p class="sub">Top 5 by views</p>
               </div>
             </div>
-            <div class="mini">${topTodayHtml}</div>
+            <div class="mini mini-spaced">${topTodayHtml}</div>
           </div>
           <div class="card">
             <div class="sectionTitle">
@@ -2024,7 +2039,7 @@ return `
                 <p class="sub">Top 5 by views</p>
               </div>
             </div>
-            <div class="mini">${topWeekHtml}</div>
+            <div class="mini mini-spaced">${topWeekHtml}</div>
           </div>
           <div class="card">
             <div class="sectionTitle">
@@ -2033,7 +2048,7 @@ return `
                 <p class="sub">Top 5 by views</p>
               </div>
             </div>
-            <div class="mini">${topMonthHtml}</div>
+            <div class="mini mini-spaced">${topMonthHtml}</div>
           </div>
           <div class="card">
             <div class="sectionTitle">
@@ -2042,7 +2057,7 @@ return `
                 <p class="sub">Top 5 by views</p>
               </div>
             </div>
-            <div class="mini">${topYearHtml}</div>
+            <div class="mini mini-spaced">${topYearHtml}</div>
           </div>
         </section>
         ` : ``}
