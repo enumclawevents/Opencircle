@@ -302,7 +302,7 @@ const q = String(req.query.q || "").trim();
 const sort = String(req.query.sort || "datetime"); // datetime | alpha | recent | id
 
 // Archive filter (best practice: soft-delete via archived_at + is_archived)
-const archivedMode = String(req.query.archived || "0"); // "0"=active, "1"=archived, "all"=all
+const archivedMode = String(req.query.archived || "0"); // "0"=active, "1"=archived, "recurring"=recurring, "all"=all
 
 let whereParts = [];
 let whereParams = [];
@@ -327,7 +327,28 @@ const colArchivedAt = colsForWhere.has("archived_at")
 const selectArchived = colArchived ? `COALESCE(${colArchived},0) as isArchived` : `0 as isArchived`;
 const selectArchivedAt = colArchivedAt ? `${colArchivedAt} as archivedAt` : `NULL as archivedAt`;
 
-if (colArchived) {
+const hasRecurrenceColsForWhere =
+  colsForWhere.has("hasRecurrence") ||
+  colsForWhere.has("recurrenceRule") ||
+  colsForWhere.has("recurrenceDates");
+
+function recurrenceWhereClause() {
+  const parts = [];
+  if (colsForWhere.has("hasRecurrence")) parts.push("hasRecurrence = 1");
+  if (colsForWhere.has("recurrenceRule")) parts.push("(recurrenceRule IS NOT NULL AND trim(recurrenceRule) <> '')");
+  if (colsForWhere.has("recurrenceDates")) parts.push("(recurrenceDates IS NOT NULL AND trim(recurrenceDates) <> '')");
+  return parts.length ? `(${parts.join(" OR ")})` : "";
+}
+
+if (archivedMode === "recurring") {
+  if (hasRecurrenceColsForWhere) {
+    const recWhere = recurrenceWhereClause();
+    if (recWhere) whereParts.push(recWhere);
+  } else {
+    whereParts.push("1=0");
+  }
+  if (colArchived) whereParts.push(`(${colArchived} IS NULL OR ${colArchived} = 0)`);
+} else if (colArchived) {
   if (archivedMode === "1") whereParts.push(`${colArchived} = 1`);
   else if (archivedMode === "0") whereParts.push(`(${colArchived} IS NULL OR ${colArchived} = 0)`);
   // "all" => no clause
@@ -621,7 +642,7 @@ return `
     let dashWhere = "";
     if (hasArchiveCols2) {
       if (archivedMode === "1") dashWhere = "WHERE isArchived = 1";
-      else if (archivedMode === "0") dashWhere = "WHERE (isArchived IS NULL OR isArchived = 0)";
+      else dashWhere = "WHERE (isArchived IS NULL OR isArchived = 0)";
       // all => no where
     } else {
       if (archivedMode === "1") dashWhere = "WHERE 1=0";
@@ -658,7 +679,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.2");
+const appVersion = String(process.env.APP_VERSION || "v0.0.3");
     const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
       ? req.app.locals.reqTimes.length
       : 0;
@@ -674,6 +695,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.2");
       appVersion,
       dbSize,
       reqCount5m: fmt(reqCount5m),
+      autoArchive: cols.has("archived") ? "On" : "Off",
     };
 
     // Top events by views (today / week / month / year)
@@ -1885,6 +1907,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.2");
             <div style="height:6px;"></div>
             <div class="kv"><span>Server time</span><strong>${esc(stats.serverTime)}</strong></div>
             <div class="kv"><span>Disk free</span><strong>${esc(stats.diskFree)} / ${esc(stats.diskTotal)}</strong></div>
+            <div class="kv"><span>Auto-archive</span><strong>${esc(stats.autoArchive)}</strong></div>
             <div class="kv"><span>API version</span><strong>${esc(stats.appVersion)}</strong></div>
             <div class="kv"><span>Requests (5m)</span><strong>${esc(stats.reqCount5m)}</strong></div>
             <div class="kv"><span>DB size</span><strong>${esc(stats.dbSize)}</strong></div>
@@ -2277,7 +2300,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.2");
 
                   <div class="actions" style="margin-top:10px;">
                     <button id="addCustomDate" type="button" class="btn">+ Add Date</button>
+                    <button id="prunePastDates" type="button" class="btn">Remove past dates</button>
                   </div>
+                  <div class="note">Use “Remove past dates” to drop occurrences that have already passed.</div>
                 </div>
               </div>
 
@@ -2340,8 +2365,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.2");
               <div class="right">
                 <div class="rightRow">
                   <a class="btn ${archivedMode === "0" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=0">Active</a>
+                  <a class="btn ${archivedMode === "recurring" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=recurring">Recurring</a>
                   <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=1">Archived</a>
-                  <a class="btn ${archivedMode === "all" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=all">All</a>
 
                   <select id="sortBy" class="ctrl sortBy">
                     <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
@@ -2681,6 +2706,27 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.2");
             if(en && endTime) en.value = endTime;
 
             attachRemove();
+          });
+        }
+
+        // Remove past custom dates (date-only compare)
+        var pruneBtn = document.getElementById("prunePastDates");
+        if (pruneBtn && wrap){
+          pruneBtn.addEventListener("click", function(){
+            var today = new Date();
+            var yyyy = today.getFullYear();
+            var mm = String(today.getMonth() + 1).padStart(2, "0");
+            var dd = String(today.getDate()).padStart(2, "0");
+            var todayStr = yyyy + "-" + mm + "-" + dd;
+
+            var chips = wrap.querySelectorAll(".chip");
+            for (var i=0;i<chips.length;i++){
+              var chip = chips[i];
+              var date = (chip.querySelector('input[name="customDate"]') || {}).value || "";
+              if (date && date < todayStr) {
+                chip.remove();
+              }
+            }
           });
         }
       })();
