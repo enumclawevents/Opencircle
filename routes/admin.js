@@ -350,7 +350,13 @@ if (archivedMode === "recurring") {
   if (colArchived) whereParts.push(`(${colArchived} IS NULL OR ${colArchived} = 0)`);
 } else if (colArchived) {
   if (archivedMode === "1") whereParts.push(`${colArchived} = 1`);
-  else if (archivedMode === "0") whereParts.push(`(${colArchived} IS NULL OR ${colArchived} = 0)`);
+  else if (archivedMode === "0") {
+    whereParts.push(`(${colArchived} IS NULL OR ${colArchived} = 0)`);
+    if (hasRecurrenceColsForWhere) {
+      const recWhere = recurrenceWhereClause();
+      if (recWhere) whereParts.push(`NOT ${recWhere}`);
+    }
+  }
   // "all" => no clause
 } else {
   // If schema doesn't support archive yet, force active view behavior
