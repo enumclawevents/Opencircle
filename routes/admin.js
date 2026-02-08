@@ -676,6 +676,41 @@ return `
       reqCount5m: fmt(reqCount5m),
     };
 
+    // Top events by views (today / week / month / year)
+    const hasViews = cols.has("viewCount");
+    const topEventsFallback = `<div class="muted">Views not tracked.</div>`;
+    async function topEventsHtml(whereClause) {
+      if (!hasViews) return topEventsFallback;
+      const rows = await all(
+        `SELECT id, title, viewCount
+         FROM events
+         ${whereClause}
+         ORDER BY viewCount DESC, id DESC
+         LIMIT 5`
+      );
+      if (!rows || rows.length === 0) return `<div class="muted">No events.</div>`;
+      return rows
+        .map((r) => {
+          const label = esc(String(r.title || ""));
+          const count = Number(r.viewCount || 0);
+          return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
+        })
+        .join("");
+    }
+
+    const topTodayHtml = await topEventsHtml(
+      `WHERE date(startDateTime) = date('now')`
+    );
+    const topWeekHtml = await topEventsHtml(
+      `WHERE date(startDateTime) >= date('now','-6 day') AND date(startDateTime) <= date('now')`
+    );
+    const topMonthHtml = await topEventsHtml(
+      `WHERE date(startDateTime) >= date('now','start of month') AND date(startDateTime) <= date('now')`
+    );
+    const topYearHtml = await topEventsHtml(
+      `WHERE date(startDateTime) >= date('now','start of year') AND date(startDateTime) <= date('now')`
+    );
+
     // Top organizers
     const orgRows = await all(`
       SELECT 
@@ -1233,6 +1268,15 @@ return `
       .grid2 > .card:last-child .sectionTitle{ margin-bottom:12px; }
       .grid2 > .card:last-child .mini + .mini{ margin-top:var(--gap); }
 
+      .grid4{
+        display:grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap:var(--gap);
+        margin-bottom:var(--gap);
+        align-items: stretch;
+      }
+      .grid4 > .card{ height:100%; }
+
       .gridMain{
         display:grid;
         /* 40% Create form / 60% Existing events */
@@ -1247,6 +1291,7 @@ return `
       @media (max-width: 1100px){
         .metrics{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .grid2{ grid-template-columns: 1fr; }
+        .grid4{ grid-template-columns: 1fr; }
         .gridMain{ grid-template-columns: 1fr; }
         .rail{ display:none; }
         .sidebar{ display:none; }
@@ -1955,6 +2000,48 @@ return `
             <div class="mini mini-organizers">
               ${topOrganizersHtml}
             </div>
+          </div>
+        </section>
+        ` : ``}
+
+        <!-- Top events (views) -->
+        ${showAnalytics ? `
+        <section class="grid4">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Top events today</h2>
+                <p class="sub">Top 5 by views</p>
+              </div>
+            </div>
+            <div class="mini">${topTodayHtml}</div>
+          </div>
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Top events this week</h2>
+                <p class="sub">Top 5 by views</p>
+              </div>
+            </div>
+            <div class="mini">${topWeekHtml}</div>
+          </div>
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Top events this month</h2>
+                <p class="sub">Top 5 by views</p>
+              </div>
+            </div>
+            <div class="mini">${topMonthHtml}</div>
+          </div>
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Top events this year</h2>
+                <p class="sub">Top 5 by views</p>
+              </div>
+            </div>
+            <div class="mini">${topYearHtml}</div>
           </div>
         </section>
         ` : ``}
