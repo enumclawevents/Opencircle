@@ -290,7 +290,7 @@ async function ensurePickSchema() {
 }
 
 // GET /admin
-router.get("/", async (req, res) => {
+async function renderAdmin(req, res, view) {
   try {
     await ensurePickSchema();
     // ✅ Pagination + total count + optional server-side search
@@ -343,6 +343,7 @@ const total = Number(totalRow?.n || 0);
 const pages = Math.max(1, Math.ceil(total / limit));
 const hasPrev = pg > 1;
 const hasNext = pg < pages;
+const baseListPath = "/admin/existing-events";
 
 function adminUrl(nextPg) {
   const sp = new URLSearchParams(req.query);
@@ -351,7 +352,7 @@ function adminUrl(nextPg) {
   if (sort) sp.set("sort", sort);
   if (q) sp.set("q", q);
   if (archivedMode) sp.set("archived", archivedMode);
-  return `/admin?${sp.toString()}`;
+  return `${baseListPath}?${sp.toString()}`;
 }
 
 const showingFrom = total ? offset + 1 : 0;
@@ -564,7 +565,7 @@ return `
       </div>
 
       <div class="event-actions">
-        <a class="btn btn-edit" href="/admin?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}">Edit</a>
+        <a class="btn btn-edit" href="/admin/create-events?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}">Edit</a>
 
         <form method="POST"
               action="/admin/events/${e.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}"
@@ -820,6 +821,13 @@ return `
     };
     const chartDataJson = JSON.stringify(chartSets);
 
+    const showAnalytics = view === "analytics";
+    const showCreate = view === "create";
+    const showApprove = view === "approve";
+    const showExisting = view === "existing";
+    const showSearch = showAnalytics || showExisting;
+    const isSingleManage = (showCreate ^ showExisting);
+
     res.send(`<!doctype html>
 <html>
   <head>
@@ -1065,6 +1073,11 @@ return `
         color:#ffffff;
         background: rgba(255,255,255,.04);
       }
+      .subnav-link.active{
+        color:var(--sidebar-text);
+        background: rgba(0,192,139,.10);
+        border-left-color: var(--brand);
+      }
       .subnav-link:focus,
       .subnav-link:active,
       .subnav-link:visited{
@@ -1226,6 +1239,9 @@ return `
         grid-template-columns: 2fr 3fr;
         gap:var(--gap);
         align-items:start;
+      }
+      .gridMain.single{
+        grid-template-columns: 1fr;
       }
 
       @media (max-width: 1100px){
@@ -1795,10 +1811,10 @@ return `
         <nav class="nav">
           <div class="nav-group">
             <div class="nav-title">Events</div>
-            <a class="subnav-link" href="/admin#create">Create Event</a>
-            <a class="subnav-link" href="/admin#approve">Approve Event</a>
-            <a class="subnav-link" href="/admin#existing">Existing Events</a>
-            <a class="subnav-link" href="/admin#analytics">Analytics</a>
+            <a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events">Create Events</a>
+            <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events">Approve Events</a>
+            <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events">Existing Events</a>
+            <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin">Analytics</a>
           </div>
         </nav>
 
@@ -1829,23 +1845,42 @@ return `
       <main class="main">
         <div class="header">
           <div class="h-left">
-            <h1>Events Dashboard</h1>
-            <p>Overview + event management</p>
+            <h1>${
+              showCreate
+                ? "Create Events"
+                : showApprove
+                ? "Approve Events"
+                : showExisting
+                ? "Existing Events"
+                : "Events Dashboard"
+            }</h1>
+            <p>${
+              showCreate
+                ? "Add or edit events"
+                : showApprove
+                ? "Review pending submissions"
+                : showExisting
+                ? "Edit, delete, and check stats"
+                : "Overview + event management"
+            }</p>
           </div>
 
           <div class="h-right">
-            <form class="search" method="GET" action="/admin">
+            ${showSearch ? `
+            <form class="search" method="GET" action="/admin/existing-events">
               <input name="q" value="${esc(q)}" placeholder="Search events (title, slug, location, ID)..." />
               <input type="hidden" name="pg" value="1" />
               <input type="hidden" name="limit" value="${esc(String(limit))}" />
               <input type="hidden" name="archived" value="${esc(String(archivedMode))}" />
               <button class="btn btn-primary" type="submit">Search</button>
-              ${q ? `<a class="btn" href="/admin?pg=1&limit=${esc(String(limit))}&archived=${esc(String(archivedMode))}">Reset</a>` : ``}
+              ${q ? `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&archived=${esc(String(archivedMode))}">Reset</a>` : ``}
             </form>
+            ` : ``}
           </div>
         </div>
 
         <!-- Metrics -->
+        ${showAnalytics ? `
         <section class="metrics" id="analytics">
           <div class="metric">
             <div>
@@ -1876,8 +1911,10 @@ return `
             <div class="tag blue">Tracked</div>
           </div>
         </section>
+        ` : ``}
 
         <!-- Charts -->
+        ${showAnalytics ? `
         <section class="grid2">
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
@@ -1920,8 +1957,10 @@ return `
             </div>
           </div>
         </section>
+        ` : ``}
 
         <!-- Approvals -->
+        ${showApprove ? `
         <section class="card" id="approve" style="margin-bottom:var(--gap);">
           <div class="sectionTitle">
             <div>
@@ -1931,9 +1970,12 @@ return `
           </div>
           <div class="muted">No pending approvals.</div>
         </section>
+        ` : ``}
 
         <!-- Manage -->
-        <section class="gridMain" id="manage">
+        ${(showCreate || showExisting) ? `
+        <section class="gridMain ${isSingleManage ? "single" : ""}" id="manage">
+          ${showCreate ? `
           <div class="card" id="create">
             <div class="sectionTitle">
               <div>
@@ -2178,12 +2220,14 @@ return `
 
               <div class="actions">
                 <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
-                ${editEvent ? `<a class="btn btn-link" href="/admin?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}">Cancel</a>` : ""}
+                ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}">Cancel</a>` : ""}
                 <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
               </div>
             </form>
           </div>
+          ` : ``}
 
+          ${showExisting ? `
           <div class="card" id="existing">
             <div class="sectionTitle">
               <div>
@@ -2192,9 +2236,9 @@ return `
               </div>
               <div class="right">
                 <div class="rightRow">
-                  <a class="btn ${archivedMode === "0" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=0">Active</a>
-                  <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=1">Archived</a>
-                  <a class="btn ${archivedMode === "all" ? "btn-primary" : ""}" href="/admin?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=all">All</a>
+                  <a class="btn ${archivedMode === "0" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=0">Active</a>
+                  <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=1">Archived</a>
+                  <a class="btn ${archivedMode === "all" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=all">All</a>
 
                   <select id="sortBy" class="ctrl sortBy">
                     <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
@@ -2217,7 +2261,9 @@ return `
             <div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
 
           </div>
+          ` : ``}
         </section>
+        ` : ``}
 
       </main>
     </div>
@@ -2232,7 +2278,7 @@ return `
           var sp = new URLSearchParams(window.location.search || "");
           sp.set("sort", sel.value);
           sp.set("pg", "1");
-          window.location.href = "/admin?" + sp.toString();
+          window.location.href = "/admin/existing-events?" + sp.toString();
         });
       })();
 
@@ -2846,7 +2892,12 @@ return `
     console.error(err);
     res.status(500).send("Internal server error");
   }
-});
+}
+
+router.get("/", async (req, res) => renderAdmin(req, res, "analytics"));
+router.get("/create-events", async (req, res) => renderAdmin(req, res, "create"));
+router.get("/approve-events", async (req, res) => renderAdmin(req, res, "approve"));
+router.get("/existing-events", async (req, res) => renderAdmin(req, res, "existing"));
 
 // POST /admin/events (create or update)
 router.post("/events", upload.single("imageFile"), async (req, res) => {
@@ -3136,7 +3187,7 @@ const archived = req.query.archived ? String(req.query.archived) : "0";
 const sp = new URLSearchParams({ edit: String(id), pg, limit, archived });
 if (q) sp.set("q", q);
 
-return res.redirect(`/admin?${sp.toString()}`);
+return res.redirect(`/admin/create-events?${sp.toString()}`);
 
     } else {
       const insertCols = [];
@@ -3165,7 +3216,7 @@ const archived = req.query.archived ? String(req.query.archived) : "0";
 const sp = new URLSearchParams({ pg, limit, archived });
 if (q) sp.set("q", q);
 
-return res.redirect(`/admin?${sp.toString()}`);
+return res.redirect(`/admin/create-events?${sp.toString()}`);
 
     }
   } catch (err) {
@@ -3190,7 +3241,7 @@ router.post("/events/:id/delete", async (req, res) => {
     const sp = new URLSearchParams({ pg, limit, archived, sort });
     if (q) sp.set("q", q);
 
-    return res.redirect(`/admin?${sp.toString()}`);
+    return res.redirect(`/admin/existing-events?${sp.toString()}`);
   } catch (err) {
     console.error(err);
     return res.status(500).send("Server error.");
@@ -3232,7 +3283,7 @@ router.post("/events/:id/archive", async (req, res) => {
     const sp = new URLSearchParams({ pg, limit, archived, sort });
     if (q) sp.set("q", q);
 
-    return res.redirect(`/admin?${sp.toString()}`);
+    return res.redirect(`/admin/existing-events?${sp.toString()}`);
   } catch (err) {
     console.error(err);
     return res.status(500).send("Server error.");
@@ -3270,7 +3321,7 @@ router.post("/events/:id/unarchive", async (req, res) => {
     const sp = new URLSearchParams({ pg, limit, archived, sort });
     if (q) sp.set("q", q);
 
-    return res.redirect(`/admin?${sp.toString()}`);
+    return res.redirect(`/admin/existing-events?${sp.toString()}`);
   } catch (err) {
     console.error(err);
     return res.status(500).send("Server error.");
