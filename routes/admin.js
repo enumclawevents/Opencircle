@@ -658,7 +658,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.0.0");
+    const appVersion = String(process.env.APP_VERSION || "v0.0.1");
     const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
       ? req.app.locals.reqTimes.length
       : 0;
@@ -1488,7 +1488,8 @@ return `
         padding: 12px;
       }
       .mini + .mini{ margin-top:var(--gap); }
-      .kv{ display:flex; justify-content:space-between; align-items:center; margin: 6px 0; color:var(--muted); font-size:13px; }
+      .kv{ display:flex; justify-content:space-between; align-items:center; margin: 10px 0; color:var(--muted); font-size:13px; }
+      .mini .kv{ margin: 12px 0; }
       .mini-organizers{
         flex:1;
         display:flex;
@@ -1856,9 +1857,9 @@ return `
         <nav class="nav">
           <div class="nav-group">
             <div class="nav-title">Events</div>
+            <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events">All Events</a>
             <a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events">Create Events</a>
             <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events">Approve Events</a>
-            <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events">Existing Events</a>
             <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin">Analytics</a>
           </div>
         </nav>
@@ -1896,7 +1897,7 @@ return `
                 : showApprove
                 ? "Approve Events"
                 : showExisting
-                ? "Existing Events"
+                ? "All Events"
                 : "Events Dashboard"
             }</h1>
             <p>${
@@ -2318,7 +2319,7 @@ return `
           <div class="card" id="existing">
             <div class="sectionTitle">
               <div>
-                <h2>Existing events</h2>
+                <h2>All events</h2>
                 <p class="sub">Edit, delete, and check stats</p>
               </div>
               <div class="right">
