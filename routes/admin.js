@@ -391,12 +391,18 @@ const archivedMode = String(req.query.archived || "0"); // "0"=active, "1"=archi
 let whereParts = [];
 let whereParams = [];
 
-// Search
-if (q) {
-  const like = `%${q}%`;
-  whereParts.push(`(title LIKE ? OR slug LIKE ? OR location LIKE ? OR CAST(id AS TEXT) LIKE ?)`);
-  whereParams.push(like, like, like, like);
-}
+    // Search
+    if (q) {
+      const like = `%${q}%`;
+      whereParts.push(`(title LIKE ? OR slug LIKE ? OR location LIKE ? OR CAST(id AS TEXT) LIKE ?)`);
+      whereParams.push(like, like, like, like);
+    }
+
+    // City filter
+    if (selectedCity) {
+      whereParts.push(`city = ?`);
+      whereParams.push(selectedCity);
+    }
 
 // Archive constraints (only if DB has the columns)
 const colsForWhere = await getEventsColumns();
@@ -456,15 +462,16 @@ const hasPrev = pg > 1;
 const hasNext = pg < pages;
 const baseListPath = "/admin/existing-events";
 
-function adminUrl(nextPg) {
-  const sp = new URLSearchParams(req.query);
-  sp.set("pg", String(nextPg));
-  sp.set("limit", String(limit));
-  if (sort) sp.set("sort", sort);
-  if (q) sp.set("q", q);
-  if (archivedMode) sp.set("archived", archivedMode);
-  return `${baseListPath}?${sp.toString()}`;
-}
+    function adminUrl(nextPg) {
+      const sp = new URLSearchParams(req.query);
+      sp.set("pg", String(nextPg));
+      sp.set("limit", String(limit));
+      if (sort) sp.set("sort", sort);
+      if (q) sp.set("q", q);
+      if (archivedMode) sp.set("archived", archivedMode);
+      if (selectedCity) sp.set("city", selectedCity);
+      return `${baseListPath}?${sp.toString()}`;
+    }
 
 const showingFrom = total ? offset + 1 : 0;
 const showingTo = Math.min(offset + limit, total);
@@ -627,14 +634,15 @@ try {
       `;
     };
 
-    const ALLOWED_CITIES = ["Enumclaw"];
-    const currentCity = String(editEvent?.city || "Enumclaw");
+    const ALLOWED_CITIES = ["Enumclaw", "Buckley"];
+    const selectedCity = String(req.query.city || "Enumclaw");
+    const formCity = String(editEvent?.city || selectedCity);
     const cityOptions = ALLOWED_CITIES.map((c) => {
-      const sel = currentCity === c ? "selected" : "";
+      const sel = formCity === c ? "selected" : "";
       return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
     }).join("");
     const cityListHtml = ALLOWED_CITIES.map((c) => {
-      const active = currentCity === c ? " is-active" : "";
+      const active = selectedCity === c ? " is-active" : "";
       return `<button type="button" class="sb-city-opt${active}" data-city="${esc(c)}">${esc(c)}</button>`;
     }).join("");
 
@@ -689,10 +697,10 @@ return `
       </div>
 
       <div class="event-actions">
-        <a class="btn btn-edit" href="/admin/create-events?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}">Edit</a>
+          <a class="btn btn-edit" href="/admin/create-events?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit</a>
 
         <form method="POST"
-              action="/admin/events/${e.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}"
+              action="/admin/events/${e.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
               class="inline"
               onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
           <button type="submit" class="btn btn-danger">Delete</button>
@@ -702,7 +710,7 @@ return `
           Number(e.isArchived || 0) === 1
             ? `
               <form method="POST"
-                    action="/admin/events/${e.id}/unarchive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}"
+                    action="/admin/events/${e.id}/unarchive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
                     class="inline"
                     onsubmit="return confirm('Unarchive this event?');">
                 <button type="submit" class="btn">Unarchive</button>
@@ -710,7 +718,7 @@ return `
             `
             : `
               <form method="POST"
-                    action="/admin/events/${e.id}/archive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}"
+                    action="/admin/events/${e.id}/archive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
                     class="inline"
                     onsubmit="return confirm('Archive this event? (It will be hidden from the public list)');">
                 <button type="submit" class="btn">Archive</button>
@@ -740,29 +748,37 @@ return `
     // ===== Dashboard metrics + widgets =====
     const cols = await getEventsColumns();
 
-    // Apply archive filter to dashboard widgets when supported
+    // Apply archive + city filter to dashboard widgets when supported
     const hasArchiveCols2 = cols.has("isArchived") && cols.has("archivedAt");
-    let dashWhere = "";
+    const dashParts = [];
+    const dashParams = [];
     if (hasArchiveCols2) {
-      if (archivedMode === "1") dashWhere = "WHERE isArchived = 1";
-      else dashWhere = "WHERE (isArchived IS NULL OR isArchived = 0)";
-      // all => no where
+      if (archivedMode === "1") dashParts.push("isArchived = 1");
+      else dashParts.push("(isArchived IS NULL OR isArchived = 0)");
+      // all => no clause
     } else {
-      if (archivedMode === "1") dashWhere = "WHERE 1=0";
+      if (archivedMode === "1") dashParts.push("1=0");
+    }
+    if (selectedCity) {
+      dashParts.push("city = ?");
+      dashParams.push(selectedCity);
     }
 
+    const dashWhere = dashParts.length ? `WHERE ${dashParts.join(" AND ")}` : "";
     const dashWhereSql = dashWhere ? (dashWhere + " ") : "";
     const dashAnd = dashWhere ? (dashWhere + " AND ") : "WHERE ";
 
 
     // Counts
     const upcomingRow = await get(
-      `SELECT COUNT(*) AS n FROM events ${dashAnd}datetime(startDateTime) >= datetime('now')`
+      `SELECT COUNT(*) AS n FROM events ${dashAnd}datetime(startDateTime) >= datetime('now')`,
+      dashParams
     );
     const pastRow = await get(
-      `SELECT COUNT(*) AS n FROM events ${dashAnd}datetime(startDateTime) < datetime('now')`
+      `SELECT COUNT(*) AS n FROM events ${dashAnd}datetime(startDateTime) < datetime('now')`,
+      dashParams
     );
-    const featuredRow = await get(`SELECT COUNT(*) AS n FROM events ${dashAnd}featured = 1`);
+    const featuredRow = await get(`SELECT COUNT(*) AS n FROM events ${dashAnd}featured = 1`, dashParams);
 
     const upcoming = Number(upcomingRow?.n || 0);
     const past = Number(pastRow?.n || 0);
@@ -771,7 +787,7 @@ return `
     // Optional sums (only if columns exist)
     let viewsSum = 0;
     if (cols.has("viewCount")) {
-      const r = await get(`SELECT COALESCE(SUM(viewCount), 0) AS n FROM events ${dashWhereSql}`);
+      const r = await get(`SELECT COALESCE(SUM(viewCount), 0) AS n FROM events ${dashWhereSql}`, dashParams);
       viewsSum = Number(r?.n || 0);
     }
 
@@ -812,7 +828,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
          ${whereClause}
          ORDER BY viewCount DESC, id DESC
          LIMIT 5`
-      );
+      , dashParams);
       if (!rows || rows.length === 0) return `<div class="muted">No events.</div>`;
       return rows
         .map((r) => {
@@ -823,17 +839,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         .join("");
     }
 
+    const withDashAnd = (clause) => `${dashWhere ? dashWhere + " AND " : "WHERE "}${clause}`;
     const topTodayHtml = await topEventsHtml(
-      `WHERE date(startDateTime) = date('now')`
+      withDashAnd(`date(startDateTime) = date('now')`)
     );
     const topWeekHtml = await topEventsHtml(
-      `WHERE date(startDateTime) >= date('now','-6 day') AND date(startDateTime) <= date('now')`
+      withDashAnd(`date(startDateTime) >= date('now','-6 day') AND date(startDateTime) <= date('now')`)
     );
     const topMonthHtml = await topEventsHtml(
-      `WHERE date(startDateTime) >= date('now','start of month') AND date(startDateTime) <= date('now')`
+      withDashAnd(`date(startDateTime) >= date('now','start of month') AND date(startDateTime) <= date('now')`)
     );
     const topYearHtml = await topEventsHtml(
-      `WHERE date(startDateTime) >= date('now','start of year') AND date(startDateTime) <= date('now')`
+      withDashAnd(`date(startDateTime) >= date('now','start of year') AND date(startDateTime) <= date('now')`)
     );
 
     // Top organizers
@@ -842,10 +859,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         COALESCE(NULLIF(TRIM(organizer), ''), '(unknown)') AS organizer,
         COUNT(*) AS c
       FROM events
+      ${dashWhereSql}
       GROUP BY organizer
       ORDER BY c DESC, organizer ASC
       LIMIT 12
-    `);
+    `, dashParams);
 
     const topOrganizersHtml = orgRows
       .map((r) => {
@@ -870,7 +888,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
          ${dashAnd}date(startDateTime) >= date('now','-13 day')
          GROUP BY d
          ORDER BY d`
-      );
+      , dashParams);
       const byDay = new Map((rows || []).map((r) => [String(r.d), Number(r.n || 0)]));
       const labels = [];
       const values = [];
@@ -893,7 +911,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
          ${dashAnd}date(startDateTime) >= date('now','-83 day')
          GROUP BY wk
          ORDER BY wk`
-      );
+      , dashParams);
       const byWk = new Map((rows || []).map((r) => [String(r.wk), Number(r.n || 0)]));
       const labels = [];
       const values = [];
@@ -924,7 +942,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
          ${dashAnd}date(startDateTime) >= date('now','start of month','-11 month')
          GROUP BY ym
          ORDER BY ym`
-      );
+      , dashParams);
       const byYm = new Map((rows || []).map((r) => [String(r.ym), Number(r.n || 0)]));
       const labels = [];
       const values = [];
@@ -953,7 +971,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
          ${dashAnd}date(startDateTime) >= date('now','start of year','-4 year')
          GROUP BY y
          ORDER BY y`
-      );
+      , dashParams);
       const byY = new Map((rows || []).map((r) => [String(r.y), Number(r.n || 0)]));
       const labels = [];
       const values = [];
@@ -992,7 +1010,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     if (showApprove) {
       try {
         pendingRows = await all(
-          "SELECT * FROM pending_events ORDER BY datetime(createdAt) DESC"
+          "SELECT * FROM pending_events WHERE city = ? ORDER BY datetime(createdAt) DESC",
+          [selectedCity]
         );
       } catch (_) {
         pendingRows = [];
@@ -1000,7 +1019,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     }
     let pendingCount = 0;
     try {
-      const pc = await get("SELECT COUNT(*) AS n FROM pending_events");
+      const pc = await get("SELECT COUNT(*) AS n FROM pending_events WHERE city = ?", [selectedCity]);
       pendingCount = Number(pc?.n || 0);
     } catch (_) {
       pendingCount = 0;
@@ -2088,7 +2107,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             <div class="sb-city-wrap">
               <div class="sb-city-dd" id="sbCityDD">
                 <button type="button" class="sb-city-btn" id="sbCityBtn" aria-haspopup="listbox" aria-expanded="false">
-                  <span id="sbCityLabel">${esc(currentCity)}</span>
+                  <span id="sbCityLabel">${esc(selectedCity)}</span>
                   <span class="caret" aria-hidden="true"></span>
                 </button>
                 <div class="sb-city-menu" id="sbCityMenu" role="listbox" aria-label="City">
@@ -2102,13 +2121,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         <nav class="nav">
           <div class="nav-group">
             <div class="nav-title">Events</div>
-            <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events">All Events</a>
-            <a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events">Create Events</a>
-            <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events" style="display:flex; align-items:center; gap:8px;">
+            <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
+            <a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>
+            <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" style="display:flex; align-items:center; gap:8px;">
               <span>Approve Events</span>
               ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
             </a>
-            <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin">Analytics</a>
+            <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>
           </div>
         </nav>
 
@@ -2199,7 +2218,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
           async function check(){
             try{
-              var res = await fetch('/admin/pending-count', { cache: 'no-store' });
+              var res = await fetch('/admin/pending-count?city=' + encodeURIComponent('${selectedCity}'), { cache: 'no-store' });
               if(!res.ok) return;
               var json = await res.json();
               var c = Number(json && json.count || 0);
@@ -2360,7 +2379,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 <p class="sub">This saves to SQLite and powers your API</p>
               </div>
               <div class="right">
-                <span class="pill">/enumclaw</span>
+                <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
               </div>
             </div>
 
@@ -2368,7 +2387,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
               ${fromPending ? `<input type="hidden" name="pendingId" value="${esc(pendingEvent.id)}" />` : ""}
 
-              <input type="hidden" name="city" id="cityHidden" value="${esc(currentCity)}" />
+              <input type="hidden" name="city" id="cityHidden" value="${esc(formCity)}" />
 
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
               <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
@@ -2774,14 +2793,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         });
       })();
 
-      // Sidebar city dropdown -> hidden input
+      // Sidebar city dropdown -> switch city
       (function(){
         var dd = document.getElementById("sbCityDD");
         var btn = document.getElementById("sbCityBtn");
         var menu = document.getElementById("sbCityMenu");
         var label = document.getElementById("sbCityLabel");
         var hidden = document.getElementById("cityHidden");
-        if (!dd || !btn || !menu || !label || !hidden) return;
+        if (!dd || !btn || !menu || !label) return;
 
         function closeMenu(){
           dd.classList.remove("is-open");
@@ -2803,10 +2822,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           var city = opt.getAttribute("data-city") || "";
           if (city){
             label.textContent = city;
-            hidden.value = city;
+            if (hidden) hidden.value = city;
             menu.querySelectorAll(".sb-city-opt").forEach(function(b){
               b.classList.toggle("is-active", b === opt);
             });
+            var url = new URL(window.location.href);
+            url.searchParams.set("city", city);
+            url.searchParams.delete("pg");
+            window.location.href = url.toString();
           }
           closeMenu();
         });
@@ -3301,7 +3324,8 @@ router.get("/approve-events", async (req, res) => renderAdmin(req, res, "approve
 router.get("/existing-events", async (req, res) => renderAdmin(req, res, "existing"));
 router.get("/pending-count", async (req, res) => {
   try {
-    const row = await get("SELECT COUNT(*) AS n FROM pending_events");
+    const city = String(req.query.city || "Enumclaw");
+    const row = await get("SELECT COUNT(*) AS n FROM pending_events WHERE city = ?", [city]);
     return res.json({ ok: true, count: Number(row?.n || 0) });
   } catch (err) {
     console.error(err);
