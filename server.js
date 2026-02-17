@@ -120,8 +120,16 @@ function getSession(token) {
 }
 
 function requireLogin(req, res, next) {
-  // allow login page and health check
-  if (req.path === "/login" || req.path === "/health") return next();
+  // allow login + public endpoints
+  if (
+    req.path === "/login" ||
+    req.path === "/health" ||
+    (req.path.startsWith("/events") && !req.path.startsWith("/events/submit")) ||
+    req.path.startsWith("/uploads") ||
+    req.path.startsWith("/assets")
+  ) {
+    return next();
+  }
 
   const cookies = parseCookies(req.headers.cookie || "");
   const token = cookies.oc_auth;
@@ -198,7 +206,7 @@ app.get("/health", (req, res) => res.status(200).send("ok"));
 app.use(express.json());
 app.use(express.text({ type: "text/plain" })); // for sendBeacon payloads
 
-// Routes (all locked)
+// Routes
 app.use(requireLogin);
 app.use("/events", eventsRouter);
 app.use("/admin", adminRouter);
