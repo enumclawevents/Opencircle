@@ -151,15 +151,15 @@ app.get("/login", (req, res) => {
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
         .card{background:#111827; padding:24px; border-radius:12px; width:320px; box-shadow:0 10px 30px rgba(0,0,0,.3);}
-        h1{font-size:20px; margin:0 0 12px;}
+        .logo{display:block; width:180px; max-width:100%; margin:0 auto 16px;}
         label{font-size:12px; color:#9ca3af;}
-        input{width:100%; margin:6px 0 14px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
+        input{width:100%; box-sizing:border-box; margin:6px 0 14px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
         button{width:100%; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
       </style>
     </head>
     <body>
       <form class="card" method="POST" action="/login">
-        <h1>OpenCircle Login</h1>
+        <img class="logo" src="/assets/brand/sidebar-icon.png" alt="OpenCircle" />
         <label>Username</label>
         <input name="username" required />
         <label>Password</label>
