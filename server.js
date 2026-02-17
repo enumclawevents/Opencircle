@@ -154,7 +154,12 @@ app.get("/login", (req, res) => {
         .logo{display:block; width:180px; max-width:100%; margin:0 auto 16px;}
         label{font-size:12px; color:#9ca3af;}
         input{width:100%; box-sizing:border-box; margin:6px 0 14px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
-        button{width:100%; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
+        .action-row{display:flex; align-items:center; gap:12px; margin-top:18px;}
+        button{flex:1; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
+        .remember{display:flex; align-items:center; gap:6px; font-size:12px; color:#9ca3af; white-space:nowrap;}
+        .remember input{width:auto; margin:0;}
+        .below-link{display:block; margin-top:10px; font-size:12px; color:#9ca3af; text-align:center; text-decoration:none;}
+        .below-link:hover{color:#e5e7eb;}
       </style>
     </head>
     <body>
@@ -164,8 +169,37 @@ app.get("/login", (req, res) => {
         <input name="username" required />
         <label>Password</label>
         <input name="password" type="password" required />
-        <button type="submit">Sign in</button>
+        <div class="action-row">
+          <button type="submit">Sign in</button>
+          <label class="remember">
+            <input type="checkbox" id="rememberUser" />
+            Save username
+          </label>
+        </div>
+        <a class="below-link" href="/signup">Create an account</a>
       </form>
+      <script>
+        (function(){
+          var userInput = document.querySelector('input[name=\"username\"]');
+          var remember = document.getElementById('rememberUser');
+          try{
+            var saved = localStorage.getItem('oc_saved_user');
+            if(saved && userInput) { userInput.value = saved; remember.checked = true; }
+          }catch(e){}
+          var form = document.querySelector('form');
+          if(form){
+            form.addEventListener('submit', function(){
+              try{
+                if(remember && remember.checked){
+                  localStorage.setItem('oc_saved_user', userInput.value || '');
+                }else{
+                  localStorage.removeItem('oc_saved_user');
+                }
+              }catch(e){}
+            });
+          }
+        })();
+      </script>
     </body>
   </html>`;
   res.send(html);
