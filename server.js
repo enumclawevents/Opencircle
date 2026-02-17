@@ -157,7 +157,7 @@ app.get("/login", (req, res) => {
         label{font-size:12px; color:#9ca3af;}
         input{width:100%; box-sizing:border-box; margin:6px 0 14px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
         .row-between{display:flex; align-items:center; justify-content:space-between; margin:6px 0 14px;}
-        button{flex:1; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
+        button{width:100%; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
         .remember{display:flex; align-items:center; gap:8px; font-size:12px; color:#9ca3af; white-space:nowrap;}
         .forgot{font-size:12px; color:#a5b4fc; text-decoration:none;}
         .forgot:hover{color:#c7d2fe;}
@@ -167,7 +167,7 @@ app.get("/login", (req, res) => {
           width:18px;
           height:18px;
           margin:0;
-          border-radius:2px;
+          border-radius:0;
           border:2px solid #dbe2ea;
           background:#0f172a;
           display:inline-block;
@@ -198,8 +198,8 @@ app.get("/login", (req, res) => {
         <img class="logo" src="/assets/brand/oc-logo.svg" alt="OpenCircle" />
         <div class="title">Welcome back</div>
         <div class="subtitle">Welcome back! Please enter your details.</div>
-        <label>Email</label>
-        <input name="username" type="email" placeholder="Enter your email" required />
+        <label>Username</label>
+        <input name="username" type="text" placeholder="Enter your username" required />
         <label>Password</label>
         <input name="password" type="password" required />
         <div class="row-between">
