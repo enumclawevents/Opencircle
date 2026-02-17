@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
+const crypto = require("crypto");
 
 const { initDB, archiveExpiredEvents } = require("./db");
 
@@ -78,37 +79,111 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // --------------------
-// Basic Auth for /admin
+// Login (session cookie)
 // --------------------
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "opencircle";
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const sessions = new Map();
 
-function requireAdmin(req, res, next) {
-  const header = req.headers.authorization || "";
-  const [type, token] = header.split(" ");
-
-  if (type !== "Basic" || !token) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="OpenCircle Admin"');
-    return res.status(401).send("Authentication required.");
-  }
-
-  let decoded = "";
-  try {
-    decoded = Buffer.from(token, "base64").toString("utf8");
-  } catch (_) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="OpenCircle Admin"');
-    return res.status(401).send("Invalid authorization header.");
-  }
-
-  const idx = decoded.indexOf(":");
-  const user = idx >= 0 ? decoded.slice(0, idx) : "";
-  const pass = idx >= 0 ? decoded.slice(idx + 1) : "";
-
-  if (user === ADMIN_USER && pass === ADMIN_PASS) return next();
-
-  res.setHeader("WWW-Authenticate", 'Basic realm="OpenCircle Admin"');
-  return res.status(401).send("Invalid credentials.");
+function parseCookies(cookieHeader) {
+  const out = {};
+  String(cookieHeader || "")
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .forEach((pair) => {
+      const idx = pair.indexOf("=");
+      if (idx < 0) return;
+      const k = pair.slice(0, idx).trim();
+      const v = pair.slice(idx + 1).trim();
+      out[k] = decodeURIComponent(v);
+    });
+  return out;
 }
+
+function createSession(user) {
+  const token = crypto.randomUUID();
+  sessions.set(token, { user, exp: Date.now() + SESSION_TTL_MS });
+  return token;
+}
+
+function getSession(token) {
+  if (!token) return null;
+  const sess = sessions.get(token);
+  if (!sess) return null;
+  if (Date.now() > sess.exp) {
+    sessions.delete(token);
+    return null;
+  }
+  return sess;
+}
+
+function requireLogin(req, res, next) {
+  // allow login page and health check
+  if (req.path === "/login" || req.path === "/health") return next();
+
+  const cookies = parseCookies(req.headers.cookie || "");
+  const token = cookies.oc_auth;
+  const sess = getSession(token);
+  if (sess) return next();
+
+  const wantsHtml = (req.headers.accept || "").includes("text/html");
+  if (wantsHtml) return res.redirect("/login");
+  return res.status(401).json({ error: "Unauthorized" });
+}
+
+app.get("/login", (req, res) => {
+  const html = `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Login</title>
+      <style>
+        body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
+        .card{background:#111827; padding:24px; border-radius:12px; width:320px; box-shadow:0 10px 30px rgba(0,0,0,.3);}
+        h1{font-size:20px; margin:0 0 12px;}
+        label{font-size:12px; color:#9ca3af;}
+        input{width:100%; margin:6px 0 14px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
+        button{width:100%; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
+      </style>
+    </head>
+    <body>
+      <form class="card" method="POST" action="/login">
+        <h1>OpenCircle Login</h1>
+        <label>Username</label>
+        <input name="username" required />
+        <label>Password</label>
+        <input name="password" type="password" required />
+        <button type="submit">Sign in</button>
+      </form>
+    </body>
+  </html>`;
+  res.send(html);
+});
+
+app.post("/login", (req, res) => {
+  const user = String(req.body?.username || "");
+  const pass = String(req.body?.password || "");
+  if (user === ADMIN_USER && pass === ADMIN_PASS) {
+    const token = createSession(user);
+    res.cookie("oc_auth", token, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: String(process.env.NODE_ENV || "").toLowerCase() === "production",
+      maxAge: SESSION_TTL_MS,
+      path: "/",
+    });
+    return res.redirect("/admin");
+  }
+  return res.status(401).send("Invalid credentials");
+});
+
+app.post("/logout", (req, res) => {
+  res.setHeader("Set-Cookie", "oc_auth=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
+  return res.redirect("/login");
+});
 
 // Home test route
 app.get("/", (req, res) => {
@@ -123,9 +198,10 @@ app.get("/health", (req, res) => res.status(200).send("ok"));
 app.use(express.json());
 app.use(express.text({ type: "text/plain" })); // for sendBeacon payloads
 
-// Routes
+// Routes (all locked)
+app.use(requireLogin);
 app.use("/events", eventsRouter);
-app.use("/admin", requireAdmin, adminRouter);
+app.use("/admin", adminRouter);
 
 // Global error handler (so 500s are logged)
 app.use((err, req, res, next) => {
