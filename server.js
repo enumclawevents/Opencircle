@@ -159,7 +159,7 @@ app.get("/login", (req, res) => {
     </head>
     <body>
       <form class="card" method="POST" action="/login">
-        <img class="logo" src="/assets/brand/sidebar-icon.png" alt="OpenCircle" />
+        <img class="logo" src="/assets/brand/oc-logo.svg" alt="OpenCircle" />
         <label>Username</label>
         <input name="username" required />
         <label>Password</label>
