@@ -160,33 +160,28 @@ app.get("/login", (req, res) => {
         .remember input{
           -webkit-appearance: none;
           appearance: none;
-          width:16px;
-          height:16px;
+          width:18px;
+          height:18px;
           margin:0;
-          border-radius:4px;
-          border:1px solid rgba(255,255,255,.25);
+          border-radius:2px;
+          border:2px solid #dbe2ea;
           background:#0f172a;
           display:inline-block;
           position:relative;
+          box-shadow: 0 0 0 3px rgba(14,165,233,0);
         }
         .remember input:checked{
-          background:#00c08b;
-          border-color:#00c08b;
+          border-color:#0ea5e9;
+          box-shadow: 0 0 0 3px rgba(14,165,233,.35);
         }
         .remember input:checked::after{
           content:"";
           position:absolute;
-          left:4px;
-          top:3px;
-          width:7px;
-          height:4px;
-          border:2px solid #fff;
-          border-top:0;
-          border-right:0;
-          transform:rotate(-45deg);
+          inset:3px;
+          background:#10b981;
         }
         .remember input:focus-visible{
-          outline:2px solid rgba(0,192,139,.6);
+          outline:2px solid rgba(14,165,233,.7);
           outline-offset:2px;
         }
         .below-link{display:block; margin-top:10px; font-size:12px; color:#9ca3af; text-align:center; text-decoration:none;}
