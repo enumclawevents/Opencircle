@@ -151,12 +151,12 @@ app.get("/login", (req, res) => {
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
         .card{background:#111827; padding:28px; border-radius:12px; width:360px; box-shadow:0 10px 30px rgba(0,0,0,.3);}
-        .logo{display:block; width:160px; max-width:100%; margin:0 0 14px;}
-        .title{font-size:22px; font-weight:700; margin:0 0 6px; color:#e5e7eb;}
-        .subtitle{font-size:13px; color:#9ca3af; margin:0 0 18px;}
+        .logo{display:block; width:160px; max-width:100%; margin:0 auto 14px;}
+        .title{font-size:22px; font-weight:700; margin:0 0 6px; color:#e5e7eb; text-align:center;}
+        .subtitle{font-size:13px; color:#9ca3af; margin:0 0 22px; text-align:center;}
         label{font-size:12px; color:#9ca3af;}
-        input{width:100%; box-sizing:border-box; margin:6px 0 14px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
-        .row-between{display:flex; align-items:center; justify-content:space-between; margin:6px 0 14px;}
+        input{width:100%; box-sizing:border-box; margin:6px 0 18px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
+        .row-between{display:flex; align-items:center; justify-content:space-between; margin:10px 0 18px;}
         button{width:100%; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
         .remember{display:flex; align-items:center; gap:8px; font-size:12px; color:#9ca3af; white-space:nowrap;}
         .forgot{font-size:12px; color:#a5b4fc; text-decoration:none;}
@@ -164,19 +164,17 @@ app.get("/login", (req, res) => {
         .remember input{
           -webkit-appearance: none;
           appearance: none;
-          width:18px;
-          height:18px;
+          width:16px;
+          height:16px;
           margin:0;
           border-radius:0;
           border:2px solid #dbe2ea;
           background:#0f172a;
           display:inline-block;
           position:relative;
-          box-shadow: 0 0 0 3px rgba(14,165,233,0);
         }
         .remember input:checked{
           border-color:#0ea5e9;
-          box-shadow: 0 0 0 3px rgba(14,165,233,.35);
         }
         .remember input:checked::after{
           content:"";
