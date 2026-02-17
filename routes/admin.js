@@ -178,6 +178,90 @@ function toDateValue(isoWithOffset) {
   return String(isoWithOffset).slice(0, 10); // YYYY-MM-DD
 }
 
+function addHoursIso(iso, hours) {
+  try {
+    const d = new Date(String(iso));
+    if (Number.isNaN(d.getTime())) return iso;
+    d.setHours(d.getHours() + hours);
+    return d.toISOString();
+  } catch {
+    return iso;
+  }
+}
+
+async function insertEventFromPending(p) {
+  if (!p) return null;
+  const cols = await getEventsColumns();
+
+  const title = String(p.title || "").trim();
+  if (!title) return null;
+
+  const baseSlug = slugify(title);
+  const slug = await ensureUniqueSlug(baseSlug, null);
+
+  let startDateTime = String(p.startDateTime || "").trim();
+  let endDateTime = String(p.endDateTime || "").trim();
+
+  const startMs = Date.parse(startDateTime);
+  let endMs = Date.parse(endDateTime);
+  if (!Number.isFinite(startMs)) return null;
+  if (!Number.isFinite(endMs) || endMs <= startMs) {
+    endDateTime = addHoursIso(startDateTime, 1);
+    endMs = Date.parse(endDateTime);
+  }
+
+  const cats = normalizeCategories(parseStoredCategories(p.categories));
+  const catsJson = JSON.stringify(cats);
+
+  const finalTicketLabel =
+    p.ticketLabel && String(p.ticketLabel).trim()
+      ? String(p.ticketLabel).trim()
+      : "Tickets";
+
+  const fields = [
+    ["city", String(p.city || "Enumclaw")],
+    ["slug", slug],
+    ["title", title],
+    ["description", String(p.description || "")],
+    ["eventDetails", String(p.eventDetails || "")],
+    ["goodToKnow", String(p.goodToKnow || "")],
+    ["startDateTime", startDateTime],
+    ["endDateTime", endDateTime],
+    ["location", String(p.location || "")],
+    ["organizer", String(p.organizer || "")],
+    ["imageUrl", String(p.imageUrl || "") || null],
+    ["ticketUrl", String(p.ticketUrl || "") || null],
+    ["ticketLabel", finalTicketLabel],
+    ["categories", catsJson],
+    ["featured", 0],
+    ["eddiesPick", 0],
+    ["hasRecurrence", 0],
+    ["recurrenceRule", null],
+    ["recurrenceDates", null],
+    ["recurrenceStartDate", null],
+    ["recurrenceUntilDate", null],
+  ];
+
+  const insertCols = [];
+  const placeholders = [];
+  const insertVals = [];
+
+  for (const [k, v] of fields) {
+    if (!cols.size || cols.has(k)) {
+      insertCols.push(k);
+      placeholders.push("?");
+      insertVals.push(v);
+    }
+  }
+
+  const ins = await run(
+    `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
+    insertVals
+  );
+
+  return ins?.lastID || null;
+}
+
 function esc(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -457,8 +541,21 @@ try {
 
 
     const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
+    const pendingId = req.query.pending ? parseInt(req.query.pending, 10) : null;
     let editEvent = null;
+    let pendingEvent = null;
     if (editId) editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
+    if (!editEvent && pendingId) {
+      pendingEvent = await get("SELECT * FROM pending_events WHERE id = ?", [pendingId]);
+      if (pendingEvent) {
+        editEvent = {
+          ...pendingEvent,
+          featured: 0,
+          eddiesPick: 0,
+        };
+      }
+    }
+    const fromPending = !!pendingEvent && !editId;
 
     const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
     const isFeatured = Number(editEvent?.featured || 0) === 1;
@@ -685,7 +782,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.3");
+const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
       ? req.app.locals.reqTimes.length
       : 0;
@@ -890,6 +987,65 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.3");
     const showExisting = view === "existing";
     const showSearch = showAnalytics || showExisting;
     const isSingleManage = (showCreate ^ showExisting);
+
+    let pendingRows = [];
+    if (showApprove) {
+      try {
+        pendingRows = await all(
+          "SELECT * FROM pending_events ORDER BY datetime(createdAt) DESC"
+        );
+      } catch (_) {
+        pendingRows = [];
+      }
+    }
+
+    const fmtPendingDate = (iso) => {
+      try {
+        if (!iso) return "";
+        const d = new Date(String(iso));
+        if (Number.isNaN(d.getTime())) return String(iso);
+        return d.toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      } catch {
+        return String(iso || "");
+      }
+    };
+
+    const pendingHtml = pendingRows.length
+      ? pendingRows.map((p) => {
+          const cats = parseStoredCategories(p.categories).slice(0, 3);
+          const catLine = cats.length ? `<div class="muted" style="margin-top:4px;">${cats.map(esc).join(", ")}</div>` : "";
+          const startLabel = fmtPendingDate(p.startDateTime);
+          const endLabel = p.endDateTime ? fmtPendingDate(p.endDateTime) : "";
+          return `
+            <div class="mini" style="margin-bottom:12px;">
+              <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+                <div style="min-width:0;">
+                  <div style="font-weight:700; font-size:1.05rem;">${esc(p.title || "Untitled")}</div>
+                  <div class="muted">${esc(startLabel)}${endLabel ? " – " + esc(endLabel) : ""}</div>
+                  <div class="muted">${esc(p.location || "")}</div>
+                  ${p.organizer ? `<div class="muted">Organizer: ${esc(p.organizer)}</div>` : ""}
+                  ${catLine}
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+                  <a class="btn" href="/admin/create-events?pending=${encodeURIComponent(p.id)}">Edit</a>
+                  <form method="POST" action="/admin/approve-events/${encodeURIComponent(p.id)}/approve">
+                    <button class="btn primary" type="submit">Approve</button>
+                  </form>
+                  <form method="POST" action="/admin/approve-events/${encodeURIComponent(p.id)}/deny" onsubmit="return confirm('Deny this submission?');">
+                    <button class="btn danger" type="submit">Deny</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join("")
+      : `<div class="muted">No pending approvals.</div>`;
 
     res.send(`<!doctype html>
 <html>
@@ -2100,7 +2256,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.3");
               <p class="sub">Review and approve pending submissions</p>
             </div>
           </div>
-          <div class="muted">No pending approvals.</div>
+          ${pendingHtml}
         </section>
         ` : ``}
 
@@ -2121,6 +2277,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.3");
 
             <form method="POST" action="/admin/events" enctype="multipart/form-data">
               ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
+              ${fromPending ? `<input type="hidden" name="pendingId" value="${esc(pendingEvent.id)}" />` : ""}
 
               <input type="hidden" name="city" id="cityHidden" value="${esc(currentCity)}" />
 
@@ -3075,6 +3232,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       categories,
       featured,
       eddiesPick,
+      pendingId,
 
       hasRecurrence,
       recurrenceType,
@@ -3362,6 +3520,14 @@ await run(
   insertVals
 );
 
+// If this event came from a pending submission, remove it from the queue
+if (pendingId) {
+  const pid = parseInt(pendingId, 10);
+  if (!Number.isNaN(pid)) {
+    await run("DELETE FROM pending_events WHERE id = ?", [pid]);
+  }
+}
+
 const pg = req.query.pg ? String(req.query.pg) : "1";
 const limit = req.query.limit ? String(req.query.limit) : "20";
 const q = req.query.q ? String(req.query.q) : "";
@@ -3377,6 +3543,40 @@ return res.redirect(`/admin/create-events?${sp.toString()}`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error.");
+  }
+});
+
+// Approve pending submission (create event)
+router.post("/approve-events/:id/approve", async (req, res) => {
+  try {
+    await ensurePickSchema();
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
+
+    const pending = await get("SELECT * FROM pending_events WHERE id = ?", [id]);
+    if (!pending) return res.redirect("/admin/approve-events");
+
+    const newId = await insertEventFromPending(pending);
+    await run("DELETE FROM pending_events WHERE id = ?", [id]);
+
+    if (newId) return res.redirect(`/admin/create-events?edit=${newId}`);
+    return res.redirect("/admin/approve-events");
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Server error.");
+  }
+});
+
+// Deny pending submission (delete)
+router.post("/approve-events/:id/deny", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
+    await run("DELETE FROM pending_events WHERE id = ?", [id]);
+    return res.redirect("/admin/approve-events");
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Server error.");
   }
 });
 

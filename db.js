@@ -147,6 +147,37 @@ async function initDB() {
     );
   `);
 
+  // Pending submissions (frontend form -> approve workflow)
+  await tryExec(`
+    CREATE TABLE IF NOT EXISTS pending_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+      city TEXT NOT NULL DEFAULT 'Enumclaw',
+      title TEXT NOT NULL,
+      description TEXT,
+      eventDetails TEXT,
+      goodToKnow TEXT,
+
+      ticketUrl TEXT,
+      ticketLabel TEXT,
+
+      startDateTime TEXT NOT NULL,
+      endDateTime TEXT,
+
+      location TEXT,
+      organizer TEXT,
+
+      imageUrl TEXT,
+      categories TEXT,
+
+      submitterEmail TEXT,
+      source TEXT,
+
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
   // ---- Safe migrations for older DBs ----
   // If an older DB exists with snake_case columns, add camelCase columns and keep app working.
   const hasSnakeStart = await hasColumn("events", "start_datetime");

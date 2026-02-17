@@ -9,6 +9,115 @@ const crypto = require("crypto");
  * Helpers
  */
 
+function toLocalISOWithOffset(dtLocal) {
+  if (!dtLocal) return null;
+  const d = new Date(dtLocal);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  const seconds = "00";
+  const offsetMin = -d.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMin);
+  const offH = pad(Math.floor(abs / 60));
+  const offM = pad(abs % 60);
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
+}
+
+function normalizeCategoriesInput(val) {
+  if (Array.isArray(val)) {
+    return val.map((x) => String(x || "").trim()).filter(Boolean);
+  }
+  if (!val) return [];
+  return String(val)
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function addHoursIso(iso, hours) {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    d.setHours(d.getHours() + hours);
+    return d.toISOString();
+  } catch {
+    return iso;
+  }
+}
+
+// Public submission endpoint (frontend form -> pending approvals)
+router.post("/submit", async (req, res) => {
+  try {
+    let body = req.body;
+    if (typeof body === "string" && body.trim()) {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    body = body && typeof body === "object" ? body : {};
+
+    const title = String(body.title || "").trim();
+    const description = String(body.description || "").trim();
+    const location = String(body.location || "").trim();
+    const organizer = String(body.organizer || "").trim();
+    const city = String(body.city || "Enumclaw").trim() || "Enumclaw";
+
+    let startDateTime = String(body.startDateTime || "").trim();
+    let endDateTime = String(body.endDateTime || "").trim();
+
+    if (!title || !description || !location || !startDateTime) {
+      return res.status(400).json({ ok: false, error: "Missing required fields." });
+    }
+
+    // Accept datetime-local and convert to ISO with offset
+    if (/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(startDateTime)) {
+      const iso = toLocalISOWithOffset(startDateTime);
+      if (iso) startDateTime = iso;
+    }
+    if (endDateTime && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(endDateTime)) {
+      const iso = toLocalISOWithOffset(endDateTime);
+      if (iso) endDateTime = iso;
+    }
+
+    // If no end time, default to +1 hour (can be edited in approvals)
+    if (!endDateTime) {
+      endDateTime = addHoursIso(startDateTime, 1);
+    }
+
+    const cats = normalizeCategoriesInput(body.categories);
+    const categories = JSON.stringify(cats);
+
+    const imageUrl = String(body.imageUrl || "").trim() || null;
+    const ticketUrl = String(body.ticketUrl || "").trim() || null;
+    const ticketLabel = String(body.ticketLabel || "").trim() || "Tickets";
+    const eventDetails = String(body.eventDetails || "").trim() || "";
+    const goodToKnow = String(body.goodToKnow || "").trim() || "";
+    const submitterEmail = String(body.submitterEmail || "").trim() || "";
+    const source = String(body.source || "").trim() || "wp_frontend";
+
+    const inserted = await run(
+      `INSERT INTO pending_events
+        (city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
+         startDateTime, endDateTime, location, organizer, imageUrl, categories,
+         submitterEmail, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
+        startDateTime, endDateTime, location, organizer, imageUrl, categories,
+        submitterEmail, source
+      ]
+    );
+
+    return res.json({ ok: true, id: inserted.lastID });
+  } catch (err) {
+    console.error("[POST /events/submit] error:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
 router.post("/:idOrSlug/view", async (req, res) => {
   try {
     const idOrSlug = String(req.params.idOrSlug || "").trim();
