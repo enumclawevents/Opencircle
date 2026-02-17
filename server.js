@@ -150,13 +150,17 @@ app.get("/login", (req, res) => {
       <title>Login</title>
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
-        .card{background:#111827; padding:24px; border-radius:12px; width:320px; box-shadow:0 10px 30px rgba(0,0,0,.3);}
-        .logo{display:block; width:180px; max-width:100%; margin:0 auto 16px;}
+        .card{background:#111827; padding:28px; border-radius:12px; width:360px; box-shadow:0 10px 30px rgba(0,0,0,.3);}
+        .logo{display:block; width:160px; max-width:100%; margin:0 0 14px;}
+        .title{font-size:22px; font-weight:700; margin:0 0 6px; color:#e5e7eb;}
+        .subtitle{font-size:13px; color:#9ca3af; margin:0 0 18px;}
         label{font-size:12px; color:#9ca3af;}
         input{width:100%; box-sizing:border-box; margin:6px 0 14px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
-        .action-row{display:flex; align-items:center; gap:12px; margin-top:18px;}
+        .row-between{display:flex; align-items:center; justify-content:space-between; margin:6px 0 14px;}
         button{flex:1; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
-        .remember{display:flex; align-items:center; gap:6px; font-size:12px; color:#9ca3af; white-space:nowrap;}
+        .remember{display:flex; align-items:center; gap:8px; font-size:12px; color:#9ca3af; white-space:nowrap;}
+        .forgot{font-size:12px; color:#a5b4fc; text-decoration:none;}
+        .forgot:hover{color:#c7d2fe;}
         .remember input{
           -webkit-appearance: none;
           appearance: none;
@@ -184,25 +188,29 @@ app.get("/login", (req, res) => {
           outline:2px solid rgba(14,165,233,.7);
           outline-offset:2px;
         }
-        .below-link{display:block; margin-top:10px; font-size:12px; color:#9ca3af; text-align:center; text-decoration:none;}
-        .below-link:hover{color:#e5e7eb;}
+        .below-link{display:block; margin-top:14px; font-size:12px; color:#9ca3af; text-align:center;}
+        .below-link a{color:#a5b4fc; text-decoration:none;}
+        .below-link a:hover{color:#c7d2fe;}
       </style>
     </head>
     <body>
       <form class="card" method="POST" action="/login">
         <img class="logo" src="/assets/brand/oc-logo.svg" alt="OpenCircle" />
-        <label>Username</label>
-        <input name="username" required />
+        <div class="title">Welcome back</div>
+        <div class="subtitle">Welcome back! Please enter your details.</div>
+        <label>Email</label>
+        <input name="username" type="email" placeholder="Enter your email" required />
         <label>Password</label>
         <input name="password" type="password" required />
-        <div class="action-row">
-          <button type="submit">Sign in</button>
+        <div class="row-between">
           <label class="remember">
             <input type="checkbox" id="rememberUser" />
-            Save username
+            Remember for 30 days
           </label>
+          <a class="forgot" href="/forgot">Forgot password</a>
         </div>
-        <a class="below-link" href="/signup">Create an account</a>
+        <button type="submit">Sign in</button>
+        <div class="below-link">Don’t have an account? <a href="/signup">Sign up</a></div>
       </form>
       <script>
         (function(){
