@@ -2174,6 +2174,46 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           </div>
         </div>
 
+        <script>
+        (function(){
+          var lastCount = ${pendingCount};
+          var pollMs = 30000;
+
+          function beep(){
+            try{
+              var ctx = new (window.AudioContext || window.webkitAudioContext)();
+              var osc = ctx.createOscillator();
+              var gain = ctx.createGain();
+              osc.type = 'sine';
+              osc.frequency.value = 880;
+              gain.gain.value = 0.05;
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start();
+              setTimeout(function(){
+                osc.stop();
+                ctx.close();
+              }, 200);
+            }catch(e){}
+          }
+
+          async function check(){
+            try{
+              var res = await fetch('/admin/pending-count', { cache: 'no-store' });
+              if(!res.ok) return;
+              var json = await res.json();
+              var c = Number(json && json.count || 0);
+              if(c > lastCount && document.visibilityState === 'visible'){
+                beep();
+              }
+              lastCount = c;
+            }catch(e){}
+          }
+
+          setInterval(check, pollMs);
+        })();
+        </script>
+
         <!-- Metrics -->
         ${showAnalytics ? `
         <section class="metrics" id="analytics">
@@ -3259,6 +3299,15 @@ router.get("/", async (req, res) => renderAdmin(req, res, "analytics"));
 router.get("/create-events", async (req, res) => renderAdmin(req, res, "create"));
 router.get("/approve-events", async (req, res) => renderAdmin(req, res, "approve"));
 router.get("/existing-events", async (req, res) => renderAdmin(req, res, "existing"));
+router.get("/pending-count", async (req, res) => {
+  try {
+    const row = await get("SELECT COUNT(*) AS n FROM pending_events");
+    return res.json({ ok: true, count: Number(row?.n || 0) });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, count: 0 });
+  }
+});
 
 // POST /admin/events (create or update)
 router.post("/events", upload.single("imageFile"), async (req, res) => {
