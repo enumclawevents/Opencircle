@@ -391,6 +391,9 @@ const archivedMode = String(req.query.archived || "0"); // "0"=active, "1"=archi
 let whereParts = [];
 let whereParams = [];
 
+    // City (from URL)
+    const selectedCity = String(req.query.city || "Enumclaw");
+
     // Search
     if (q) {
       const like = `%${q}%`;
@@ -635,7 +638,6 @@ try {
     };
 
     const ALLOWED_CITIES = ["Enumclaw", "Buckley"];
-    const selectedCity = String(req.query.city || "Enumclaw");
     const formCity = String(editEvent?.city || selectedCity);
     const cityOptions = ALLOWED_CITIES.map((c) => {
       const sel = formCity === c ? "selected" : "";
