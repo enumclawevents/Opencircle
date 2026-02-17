@@ -157,7 +157,38 @@ app.get("/login", (req, res) => {
         .action-row{display:flex; align-items:center; gap:12px; margin-top:18px;}
         button{flex:1; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
         .remember{display:flex; align-items:center; gap:6px; font-size:12px; color:#9ca3af; white-space:nowrap;}
-        .remember input{width:auto; margin:0;}
+        .remember input{
+          -webkit-appearance: none;
+          appearance: none;
+          width:16px;
+          height:16px;
+          margin:0;
+          border-radius:4px;
+          border:1px solid rgba(255,255,255,.25);
+          background:#0f172a;
+          display:inline-block;
+          position:relative;
+        }
+        .remember input:checked{
+          background:#00c08b;
+          border-color:#00c08b;
+        }
+        .remember input:checked::after{
+          content:"";
+          position:absolute;
+          left:4px;
+          top:3px;
+          width:7px;
+          height:4px;
+          border:2px solid #fff;
+          border-top:0;
+          border-right:0;
+          transform:rotate(-45deg);
+        }
+        .remember input:focus-visible{
+          outline:2px solid rgba(0,192,139,.6);
+          outline-offset:2px;
+        }
         .below-link{display:block; margin-top:10px; font-size:12px; color:#9ca3af; text-align:center; text-decoration:none;}
         .below-link:hover{color:#e5e7eb;}
       </style>
