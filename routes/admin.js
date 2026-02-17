@@ -2092,7 +2092,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events">All Events</a>
             <a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events">Create Events</a>
             <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events" style="display:flex; align-items:center; gap:8px;">
-              <span>Approve Events</span>
+              <span>Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ``}</span>
               ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
             </a>
             <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin">Analytics</a>
