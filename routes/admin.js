@@ -998,6 +998,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         pendingRows = [];
       }
     }
+    let pendingCount = 0;
+    try {
+      const pc = await get("SELECT COUNT(*) AS n FROM pending_events");
+      pendingCount = Number(pc?.n || 0);
+    } catch (_) {
+      pendingCount = 0;
+    }
 
     const fmtPendingDate = (iso) => {
       try {
@@ -2027,6 +2034,24 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .stat strong{ font-size: calc(16px + var(--font-up)); }
       .note{ font-size: calc(12px + var(--font-up)); }
       .kv{ font-size: calc(13px + var(--font-up)); }
+
+      .badge{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 6px;
+        border-radius: 999px;
+        background: #ef4444;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+      }
+      .badge--nav{
+        margin-left: auto;
+      }
 </style>
   </head>
   <body>
@@ -2058,7 +2083,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             <div class="nav-title">Events</div>
             <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events">All Events</a>
             <a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events">Create Events</a>
-            <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events">Approve Events</a>
+            <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events" style="display:flex; align-items:center; gap:8px;">
+              <span>Approve Events</span>
+              ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
+            </a>
             <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin">Analytics</a>
           </div>
         </nav>
