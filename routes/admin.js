@@ -1033,6 +1033,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           const imageLine = p.imageUrl
             ? `<div class="muted">Image: <a href="${esc(p.imageUrl)}" target="_blank" rel="noopener">View / Download</a></div>`
             : "";
+          const notesLine = p.approvalNotes
+            ? `<div class="muted">Notes: ${esc(p.approvalNotes)}</div>`
+            : "";
           const startLabel = fmtPendingDate(p.startDateTime);
           const endLabel = p.endDateTime ? fmtPendingDate(p.endDateTime) : "";
           return `
@@ -1045,6 +1048,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   ${p.organizer ? `<div class="muted">Organizer: ${esc(p.organizer)}</div>` : ""}
                   ${emailLine}
                   ${imageLine}
+                  ${notesLine}
                   ${catLine}
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
