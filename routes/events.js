@@ -91,23 +91,25 @@ router.post("/submit", async (req, res) => {
     const categories = JSON.stringify(cats);
 
     const imageUrl = String(body.imageUrl || "").trim() || null;
+    const eventLink = String(body.eventLink || "").trim() || null;
     const ticketUrl = String(body.ticketUrl || "").trim() || null;
     const ticketLabel = String(body.ticketLabel || "").trim() || "Tickets";
     const eventDetails = String(body.eventDetails || "").trim() || "";
     const goodToKnow = String(body.goodToKnow || "").trim() || "";
     const submitterEmail = String(body.submitterEmail || "").trim() || "";
+    const approvalNotes = String(body.approvalNotes || "").trim() || "";
     const source = String(body.source || "").trim() || "wp_frontend";
 
     const inserted = await run(
       `INSERT INTO pending_events
         (city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
-         startDateTime, endDateTime, location, organizer, imageUrl, categories,
-         submitterEmail, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
+         submitterEmail, approvalNotes, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
-        startDateTime, endDateTime, location, organizer, imageUrl, categories,
-        submitterEmail, source
+        startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
+        submitterEmail, approvalNotes, source
       ]
     );
 

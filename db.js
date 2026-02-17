@@ -168,15 +168,26 @@ async function initDB() {
       organizer TEXT,
 
       imageUrl TEXT,
+      eventLink TEXT,
       categories TEXT,
 
       submitterEmail TEXT,
+      approvalNotes TEXT,
       source TEXT,
 
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  // Pending submissions: safe migrations
+  const addPendingCol = async (name, defSql) => {
+    const cols = await tableInfo("pending_events");
+    if (!cols.some((c) => c.name === name)) await tryExec(defSql);
+  };
+
+  await addPendingCol("eventLink", `ALTER TABLE pending_events ADD COLUMN eventLink TEXT;`);
+  await addPendingCol("approvalNotes", `ALTER TABLE pending_events ADD COLUMN approvalNotes TEXT;`);
 
   // ---- Safe migrations for older DBs ----
   // If an older DB exists with snake_case columns, add camelCase columns and keep app working.
