@@ -1062,13 +1062,22 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         }).join("")
       : `<div class="muted">No pending approvals.</div>`;
 
+    const pageTitleBase = showCreate
+      ? "Create Events"
+      : showApprove
+      ? "Approve Events"
+      : showExisting
+      ? "All Events"
+      : "Events Dashboard";
+    const pageTitle = pendingCount > 0 ? `(${pendingCount}) ${pageTitleBase}` : pageTitleBase;
+
     res.send(`<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/assets/brand/favicon.ico" />
-    <title>Dashboard</title>
+    <title>${pageTitle}</title>
     <style>
       :root{
         /* Main (light, WordPress-like) */
@@ -2092,7 +2101,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events">All Events</a>
             <a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events">Create Events</a>
             <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events" style="display:flex; align-items:center; gap:8px;">
-              <span>Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ``}</span>
+              <span>Approve Events</span>
               ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
             </a>
             <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin">Analytics</a>
