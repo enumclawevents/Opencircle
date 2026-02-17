@@ -1027,6 +1027,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       ? pendingRows.map((p) => {
           const cats = parseStoredCategories(p.categories).slice(0, 3);
           const catLine = cats.length ? `<div class="muted" style="margin-top:4px;">${cats.map(esc).join(", ")}</div>` : "";
+          const emailLine = p.submitterEmail
+            ? `<div class="muted">Email: <a href="mailto:${esc(p.submitterEmail)}" style="color:inherit;">${esc(p.submitterEmail)}</a></div>`
+            : "";
+          const imageLine = p.imageUrl
+            ? `<div class="muted">Image: <a href="${esc(p.imageUrl)}" target="_blank" rel="noopener">View / Download</a></div>`
+            : "";
           const startLabel = fmtPendingDate(p.startDateTime);
           const endLabel = p.endDateTime ? fmtPendingDate(p.endDateTime) : "";
           return `
@@ -1037,6 +1043,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <div class="muted">${esc(startLabel)}${endLabel ? " – " + esc(endLabel) : ""}</div>
                   <div class="muted">${esc(p.location || "")}</div>
                   ${p.organizer ? `<div class="muted">Organizer: ${esc(p.organizer)}</div>` : ""}
+                  ${emailLine}
+                  ${imageLine}
                   ${catLine}
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
