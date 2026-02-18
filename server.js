@@ -538,7 +538,6 @@ app.post("/reset", async (req, res) => {
   await run("UPDATE password_resets SET usedAt = datetime('now') WHERE id = ?", [row.id]);
   return res.redirect("/login");
 });
-});
 
 app.post("/logout", (req, res) => {
   res.setHeader("Set-Cookie", "oc_auth=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
