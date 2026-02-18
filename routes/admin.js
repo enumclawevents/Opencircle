@@ -1443,7 +1443,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         display:flex;
         align-items:center;
         padding:8px 18px;
-        font-weight:400;
+        font-weight:300;
         font-size:14px;
         border-left:2px solid transparent;
       }
