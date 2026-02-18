@@ -1439,11 +1439,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .subnav-link{
         text-decoration:none;
-        color:var(--sidebar-text);
+        color:#ffffff !important;
         display:flex;
         align-items:center;
         padding:8px 18px;
-        font-weight:600;
+        font-weight:400;
         font-size:14px;
         border-left:2px solid transparent;
       }
@@ -1452,9 +1452,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         background: rgba(255,255,255,.04);
       }
       .subnav-link.active{
-        color:var(--sidebar-text);
+        color:#ffffff !important;
         background: rgba(0,192,139,.10);
         border-left-color: var(--brand);
+      }
+      .subnav-link:visited,
+      .subnav-link:focus,
+      .subnav-link:active{
+        color:#ffffff !important;
       }
       .subnav-link:focus,
       .subnav-link:active,
