@@ -1310,6 +1310,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         height:1px;
         background: var(--sidebar-line);
       }
+      .sb-divider{
+        height:1px;
+        background: var(--sidebar-line);
+        margin: 10px -18px;
+      }
       .sb-city-wrap{
         position: relative;
         height:38px;
@@ -2247,7 +2252,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             </a>` : ``}
             ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
           </div>
-          ${isAdminUser ? `
+          ${isAdminUser ? `<div class="sb-divider"></div>
           <div class="nav-group" style="margin-top:16px;">
             <div class="nav-title">Admin</div>
             <a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>
@@ -2256,6 +2261,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         </nav>
 
         <div class="sb-bottom">
+          <div class="sb-divider"></div>
           <div style="margin-top:10px; text-align:center;">
             <a class="subnav-link" href="/logout" style="display:inline-block; color:var(--sidebar-muted); font-size:12px;">Log out</a>
           </div>
