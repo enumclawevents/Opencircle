@@ -2251,27 +2251,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         </nav>
 
         <div class="sb-bottom">
-          <div class="mini" style="margin-top:10px;">
-            <div class="small">Status</div>
-            <div style="height:6px;"></div>
-            <div class="kv"><span>Server time</span><strong>${esc(stats.serverTime)}</strong></div>
-            <div class="kv"><span>Disk free</span><strong>${esc(stats.diskFree)} / ${esc(stats.diskTotal)}</strong></div>
-            <div class="kv"><span>Auto-archive</span><strong>${esc(stats.autoArchive)}</strong></div>
-            <div class="kv"><span>API version</span><strong>${esc(stats.appVersion)}</strong></div>
-            <div class="kv"><span>Requests (5m)</span><strong>${esc(stats.reqCount5m)}</strong></div>
-            <div class="kv"><span>DB size</span><strong>${esc(stats.dbSize)}</strong></div>
-          </div>
-
-          <div class="mini" style="margin-top:10px;">
-            <div class="small">Tip</div>
-            <div class="note" style="margin-top:8px;">
-              Use the top search to filter server-side (fast + shareable URL). The list also has an instant filter.
-            </div>
-            <div class="note" style="margin-top:10px; font-size:11px; opacity:.7;">
-              Build ${esc(stats.appVersion)}
-            </div>
-          </div>
-
           <div style="margin-top:10px; text-align:center;">
             <a class="subnav-link" href="/logout" style="display:inline-block; color:var(--sidebar-muted); font-size:12px;">Log out</a>
           </div>
