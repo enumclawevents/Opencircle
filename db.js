@@ -187,7 +187,7 @@ async function initDB() {
       email TEXT UNIQUE,
       username TEXT UNIQUE,
       passwordHash TEXT,
-      role TEXT DEFAULT 'city_viewer',
+      role TEXT DEFAULT 'creator',
       city TEXT DEFAULT 'Enumclaw',
       createdAt TEXT DEFAULT (datetime('now'))
     );
@@ -201,7 +201,7 @@ async function initDB() {
   await addUserCol("email", `ALTER TABLE users ADD COLUMN email TEXT;`);
   await addUserCol("username", `ALTER TABLE users ADD COLUMN username TEXT;`);
   await addUserCol("passwordHash", `ALTER TABLE users ADD COLUMN passwordHash TEXT;`);
-  await addUserCol("role", `ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'city_viewer';`);
+  await addUserCol("role", `ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'creator';`);
   await addUserCol("city", `ALTER TABLE users ADD COLUMN city TEXT DEFAULT 'Enumclaw';`);
   await addUserCol("createdAt", `ALTER TABLE users ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
 
@@ -211,7 +211,7 @@ async function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT,
       tokenHash TEXT,
-      role TEXT DEFAULT 'city_viewer',
+      role TEXT DEFAULT 'creator',
       city TEXT DEFAULT 'Enumclaw',
       expiresAt TEXT,
       usedAt TEXT,
@@ -223,8 +223,14 @@ async function initDB() {
     const cols = await tableInfo("invites");
     if (!cols.some((c) => c.name === name)) await tryExec(defSql);
   };
-  await addInviteCol("role", `ALTER TABLE invites ADD COLUMN role TEXT DEFAULT 'city_viewer';`);
+  await addInviteCol("role", `ALTER TABLE invites ADD COLUMN role TEXT DEFAULT 'creator';`);
   await addInviteCol("city", `ALTER TABLE invites ADD COLUMN city TEXT DEFAULT 'Enumclaw';`);
+
+  // Migrate legacy role values
+  await tryExec(`UPDATE users SET role = 'creator' WHERE role = 'city_viewer' OR role IS NULL OR role = '';`);
+  await tryExec(`UPDATE users SET role = 'editor' WHERE role = 'city_editor';`);
+  await tryExec(`UPDATE invites SET role = 'creator' WHERE role = 'city_viewer' OR role IS NULL OR role = '';`);
+  await tryExec(`UPDATE invites SET role = 'editor' WHERE role = 'city_editor';`);
 
   // Password resets
   await tryExec(`

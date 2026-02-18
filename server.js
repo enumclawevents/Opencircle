@@ -158,7 +158,7 @@ function parseCookies(cookieHeader) {
   return out;
 }
 
-function createSession(user, role = "city_viewer", city = "Enumclaw") {
+function createSession(user, role = "creator", city = "Enumclaw") {
   const token = crypto.randomUUID();
   sessions.set(token, { user, role, city, exp: Date.now() + SESSION_TTL_MS });
   return token;
@@ -296,7 +296,7 @@ app.post("/login", async (req, res) => {
       [user, user]
     );
     if (row && verifyPassword(pass, row.passwordHash)) {
-      const token = createSession(row.username || row.email || "user", row.role || "city_viewer", row.city || "Enumclaw");
+      const token = createSession(row.username || row.email || "user", row.role || "creator", row.city || "Enumclaw");
       res.cookie("oc_auth", token, {
         httpOnly: true,
         sameSite: "lax",
@@ -408,7 +408,7 @@ app.post("/signup", async (req, res) => {
   const passwordHash = hashPassword(password);
   await run(
     "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)",
-    [email, username, passwordHash, inviteRow.role || "city_viewer", inviteRow.city || "Enumclaw"]
+    [email, username, passwordHash, inviteRow.role || "creator", inviteRow.city || "Enumclaw"]
   );
   await run("UPDATE invites SET usedAt = datetime('now') WHERE id = ?", [inviteRow.id]);
   return res.redirect("/login");

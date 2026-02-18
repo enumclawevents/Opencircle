@@ -396,8 +396,8 @@ const archivedMode = String(req.query.archived || "0"); // "0"=active, "1"=archi
 let whereParts = [];
 let whereParams = [];
 
-    const isCityViewer = req.user?.role === "city_viewer";
-    const isCityEditor = req.user?.role === "city_editor";
+    const isCityViewer = req.user?.role === "creator";
+    const isCityEditor = req.user?.role === "editor";
     const isAdminUser = req.user?.role === "admin";
 
     // City (from URL unless locked)
@@ -1123,7 +1123,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
                     <div class="muted" style="min-width:0;">
                       <div style="font-weight:700; color:#0f172a;">${esc(inv.email || "Any email")}</div>
-                      <div>Role: ${esc(inv.role || "city_viewer")}</div>
+                      <div>Role: ${esc(inv.role === "editor" ? "Editor" : "Creator")}</div>
                       <div>City: ${esc(inv.city || "Enumclaw")}</div>
                       <div>Created: ${esc(fmtPendingDate(inv.createdAt))}</div>
                       ${inv.expiresAt ? `<div>Expires: ${esc(fmtPendingDate(inv.expiresAt))}</div>` : ""}
@@ -1426,11 +1426,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .sidebar .note{ color: var(--sidebar-muted); }
       .nav a{
-        text-decoration:none; color:var(--sidebar-muted);
+        text-decoration:none; color:var(--sidebar-text);
         display:flex; align-items:center; gap:10px;
         padding:10px 18px; border-radius: 0;
         border:1px solid transparent;
-        font-weight:600; font-size:15px;
+        font-weight:400; font-size:15px;
         width:100%;
         margin:0;
       }
@@ -2216,8 +2216,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             </div>
           </div>
 
-          <div style="margin-top:10px;">
-            <a class="subnav-link" href="/logout" style="display:block; color:var(--sidebar-muted); font-size:12px;">Log out</a>
+          <div style="margin-top:10px; text-align:center;">
+            <a class="subnav-link" href="/logout" style="display:inline-block; color:var(--sidebar-muted); font-size:12px;">Log out</a>
           </div>
         </div>
       </aside>
@@ -2454,8 +2454,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             <div class="field">
               <label>Role</label>
               <select name="role">
-                <option value="city_viewer">City only (create)</option>
-                <option value="city_editor">City editor (approve)</option>
+                <option value="creator">Creator</option>
+                <option value="editor">Editor</option>
               </select>
             </div>
             <div class="field">
@@ -3450,10 +3450,10 @@ router.get("/pending-count", async (req, res) => {
 // Create invite (admin)
 router.post("/invites", async (req, res) => {
   try {
-    const userRole = req.user?.role || "city_viewer";
+    const userRole = req.user?.role || "creator";
     if (userRole !== "admin") return res.status(403).send("Forbidden");
     const email = String(req.body?.email || "").trim().toLowerCase() || null;
-    const role = String(req.body?.role || "city_viewer");
+    const role = String(req.body?.role || "creator");
     const city = String(req.body?.city || req.query.city || "Enumclaw");
     const days = Math.max(1, Math.min(30, parseInt(req.body?.days || "7", 10)));
     const token = crypto.randomBytes(20).toString("hex");
@@ -3472,7 +3472,7 @@ router.post("/invites", async (req, res) => {
 
 router.post("/invites/:id/delete", async (req, res) => {
   try {
-    const role = req.user?.role || "city_viewer";
+    const role = req.user?.role || "creator";
     if (role !== "admin") return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/invites");
@@ -3487,8 +3487,8 @@ router.post("/invites/:id/delete", async (req, res) => {
 // POST /admin/events (create or update)
 router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
-    const role = req.user?.role || "city_viewer";
-    if (!(role === "admin" || role === "city_editor" || role === "city_viewer")) {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor" || role === "creator")) {
       return res.status(403).send("Forbidden");
     }
     await ensurePickSchema();
@@ -3826,8 +3826,8 @@ return res.redirect(`/admin/create-events?${sp.toString()}`);
 // Approve pending submission (create event)
 router.post("/approve-events/:id/approve", async (req, res) => {
   try {
-    const role = req.user?.role || "city_viewer";
-    if (!(role === "admin" || role === "city_editor")) return res.status(403).send("Forbidden");
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor")) return res.status(403).send("Forbidden");
     await ensurePickSchema();
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
@@ -3849,8 +3849,8 @@ router.post("/approve-events/:id/approve", async (req, res) => {
 // Deny pending submission (delete)
 router.post("/approve-events/:id/deny", async (req, res) => {
   try {
-    const role = req.user?.role || "city_viewer";
-    if (!(role === "admin" || role === "city_editor")) return res.status(403).send("Forbidden");
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor")) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
     await run("DELETE FROM pending_events WHERE id = ?", [id]);
@@ -3863,8 +3863,8 @@ router.post("/approve-events/:id/deny", async (req, res) => {
 
 router.post("/events/:id/delete", async (req, res) => {
   try {
-    const role = req.user?.role || "city_viewer";
-    if (!(role === "admin" || role === "city_editor")) {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor")) {
       return res.status(403).send("Forbidden");
     }
     const id = parseInt(req.params.id, 10);
@@ -3892,8 +3892,8 @@ router.post("/events/:id/delete", async (req, res) => {
 // or legacy (isArchived, archivedAt) columns depending on what's present.
 router.post("/events/:id/archive", async (req, res) => {
   try {
-    const role = req.user?.role || "city_viewer";
-    if (!(role === "admin" || role === "city_editor")) {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor")) {
       return res.status(403).send("Forbidden");
     }
     await ensureArchiveSchema();
@@ -3936,8 +3936,8 @@ router.post("/events/:id/archive", async (req, res) => {
 
 router.post("/events/:id/unarchive", async (req, res) => {
   try {
-    const role = req.user?.role || "city_viewer";
-    if (!(role === "admin" || role === "city_editor")) {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor")) {
       return res.status(403).send("Forbidden");
     }
     await ensureArchiveSchema();
