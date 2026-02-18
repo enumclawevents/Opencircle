@@ -234,8 +234,8 @@ app.get("/login", (req, res) => {
         <img class="logo" src="/assets/brand/oc-logo.svg" alt="OpenCircle" />
         <div class="title">Welcome back</div>
         <div class="subtitle">Welcome back! Please enter your details.</div>
-        <label>Username</label>
-        <input name="username" type="text" placeholder="Enter your username" required />
+        <label>Email</label>
+        <input name="username" type="email" placeholder="Enter your email" required />
         <label>Password</label>
         <input name="password" type="password" required />
         <div class="row-between">
@@ -323,8 +323,6 @@ app.post("/login", async (req, res) => {
 });
 
 app.get("/signup", (req, res) => {
-  const invite = String(req.query.invite || "");
-  const inviteMissing = !invite;
   const html = `<!doctype html>
   <html>
     <head>
@@ -347,17 +345,11 @@ app.get("/signup", (req, res) => {
     </head>
     <body>
       <form class="card" method="POST" action="/signup">
-        <div class="title">Create account</div>
-        <div class="subtitle">Enter your details to get started.</div>
-        ${inviteMissing ? `<div style="font-size:12px;color:#fca5a5;margin:0 0 14px;text-align:center;">Invite required. Please request an invite.</div>` : ``}
-        <input type="hidden" name="invite" value="${invite}" />
+        <div class="title">Inquire about pricing and plans</div>
+        <div class="subtitle">Enter your email and we’ll follow up with details.</div>
         <label>Email</label>
         <input name="email" type="email" required />
-        <label>Username</label>
-        <input name="username" type="text" required />
-        <label>Password</label>
-        <input name="password" type="password" required />
-        <button type="submit">Sign up</button>
+        <button type="submit">Submit</button>
         <div class="below-link">Already have an account? <a href="/login">Sign in</a></div>
       </form>
     </body>
@@ -367,51 +359,18 @@ app.get("/signup", (req, res) => {
 
 app.post("/signup", async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
-  const username = String(req.body?.username || "").trim();
-  const password = String(req.body?.password || "");
-  const inviteToken = String(req.body?.invite || "").trim();
+  if (!email) return res.status(400).send("Email is required.");
 
-  if (!email || !username || !password) {
-    return res.status(400).send("Missing required fields");
-  }
-  if (password.length < 8) {
-    return res.status(400).send("Password must be at least 8 characters.");
-  }
-  if (!inviteToken) {
-    return res.status(400).send("Invite required.");
+  const subject = "OpenCircle pricing inquiry";
+  const text = `New pricing inquiry: ${email}`;
+  const html = `<p>New pricing inquiry: <strong>${email}</strong></p>`;
+  try {
+    await sendEmail({ to: SMTP_FROM, subject, text, html });
+  } catch (e) {
+    console.error("[MAIL] inquiry failed", e);
   }
 
-  const inviteHash = hashToken(inviteToken);
-  const inviteRow = await get(
-    "SELECT id, email, role, city, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
-    [inviteHash]
-  );
-  if (
-    !inviteRow ||
-    inviteRow.usedAt ||
-    (inviteRow.expiresAt && new Date(inviteRow.expiresAt).getTime() < Date.now())
-  ) {
-    return res.status(400).send("Invalid or expired invite.");
-  }
-  if (inviteRow.email && inviteRow.email.toLowerCase() !== email) {
-    return res.status(400).send("Invite is for a different email.");
-  }
-
-  const existing = await get(
-    "SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1",
-    [email, username]
-  );
-  if (existing) {
-    return res.status(400).send("Email or username already exists.");
-  }
-
-  const passwordHash = hashPassword(password);
-  await run(
-    "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)",
-    [email, username, passwordHash, inviteRow.role || "creator", inviteRow.city || "Enumclaw"]
-  );
-  await run("UPDATE invites SET usedAt = datetime('now') WHERE id = ?", [inviteRow.id]);
-  return res.redirect("/login");
+  return res.send("Thanks! We’ll follow up by email shortly.");
 });
 
 app.get("/forgot", (_req, res) => {
