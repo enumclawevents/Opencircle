@@ -2573,6 +2573,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
               <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
 
+              ${isCityViewer ? "" : `
               <div class="rec-box">
                 <div class="checkbox">
                   <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
@@ -2585,6 +2586,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 </div>
                 <div class="note">Shows this event as Eddie's Pick in weekend emails.</div>
               </div>
+              `}
 
               <div class="rec-box">
                 <div style="font-weight:650; margin-bottom:6px;">Categories (pick up to 3)</div>
@@ -3720,8 +3722,18 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     }
 
     // Validate required fields
-    if (!title || !description || !startDateTime || !endDateTime || !location || !organizer) {
-      return res.status(400).send("Missing required fields.");
+    if (role === "creator") {
+      if (!title || !description || !startDateTime || !location) {
+        return res.status(400).send("Missing required fields.");
+      }
+      // If no end time, default to +1 hour (can be edited in approvals)
+      if (!endDateTime) {
+        endDateTime = addHoursIso(startDateTime, 1);
+      }
+    } else {
+      if (!title || !description || !startDateTime || !endDateTime || !location || !organizer) {
+        return res.status(400).send("Missing required fields.");
+      }
     }
 
     if (ticketUrl && !/^https?:\/\//i.test(ticketUrl)) {
@@ -3740,8 +3752,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
-    const featuredFlag = String(featured || "") === "1" ? 1 : 0;
-    const eddiesPickFlag = String(eddiesPick || "") === "1" ? 1 : 0;
+    const featuredFlag = role === "creator" ? 0 : (String(featured || "") === "1" ? 1 : 0);
+    const eddiesPickFlag = role === "creator" ? 0 : (String(eddiesPick || "") === "1" ? 1 : 0);
 
     // Slug
     const baseSlug = slugify(title);
@@ -3865,6 +3877,30 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
           recurrenceRule = { type: "monthly", interval, mode: "monthday", byMonthday: md };
         }
       }
+    }
+
+    // Creator submissions should go to pending approvals instead of publishing
+    if (role === "creator" && !id && !pendingId) {
+      const organizerSafe = organizer ? String(organizer).trim() : "";
+      const eventLinkSafe = String(req.body.eventLink || "").trim() || null;
+      const submitterEmail = String(req.body.submitterEmail || "").trim() || "";
+      const approvalNotes = String(req.body.approvalNotes || "").trim() || "";
+      const source = "admin_creator";
+
+      await run(
+        `INSERT INTO pending_events
+          (city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
+           startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
+           submitterEmail, approvalNotes, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          city, title, description, eventDetails || "", goodToKnow || "", ticketUrl || "", finalTicketLabel,
+          startDateTime, endDateTime, location, organizerSafe, imageUrl || "", eventLinkSafe, catsJson,
+          submitterEmail, approvalNotes, source
+        ]
+      );
+
+      return res.redirect(`/admin/create-events?submitted=1&city=${encodeURIComponent(city)}`);
     }
 
     const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;

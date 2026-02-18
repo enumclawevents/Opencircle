@@ -581,6 +581,11 @@ app.post("/logout", (req, res) => {
   return res.redirect("/login");
 });
 
+app.get("/logout", (req, res) => {
+  res.setHeader("Set-Cookie", "oc_auth=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
+  return res.redirect("/login");
+});
+
 // Home test route
 app.get("/", (req, res) => {
   res.json({
