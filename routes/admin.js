@@ -9,6 +9,11 @@ const { execSync } = require("child_process");
 const multer = require("multer");
 const { S3Client } = require("@aws-sdk/client-s3");
 const multerS3 = require("multer-s3");
+const crypto = require("crypto");
+
+function hashToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
 
 /**
  * Fixed category list (12 total)
@@ -1005,6 +1010,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const showCreate = view === "create";
     const showApprove = view === "approve";
     const showExisting = view === "existing";
+    const showInvites = view === "invites";
     const showSearch = showAnalytics || showExisting;
     const isSingleManage = (showCreate ^ showExisting);
 
@@ -1087,12 +1093,44 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         }).join("")
       : `<div class="muted">No pending approvals.</div>`;
 
+    let invitesHtml = "";
+    if (showInvites) {
+      const inviteRows = await all(
+        "SELECT id, email, expiresAt, usedAt, createdAt FROM invites ORDER BY datetime(createdAt) DESC"
+      );
+      invitesHtml = inviteRows.length
+        ? inviteRows
+            .map((inv) => {
+              const status = inv.usedAt
+                ? `Used ${fmtPendingDate(inv.usedAt)}`
+                : inv.expiresAt && new Date(inv.expiresAt).getTime() < Date.now()
+                ? "Expired"
+                : "Active";
+              return `
+                <div class="mini" style="margin-bottom:10px;">
+                  <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+                    <div class="muted" style="min-width:0;">
+                      <div style="font-weight:700; color:#0f172a;">${esc(inv.email || "Any email")}</div>
+                      <div>Created: ${esc(fmtPendingDate(inv.createdAt))}</div>
+                      ${inv.expiresAt ? `<div>Expires: ${esc(fmtPendingDate(inv.expiresAt))}</div>` : ""}
+                      <div>Status: ${esc(status)}</div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            })
+            .join("")
+        : `<div class="muted">No invites yet.</div>`;
+    }
+
     const pageTitleBase = showCreate
       ? "Create Events"
       : showApprove
       ? "Approve Events"
       : showExisting
       ? "All Events"
+      : showInvites
+      ? "Invites"
       : "Events Dashboard";
     const pageTitle = pendingCount > 0 ? `(${pendingCount}) ${pageTitleBase}` : pageTitleBase;
 
@@ -2131,6 +2169,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             </a>
             <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>
           </div>
+          <div class="nav-group" style="margin-top:16px;">
+            <div class="nav-title">Admin</div>
+            <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
+          </div>
         </nav>
 
         <div class="sb-bottom">
@@ -2168,6 +2210,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Approve Events"
                 : showExisting
                 ? "All Events"
+                : showInvites
+                ? "Invites"
                 : "Events Dashboard"
             }</h1>
             <p>${
@@ -2367,6 +2411,37 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             </div>
           </div>
           ${pendingHtml}
+        </section>
+        ` : ``}
+
+        <!-- Invites -->
+        ${showInvites ? `
+        <section class="card" id="invites" style="margin-bottom:var(--gap);">
+          <div class="sectionTitle">
+            <div>
+              <h2>Invites</h2>
+              <p class="sub">Invite-only signup links</p>
+            </div>
+          </div>
+          <form method="POST" action="/admin/invites" style="display:grid; gap:12px; max-width:520px;">
+            <div class="field">
+              <label>Email (optional, to lock invite)</label>
+              <input type="email" name="email" placeholder="name@example.com" />
+            </div>
+            <div class="field">
+              <label>Expires in (days)</label>
+              <input type="number" name="days" value="7" min="1" max="30" />
+            </div>
+            <button class="btn primary" type="submit">Create invite</button>
+          </form>
+          ${req.query.invite ? `
+            <div class="mini" style="margin-top:14px;">
+              <div class="muted">Invite link (copy and share):</div>
+              <div style="font-weight:700; margin-top:6px;">${esc(`${req.protocol}://${req.get("host")}/signup?invite=${req.query.invite}`)}</div>
+            </div>
+          ` : ``}
+          <div style="height:12px;"></div>
+          ${invitesHtml}
         </section>
         ` : ``}
 
@@ -3324,6 +3399,7 @@ router.get("/", async (req, res) => renderAdmin(req, res, "analytics"));
 router.get("/create-events", async (req, res) => renderAdmin(req, res, "create"));
 router.get("/approve-events", async (req, res) => renderAdmin(req, res, "approve"));
 router.get("/existing-events", async (req, res) => renderAdmin(req, res, "existing"));
+router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/pending-count", async (req, res) => {
   try {
     const city = String(req.query.city || "Enumclaw");
@@ -3332,6 +3408,25 @@ router.get("/pending-count", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ ok: false, count: 0 });
+  }
+});
+
+// Create invite (admin)
+router.post("/invites", async (req, res) => {
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase() || null;
+    const days = Math.max(1, Math.min(30, parseInt(req.body?.days || "7", 10)));
+    const token = crypto.randomBytes(20).toString("hex");
+    const tokenHash = hashToken(token);
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    await run(
+      "INSERT INTO invites (email, tokenHash, expiresAt) VALUES (?, ?, ?)",
+      [email, tokenHash, expiresAt]
+    );
+    return res.redirect(`/admin/invites?invite=${encodeURIComponent(token)}`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to create invite.");
   }
 });
 

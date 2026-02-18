@@ -201,6 +201,30 @@ async function initDB() {
   await addUserCol("passwordHash", `ALTER TABLE users ADD COLUMN passwordHash TEXT;`);
   await addUserCol("createdAt", `ALTER TABLE users ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
 
+  // Invites (invite-only signup)
+  await tryExec(`
+    CREATE TABLE IF NOT EXISTS invites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT,
+      tokenHash TEXT,
+      expiresAt TEXT,
+      usedAt TEXT,
+      createdAt TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Password resets
+  await tryExec(`
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER,
+      tokenHash TEXT,
+      expiresAt TEXT,
+      usedAt TEXT,
+      createdAt TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
   // Pending submissions: safe migrations
   const addPendingCol = async (name, defSql) => {
     const cols = await tableInfo("pending_events");
