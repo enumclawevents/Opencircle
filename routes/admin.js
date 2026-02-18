@@ -224,6 +224,12 @@ async function insertEventFromPending(p) {
       ? String(p.ticketLabel).trim()
       : "Tickets";
 
+  const computedFeaturedUntil = String(p.featuredUntil || p.endDateTime || p.startDateTime || "").trim();
+  const hasFeaturedOrder = String(p.featuredOrderId || "").trim() !== "";
+  const featuredActive = hasFeaturedOrder && computedFeaturedUntil
+    ? (Date.parse(computedFeaturedUntil) > Date.now())
+    : false;
+
   const fields = [
     ["city", String(p.city || "Enumclaw")],
     ["slug", slug],
@@ -239,13 +245,17 @@ async function insertEventFromPending(p) {
     ["ticketUrl", String(p.ticketUrl || "") || null],
     ["ticketLabel", finalTicketLabel],
     ["categories", catsJson],
-    ["featured", 0],
+    ["featured", featuredActive ? 1 : 0],
     ["eddiesPick", 0],
     ["hasRecurrence", 0],
     ["recurrenceRule", null],
     ["recurrenceDates", null],
     ["recurrenceStartDate", null],
     ["recurrenceUntilDate", null],
+    ["submissionId", String(p.submissionId || "") || null],
+    ["featuredOrderId", String(p.featuredOrderId || "") || null],
+    ["featuredPurchasedAt", String(p.featuredPurchasedAt || "") || null],
+    ["featuredUntil", computedFeaturedUntil || null],
   ];
 
   const insertCols = [];
@@ -800,11 +810,42 @@ return `
     const past = Number(pastRow?.n || 0);
     const featuredCount = Number(featuredRow?.n || 0);
 
+    // Count occurrences for recurring events (dashboard only)
+    let totalOccurrences = 0;
+    try {
+      const occRows = await all(
+        `SELECT recurrenceRule, recurrenceDates FROM events ${dashWhereSql}`,
+        dashParams
+      );
+      totalOccurrences = (occRows || []).reduce((sum, r) => {
+        let n = 1;
+        const rr = safeParseJson(r?.recurrenceRule, null);
+        const rd = safeParseJson(r?.recurrenceDates, null);
+        if (rr && Array.isArray(rr.items) && rr.items.length) n = rr.items.length;
+        else if (Array.isArray(rd) && rd.length) n = rd.length;
+        return sum + n;
+      }, 0);
+    } catch (_) {
+      totalOccurrences = total;
+    }
+
     // Optional sums (only if columns exist)
     let viewsSum = 0;
+    let upcomingViews = 0;
+    let pastViews = 0;
     if (cols.has("viewCount")) {
       const r = await get(`SELECT COALESCE(SUM(viewCount), 0) AS n FROM events ${dashWhereSql}`, dashParams);
       viewsSum = Number(r?.n || 0);
+      const rvUp = await get(
+        `SELECT COALESCE(SUM(viewCount), 0) AS n FROM events ${dashAnd}datetime(startDateTime) >= datetime('now')`,
+        dashParams
+      );
+      const rvPast = await get(
+        `SELECT COALESCE(SUM(viewCount), 0) AS n FROM events ${dashAnd}datetime(startDateTime) < datetime('now')`,
+        dashParams
+      );
+      upcomingViews = Number(rvUp?.n || 0);
+      pastViews = Number(rvPast?.n || 0);
     }
 
     const fmt = (n) => Number(n || 0).toLocaleString("en-US");
@@ -819,11 +860,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       ? req.app.locals.reqTimes.length
       : 0;
     const stats = {
-      total: fmt(total),
+      total: fmt(totalOccurrences || total),
       upcoming: fmt(upcoming),
       past: fmt(past),
       featured: fmt(featuredCount),
       views: fmt(viewsSum),
+      upcomingViews: fmt(upcomingViews),
+      pastViews: fmt(pastViews),
       serverTime: new Date().toISOString().replace("T", " ").slice(0, 19) + "Z",
       diskFree,
       diskTotal,
@@ -1481,7 +1524,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .subnav-link:visited{
         text-decoration:none;
       }
-      .sb-bottom{ margin-top:auto; display:grid; gap:10px; }
+      .sb-bottom{ margin-top:auto; display:grid; gap:4px; }
       .sidebar .mini a{ color:#38bdf8; font-weight:600; }
       .sidebar .mini a:hover{ color:#7dd3fc; }
 
@@ -2272,7 +2315,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
         <div class="sb-bottom">
           <div class="sb-divider"></div>
-          <div style="margin-top:10px; text-align:center;">
+          <div style="margin-top:4px; text-align:center;">
             <a class="subnav-link" href="/logout" style="display:inline-block; color:var(--sidebar-muted); font-size:12px;">Log out</a>
           </div>
         </div>
@@ -2404,8 +2447,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 </div>
                 <p class="sub" id="chartRangeLabel">Last 14 days (by start date)</p>
                 <div class="subcounts">
-                  <span class="small">Past: <strong>${esc(stats.past)}</strong></span>
-                  <span class="small">Upcoming: <strong>${esc(stats.upcoming)}</strong></span>
+                  <span class="small">Past: <strong id="chartPast" data-events="${esc(stats.past)}" data-views="${esc(stats.pastViews)}">${esc(stats.past)}</strong></span>
+                  <span class="small">Upcoming: <strong id="chartUpcoming" data-events="${esc(stats.upcoming)}" data-views="${esc(stats.upcomingViews)}">${esc(stats.upcoming)}</strong></span>
                 </div>
               </div>
               <div class="right">
@@ -3232,6 +3275,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const $tip    = document.getElementById("eventsChartTip");
     const $seg    = document.getElementById("chartViewSeg");
     const $range  = document.getElementById("chartRangeLabel");
+    const $pastEl = document.getElementById("chartPast");
+    const $upEl   = document.getElementById("chartUpcoming");
 
     if (!$canvas || !$wrap) return;
     const ctx = $canvas.getContext("2d");
@@ -3269,6 +3314,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       yearly: "Last 5 years (by start date)",
     };
     $range.textContent = map[mode] || map.daily;
+  }
+
+  function setSubcounts(){
+    if (!$pastEl || !$upEl) return;
+    const key = (metric === "views") ? "views" : "events";
+    const pastVal = $pastEl.getAttribute("data-" + key) || "0";
+    const upVal = $upEl.getAttribute("data-" + key) || "0";
+    $pastEl.textContent = pastVal;
+    $upEl.textContent = upVal;
   }
 
   function sizeCanvas(){
@@ -3443,6 +3497,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       hideTip();
       setActiveBtn();
       setRangeLabel();
+      setSubcounts();
       draw();
     });
   }
@@ -3456,6 +3511,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       hoverIndex = -1;
       hideTip();
       setActiveBtn();
+      setSubcounts();
       draw();
     });
   }
@@ -3479,6 +3535,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
   function init(){
     setActiveBtn();
     setRangeLabel();
+    setSubcounts();
     draw();
   }
 

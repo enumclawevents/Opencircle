@@ -99,23 +99,81 @@ router.post("/submit", async (req, res) => {
     const submitterEmail = String(body.submitterEmail || "").trim() || "";
     const approvalNotes = String(body.approvalNotes || "").trim() || "";
     const source = String(body.source || "").trim() || "wp_frontend";
+    let submissionId = String(body.submissionId || "").trim();
+    if (!submissionId) {
+      submissionId = (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString("hex"));
+    }
 
     const inserted = await run(
       `INSERT INTO pending_events
         (city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
          startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
-         submitterEmail, approvalNotes, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         submitterEmail, approvalNotes, source, submissionId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
         startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
-        submitterEmail, approvalNotes, source
+        submitterEmail, approvalNotes, source, submissionId
       ]
     );
 
-    return res.json({ ok: true, id: inserted.lastID });
+    return res.json({ ok: true, id: inserted.lastID, submissionId });
   } catch (err) {
     console.error("[POST /events/submit] error:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
+// Feature purchase hook (WooCommerce -> submissionId)
+router.post("/feature", async (req, res) => {
+  try {
+    let body = req.body;
+    if (typeof body === "string" && body.trim()) {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    body = body && typeof body === "object" ? body : {};
+
+    const submissionId = String(body.submissionId || "").trim();
+    const orderId = String(body.orderId || "").trim();
+    if (!submissionId || !orderId) {
+      return res.status(400).json({ ok: false, error: "Missing submissionId or orderId" });
+    }
+
+    // Pending first
+    const pending = await get(
+      "SELECT id, startDateTime, endDateTime FROM pending_events WHERE submissionId = ? LIMIT 1",
+      [submissionId]
+    );
+    if (pending) {
+      const featuredUntil = String(pending.endDateTime || pending.startDateTime || "").trim();
+      await run(
+        `UPDATE pending_events
+         SET featuredOrderId = ?, featuredPurchasedAt = datetime('now'), featuredUntil = ?
+         WHERE id = ?`,
+        [orderId, featuredUntil, pending.id]
+      );
+      return res.json({ ok: true, target: "pending", pendingId: pending.id, featuredUntil });
+    }
+
+    // Else events
+    const evt = await get(
+      "SELECT id, startDateTime, endDateTime FROM events WHERE submissionId = ? LIMIT 1",
+      [submissionId]
+    );
+    if (evt) {
+      const featuredUntil = String(evt.endDateTime || evt.startDateTime || "").trim();
+      await run(
+        `UPDATE events
+         SET featured = 1, featuredOrderId = ?, featuredPurchasedAt = datetime('now'), featuredUntil = ?
+         WHERE id = ?`,
+        [orderId, featuredUntil, evt.id]
+      );
+      return res.json({ ok: true, target: "event", eventId: evt.id, featuredUntil });
+    }
+
+    return res.status(404).json({ ok: false, error: "Not found" });
+  } catch (err) {
+    console.error("[POST /events/feature] error:", err);
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 });
@@ -320,6 +378,16 @@ function readFeatured(row) {
   const v = (row && (row.featured ?? row.Featured)) ?? 0;
   const s = String(v).trim().toLowerCase();
   return (s === "1" || s === "true" || s === "yes" || s === "on") ? 1 : 0;
+}
+
+function readFeaturedActive(row) {
+  const isFeatured = readFeatured(row);
+  if (!isFeatured) return 0;
+  const until = String((row && (row.featuredUntil ?? row.featured_until)) || "").trim();
+  if (!until) return 1;
+  const ts = Date.parse(until);
+  if (!Number.isFinite(ts)) return 1;
+  return ts > Date.now() ? 1 : 0;
 }
 
 function readEddiesPick(row) {
@@ -805,7 +873,7 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
     goingCount: Number(rowFixed.goingCount || 0),
     interestedCount: Number(rowFixed.interestedCount || 0),
     recurrenceDates: Array.isArray(recurDatesArr) ? recurDatesArr : [],
-    featured: readFeatured(row),
+    featured: readFeaturedActive(row),
     eddiesPick: readEddiesPick(row),
   };
 
@@ -954,7 +1022,7 @@ router.get("/", async (req, res) => {
       hasRecurrence: Number(r.hasRecurrence || 0),
       recurrenceRule: safeParseJson(r.recurrenceRule, null),
       recurrenceDates: safeParseJson(r.recurrenceDates, []),
-      featured: readFeatured(r),
+      featured: readFeaturedActive(r),
       eddiesPick: readEddiesPick(r),
       eddiesPick: readEddiesPick(r),
     }));
@@ -966,7 +1034,7 @@ router.get("/", async (req, res) => {
           const t = Date.parse(it.startDateTime);
           if (!Number.isFinite(t)) return false;
           if (t < windowStartUtc || t > windowEndUtc) return false;
-          if (featuredOnly && Number(it.featured || 0) !== 1) return false;
+          if (featuredOnly && readFeaturedActive(it) !== 1) return false;
           if (!matchesQuery(it, q)) return false;
           if (!matchesCategory(it, category)) return false;
           if (!inIsoRange(it, fromISO, toISO)) return false;
@@ -1026,7 +1094,7 @@ for (const r of normalizedRows) {
 
     // Apply filters
     expanded = expanded.filter((it) => {
-      if (featuredOnly && Number(it.featured || 0) !== 1) return false;
+      if (featuredOnly && readFeaturedActive(it) !== 1) return false;
       if (!matchesQuery(it, q)) return false;
       if (!matchesCategory(it, category)) return false;
       if (!inIsoRange(it, fromISO, toISO)) return false;
@@ -1107,7 +1175,7 @@ router.get("/slug/:slug", async (req, res) => {
       hasRecurrence: Number(rowFixed.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),
-      featured: readFeatured(rowFixed),
+      featured: readFeaturedActive(rowFixed),
       eddiesPick: readEddiesPick(rowFixed),
       eddiesPick: readEddiesPick(rowFixed),
 
@@ -1205,7 +1273,7 @@ router.get("/rss", async (req, res) => {
     let finalRows = rows || [];
 
     if (featuredMode === "1" || featuredMode === "true") {
-      const fWhere = [...whereParts, "featured = 1"];
+      const fWhere = [...whereParts, "featured = 1", "(featuredUntil IS NULL OR trim(featuredUntil) = '' OR datetime(featuredUntil) > datetime('now'))"];
       const fParams = [...params];
       const featuredRows = await all(
         `SELECT id, slug, title, description, startDateTime, imageUrl, eddiesPick
@@ -1217,7 +1285,7 @@ router.get("/rss", async (req, res) => {
       );
       finalRows = featuredRows || [];
     } else if (prependFeatured) {
-      const fWhere = [...whereParts, "featured = 1"];
+      const fWhere = [...whereParts, "featured = 1", "(featuredUntil IS NULL OR trim(featuredUntil) = '' OR datetime(featuredUntil) > datetime('now'))"];
       const fParams = [...params];
       const featuredRows = await all(
         `SELECT id, slug, title, description, startDateTime, imageUrl, eddiesPick
@@ -1501,7 +1569,7 @@ router.get("/:idOrSlug", async (req, res) => {
       hasRecurrence: Number(rowFixed.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),
-      featured: readFeatured(rowFixed),
+      featured: readFeaturedActive(rowFixed),
       recurrenceStartDate: rowFixed.recurrenceStartDate || null,
       recurrenceUntilDate: rowFixed.recurrenceUntilDate || null,
     };

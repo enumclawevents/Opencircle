@@ -119,6 +119,10 @@ async function initDB() {
 
       imageUrl TEXT,
       featured INTEGER NOT NULL DEFAULT 0,
+      submissionId TEXT,
+      featuredUntil TEXT,
+      featuredOrderId TEXT,
+      featuredPurchasedAt TEXT,
 
       categories TEXT,
       tags TEXT,
@@ -170,6 +174,11 @@ async function initDB() {
       imageUrl TEXT,
       eventLink TEXT,
       categories TEXT,
+
+      submissionId TEXT,
+      featuredUntil TEXT,
+      featuredOrderId TEXT,
+      featuredPurchasedAt TEXT,
 
       submitterEmail TEXT,
       approvalNotes TEXT,
@@ -252,6 +261,10 @@ async function initDB() {
 
   await addPendingCol("eventLink", `ALTER TABLE pending_events ADD COLUMN eventLink TEXT;`);
   await addPendingCol("approvalNotes", `ALTER TABLE pending_events ADD COLUMN approvalNotes TEXT;`);
+  await addPendingCol("submissionId", `ALTER TABLE pending_events ADD COLUMN submissionId TEXT;`);
+  await addPendingCol("featuredUntil", `ALTER TABLE pending_events ADD COLUMN featuredUntil TEXT;`);
+  await addPendingCol("featuredOrderId", `ALTER TABLE pending_events ADD COLUMN featuredOrderId TEXT;`);
+  await addPendingCol("featuredPurchasedAt", `ALTER TABLE pending_events ADD COLUMN featuredPurchasedAt TEXT;`);
 
   // ---- Safe migrations for older DBs ----
   // If an older DB exists with snake_case columns, add camelCase columns and keep app working.
@@ -283,6 +296,10 @@ async function initDB() {
   await addCol("host", `ALTER TABLE events ADD COLUMN host TEXT;`);
   await addCol("imageUrl", `ALTER TABLE events ADD COLUMN imageUrl TEXT;`);
   await addCol("featured", `ALTER TABLE events ADD COLUMN featured INTEGER NOT NULL DEFAULT 0;`);
+  await addCol("submissionId", `ALTER TABLE events ADD COLUMN submissionId TEXT;`);
+  await addCol("featuredUntil", `ALTER TABLE events ADD COLUMN featuredUntil TEXT;`);
+  await addCol("featuredOrderId", `ALTER TABLE events ADD COLUMN featuredOrderId TEXT;`);
+  await addCol("featuredPurchasedAt", `ALTER TABLE events ADD COLUMN featuredPurchasedAt TEXT;`);
   await addCol("eddiesPick", `ALTER TABLE events ADD COLUMN eddiesPick INTEGER NOT NULL DEFAULT 0;`);
   await addCol("categories", `ALTER TABLE events ADD COLUMN categories TEXT;`);
   await addCol("tags", `ALTER TABLE events ADD COLUMN tags TEXT;`);
@@ -335,6 +352,7 @@ async function archiveExpiredEvents() {
   const hasStart = cols.some((c) => c.name === "startDateTime");
   const hasArchivedAt = cols.some((c) => c.name === "archived_at");
   const hasReason = cols.some((c) => c.name === "archived_reason");
+  const hasFeatured = cols.some((c) => c.name === "featured");
 
   let where = "";
   if (hasExpireDate) {
@@ -351,10 +369,11 @@ async function archiveExpiredEvents() {
 
   const setArchivedAt = hasArchivedAt ? ", archived_at = datetime('now')" : "";
   const setReason = hasReason ? ", archived_reason = 'expired'" : "";
+  const setFeaturedOff = hasFeatured ? ", featured = 0" : "";
 
   const r = await run(
     `UPDATE events
-     SET archived = 1${setArchivedAt}${setReason}
+     SET archived = 1${setArchivedAt}${setReason}${setFeaturedOff}
      WHERE archived = 0
        AND ${where}`
   );
