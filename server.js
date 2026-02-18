@@ -6,7 +6,7 @@ const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
 
-const { initDB, archiveExpiredEvents } = require("./db");
+const { initDB, archiveExpiredEvents, get, run } = require("./db");
 
 const eventsRouter = require("./routes/events");
 const adminRouter = require("./routes/admin");
@@ -85,6 +85,25 @@ const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "opencircle";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const sessions = new Map();
+const PASSWORD_ITER = 120000;
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto
+    .pbkdf2Sync(password, salt, PASSWORD_ITER, 32, "sha256")
+    .toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  if (!stored) return false;
+  const [salt, hash] = String(stored).split(":");
+  if (!salt || !hash) return false;
+  const test = crypto
+    .pbkdf2Sync(password, salt, PASSWORD_ITER, 32, "sha256")
+    .toString("hex");
+  return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(test, "hex"));
+}
 
 function parseCookies(cookieHeader) {
   const out = {};
@@ -123,6 +142,8 @@ function requireLogin(req, res, next) {
   // allow login + public endpoints
   if (
     req.path === "/login" ||
+    req.path === "/signup" ||
+    req.path === "/forgot" ||
     req.path === "/health" ||
     (req.path.startsWith("/events") && !req.path.startsWith("/events/submit")) ||
     req.path.startsWith("/uploads") ||
@@ -161,31 +182,7 @@ app.get("/login", (req, res) => {
         .remember{display:flex; align-items:center; gap:8px; font-size:12px; color:#9ca3af; white-space:nowrap;}
         .forgot{font-size:12px; color:#a5b4fc; text-decoration:none;}
         .forgot:hover{color:#c7d2fe;}
-        .remember input{
-          -webkit-appearance: none;
-          appearance: none;
-          width:16px;
-          height:16px;
-          margin:0;
-          border-radius:0;
-          border:2px solid #dbe2ea;
-          background:#0f172a;
-          display:inline-block;
-          position:relative;
-        }
-        .remember input:checked{
-          border-color:#0ea5e9;
-        }
-        .remember input:checked::after{
-          content:"";
-          position:absolute;
-          inset:3px;
-          background:#10b981;
-        }
-        .remember input:focus-visible{
-          outline:2px solid rgba(14,165,233,.7);
-          outline-offset:2px;
-        }
+        .remember input{width:auto; margin:0;}
         .below-link{display:block; margin-top:14px; font-size:12px; color:#9ca3af; text-align:center;}
         .below-link a{color:#a5b4fc; text-decoration:none;}
         .below-link a:hover{color:#c7d2fe;}
@@ -215,17 +212,28 @@ app.get("/login", (req, res) => {
           var userInput = document.querySelector('input[name=\"username\"]');
           var remember = document.getElementById('rememberUser');
           try{
-            var saved = localStorage.getItem('oc_saved_user');
-            if(saved && userInput) { userInput.value = saved; remember.checked = true; }
+            var raw = localStorage.getItem('oc_saved_user_v2');
+            if(raw){
+              var data = JSON.parse(raw);
+              if(data && data.value && data.exp && Date.now() < data.exp && userInput){
+                userInput.value = data.value;
+                remember.checked = true;
+              } else {
+                localStorage.removeItem('oc_saved_user_v2');
+              }
+            }
           }catch(e){}
           var form = document.querySelector('form');
           if(form){
             form.addEventListener('submit', function(){
               try{
                 if(remember && remember.checked){
-                  localStorage.setItem('oc_saved_user', userInput.value || '');
+                  localStorage.setItem('oc_saved_user_v2', JSON.stringify({
+                    value: userInput.value || '',
+                    exp: Date.now() + (30 * 24 * 60 * 60 * 1000)
+                  }));
                 }else{
-                  localStorage.removeItem('oc_saved_user');
+                  localStorage.removeItem('oc_saved_user_v2');
                 }
               }catch(e){}
             });
@@ -237,9 +245,28 @@ app.get("/login", (req, res) => {
   res.send(html);
 });
 
-app.post("/login", (req, res) => {
+app.post("/login", async (req, res) => {
   const user = String(req.body?.username || "");
   const pass = String(req.body?.password || "");
+
+  if (user && pass) {
+    const row = await get(
+      "SELECT id, username, email, passwordHash FROM users WHERE username = ? OR email = ? LIMIT 1",
+      [user, user]
+    );
+    if (row && verifyPassword(pass, row.passwordHash)) {
+      const token = createSession(row.username || row.email || "user");
+      res.cookie("oc_auth", token, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: String(process.env.NODE_ENV || "").toLowerCase() === "production",
+        maxAge: SESSION_TTL_MS,
+        path: "/",
+      });
+      return res.redirect("/admin");
+    }
+  }
+
   if (user === ADMIN_USER && pass === ADMIN_PASS) {
     const token = createSession(user);
     res.cookie("oc_auth", token, {
@@ -252,6 +279,76 @@ app.post("/login", (req, res) => {
     return res.redirect("/admin");
   }
   return res.status(401).send("Invalid credentials");
+});
+
+app.get("/signup", (req, res) => {
+  const html = `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Sign up</title>
+      <style>
+        body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
+        .card{background:#111827; padding:28px; border-radius:12px; width:360px; box-shadow:0 10px 30px rgba(0,0,0,.3);}
+        .title{font-size:22px; font-weight:700; margin:0 0 6px; color:#e5e7eb; text-align:center;}
+        .subtitle{font-size:13px; color:#9ca3af; margin:0 0 22px; text-align:center;}
+        label{font-size:12px; color:#9ca3af;}
+        input{width:100%; box-sizing:border-box; margin:6px 0 20px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
+        button{width:100%; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
+        .below-link{display:block; margin-top:14px; font-size:12px; color:#9ca3af; text-align:center;}
+        .below-link a{color:#a5b4fc; text-decoration:none;}
+        .below-link a:hover{color:#c7d2fe;}
+      </style>
+    </head>
+    <body>
+      <form class="card" method="POST" action="/signup">
+        <div class="title">Create account</div>
+        <div class="subtitle">Enter your details to get started.</div>
+        <label>Email</label>
+        <input name="email" type="email" required />
+        <label>Username</label>
+        <input name="username" type="text" required />
+        <label>Password</label>
+        <input name="password" type="password" required />
+        <button type="submit">Sign up</button>
+        <div class="below-link">Already have an account? <a href="/login">Sign in</a></div>
+      </form>
+    </body>
+  </html>`;
+  res.send(html);
+});
+
+app.post("/signup", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const username = String(req.body?.username || "").trim();
+  const password = String(req.body?.password || "");
+
+  if (!email || !username || !password) {
+    return res.status(400).send("Missing required fields");
+  }
+  if (password.length < 8) {
+    return res.status(400).send("Password must be at least 8 characters.");
+  }
+
+  const existing = await get(
+    "SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1",
+    [email, username]
+  );
+  if (existing) {
+    return res.status(400).send("Email or username already exists.");
+  }
+
+  const passwordHash = hashPassword(password);
+  await run(
+    "INSERT INTO users (email, username, passwordHash) VALUES (?, ?, ?)",
+    [email, username, passwordHash]
+  );
+  return res.redirect("/login");
+});
+
+app.get("/forgot", (_req, res) => {
+  res.send("Please contact support to reset your password.");
 });
 
 app.post("/logout", (req, res) => {

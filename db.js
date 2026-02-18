@@ -180,6 +180,27 @@ async function initDB() {
     );
   `);
 
+  // Users (for login/signup)
+  await tryExec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE,
+      username TEXT UNIQUE,
+      passwordHash TEXT,
+      createdAt TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Users: safe migrations
+  const addUserCol = async (name, defSql) => {
+    const cols = await tableInfo("users");
+    if (!cols.some((c) => c.name === name)) await tryExec(defSql);
+  };
+  await addUserCol("email", `ALTER TABLE users ADD COLUMN email TEXT;`);
+  await addUserCol("username", `ALTER TABLE users ADD COLUMN username TEXT;`);
+  await addUserCol("passwordHash", `ALTER TABLE users ADD COLUMN passwordHash TEXT;`);
+  await addUserCol("createdAt", `ALTER TABLE users ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
+
   // Pending submissions: safe migrations
   const addPendingCol = async (name, defSql) => {
     const cols = await tableInfo("pending_events");
