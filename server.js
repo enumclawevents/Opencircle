@@ -164,7 +164,10 @@ function requireLogin(req, res, next) {
     req.path === "/invite" ||
     req.path === "/forgot" ||
     req.path === "/health" ||
-    (req.path.startsWith("/events") && !req.path.startsWith("/events/submit")) ||
+    req.path.startsWith("/events/submit") ||
+    req.path.startsWith("/events/feature") ||
+    req.path.startsWith("/events") ||
+
     req.path.startsWith("/uploads") ||
     req.path.startsWith("/assets")
   ) {
