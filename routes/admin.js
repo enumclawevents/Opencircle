@@ -396,8 +396,13 @@ const archivedMode = String(req.query.archived || "0"); // "0"=active, "1"=archi
 let whereParts = [];
 let whereParams = [];
 
-    // City (from URL)
-    const selectedCity = String(req.query.city || "Enumclaw");
+    const isCityViewer = req.user?.role === "city_viewer";
+    const isCityEditor = req.user?.role === "city_editor";
+    const isAdminUser = req.user?.role === "admin";
+
+    // City (from URL unless locked)
+    const userCity = String(req.user?.city || "Enumclaw");
+    const selectedCity = isAdminUser ? String(req.query.city || userCity) : userCity;
 
     // Search
     if (q) {
@@ -643,12 +648,13 @@ try {
     };
 
     const ALLOWED_CITIES = ["Enumclaw", "Buckley"];
+    const allowedForUser = isAdminUser ? ALLOWED_CITIES : [selectedCity];
     const formCity = String(editEvent?.city || selectedCity);
-    const cityOptions = ALLOWED_CITIES.map((c) => {
+    const cityOptions = allowedForUser.map((c) => {
       const sel = formCity === c ? "selected" : "";
       return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
     }).join("");
-    const cityListHtml = ALLOWED_CITIES.map((c) => {
+    const cityListHtml = allowedForUser.map((c) => {
       const active = selectedCity === c ? " is-active" : "";
       return `<button type="button" class="sb-city-opt${active}" data-city="${esc(c)}">${esc(c)}</button>`;
     }).join("");
@@ -704,34 +710,36 @@ return `
       </div>
 
       <div class="event-actions">
+        ${isAdminUser || isCityEditor ? `
           <a class="btn btn-edit" href="/admin/create-events?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit</a>
 
-        <form method="POST"
-              action="/admin/events/${e.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
-              class="inline"
-              onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
-          <button type="submit" class="btn btn-danger">Delete</button>
-        </form>
+          <form method="POST"
+                action="/admin/events/${e.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
+                class="inline"
+                onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
+            <button type="submit" class="btn btn-danger">Delete</button>
+          </form>
 
-        ${
-          Number(e.isArchived || 0) === 1
-            ? `
-              <form method="POST"
-                    action="/admin/events/${e.id}/unarchive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
-                    class="inline"
-                    onsubmit="return confirm('Unarchive this event?');">
-                <button type="submit" class="btn">Unarchive</button>
-              </form>
-            `
-            : `
-              <form method="POST"
-                    action="/admin/events/${e.id}/archive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
-                    class="inline"
-                    onsubmit="return confirm('Archive this event? (It will be hidden from the public list)');">
-                <button type="submit" class="btn">Archive</button>
-              </form>
-            `
-        }
+          ${
+            Number(e.isArchived || 0) === 1
+              ? `
+                <form method="POST"
+                      action="/admin/events/${e.id}/unarchive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
+                      class="inline"
+                      onsubmit="return confirm('Unarchive this event?');">
+                  <button type="submit" class="btn">Unarchive</button>
+                </form>
+              `
+              : `
+                <form method="POST"
+                      action="/admin/events/${e.id}/archive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
+                      class="inline"
+                      onsubmit="return confirm('Archive this event? (It will be hidden from the public list)');">
+                  <button type="submit" class="btn">Archive</button>
+                </form>
+              `
+          }
+        ` : ``}
 
         <a href="${e.slug ? `/events/slug/${esc(e.slug)}` : `/events/${e.id}`}"
            target="_blank" rel="noopener">View JSON</a>
@@ -1011,6 +1019,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const showApprove = view === "approve";
     const showExisting = view === "existing";
     const showInvites = view === "invites";
+
+    if (showInvites && !isAdminUser) return res.status(403).send("Forbidden");
+    if (showApprove && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
+    if (showCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     const showSearch = showAnalytics || showExisting;
     const isSingleManage = (showCreate ^ showExisting);
 
@@ -1096,7 +1108,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     let invitesHtml = "";
     if (showInvites) {
       const inviteRows = await all(
-        "SELECT id, email, expiresAt, usedAt, createdAt FROM invites ORDER BY datetime(createdAt) DESC"
+        "SELECT id, email, role, city, expiresAt, usedAt, createdAt FROM invites ORDER BY datetime(createdAt) DESC"
       );
       invitesHtml = inviteRows.length
         ? inviteRows
@@ -1111,10 +1123,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
                     <div class="muted" style="min-width:0;">
                       <div style="font-weight:700; color:#0f172a;">${esc(inv.email || "Any email")}</div>
+                      <div>Role: ${esc(inv.role || "city_viewer")}</div>
+                      <div>City: ${esc(inv.city || "Enumclaw")}</div>
                       <div>Created: ${esc(fmtPendingDate(inv.createdAt))}</div>
                       ${inv.expiresAt ? `<div>Expires: ${esc(fmtPendingDate(inv.expiresAt))}</div>` : ""}
                       <div>Status: ${esc(status)}</div>
                     </div>
+                    <form method="POST" action="/admin/invites/${encodeURIComponent(inv.id)}/delete" onsubmit="return confirm('Delete this invite?');">
+                      <button class="btn danger" type="submit">Delete</button>
+                    </form>
                   </div>
                 </div>
               `;
@@ -2162,17 +2179,19 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           <div class="nav-group">
             <div class="nav-title">Events</div>
             <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
-            <a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>
+            ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
+            ${(isAdminUser || isCityEditor) ? `
             <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" style="display:flex; align-items:center; gap:8px;">
               <span>Approve Events</span>
               ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
-            </a>
-            <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>
+            </a>` : ``}
+            ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
           </div>
+          ${isAdminUser ? `
           <div class="nav-group" style="margin-top:16px;">
             <div class="nav-title">Admin</div>
             <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
-          </div>
+          </div>` : ``}
         </nav>
 
         <div class="sb-bottom">
@@ -2427,10 +2446,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <p class="sub">Invite-only signup links</p>
             </div>
           </div>
-          <form method="POST" action="/admin/invites" style="display:grid; gap:12px; max-width:520px;">
+          <form method="POST" action="/admin/invites?city=${encodeURIComponent(selectedCity)}" style="display:grid; gap:12px; max-width:520px;">
             <div class="field">
               <label>Email (optional, to lock invite)</label>
               <input type="email" name="email" placeholder="name@example.com" />
+            </div>
+            <div class="field">
+              <label>Role</label>
+              <select name="role">
+                <option value="city_viewer">City only (create)</option>
+                <option value="city_editor">City editor (approve)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>City</label>
+              <select name="city" ${isAdminUser ? "" : "disabled"}>
+                ${allowedForUser.map(c => `<option value="${esc(c)}" ${c === selectedCity ? "selected" : ""}>${esc(c)}</option>`).join("")}
+              </select>
             </div>
             <div class="field">
               <label>Expires in (days)</label>
@@ -3418,25 +3450,47 @@ router.get("/pending-count", async (req, res) => {
 // Create invite (admin)
 router.post("/invites", async (req, res) => {
   try {
+    const userRole = req.user?.role || "city_viewer";
+    if (userRole !== "admin") return res.status(403).send("Forbidden");
     const email = String(req.body?.email || "").trim().toLowerCase() || null;
+    const role = String(req.body?.role || "city_viewer");
+    const city = String(req.body?.city || req.query.city || "Enumclaw");
     const days = Math.max(1, Math.min(30, parseInt(req.body?.days || "7", 10)));
     const token = crypto.randomBytes(20).toString("hex");
     const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
     await run(
-      "INSERT INTO invites (email, tokenHash, expiresAt) VALUES (?, ?, ?)",
-      [email, tokenHash, expiresAt]
+      "INSERT INTO invites (email, tokenHash, role, city, expiresAt) VALUES (?, ?, ?, ?, ?)",
+      [email, tokenHash, role, city, expiresAt]
     );
-    return res.redirect(`/admin/invites?invite=${encodeURIComponent(token)}`);
+    return res.redirect(`/admin/invites?invite=${encodeURIComponent(token)}&city=${encodeURIComponent(city)}`);
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to create invite.");
   }
 });
 
+router.post("/invites/:id/delete", async (req, res) => {
+  try {
+    const role = req.user?.role || "city_viewer";
+    if (role !== "admin") return res.status(403).send("Forbidden");
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.redirect("/admin/invites");
+    await run("DELETE FROM invites WHERE id = ?", [id]);
+    return res.redirect("/admin/invites");
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to delete invite.");
+  }
+});
+
 // POST /admin/events (create or update)
 router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
+    const role = req.user?.role || "city_viewer";
+    if (!(role === "admin" || role === "city_editor" || role === "city_viewer")) {
+      return res.status(403).send("Forbidden");
+    }
     await ensurePickSchema();
     let {
       id,
@@ -3772,6 +3826,8 @@ return res.redirect(`/admin/create-events?${sp.toString()}`);
 // Approve pending submission (create event)
 router.post("/approve-events/:id/approve", async (req, res) => {
   try {
+    const role = req.user?.role || "city_viewer";
+    if (!(role === "admin" || role === "city_editor")) return res.status(403).send("Forbidden");
     await ensurePickSchema();
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
@@ -3793,6 +3849,8 @@ router.post("/approve-events/:id/approve", async (req, res) => {
 // Deny pending submission (delete)
 router.post("/approve-events/:id/deny", async (req, res) => {
   try {
+    const role = req.user?.role || "city_viewer";
+    if (!(role === "admin" || role === "city_editor")) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
     await run("DELETE FROM pending_events WHERE id = ?", [id]);
@@ -3805,6 +3863,10 @@ router.post("/approve-events/:id/deny", async (req, res) => {
 
 router.post("/events/:id/delete", async (req, res) => {
   try {
+    const role = req.user?.role || "city_viewer";
+    if (!(role === "admin" || role === "city_editor")) {
+      return res.status(403).send("Forbidden");
+    }
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
 
@@ -3830,6 +3892,10 @@ router.post("/events/:id/delete", async (req, res) => {
 // or legacy (isArchived, archivedAt) columns depending on what's present.
 router.post("/events/:id/archive", async (req, res) => {
   try {
+    const role = req.user?.role || "city_viewer";
+    if (!(role === "admin" || role === "city_editor")) {
+      return res.status(403).send("Forbidden");
+    }
     await ensureArchiveSchema();
 
     const id = parseInt(req.params.id, 10);
@@ -3870,6 +3936,10 @@ router.post("/events/:id/archive", async (req, res) => {
 
 router.post("/events/:id/unarchive", async (req, res) => {
   try {
+    const role = req.user?.role || "city_viewer";
+    if (!(role === "admin" || role === "city_editor")) {
+      return res.status(403).send("Forbidden");
+    }
     await ensureArchiveSchema();
 
     const id = parseInt(req.params.id, 10);

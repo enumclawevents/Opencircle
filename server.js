@@ -158,9 +158,9 @@ function parseCookies(cookieHeader) {
   return out;
 }
 
-function createSession(user) {
+function createSession(user, role = "city_viewer", city = "Enumclaw") {
   const token = crypto.randomUUID();
-  sessions.set(token, { user, exp: Date.now() + SESSION_TTL_MS });
+  sessions.set(token, { user, role, city, exp: Date.now() + SESSION_TTL_MS });
   return token;
 }
 
@@ -192,7 +192,10 @@ function requireLogin(req, res, next) {
   const cookies = parseCookies(req.headers.cookie || "");
   const token = cookies.oc_auth;
   const sess = getSession(token);
-  if (sess) return next();
+  if (sess) {
+    req.user = sess;
+    return next();
+  }
 
   const wantsHtml = (req.headers.accept || "").includes("text/html");
   if (wantsHtml) return res.redirect("/login");
@@ -293,7 +296,7 @@ app.post("/login", async (req, res) => {
       [user, user]
     );
     if (row && verifyPassword(pass, row.passwordHash)) {
-      const token = createSession(row.username || row.email || "user");
+      const token = createSession(row.username || row.email || "user", row.role || "city_viewer", row.city || "Enumclaw");
       res.cookie("oc_auth", token, {
         httpOnly: true,
         sameSite: "lax",
@@ -306,7 +309,7 @@ app.post("/login", async (req, res) => {
   }
 
   if (user === ADMIN_USER && pass === ADMIN_PASS) {
-    const token = createSession(user);
+    const token = createSession(user, "admin", "Enumclaw");
     res.cookie("oc_auth", token, {
       httpOnly: true,
       sameSite: "lax",
@@ -380,7 +383,7 @@ app.post("/signup", async (req, res) => {
 
   const inviteHash = hashToken(inviteToken);
   const inviteRow = await get(
-    "SELECT id, email, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
+    "SELECT id, email, role, city, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
     [inviteHash]
   );
   if (
@@ -404,8 +407,8 @@ app.post("/signup", async (req, res) => {
 
   const passwordHash = hashPassword(password);
   await run(
-    "INSERT INTO users (email, username, passwordHash) VALUES (?, ?, ?)",
-    [email, username, passwordHash]
+    "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)",
+    [email, username, passwordHash, inviteRow.role || "city_viewer", inviteRow.city || "Enumclaw"]
   );
   await run("UPDATE invites SET usedAt = datetime('now') WHERE id = ?", [inviteRow.id]);
   return res.redirect("/login");

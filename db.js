@@ -187,6 +187,8 @@ async function initDB() {
       email TEXT UNIQUE,
       username TEXT UNIQUE,
       passwordHash TEXT,
+      role TEXT DEFAULT 'city_viewer',
+      city TEXT DEFAULT 'Enumclaw',
       createdAt TEXT DEFAULT (datetime('now'))
     );
   `);
@@ -199,6 +201,8 @@ async function initDB() {
   await addUserCol("email", `ALTER TABLE users ADD COLUMN email TEXT;`);
   await addUserCol("username", `ALTER TABLE users ADD COLUMN username TEXT;`);
   await addUserCol("passwordHash", `ALTER TABLE users ADD COLUMN passwordHash TEXT;`);
+  await addUserCol("role", `ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'city_viewer';`);
+  await addUserCol("city", `ALTER TABLE users ADD COLUMN city TEXT DEFAULT 'Enumclaw';`);
   await addUserCol("createdAt", `ALTER TABLE users ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
 
   // Invites (invite-only signup)
@@ -207,11 +211,20 @@ async function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT,
       tokenHash TEXT,
+      role TEXT DEFAULT 'city_viewer',
+      city TEXT DEFAULT 'Enumclaw',
       expiresAt TEXT,
       usedAt TEXT,
       createdAt TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  const addInviteCol = async (name, defSql) => {
+    const cols = await tableInfo("invites");
+    if (!cols.some((c) => c.name === name)) await tryExec(defSql);
+  };
+  await addInviteCol("role", `ALTER TABLE invites ADD COLUMN role TEXT DEFAULT 'city_viewer';`);
+  await addInviteCol("city", `ALTER TABLE invites ADD COLUMN city TEXT DEFAULT 'Enumclaw';`);
 
   // Password resets
   await tryExec(`

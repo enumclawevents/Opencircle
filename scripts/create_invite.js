@@ -17,14 +17,18 @@ async function main() {
   const email = arg("--email", "").trim().toLowerCase() || null;
   const days = Math.max(1, Math.min(30, parseInt(arg("--days", "7"), 10)));
   const base = arg("--base", "").trim();
+  const role = arg("--role", "city_viewer").trim() || "city_viewer";
+  const city = arg("--city", "Enumclaw").trim() || "Enumclaw";
 
   const token = crypto.randomBytes(20).toString("hex");
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
-  await run("INSERT INTO invites (email, tokenHash, expiresAt) VALUES (?, ?, ?)", [
+  await run("INSERT INTO invites (email, tokenHash, role, city, expiresAt) VALUES (?, ?, ?, ?, ?)", [
     email,
     tokenHash,
+    role,
+    city,
     expiresAt,
   ]);
 
