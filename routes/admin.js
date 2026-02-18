@@ -9,6 +9,7 @@ const { execSync } = require("child_process");
 const multer = require("multer");
 const { S3Client } = require("@aws-sdk/client-s3");
 const multerS3 = require("multer-s3");
+const { sendEmail } = require("../mailer");
 const crypto = require("crypto");
 
 function hashToken(token) {
@@ -1018,8 +1019,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const showCreate = view === "create";
     const showApprove = view === "approve";
     const showExisting = view === "existing";
+    const showUsers = view === "users";
     const showInvites = view === "invites";
 
+    if (showUsers && !isAdminUser) return res.status(403).send("Forbidden");
     if (showInvites && !isAdminUser) return res.status(403).send("Forbidden");
     if (showApprove && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     if (showCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
@@ -1140,12 +1143,64 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         : `<div class="muted">No invites yet.</div>`;
     }
 
+    let usersHtml = "";
+    if (showUsers) {
+      const rows = await all(
+        "SELECT id, email, username, role, city, createdAt FROM users ORDER BY datetime(createdAt) DESC"
+      );
+      usersHtml = rows.length
+        ? rows
+            .map((u) => {
+              const labelRole = u.role === "editor" ? "Editor" : u.role === "creator" ? "Creator" : "Admin";
+              return `
+                <div class="mini" style="margin-bottom:10px;">
+                  <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+                    <div class="muted" style="min-width:0;">
+                      <div style="font-weight:700; color:#0f172a;">${esc(u.username || u.email || "User")}</div>
+                      <div>Email: ${esc(u.email || "")}</div>
+                      <div>Role: ${esc(labelRole)}</div>
+                      <div>City: ${esc(u.city || "Enumclaw")}</div>
+                      <div>Created: ${esc(fmtPendingDate(u.createdAt))}</div>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');">
+                        <button class="btn" type="submit">Resend invite</button>
+                      </form>
+                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');">
+                        <button class="btn" type="submit">Reset Password</button>
+                      </form>
+                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role">
+                        <select name="role" class="ctrl" style="min-width:140px;">
+                          <option value="creator" ${u.role === "creator" ? "selected" : ""}>Creator</option>
+                          <option value="editor" ${u.role === "editor" ? "selected" : ""}>Editor</option>
+                          <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option>
+                        </select>
+                        <select name="city" class="ctrl" style="min-width:140px;">
+                          <option value="Enumclaw" ${u.city === "Enumclaw" ? "selected" : ""}>Enumclaw</option>
+                          <option value="Buckley" ${u.city === "Buckley" ? "selected" : ""}>Buckley</option>
+                        </select>
+                        <button class="btn" type="submit">Update</button>
+                      </form>
+                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');">
+                        <button class="btn danger" type="submit">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              `;
+            })
+            .join("")
+        : `<div class="muted">No users yet.</div>`;
+    }
+
     const pageTitleBase = showCreate
       ? "Create Events"
       : showApprove
       ? "Approve Events"
       : showExisting
       ? "All Events"
+      : showUsers
+      ? "Users"
       : showInvites
       ? "Invites"
       : "Events Dashboard";
@@ -2190,6 +2245,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           ${isAdminUser ? `
           <div class="nav-group" style="margin-top:16px;">
             <div class="nav-title">Admin</div>
+            <a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>
             <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
           </div>` : ``}
         </nav>
@@ -2438,6 +2494,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         ` : ``}
 
         <!-- Invites -->
+        ${showUsers ? `
+        <section class="card" id="users" style="margin-bottom:var(--gap);">
+          <div class="sectionTitle">
+            <div>
+              <h2>Users</h2>
+              <p class="sub">Manage access and roles</p>
+            </div>
+          </div>
+          ${usersHtml}
+        </section>
+        ` : ``}
+
         ${showInvites ? `
         <section class="card" id="invites" style="margin-bottom:var(--gap);">
           <div class="sectionTitle">
@@ -3436,6 +3504,7 @@ router.get("/create-events", async (req, res) => renderAdmin(req, res, "create")
 router.get("/approve-events", async (req, res) => renderAdmin(req, res, "approve"));
 router.get("/existing-events", async (req, res) => renderAdmin(req, res, "existing"));
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
+router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 router.get("/pending-count", async (req, res) => {
   try {
     const city = String(req.query.city || "Enumclaw");
@@ -3481,6 +3550,99 @@ router.post("/invites/:id/delete", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to delete invite.");
+  }
+});
+
+// Users admin actions
+router.post("/users/:id/role", async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (role !== "admin") return res.status(403).send("Forbidden");
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.redirect("/admin/users");
+    const newRole = String(req.body?.role || "creator");
+    const newCity = String(req.body?.city || "Enumclaw");
+    await run("UPDATE users SET role = ?, city = ? WHERE id = ?", [newRole, newCity, id]);
+    return res.redirect("/admin/users");
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to update user.");
+  }
+});
+
+router.post("/users/:id/delete", async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (role !== "admin") return res.status(403).send("Forbidden");
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.redirect("/admin/users");
+    await run("DELETE FROM users WHERE id = ?", [id]);
+    return res.redirect("/admin/users");
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to delete user.");
+  }
+});
+
+router.post("/users/:id/reset", async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (role !== "admin") return res.status(403).send("Forbidden");
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.redirect("/admin/users");
+
+    const u = await get("SELECT id, email FROM users WHERE id = ?", [id]);
+    if (!u || !u.email) return res.redirect("/admin/users");
+
+    const token = crypto.randomBytes(24).toString("hex");
+    const tokenHash = hashToken(token);
+    const exp = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    await run(
+      "INSERT INTO password_resets (userId, tokenHash, expiresAt) VALUES (?, ?, ?)",
+      [u.id, tokenHash, exp]
+    );
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const link = `${baseUrl}/reset?token=${encodeURIComponent(token)}`;
+    const subject = "Reset your OpenCircle password";
+    const text = `Reset your password: ${link}`;
+    const html = `<p>Reset your password:</p><p><a href="${link}">${link}</a></p>`;
+    try { await sendEmail({ to: u.email, subject, text, html }); } catch (_) {}
+    return res.redirect("/admin/users");
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to send reset.");
+  }
+});
+
+router.post("/users/:id/resend-invite", async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (role !== "admin") return res.status(403).send("Forbidden");
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.redirect("/admin/users");
+
+    const u = await get("SELECT id, email, role, city FROM users WHERE id = ?", [id]);
+    if (!u || !u.email) return res.redirect("/admin/users");
+
+    const token = crypto.randomBytes(20).toString("hex");
+    const tokenHash = hashToken(token);
+    const exp = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    await run(
+      "INSERT INTO invites (email, tokenHash, role, city, expiresAt) VALUES (?, ?, ?, ?, ?)",
+      [u.email, tokenHash, u.role || "creator", u.city || "Enumclaw", exp]
+    );
+
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const link = `${baseUrl}/signup?invite=${encodeURIComponent(token)}`;
+    const subject = "You're invited to OpenCircle";
+    const text = `Use this invite link to access OpenCircle: ${link}`;
+    const html = `<p>Use this invite link to access OpenCircle:</p><p><a href="${link}">${link}</a></p>`;
+    try { await sendEmail({ to: u.email, subject, text, html }); } catch (_) {}
+
+    return res.redirect("/admin/users");
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to resend invite.");
   }
 });
 

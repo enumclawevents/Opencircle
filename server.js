@@ -5,7 +5,7 @@ const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
-const nodemailer = require("nodemailer");
+const { sendEmail } = require("./mailer");
 
 const { initDB, archiveExpiredEvents, get, run } = require("./db");
 
@@ -90,20 +90,6 @@ const PASSWORD_ITER = 120000;
 const INVITE_TTL_HOURS = 7 * 24;
 const RESET_TTL_HOURS = 1;
 
-const SMTP_HOST = process.env.SMTP_HOST || "";
-const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-const SMTP_USER = process.env.SMTP_USER || "";
-const SMTP_PASS = process.env.SMTP_PASS || "";
-const SMTP_FROM = process.env.SMTP_FROM || "no-reply@opencircleapi.com";
-
-const mailer = SMTP_HOST
-  ? nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_PORT === 465,
-      auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
-    })
-  : null;
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -127,20 +113,6 @@ function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-async function sendEmail({ to, subject, html, text }) {
-  if (!mailer) {
-    console.warn("[MAIL] SMTP not configured. Skipping email to:", to);
-    return false;
-  }
-  await mailer.sendMail({
-    from: SMTP_FROM,
-    to,
-    subject,
-    html,
-    text,
-  });
-  return true;
-}
 
 function parseCookies(cookieHeader) {
   const out = {};
@@ -365,7 +337,7 @@ app.post("/signup", async (req, res) => {
   const text = `New pricing inquiry: ${email}`;
   const html = `<p>New pricing inquiry: <strong>${email}</strong></p>`;
   try {
-    await sendEmail({ to: SMTP_FROM, subject, text, html });
+    await sendEmail({ to: process.env.SMTP_FROM || "no-reply@opencircleapi.com", subject, text, html });
   } catch (e) {
     console.error("[MAIL] inquiry failed", e);
   }
