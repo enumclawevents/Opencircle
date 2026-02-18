@@ -1132,7 +1132,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       : showInvites
       ? "Invites"
       : "Events Dashboard";
-    const pageTitle = pendingCount > 0 ? `(${pendingCount}) ${pageTitleBase}` : pageTitleBase;
+    const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
     res.send(`<!doctype html>
 <html>
@@ -2197,8 +2197,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             </div>
           </div>
 
-          <div class="mini" style="margin-top:10px;">
-            <a class="subnav-link" href="/logout" style="display:block; color:var(--sidebar-text);">Log out</a>
+          <div style="margin-top:10px;">
+            <a class="subnav-link" href="/logout" style="display:block; color:var(--sidebar-muted); font-size:12px;">Log out</a>
           </div>
         </div>
       </aside>
