@@ -129,6 +129,72 @@ function safeParseJson(val, fallback) {
   }
 }
 
+function extractPlainUrl(str) {
+  const s = String(str || "").trim();
+  if (!s) return "";
+  const paren = s.match(/\((https?:\/\/[^)]+)\)/i);
+  if (paren && paren[1]) return paren[1];
+  const raw = s.match(/https?:\/\/[^\s)]+/i);
+  return raw ? raw[0] : "";
+}
+
+function mapCategoriesFromJson(input) {
+  const map = {
+    family: "Family & Kids",
+    kids: "Family & Kids",
+    workshop: "Classes & Workshops",
+    classes: "Classes & Workshops",
+    food: "Food & Drink",
+    drink: "Food & Drink",
+    art: "Arts & Culture",
+    arts: "Arts & Culture",
+    market: "Markets & Shopping",
+    shopping: "Markets & Shopping",
+    nightlife: "Nightlife",
+    music: "Music",
+    community: "Community",
+    sports: "Sports & Fitness",
+    outdoors: "Outdoors",
+    business: "Business & Networking",
+    charity: "Charity & Fundraising",
+    seasonal: "Seasonal & Holiday",
+  };
+
+  let arr = [];
+  if (Array.isArray(input)) arr = input;
+  else if (typeof input === "string" && input.trim() !== "") arr = [input.trim()];
+
+  const out = [];
+  for (const raw of arr) {
+    const key = String(raw || "").trim().toLowerCase();
+    if (!key) continue;
+    const mapped = map[key] || raw;
+    out.push(mapped);
+  }
+  return out;
+}
+
+function mapLocationFromJson(j) {
+  const venue = String(j.venue_name || "").trim();
+  if (venue) return venue;
+  const loc = String(j.location_name || "").trim();
+  if (loc) return loc;
+
+  const addr1 = String(j.address_line1 || "").trim();
+  const city = String(j.city || "").trim();
+  const state = String(j.state || "").trim();
+  const zip = String(j.postal_code || "").trim();
+
+  const parts = [];
+  if (addr1) parts.push(addr1);
+  let cityLine = "";
+  if (city) cityLine += city;
+  if (state) cityLine += (cityLine ? ", " : "") + state;
+  if (zip) cityLine += (cityLine ? " " : "") + zip;
+  if (cityLine) parts.push(cityLine);
+  return parts.join(", ");
+}
+
 function parseStoredCategories(stored) {
   const parsed = safeParseJson(stored, null);
   if (Array.isArray(parsed)) return parsed;
@@ -2641,6 +2707,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 <div class="note">Max 3. Only your allow-list categories are accepted.</div>
               </div>
 
+              <div class="rec-box" style="margin-top:0;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                  <label style="margin:0; font-weight:650;">Paste Event Extraction JSON (optional)</label>
+                  <button type="button" class="btn" onclick="(function(){var t=document.getElementById('rawJson'); if(t) t.value='';})()">Clear JSON</button>
+                </div>
+                <textarea class="ctrl" id="rawJson" name="rawJson" placeholder="Paste the JSON output from ChatGPT here…" style="min-height:140px; margin-top:8px;"></textarea>
+                <div class="note">If provided, the server will parse and auto-fill fields. You can still edit fields below before saving.</div>
+              </div>
+
               <label>Title</label>
               <input class="ctrl" name="title" value="${esc(editEvent?.title || "")}" required />
 
@@ -3718,6 +3793,48 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       return res.status(403).send("Forbidden");
     }
     await ensurePickSchema();
+
+    const rawJson = String(req.body?.rawJson || "").trim();
+    if (rawJson) {
+      let parsed = null;
+      try {
+        parsed = JSON.parse(rawJson);
+      } catch (e) {
+        return res.status(400).send("Invalid JSON in Paste Event Extraction JSON.");
+      }
+      const j = parsed && typeof parsed === "object" ? parsed : null;
+      if (j) {
+        if (j.title) req.body.title = String(j.title);
+        if (j.description_html) req.body.description = String(j.description_html);
+        if (j.good_to_know_html) req.body.goodToKnow = String(j.good_to_know_html);
+
+        const loc = mapLocationFromJson(j);
+        if (loc) req.body.location = loc;
+
+        if (j.organizer_name) req.body.organizer = String(j.organizer_name);
+
+        const ticket = extractPlainUrl(j.ticket_url) || extractPlainUrl(j.event_url);
+        if (ticket) req.body.ticketUrl = ticket;
+        const eventUrl = extractPlainUrl(j.event_url) || String(j.event_url || "").trim();
+        if (eventUrl) req.body.eventLink = eventUrl;
+
+        if (j.categories) req.body.categories = mapCategoriesFromJson(j.categories);
+
+        if (j.start_datetime) {
+          req.body.startDateTimeISO = String(j.start_datetime);
+          req.body.startDateTime = String(j.start_datetime).slice(0, 16);
+        }
+        if (j.end_datetime) {
+          req.body.endDateTimeISO = String(j.end_datetime);
+          req.body.endDateTime = String(j.end_datetime).slice(0, 16);
+        } else if (j.start_datetime) {
+          const endIso = addHoursIso(String(j.start_datetime), 1);
+          req.body.endDateTimeISO = endIso;
+          req.body.endDateTime = String(endIso).slice(0, 16);
+        }
+      }
+    }
+
     let {
       id,
       city = "Enumclaw",
