@@ -2196,6 +2196,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               Build ${esc(stats.appVersion)}
             </div>
           </div>
+
+          <div class="mini" style="margin-top:10px;">
+            <a class="subnav-link" href="/logout" style="display:block; color:var(--sidebar-text);">Log out</a>
+          </div>
         </div>
       </aside>
 
