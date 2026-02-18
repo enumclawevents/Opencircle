@@ -205,13 +205,14 @@ app.get("/login", (req, res) => {
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="icon" href="/assets/brand/favicon.ico" />
       <title>Login</title>
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
         .card{background:#111827; padding:28px; border-radius:12px; width:360px; box-shadow:0 10px 30px rgba(0,0,0,.3);}
-        .logo{display:block; width:160px; max-width:100%; margin:0 auto 14px;}
+        .logo{display:block; width:160px; max-width:100%; margin:0 auto 30px;}
         .title{font-size:22px; font-weight:700; margin:0 0 6px; color:#e5e7eb; text-align:center;}
-        .subtitle{font-size:13px; color:#9ca3af; margin:0 0 22px; text-align:center;}
+        .subtitle{font-size:13px; color:#9ca3af; margin:0 0 30px; text-align:center;}
         label{font-size:12px; color:#9ca3af;}
         input{width:100%; box-sizing:border-box; margin:6px 0 18px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
         .row-between{display:flex; align-items:center; justify-content:space-between; margin:10px 0 18px;}
@@ -326,6 +327,7 @@ app.get("/signup", (req, res) => {
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="icon" href="/assets/brand/favicon.ico" />
       <title>Sign up</title>
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
@@ -415,6 +417,7 @@ app.get("/forgot", (_req, res) => {
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="icon" href="/assets/brand/favicon.ico" />
       <title>Forgot password</title>
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
@@ -486,6 +489,7 @@ app.get("/reset", async (req, res) => {
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="icon" href="/assets/brand/favicon.ico" />
       <title>Reset password</title>
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
