@@ -1148,8 +1148,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       const rows = await all(
         "SELECT id, email, username, role, city, createdAt FROM users ORDER BY datetime(createdAt) DESC"
       );
+      const notice = String(req.query.notice || "");
+      const noticeHtml =
+        notice === "sent"
+          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(16,185,129,.35); color:#065f46;">Invite email sent.</div>`
+          : notice === "no_email"
+          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">User has no email on file.</div>`
+          : notice === "send_failed"
+          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">Failed to send email. Check SMTP logs.</div>`
+          : "";
       usersHtml = rows.length
-        ? rows
+        ? noticeHtml +
+          rows
             .map((u) => {
               const labelRole = u.role === "editor" ? "Editor" : u.role === "creator" ? "Creator" : "Admin";
               return `
@@ -1157,7 +1167,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
                     <div class="muted" style="min-width:0;">
                       <div style="font-weight:700; color:#0f172a;">${esc(u.username || u.email || "User")}</div>
-                      <div>Email: ${esc(u.email || "")}</div>
+                      <div>Email: ${esc(u.email || "—")}</div>
                       <div>Role: ${esc(labelRole)}</div>
                       <div>City: ${esc(u.city || "Enumclaw")}</div>
                       <div>Created: ${esc(fmtPendingDate(u.createdAt))}</div>
@@ -2531,7 +2541,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           ${req.query.invite ? `
             <div class="mini" style="margin-top:14px;">
               <div class="muted">Invite link (copy and share):</div>
-              <div style="font-weight:700; margin-top:6px;">${esc(`${req.protocol}://${req.get("host")}/signup?invite=${req.query.invite}`)}</div>
+              <div style="font-weight:700; margin-top:6px;">${esc(`${req.protocol}://${req.get("host")}/invite?invite=${req.query.invite}`)}</div>
             </div>
           ` : ``}
           <div style="height:12px;"></div>
@@ -3612,7 +3622,7 @@ router.post("/users/:id/resend-invite", async (req, res) => {
     if (Number.isNaN(id)) return res.redirect("/admin/users");
 
     const u = await get("SELECT id, email, role, city FROM users WHERE id = ?", [id]);
-    if (!u || !u.email) return res.redirect("/admin/users");
+    if (!u || !u.email) return res.redirect("/admin/users?notice=no_email");
 
     const token = crypto.randomBytes(20).toString("hex");
     const tokenHash = hashToken(token);
@@ -3623,13 +3633,18 @@ router.post("/users/:id/resend-invite", async (req, res) => {
     );
 
     const baseUrl = `${req.protocol}://${req.get("host")}`;
-    const link = `${baseUrl}/signup?invite=${encodeURIComponent(token)}`;
+    const link = `${baseUrl}/invite?invite=${encodeURIComponent(token)}`;
     const subject = "You're invited to OpenCircle";
     const text = `Use this invite link to access OpenCircle: ${link}`;
     const html = `<p>Use this invite link to access OpenCircle:</p><p><a href="${link}">${link}</a></p>`;
-    try { await sendEmail({ to: u.email, subject, text, html }); } catch (_) {}
+    try {
+      await sendEmail({ to: u.email, subject, text, html });
+    } catch (e) {
+      console.error("[MAIL] invite failed", e);
+      return res.redirect("/admin/users?notice=send_failed");
+    }
 
-    return res.redirect("/admin/users");
+    return res.redirect("/admin/users?notice=sent");
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to resend invite.");

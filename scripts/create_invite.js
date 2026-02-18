@@ -33,7 +33,7 @@ async function main() {
   ]);
 
   if (base) {
-    console.log(`${base.replace(/\/$/, "")}/signup?invite=${token}`);
+    console.log(`${base.replace(/\/$/, "")}/invite?invite=${token}`);
   } else {
     console.log(token);
   }

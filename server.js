@@ -90,6 +90,15 @@ const PASSWORD_ITER = 120000;
 const INVITE_TTL_HOURS = 7 * 24;
 const RESET_TTL_HOURS = 1;
 
+function esc(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -152,6 +161,7 @@ function requireLogin(req, res, next) {
   if (
     req.path === "/login" ||
     req.path === "/signup" ||
+    req.path === "/invite" ||
     req.path === "/forgot" ||
     req.path === "/health" ||
     (req.path.startsWith("/events") && !req.path.startsWith("/events/submit")) ||
@@ -343,6 +353,95 @@ app.post("/signup", async (req, res) => {
   }
 
   return res.send("Thanks! We’ll follow up by email shortly.");
+});
+
+app.get("/invite", async (req, res) => {
+  const token = String(req.query.invite || "").trim();
+  if (!token) return res.status(400).send("Missing invite token.");
+
+  const invite = await get(
+    "SELECT id, email, role, city, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
+    [hashToken(token)]
+  );
+  if (!invite) return res.status(404).send("Invite not found.");
+  if (invite.usedAt) return res.status(410).send("Invite already used.");
+  if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
+    return res.status(410).send("Invite expired.");
+  }
+
+  const presetEmail = invite.email ? String(invite.email) : "";
+
+  const html = `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="icon" href="/assets/brand/favicon.ico" />
+      <title>Accept invite</title>
+      <style>
+        body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
+        .card{background:#111827; padding:28px; border-radius:12px; width:360px; box-shadow:0 10px 30px rgba(0,0,0,.3);}
+        .title{font-size:22px; font-weight:700; margin:0 0 6px; color:#e5e7eb; text-align:center;}
+        .subtitle{font-size:13px; color:#9ca3af; margin:0 0 22px; text-align:center;}
+        label{font-size:12px; color:#9ca3af;}
+        input{width:100%; box-sizing:border-box; margin:6px 0 20px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
+        button{width:100%; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
+      </style>
+    </head>
+    <body>
+      <form class="card" method="POST" action="/invite">
+        <div class="title">Accept invite</div>
+        <div class="subtitle">Create your account to continue.</div>
+        <input type="hidden" name="invite" value="${esc(token)}" />
+        <label>Email</label>
+        <input name="email" type="email" value="${esc(presetEmail)}" ${presetEmail ? "readonly" : "required"} />
+        <label>Username</label>
+        <input name="username" type="text" required />
+        <label>Password</label>
+        <input name="password" type="password" required />
+        <button type="submit">Create account</button>
+      </form>
+    </body>
+  </html>`;
+  res.send(html);
+});
+
+app.post("/invite", async (req, res) => {
+  const token = String(req.body?.invite || "").trim();
+  if (!token) return res.status(400).send("Missing invite token.");
+
+  const invite = await get(
+    "SELECT id, email, role, city, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
+    [hashToken(token)]
+  );
+  if (!invite) return res.status(404).send("Invite not found.");
+  if (invite.usedAt) return res.status(410).send("Invite already used.");
+  if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
+    return res.status(410).send("Invite expired.");
+  }
+
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const username = String(req.body?.username || "").trim();
+  const password = String(req.body?.password || "");
+  if (!email || !username || !password) return res.status(400).send("All fields are required.");
+  if (invite.email && invite.email.toLowerCase() !== email) {
+    return res.status(400).send("Invite email does not match.");
+  }
+
+  const existing = await get(
+    "SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1",
+    [email, username]
+  );
+  if (existing) return res.status(400).send("Email or username already in use.");
+
+  const passwordHash = hashPassword(password);
+  await run(
+    "INSERT INTO users (email, username, passwordHash, role, city, createdAt) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+    [email, username, passwordHash, invite.role || "creator", invite.city || "Enumclaw"]
+  );
+  await run("UPDATE invites SET usedAt = datetime('now') WHERE id = ?", [invite.id]);
+
+  return res.redirect("/login");
 });
 
 app.get("/forgot", (_req, res) => {
