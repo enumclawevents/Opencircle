@@ -475,8 +475,17 @@ const offset = (pg - 1) * limit;
 const q = String(req.query.q || "").trim();
 const sort = String(req.query.sort || "datetime"); // datetime | alpha | recent | id
 
-// Archive filter (best practice: soft-delete via archived_at + is_archived)
-const archivedMode = String(req.query.archived || "0"); // "0"=active, "1"=archived, "recurring"=recurring, "all"=all
+// Lifecycle filter for admin list:
+// status=upcoming|past|archived, recurring=1 (optional)
+// Back-compat: map old archived query values if present.
+const archivedModeLegacy = String(req.query.archived || "").trim().toLowerCase();
+let statusMode = String(req.query.status || "").trim().toLowerCase();
+if (!["upcoming", "past", "archived"].includes(statusMode)) {
+  if (archivedModeLegacy === "1") statusMode = "archived";
+  else statusMode = "upcoming";
+}
+const recurringOnly =
+  String(req.query.recurring || "0") === "1" || archivedModeLegacy === "recurring";
 
 let whereParts = [];
 let whereParams = [];
@@ -528,27 +537,39 @@ function recurrenceWhereClause() {
   return parts.length ? `(${parts.join(" OR ")})` : "";
 }
 
-if (archivedMode === "recurring") {
+if (recurringOnly) {
   if (hasRecurrenceColsForWhere) {
     const recWhere = recurrenceWhereClause();
     if (recWhere) whereParts.push(recWhere);
   } else {
     whereParts.push("1=0");
   }
-  if (colArchived) whereParts.push(`(${colArchived} IS NULL OR ${colArchived} = 0)`);
-} else if (colArchived) {
-  if (archivedMode === "1") whereParts.push(`${colArchived} = 1`);
-  else if (archivedMode === "0") {
-    whereParts.push(`(${colArchived} IS NULL OR ${colArchived} = 0)`);
-    if (hasRecurrenceColsForWhere) {
-      const recWhere = recurrenceWhereClause();
-      if (recWhere) whereParts.push(`NOT ${recWhere}`);
-    }
-  }
-  // "all" => no clause
+}
+
+const hasEndCol = colsForWhere.has("endDateTime");
+const hasStartCol = colsForWhere.has("startDateTime");
+let lifecycleDateExpr = "";
+if (hasEndCol && hasStartCol) {
+  lifecycleDateExpr = `datetime(COALESCE(NULLIF(trim(endDateTime), ''), NULLIF(trim(startDateTime), '')))`;
+} else if (hasEndCol) {
+  lifecycleDateExpr = `datetime(endDateTime)`;
+} else if (hasStartCol) {
+  lifecycleDateExpr = `datetime(startDateTime)`;
+}
+
+if (statusMode === "archived") {
+  if (colArchived) whereParts.push(`${colArchived} = 1`);
+  else whereParts.push("1=0");
 } else {
-  // If schema doesn't support archive yet, force active view behavior
-  if (archivedMode === "1") whereParts.push(`1=0`);
+  if (colArchived) whereParts.push(`(${colArchived} IS NULL OR ${colArchived} = 0)`);
+
+  if (!lifecycleDateExpr) {
+    whereParts.push("1=0");
+  } else if (statusMode === "past") {
+    whereParts.push(`${lifecycleDateExpr} < datetime('now')`);
+  } else {
+    whereParts.push(`${lifecycleDateExpr} >= datetime('now')`);
+  }
 }
 
 const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
@@ -566,7 +587,8 @@ const baseListPath = "/admin/existing-events";
       sp.set("limit", String(limit));
       if (sort) sp.set("sort", sort);
       if (q) sp.set("q", q);
-      if (archivedMode) sp.set("archived", archivedMode);
+      if (statusMode) sp.set("status", statusMode);
+      if (recurringOnly) sp.set("recurring", "1");
       if (selectedCity) sp.set("city", selectedCity);
       return `${baseListPath}?${sp.toString()}`;
     }
@@ -796,10 +818,10 @@ return `
 
       <div class="event-actions">
         ${isAdminUser || isCityEditor ? `
-          <a class="btn btn-edit" href="/admin/create-events?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit</a>
+          <a class="btn btn-edit" href="/admin/create-events?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit</a>
 
           <form method="POST"
-                action="/admin/events/${e.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
+                action="/admin/events/${e.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
                 class="inline"
                 onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
             <button type="submit" class="btn btn-danger">Delete</button>
@@ -809,7 +831,7 @@ return `
             Number(e.isArchived || 0) === 1
               ? `
                 <form method="POST"
-                      action="/admin/events/${e.id}/unarchive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
+                      action="/admin/events/${e.id}/unarchive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
                       class="inline"
                       onsubmit="return confirm('Unarchive this event?');">
                   <button type="submit" class="btn">Unarchive</button>
@@ -817,7 +839,7 @@ return `
               `
               : `
                 <form method="POST"
-                      action="/admin/events/${e.id}/archive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
+                      action="/admin/events/${e.id}/archive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
                       class="inline"
                       onsubmit="return confirm('Archive this event? (It will be hidden from the public list)');">
                   <button type="submit" class="btn">Archive</button>
@@ -853,11 +875,10 @@ return `
     const dashParts = [];
     const dashParams = [];
     if (hasArchiveCols2) {
-      if (archivedMode === "1") dashParts.push("isArchived = 1");
+      if (statusMode === "archived") dashParts.push("isArchived = 1");
       else dashParts.push("(isArchived IS NULL OR isArchived = 0)");
-      // all => no clause
     } else {
-      if (archivedMode === "1") dashParts.push("1=0");
+      if (statusMode === "archived") dashParts.push("1=0");
     }
     if (selectedCity) {
       dashParts.push("city = ?");
@@ -2448,9 +2469,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <input name="q" value="${esc(q)}" placeholder="Search events (title, slug, location, ID)..." />
               <input type="hidden" name="pg" value="1" />
               <input type="hidden" name="limit" value="${esc(String(limit))}" />
-              <input type="hidden" name="archived" value="${esc(String(archivedMode))}" />
+              <input type="hidden" name="status" value="${esc(String(statusMode))}" />
+              ${recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``}
               <button class="btn btn-primary" type="submit">Search</button>
-              ${q ? `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&archived=${esc(String(archivedMode))}">Reset</a>` : ``}
+              ${q ? `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>` : ``}
             </form>
             ` : ``}
           </div>
@@ -2969,7 +2991,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
               <div class="actions">
                 <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
-                ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${archivedMode ? `&archived=${encodeURIComponent(archivedMode)}` : ""}">Cancel</a>` : ""}
+                ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}">Cancel</a>` : ""}
                 <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
               </div>
             </form>
@@ -2985,9 +3007,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               </div>
               <div class="right">
                 <div class="rightRow">
-                  <a class="btn ${archivedMode === "0" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=0">Active</a>
-                  <a class="btn ${archivedMode === "recurring" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=recurring">Recurring</a>
-                  <a class="btn ${archivedMode === "1" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&archived=1">Archived</a>
+                  <a class="btn ${statusMode === "upcoming" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&status=upcoming${recurringOnly ? `&recurring=1` : ``}">Upcoming</a>
+                  <a class="btn ${statusMode === "past" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&status=past${recurringOnly ? `&recurring=1` : ``}">Past</a>
+                  <a class="btn ${statusMode === "archived" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&status=archived${recurringOnly ? `&recurring=1` : ``}">Archived</a>
+                  <a class="btn ${recurringOnly ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&status=${encodeURIComponent(statusMode)}${recurringOnly ? `` : `&recurring=1`}">${recurringOnly ? "Recurring: On" : "Recurring Only"}</a>
 
                   <select id="sortBy" class="ctrl sortBy">
                     <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
@@ -4395,9 +4418,11 @@ const pg = req.query.pg ? String(req.query.pg) : "1";
 const limit = req.query.limit ? String(req.query.limit) : "20";
 const q = req.query.q ? String(req.query.q) : "";
 
-const archived = req.query.archived ? String(req.query.archived) : "0";
+const status = req.query.status ? String(req.query.status) : "upcoming";
+const recurring = req.query.recurring ? String(req.query.recurring) : "0";
 
-const sp = new URLSearchParams({ edit: String(id), pg, limit, archived });
+const sp = new URLSearchParams({ edit: String(id), pg, limit, status });
+if (recurring === "1") sp.set("recurring", "1");
 if (q) sp.set("q", q);
 
 return res.redirect(`/admin/create-events?${sp.toString()}`);
@@ -4432,9 +4457,11 @@ const pg = req.query.pg ? String(req.query.pg) : "1";
 const limit = req.query.limit ? String(req.query.limit) : "20";
 const q = req.query.q ? String(req.query.q) : "";
 
-const archived = req.query.archived ? String(req.query.archived) : "0";
+const status = req.query.status ? String(req.query.status) : "upcoming";
+const recurring = req.query.recurring ? String(req.query.recurring) : "0";
 
-const sp = new URLSearchParams({ pg, limit, archived });
+const sp = new URLSearchParams({ pg, limit, status });
+if (recurring === "1") sp.set("recurring", "1");
 if (q) sp.set("q", q);
 
 return res.redirect(`/admin/create-events?${sp.toString()}`);
@@ -4498,10 +4525,12 @@ router.post("/events/:id/delete", async (req, res) => {
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";
     const q = req.query.q ? String(req.query.q) : "";
-    const archived = req.query.archived ? String(req.query.archived) : "0";
+    const status = req.query.status ? String(req.query.status) : "upcoming";
+    const recurring = req.query.recurring ? String(req.query.recurring) : "0";
     const sort = req.query.sort ? String(req.query.sort) : "datetime";
 
-    const sp = new URLSearchParams({ pg, limit, archived, sort });
+    const sp = new URLSearchParams({ pg, limit, status, sort });
+    if (recurring === "1") sp.set("recurring", "1");
     if (q) sp.set("q", q);
 
     return res.redirect(`/admin/existing-events?${sp.toString()}`);
@@ -4544,10 +4573,12 @@ router.post("/events/:id/archive", async (req, res) => {
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";
     const q = req.query.q ? String(req.query.q) : "";
-    const archived = req.query.archived ? String(req.query.archived) : "0";
+    const status = req.query.status ? String(req.query.status) : "upcoming";
+    const recurring = req.query.recurring ? String(req.query.recurring) : "0";
     const sort = req.query.sort ? String(req.query.sort) : "datetime";
 
-    const sp = new URLSearchParams({ pg, limit, archived, sort });
+    const sp = new URLSearchParams({ pg, limit, status, sort });
+    if (recurring === "1") sp.set("recurring", "1");
     if (q) sp.set("q", q);
 
     return res.redirect(`/admin/existing-events?${sp.toString()}`);
@@ -4586,10 +4617,12 @@ router.post("/events/:id/unarchive", async (req, res) => {
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";
     const q = req.query.q ? String(req.query.q) : "";
-    const archived = req.query.archived ? String(req.query.archived) : "0";
+    const status = req.query.status ? String(req.query.status) : "upcoming";
+    const recurring = req.query.recurring ? String(req.query.recurring) : "0";
     const sort = req.query.sort ? String(req.query.sort) : "datetime";
 
-    const sp = new URLSearchParams({ pg, limit, archived, sort });
+    const sp = new URLSearchParams({ pg, limit, status, sort });
+    if (recurring === "1") sp.set("recurring", "1");
     if (q) sp.set("q", q);
 
     return res.redirect(`/admin/existing-events?${sp.toString()}`);
