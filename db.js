@@ -123,6 +123,10 @@ async function initDB() {
       featuredUntil TEXT,
       featuredOrderId TEXT,
       featuredPurchasedAt TEXT,
+      seoTitle TEXT,
+      metaDescription TEXT,
+      focusKeyphrase TEXT,
+      imageAlt TEXT,
 
       categories TEXT,
       tags TEXT,
@@ -179,6 +183,10 @@ async function initDB() {
       featuredUntil TEXT,
       featuredOrderId TEXT,
       featuredPurchasedAt TEXT,
+      seoTitle TEXT,
+      metaDescription TEXT,
+      focusKeyphrase TEXT,
+      imageAlt TEXT,
 
       submitterEmail TEXT,
       approvalNotes TEXT,
@@ -265,6 +273,10 @@ async function initDB() {
   await addPendingCol("featuredUntil", `ALTER TABLE pending_events ADD COLUMN featuredUntil TEXT;`);
   await addPendingCol("featuredOrderId", `ALTER TABLE pending_events ADD COLUMN featuredOrderId TEXT;`);
   await addPendingCol("featuredPurchasedAt", `ALTER TABLE pending_events ADD COLUMN featuredPurchasedAt TEXT;`);
+  await addPendingCol("seoTitle", `ALTER TABLE pending_events ADD COLUMN seoTitle TEXT;`);
+  await addPendingCol("metaDescription", `ALTER TABLE pending_events ADD COLUMN metaDescription TEXT;`);
+  await addPendingCol("focusKeyphrase", `ALTER TABLE pending_events ADD COLUMN focusKeyphrase TEXT;`);
+  await addPendingCol("imageAlt", `ALTER TABLE pending_events ADD COLUMN imageAlt TEXT;`);
 
   // ---- Safe migrations for older DBs ----
   // If an older DB exists with snake_case columns, add camelCase columns and keep app working.
@@ -300,6 +312,10 @@ async function initDB() {
   await addCol("featuredUntil", `ALTER TABLE events ADD COLUMN featuredUntil TEXT;`);
   await addCol("featuredOrderId", `ALTER TABLE events ADD COLUMN featuredOrderId TEXT;`);
   await addCol("featuredPurchasedAt", `ALTER TABLE events ADD COLUMN featuredPurchasedAt TEXT;`);
+  await addCol("seoTitle", `ALTER TABLE events ADD COLUMN seoTitle TEXT;`);
+  await addCol("metaDescription", `ALTER TABLE events ADD COLUMN metaDescription TEXT;`);
+  await addCol("focusKeyphrase", `ALTER TABLE events ADD COLUMN focusKeyphrase TEXT;`);
+  await addCol("imageAlt", `ALTER TABLE events ADD COLUMN imageAlt TEXT;`);
   await addCol("eddiesPick", `ALTER TABLE events ADD COLUMN eddiesPick INTEGER NOT NULL DEFAULT 0;`);
   await addCol("categories", `ALTER TABLE events ADD COLUMN categories TEXT;`);
   await addCol("tags", `ALTER TABLE events ADD COLUMN tags TEXT;`);

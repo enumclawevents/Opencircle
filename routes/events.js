@@ -9,6 +9,15 @@ const crypto = require("crypto");
  * Helpers
  */
 
+function escapeXml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 function toLocalISOWithOffset(dtLocal) {
   if (!dtLocal) return null;
   const d = new Date(dtLocal);
@@ -175,6 +184,47 @@ router.post("/feature", async (req, res) => {
   } catch (err) {
     console.error("[POST /events/feature] error:", err);
     return res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
+// Public sitemap for events
+router.get("/sitemap.xml", async (_req, res) => {
+  try {
+    const base = String(process.env.PUBLIC_BASE_URL || "https://enumclawevents.org").replace(/\/$/, "");
+    const rows = await all(
+      `SELECT slug, updatedAt, createdAt, archived, expireDate, startDateTime
+       FROM events
+       WHERE archived = 0
+         AND slug IS NOT NULL
+         AND trim(slug) <> ''`
+    );
+
+    const nowDate = new Date().toISOString().slice(0, 10);
+    const urls = (rows || []).map((r) => {
+      const slug = String(r.slug || "").trim();
+      if (!slug) return null;
+      const expireDate = String(r.expireDate || "").trim();
+      if (expireDate && expireDate < nowDate) return null;
+
+      const lastmod = String(r.updatedAt || r.createdAt || "").trim();
+      const loc = `${base}/events/${encodeURIComponent(slug)}`;
+      return `
+  <url>
+    <loc>${escapeXml(loc)}</loc>
+    ${lastmod ? `<lastmod>${escapeXml(lastmod)}</lastmod>` : ""}
+  </url>`;
+    }).filter(Boolean);
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.join("\n")}
+</urlset>`;
+
+    res.setHeader("Content-Type", "application/xml");
+    return res.status(200).send(xml);
+  } catch (err) {
+    console.error("[GET /events/sitemap.xml] error:", err);
+    return res.status(500).send("Server error");
   }
 });
 

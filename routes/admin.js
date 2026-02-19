@@ -138,6 +138,10 @@ function extractPlainUrl(str) {
   return raw ? raw[0] : "";
 }
 
+function stripHtml(str) {
+  return String(str || "").replace(/<[^>]*>/g, "").trim();
+}
+
 function mapCategoriesFromJson(input) {
   const map = {
     family: "Family & Kids",
@@ -313,6 +317,10 @@ async function insertEventFromPending(p) {
     ["categories", catsJson],
     ["featured", featuredActive ? 1 : 0],
     ["eddiesPick", 0],
+    ["seoTitle", String(p.seoTitle || "")],
+    ["metaDescription", String(p.metaDescription || "")],
+    ["focusKeyphrase", String(p.focusKeyphrase || "")],
+    ["imageAlt", String(p.imageAlt || "")],
     ["hasRecurrence", 0],
     ["recurrenceRule", null],
     ["recurrenceDates", null],
@@ -2728,6 +2736,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <label>Good to Know</label>
               <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
 
+              <div class="rec-box">
+                <div style="font-weight:650; margin-bottom:6px;">SEO</div>
+                <label>SEO Title</label>
+                <input class="ctrl" name="seoTitle" value="${esc(editEvent?.seoTitle || "")}" />
+                <div class="note">Recommended ~50–60 characters.</div>
+
+                <label style="margin-top:10px;">Meta Description</label>
+                <textarea class="ctrl" name="metaDescription" rows="3">${esc(editEvent?.metaDescription || "")}</textarea>
+                <div class="note">Recommended ~140–160 characters.</div>
+
+                <label style="margin-top:10px;">Focus Keyphrase</label>
+                <input class="ctrl" name="focusKeyphrase" value="${esc(editEvent?.focusKeyphrase || "")}" />
+
+                <label style="margin-top:10px;">Image Alt Text</label>
+                <input class="ctrl" name="imageAlt" value="${esc(editEvent?.imageAlt || "")}" />
+              </div>
+
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
                   <label style="margin-top:0;">Start</label>
@@ -3795,28 +3820,38 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     await ensurePickSchema();
 
     const rawJson = String(req.body?.rawJson || "").trim();
-    if (rawJson) {
-      let parsed = null;
-      try {
-        parsed = JSON.parse(rawJson);
-      } catch (e) {
-        return res.status(400).send("Invalid JSON in Paste Event Extraction JSON.");
-      }
-      const j = parsed && typeof parsed === "object" ? parsed : null;
-      if (j) {
-        if (j.title) req.body.title = String(j.title);
-        if (j.description_html) req.body.description = String(j.description_html);
-        if (j.good_to_know_html) req.body.goodToKnow = String(j.good_to_know_html);
+  if (rawJson) {
+    let parsed = null;
+    try {
+      parsed = JSON.parse(rawJson);
+    } catch (e) {
+      return res.status(400).send("Invalid JSON in Paste Event Extraction JSON.");
+    }
+    const j = parsed && typeof parsed === "object" ? parsed : null;
+    if (j) {
+      if (j.title) req.body.title = String(j.title);
+      if (j.description_html) req.body.description = String(j.description_html);
+      if (j.good_to_know_html) req.body.goodToKnow = String(j.good_to_know_html);
 
-        const loc = mapLocationFromJson(j);
-        if (loc) req.body.location = loc;
+        if (j.seo && typeof j.seo === "object") {
+          if (j.seo.seo_title) req.body.seoTitle = String(j.seo.seo_title);
+          if (j.seo.meta_description) req.body.metaDescription = stripHtml(j.seo.meta_description);
+          if (j.seo.focus_keyphrase) req.body.focusKeyphrase = String(j.seo.focus_keyphrase);
+          if (j.seo.slug) req.body.slug = String(j.seo.slug);
+        }
+        if (j.image && typeof j.image === "object") {
+          if (j.image.alt_text) req.body.imageAlt = String(j.image.alt_text);
+        }
+
+      const loc = mapLocationFromJson(j);
+      if (loc) req.body.location = loc;
 
         if (j.organizer_name) req.body.organizer = String(j.organizer_name);
 
-        const ticket = extractPlainUrl(j.ticket_url) || extractPlainUrl(j.event_url);
-        if (ticket) req.body.ticketUrl = ticket;
-        const eventUrl = extractPlainUrl(j.event_url) || String(j.event_url || "").trim();
-        if (eventUrl) req.body.eventLink = eventUrl;
+      const ticket = extractPlainUrl(j.ticket_url) || extractPlainUrl(j.event_url);
+      if (ticket) req.body.ticketUrl = ticket;
+      const eventUrl = extractPlainUrl(j.event_url) || String(j.event_url || "").trim();
+      if (eventUrl) req.body.eventLink = eventUrl;
 
         if (j.categories) req.body.categories = mapCategoriesFromJson(j.categories);
 
@@ -3853,6 +3888,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       featured,
       eddiesPick,
       pendingId,
+      seoTitle,
+      metaDescription,
+      focusKeyphrase,
+      imageAlt,
 
       hasRecurrence,
       recurrenceType,
@@ -3930,7 +3969,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     const eddiesPickFlag = role === "creator" ? 0 : (String(eddiesPick || "") === "1" ? 1 : 0);
 
     // Slug
-    const baseSlug = slugify(title);
+    const rawSlug = String(req.body.slug || "").trim();
+    const baseSlug = rawSlug ? slugify(rawSlug) : slugify(title);
     const slug = await ensureUniqueSlug(baseSlug, id ? Number(id) : null);
 
     // Categories (max 3, from allow-list)
@@ -4097,6 +4137,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["description", description],
       ["eventDetails", eventDetails || ""],
       ["goodToKnow", goodToKnow || ""],
+      ["seoTitle", String(seoTitle || "")],
+      ["metaDescription", String(metaDescription || "")],
+      ["focusKeyphrase", String(focusKeyphrase || "")],
+      ["imageAlt", String(imageAlt || "")],
       ["startDateTime", startDateTime],
       ["endDateTime", endDateTime],
       ["location", location],
