@@ -1784,6 +1784,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
       /* Controls */
       label{ display:block; margin: 14px 0 6px; font-weight:600; font-size:12px; color:var(--text); }
+      form[action="/admin/events"] label{ margin: 20px 0 6px; }
+      form[action="/admin/events"] .rec-box{ margin-top: 22px; }
+      form[action="/admin/events"] .rec-grid{ margin-top: 18px; }
+      form[action="/admin/events"] .note{ margin-top: 8px; }
       .ctrl,
       input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
       textarea,
@@ -2707,6 +2711,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
               <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
 
+              <div class="rec-box" style="margin-top:0;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <label style="margin:0; font-weight:650;">Paste Event Extraction JSON (optional)</label>
+                    <span id="jsonBadge" class="json-badge">JSON detected</span>
+                  </div>
+                  <button type="button" class="btn" onclick="(function(){var t=document.getElementById('rawJson'); if(t) t.value=''; var b=document.getElementById('jsonBadge'); if(b) b.classList.remove('on');})()">Clear JSON</button>
+                </div>
+                <textarea class="ctrl" id="rawJson" name="rawJson" placeholder="Paste the JSON output from ChatGPT here…" style="min-height:140px; margin-top:8px;"></textarea>
+                <div class="note">If provided, the server will parse and auto-fill fields. You can still edit fields below before saving.</div>
+              </div>
+
               ${isCityViewer ? "" : `
               <div class="rec-box">
                 <div class="checkbox">
@@ -2730,18 +2746,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 3</div>${categorySelect(2)}</div>
                 </div>
                 <div class="note">Max 3. Only your allow-list categories are accepted.</div>
-              </div>
-
-              <div class="rec-box" style="margin-top:0;">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-                  <div style="display:flex; align-items:center; gap:10px;">
-                    <label style="margin:0; font-weight:650;">Paste Event Extraction JSON (optional)</label>
-                    <span id="jsonBadge" class="json-badge">JSON detected</span>
-                  </div>
-                  <button type="button" class="btn" onclick="(function(){var t=document.getElementById('rawJson'); if(t) t.value=''; var b=document.getElementById('jsonBadge'); if(b) b.classList.remove('on');})()">Clear JSON</button>
-                </div>
-                <textarea class="ctrl" id="rawJson" name="rawJson" placeholder="Paste the JSON output from ChatGPT here…" style="min-height:140px; margin-top:8px;"></textarea>
-                <div class="note">If provided, the server will parse and auto-fill fields. You can still edit fields below before saving.</div>
               </div>
 
               <label>Title</label>
@@ -3112,32 +3116,33 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           return parts.join(", ");
         }
 
-        function setVal(sel, val){
+        function setVal(sel, val, force){
           var el = form.querySelector(sel);
-          if (!el || val === undefined || val === null) return;
-          if (String(el.value || "").trim()) return; // don't overwrite manual edits
+          if (!el || val === undefined || val === null || val === "") return;
+          if (!force && String(el.value || "").trim()) return;
           el.value = String(val);
         }
 
         function applyJson(j){
           if (!j || typeof j !== "object") return;
-          setVal('input[name="title"]', j.title || "");
-          setVal('textarea[name="description"]', j.description_html || "");
-          setVal('textarea[name="goodToKnow"]', j.good_to_know_html || "");
-          setVal('input[name="location"]', mapLocation(j));
-          setVal('input[name="organizer"]', j.organizer_name || "");
+          setVal('input[name="title"]', j.title, true);
+          setVal('textarea[name="description"]', j.description_html || j.description, true);
+          setVal('textarea[name="eventDetails"]', j.event_details_html || j.event_details, true);
+          setVal('textarea[name="goodToKnow"]', j.good_to_know_html || j.good_to_know, true);
+          setVal('input[name="location"]', mapLocation(j), true);
+          setVal('input[name="organizer"]', j.organizer_name, true);
 
           var ticket = extractPlainUrl(j.ticket_url || j.event_url || "");
-          setVal('input[name="ticketUrl"]', ticket);
-          setVal('input[name="eventLink"]', extractPlainUrl(j.event_url || "") || j.event_url || "");
+          setVal('input[name="ticketUrl"]', ticket, true);
+          setVal('input[name="eventLink"]', extractPlainUrl(j.event_url || "") || j.event_url, true);
 
           if (j.seo && typeof j.seo === "object") {
-            setVal('input[name="seoTitle"]', j.seo.seo_title || "");
-            setVal('textarea[name="metaDescription"]', j.seo.meta_description || "");
-            setVal('input[name="focusKeyphrase"]', j.seo.focus_keyphrase || "");
+            setVal('input[name="seoTitle"]', j.seo.seo_title, true);
+            setVal('textarea[name="metaDescription"]', j.seo.meta_description, true);
+            setVal('input[name="focusKeyphrase"]', j.seo.focus_keyphrase, true);
           }
           if (j.image && typeof j.image === "object") {
-            setVal('input[name="imageAlt"]', j.image.alt_text || "");
+            setVal('input[name="imageAlt"]', j.image.alt_text, true);
           }
 
           var cats = mapCategories(j.categories);
@@ -3148,15 +3153,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             }
           }
 
-          if (j.start_datetime) {
-            var startIso = String(j.start_datetime);
-            setVal('#startDateTimeISO', startIso);
-            setVal('#startDateTime', startIso.slice(0,16));
+          var startIso = String(j.start_datetime || j.start_date_time || j.startDateTime || "");
+          var endIso = String(j.end_datetime || j.end_date_time || j.endDateTime || "");
+          if (startIso) {
+            setVal('#startDateTimeISO', startIso, true);
+            setVal('#startDateTime', startIso.slice(0,16), true);
           }
-          if (j.end_datetime) {
-            var endIso = String(j.end_datetime);
-            setVal('#endDateTimeISO', endIso);
-            setVal('#endDateTime', endIso.slice(0,16));
+          if (endIso) {
+            setVal('#endDateTimeISO', endIso, true);
+            setVal('#endDateTime', endIso.slice(0,16), true);
           }
         }
 
@@ -3180,6 +3185,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         }
 
         form.addEventListener("submit", function(){
+          if (rawJsonEl && String(rawJsonEl.value || "").trim()) {
+            form.setAttribute("novalidate", "novalidate");
+          }
           try {
             sessionStorage.setItem("oc_admin_scroll", String(window.scrollY || 0));
           } catch (_) {}
@@ -3979,6 +3987,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       if (j) {
         req.body.title = req.body.title || j.title || "";
         req.body.description = req.body.description || j.description_html || "";
+        req.body.eventDetails = req.body.eventDetails || j.event_details_html || j.event_details || "";
         req.body.goodToKnow = req.body.goodToKnow || j.good_to_know_html || "";
 
         if (j.seo && typeof j.seo === "object") {
@@ -4005,8 +4014,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
           req.body.categories = j.categories;
         }
 
-        req.body.startDateTimeISO = req.body.startDateTimeISO || j.start_datetime || "";
-        req.body.endDateTimeISO = req.body.endDateTimeISO || j.end_datetime || "";
+        req.body.startDateTimeISO = req.body.startDateTimeISO || j.start_datetime || j.start_date_time || j.startDateTime || "";
+        req.body.endDateTimeISO = req.body.endDateTimeISO || j.end_datetime || j.end_date_time || j.endDateTime || "";
         if (req.body.startDateTimeISO && !req.body.startDateTime) {
           req.body.startDateTime = String(req.body.startDateTimeISO).slice(0, 16);
         }
