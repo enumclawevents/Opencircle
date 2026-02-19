@@ -1005,6 +1005,38 @@ function inIsoRange(item, fromISO, toISO) {
   return true;
 }
 
+
+function isArchivedRow(item) {
+  const v = item && (item.archived ?? item.Archived);
+  const s = String(v ?? "0").trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
+}
+
+function effectiveEndTs(item) {
+  const endTs = Date.parse(String((item && item.endDateTime) || ""));
+  if (Number.isFinite(endTs)) return endTs;
+
+  const startTs = Date.parse(String((item && item.startDateTime) || ""));
+  return Number.isFinite(startTs) ? startTs : NaN;
+}
+
+function matchesLifecycleStatus(item, status, nowTs) {
+  const archived = isArchivedRow(item);
+
+  if (status === "archived") return archived;
+  if (status === "all") return true;
+
+  if (archived) return false;
+
+  const endTs = effectiveEndTs(item);
+  if (!Number.isFinite(endTs)) return false;
+
+  if (status === "past") return endTs < nowTs;
+
+  // default upcoming
+  return endTs >= nowTs;
+}
+
 function paginate(items, limit, offset) {
   const total = items.length;
   const start = Math.max(0, offset);
@@ -1034,13 +1066,21 @@ function paginate(items, limit, offset) {
  *  category=music
  *  featured=1
  *  from=ISO to=ISO
+ *  status=upcoming|past|archived|all
+ *  windowDays=90 (optional)
  */
 router.get("/", async (req, res) => {
   try {
     const city = String(req.query.city ?? "Enumclaw").trim();
     const expand = String(req.query.expand ?? "1") !== "0";
 
-    const sortRaw = String(req.query.sort ?? "soonest").toLowerCase().trim();
+    const statusRaw = String(req.query.status ?? "upcoming").toLowerCase().trim();
+    const status = ["upcoming", "past", "archived", "all"].includes(statusRaw)
+      ? statusRaw
+      : "upcoming";
+
+    const sortDefault = (status === "past" || status === "archived") ? "latest" : "soonest";
+    const sortRaw = String(req.query.sort ?? sortDefault).toLowerCase().trim();
 
     const sort =
       (sortRaw === "latest" ||
@@ -1049,7 +1089,7 @@ router.get("/", async (req, res) => {
        sortRaw === "trending" ||
        sortRaw === "id_desc")
         ? sortRaw
-        : "soonest";
+        : sortDefault;
 
     const q = String(req.query.q ?? "").trim();
     const category = String(req.query.category ?? "").trim();
@@ -1062,10 +1102,27 @@ router.get("/", async (req, res) => {
     const toISO = String(req.query.to ?? "").trim();
 
     const nowUtc = Date.now();
-    const windowDays = sort === "recent" ? 365 : 90;
+    const defaultWindowDays =
+      sort === "recent"
+        ? 365
+        : ((status === "past" || status === "archived" || status === "all") ? 365 : 90);
 
-    const windowStartUtc = nowUtc - 5 * 60 * 1000;
-    const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
+    const parsedWindowDays = parseInt(String(req.query.windowDays ?? defaultWindowDays), 10);
+    const windowDays = Math.max(1, Math.min(3650, Number.isFinite(parsedWindowDays) ? parsedWindowDays : defaultWindowDays));
+
+    let windowStartUtc;
+    let windowEndUtc;
+
+    if (status === "past" || status === "archived") {
+      windowStartUtc = nowUtc - windowDays * 86400 * 1000;
+      windowEndUtc = nowUtc + 5 * 60 * 1000;
+    } else if (status === "all") {
+      windowStartUtc = nowUtc - windowDays * 86400 * 1000;
+      windowEndUtc = nowUtc + windowDays * 86400 * 1000;
+    } else {
+      windowStartUtc = nowUtc - 5 * 60 * 1000;
+      windowEndUtc = nowUtc + windowDays * 86400 * 1000;
+    }
 
     let rows = await all(
       "SELECT * FROM events WHERE LOWER(city) = LOWER(?) ORDER BY startDateTime ASC",
@@ -1073,7 +1130,7 @@ router.get("/", async (req, res) => {
     );
 
     // normalize base times first so recurrence generation uses correct offset
-    rows = rows.map(r => normalizeRowTimes(r));
+    rows = rows.map((r) => normalizeRowTimes(r));
 
     // Normalize base rows
     const normalizedRows = rows.map((r) => ({
@@ -1084,16 +1141,20 @@ router.get("/", async (req, res) => {
       recurrenceDates: safeParseJson(r.recurrenceDates, []),
       featured: readFeaturedActive(r),
       eddiesPick: readEddiesPick(r),
-      eddiesPick: readEddiesPick(r),
     }));
 
-    // If no expand, treat each base row as one feed item (but still window filter)
+    // If no expand, treat each base row as one feed item (but still window/status filter)
     if (!expand) {
       let items = normalizedRows
         .filter((it) => {
-          const t = Date.parse(it.startDateTime);
-          if (!Number.isFinite(t)) return false;
-          if (t < windowStartUtc || t > windowEndUtc) return false;
+          const windowTs = (status === "past" || status === "archived")
+            ? effectiveEndTs(it)
+            : Date.parse(it.startDateTime);
+
+          if (!Number.isFinite(windowTs)) return false;
+          if (windowTs < windowStartUtc || windowTs > windowEndUtc) return false;
+
+          if (!matchesLifecycleStatus(it, status, nowUtc)) return false;
           if (featuredOnly && readFeaturedActive(it) !== 1) return false;
           if (!matchesQuery(it, q)) return false;
           if (!matchesCategory(it, category)) return false;
@@ -1135,7 +1196,7 @@ router.get("/", async (req, res) => {
           return bt - at;
         }
 
-        // soonest/latest (existing behavior)
+        // soonest/latest
         const at = Date.parse(a.startDateTime);
         const bt = Date.parse(b.startDateTime);
         return sort === "latest" ? (bt - at) : (at - bt);
@@ -1146,14 +1207,14 @@ router.get("/", async (req, res) => {
 
     // Expand into occurrences
     let expanded = [];
-for (const r of normalizedRows) {
-  const rowFixed = r;
-  expanded.push(...expandEventIntoFeedItems(rowFixed, windowStartUtc, windowEndUtc));
-}
-
+    for (const r of normalizedRows) {
+      const rowFixed = r;
+      expanded.push(...expandEventIntoFeedItems(rowFixed, windowStartUtc, windowEndUtc));
+    }
 
     // Apply filters
     expanded = expanded.filter((it) => {
+      if (!matchesLifecycleStatus(it, status, nowUtc)) return false;
       if (featuredOnly && readFeaturedActive(it) !== 1) return false;
       if (!matchesQuery(it, q)) return false;
       if (!matchesCategory(it, category)) return false;
@@ -1195,7 +1256,7 @@ for (const r of normalizedRows) {
         return bt - at;
       }
 
-      // soonest/latest (existing behavior)
+      // soonest/latest
       const at = Date.parse(a.startDateTime);
       const bt = Date.parse(b.startDateTime);
       return sort === "latest" ? (bt - at) : (at - bt);
@@ -1213,6 +1274,7 @@ for (const r of normalizedRows) {
     });
   }
 });
+
 
 // GET /events/slug/:slug
 router.get("/slug/:slug", async (req, res) => {
