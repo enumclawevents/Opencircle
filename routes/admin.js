@@ -3163,6 +3163,55 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             setVal('#endDateTimeISO', endIso, true);
             setVal('#endDateTime', endIso.slice(0,16), true);
           }
+
+          // Recurring occurrences -> custom dates
+          if (Array.isArray(j.occurrences) && j.occurrences.length) {
+            var hasRecEl = document.getElementById("hasRecurrence");
+            var typeEl = document.getElementById("recurrenceType");
+            var customBox = document.getElementById("customBox");
+            var wrap = document.getElementById("customDatesWrap");
+            var addBtn = document.getElementById("addCustomDate");
+
+            if (hasRecEl) hasRecEl.checked = true;
+            if (typeEl) typeEl.value = "custom";
+            if (typeEl) typeEl.dispatchEvent(new Event("change"));
+            if (hasRecEl) hasRecEl.dispatchEvent(new Event("change"));
+            if (customBox) customBox.style.display = "";
+
+            function makeChip(dateStr, startTime, endTime){
+              if (!wrap) return;
+              var chip = document.createElement("span");
+              chip.className = "chip";
+              chip.innerHTML =
+                '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="' + dateStr + '" />' +
+                '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="' + startTime + '" />' +
+                '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="' + endTime + '" />' +
+                '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
+              wrap.appendChild(chip);
+            }
+
+            if (wrap) wrap.innerHTML = "";
+            j.occurrences.forEach(function(o){
+              var s = String(o.start_datetime || o.startDateTime || "");
+              var e = String(o.end_datetime || o.endDateTime || "");
+              if (!s) return;
+              var dateStr = s.slice(0,10);
+              var st = s.slice(11,16);
+              var en = e ? e.slice(11,16) : st;
+              makeChip(dateStr, st, en);
+            });
+
+            // wire remove buttons
+            if (wrap) {
+              var btns = wrap.querySelectorAll("button[data-remove-date]");
+              for (var i=0;i<btns.length;i++){
+                btns[i].onclick = function(){
+                  var chip = this.closest(".chip");
+                  if(chip) chip.remove();
+                };
+              }
+            }
+          }
         }
 
         function syncNoValidate(){
