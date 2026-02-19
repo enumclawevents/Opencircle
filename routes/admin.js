@@ -3820,52 +3820,50 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     await ensurePickSchema();
 
     const rawJson = String(req.body?.rawJson || "").trim();
-  if (rawJson) {
-    let parsed = null;
-    try {
-      parsed = JSON.parse(rawJson);
-    } catch (e) {
-      return res.status(400).send("Invalid JSON in Paste Event Extraction JSON.");
-    }
-    const j = parsed && typeof parsed === "object" ? parsed : null;
-    if (j) {
-      if (j.title) req.body.title = String(j.title);
-      if (j.description_html) req.body.description = String(j.description_html);
-      if (j.good_to_know_html) req.body.goodToKnow = String(j.good_to_know_html);
+    if (rawJson) {
+      let parsed = null;
+      try {
+        parsed = JSON.parse(rawJson);
+      } catch (e) {
+        return res.status(400).send("Invalid JSON in Paste Event Extraction JSON box.");
+      }
+      const j = parsed && typeof parsed === "object" ? parsed : null;
+      if (j) {
+        req.body.title = req.body.title || j.title || "";
+        req.body.description = req.body.description || j.description_html || "";
+        req.body.goodToKnow = req.body.goodToKnow || j.good_to_know_html || "";
 
         if (j.seo && typeof j.seo === "object") {
-          if (j.seo.seo_title) req.body.seoTitle = String(j.seo.seo_title);
-          if (j.seo.meta_description) req.body.metaDescription = stripHtml(j.seo.meta_description);
-          if (j.seo.focus_keyphrase) req.body.focusKeyphrase = String(j.seo.focus_keyphrase);
-          if (j.seo.slug) req.body.slug = String(j.seo.slug);
+          if (!req.body.seoTitle && j.seo.seo_title) req.body.seoTitle = String(j.seo.seo_title);
+          if (!req.body.metaDescription && j.seo.meta_description) req.body.metaDescription = stripHtml(j.seo.meta_description);
+          if (!req.body.focusKeyphrase && j.seo.focus_keyphrase) req.body.focusKeyphrase = String(j.seo.focus_keyphrase);
+          if (!req.body.slug && j.seo.slug) req.body.slug = String(j.seo.slug);
         }
         if (j.image && typeof j.image === "object") {
-          if (j.image.alt_text) req.body.imageAlt = String(j.image.alt_text);
+          if (!req.body.imageAlt && j.image.alt_text) req.body.imageAlt = String(j.image.alt_text);
         }
 
-      const loc = mapLocationFromJson(j);
-      if (loc) req.body.location = loc;
+        const loc = req.body.location || mapLocationFromJson(j) || "";
+        if (loc) req.body.location = loc;
 
-        if (j.organizer_name) req.body.organizer = String(j.organizer_name);
+        req.body.organizer = req.body.organizer || j.organizer_name || "";
 
-      const ticket = extractPlainUrl(j.ticket_url) || extractPlainUrl(j.event_url);
-      if (ticket) req.body.ticketUrl = ticket;
-      const eventUrl = extractPlainUrl(j.event_url) || String(j.event_url || "").trim();
-      if (eventUrl) req.body.eventLink = eventUrl;
+        const ticket = extractPlainUrl(j.ticket_url || j.event_url || "");
+        if (!req.body.ticketUrl && ticket) req.body.ticketUrl = ticket;
+        const eventUrl = extractPlainUrl(j.event_url || "") || String(j.event_url || "").trim();
+        if (!req.body.eventLink && eventUrl) req.body.eventLink = eventUrl;
 
-        if (j.categories) req.body.categories = mapCategoriesFromJson(j.categories);
-
-        if (j.start_datetime) {
-          req.body.startDateTimeISO = String(j.start_datetime);
-          req.body.startDateTime = String(j.start_datetime).slice(0, 16);
+        if (!req.body.categories && Array.isArray(j.categories)) {
+          req.body.categories = j.categories;
         }
-        if (j.end_datetime) {
-          req.body.endDateTimeISO = String(j.end_datetime);
-          req.body.endDateTime = String(j.end_datetime).slice(0, 16);
-        } else if (j.start_datetime) {
-          const endIso = addHoursIso(String(j.start_datetime), 1);
-          req.body.endDateTimeISO = endIso;
-          req.body.endDateTime = String(endIso).slice(0, 16);
+
+        req.body.startDateTimeISO = req.body.startDateTimeISO || j.start_datetime || "";
+        req.body.endDateTimeISO = req.body.endDateTimeISO || j.end_datetime || "";
+        if (req.body.startDateTimeISO && !req.body.startDateTime) {
+          req.body.startDateTime = String(req.body.startDateTimeISO).slice(0, 16);
+        }
+        if (req.body.endDateTimeISO && !req.body.endDateTime) {
+          req.body.endDateTime = String(req.body.endDateTimeISO).slice(0, 16);
         }
       }
     }
@@ -3926,27 +3924,25 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     const startISO = (req.body.startDateTimeISO || "").trim();
     const endISO = (req.body.endDateTimeISO || "").trim();
 
-    if (startISO && endISO) {
-      startDateTime = startISO;
-      endDateTime = endISO;
-    } else {
-      startDateTime = toLocalISOWithOffset(startDateTime);
-      endDateTime = toLocalISOWithOffset(endDateTime);
+    if (startISO) startDateTime = startISO;
+    if (endISO) endDateTime = endISO;
+    if (!startISO) startDateTime = toLocalISOWithOffset(startDateTime);
+    if (!endISO) endDateTime = toLocalISOWithOffset(endDateTime);
+
+    if (!endDateTime && startDateTime) {
+      endDateTime = addHoursIso(startDateTime, 1);
     }
 
     // Validate required fields
-    if (role === "creator") {
-      if (!title || !description || !startDateTime || !location) {
-        return res.status(400).send("Missing required fields.");
-      }
-      // If no end time, default to +1 hour (can be edited in approvals)
-      if (!endDateTime) {
-        endDateTime = addHoursIso(startDateTime, 1);
-      }
-    } else {
-      if (!title || !description || !startDateTime || !endDateTime || !location || !organizer) {
-        return res.status(400).send("Missing required fields.");
-      }
+    const missing = [];
+    if (!title) missing.push("title");
+    if (!description) missing.push("description");
+    if (!startDateTime) missing.push("startDateTime");
+    if (!endDateTime) missing.push("endDateTime");
+    if (!location) missing.push("location");
+    if (role !== "creator" && !organizer) missing.push("organizer");
+    if (missing.length) {
+      return res.status(400).send("Missing required fields: " + missing.join(", "));
     }
 
     if (ticketUrl && !/^https?:\/\//i.test(ticketUrl)) {
