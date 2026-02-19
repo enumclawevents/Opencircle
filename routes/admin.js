@@ -1783,7 +1783,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .sub{ margin:0; color:var(--muted); font-size:13px; }
 
       /* Controls */
-      label{ display:block; margin: 12px 0 6px; font-weight:600; font-size:12px; color:var(--text); }
+      label{ display:block; margin: 14px 0 6px; font-weight:600; font-size:12px; color:var(--text); }
       .ctrl,
       input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
       textarea,
@@ -1798,6 +1798,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         outline: none;
         height: var(--ctrl-h);
       }
+      .rec-box{ margin-top:16px; }
+      .rec-grid{ margin-top:16px; }
+      .actions{ margin-top:18px; }
+      .note{ margin-top:6px; }
+      .json-badge{
+        display:none;
+        align-items:center;
+        gap:6px;
+        font-size:11px;
+        font-weight:600;
+        color:#0b1220;
+        background:#bbf7d0;
+        border:1px solid #86efac;
+        border-radius:999px;
+        padding:4px 8px;
+      }
+      .json-badge.on{ display:inline-flex; }
 
       /* File input */
       input[type="file"]{
@@ -2717,8 +2734,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
               <div class="rec-box" style="margin-top:0;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-                  <label style="margin:0; font-weight:650;">Paste Event Extraction JSON (optional)</label>
-                  <button type="button" class="btn" onclick="(function(){var t=document.getElementById('rawJson'); if(t) t.value='';})()">Clear JSON</button>
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <label style="margin:0; font-weight:650;">Paste Event Extraction JSON (optional)</label>
+                    <span id="jsonBadge" class="json-badge">JSON detected</span>
+                  </div>
+                  <button type="button" class="btn" onclick="(function(){var t=document.getElementById('rawJson'); if(t) t.value=''; var b=document.getElementById('jsonBadge'); if(b) b.classList.remove('on');})()">Clear JSON</button>
                 </div>
                 <textarea class="ctrl" id="rawJson" name="rawJson" placeholder="Paste the JSON output from ChatGPT here…" style="min-height:140px; margin-top:8px;"></textarea>
                 <div class="note">If provided, the server will parse and auto-fill fields. You can still edit fields below before saving.</div>
@@ -3030,6 +3050,134 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       (function(){
         var form = document.querySelector('form[action="/admin/events"]');
         if(!form) return;
+        var rawJsonEl = document.getElementById("rawJson");
+        var jsonBadge = document.getElementById("jsonBadge");
+        var allowedCategories = ${JSON.stringify(ALLOWED_CATEGORIES)};
+
+        function extractPlainUrl(str){
+          var s = String(str || "").trim();
+          if (!s) return "";
+          var paren = s.match(/\\((https?:\\/\\/[^)]+)\\)/i);
+          if (paren && paren[1]) return paren[1];
+          var raw = s.match(/https?:\\/\\/[^\\s)]+/i);
+          return raw ? raw[0] : "";
+        }
+
+        function mapCategories(list){
+          var map = {
+            family: "Family & Kids",
+            kids: "Family & Kids",
+            workshop: "Classes & Workshops",
+            classes: "Classes & Workshops",
+            food: "Food & Drink",
+            drink: "Food & Drink",
+            art: "Arts & Culture",
+            arts: "Arts & Culture",
+            market: "Markets & Shopping",
+            shopping: "Markets & Shopping",
+            nightlife: "Nightlife",
+            music: "Music",
+            community: "Community",
+            sports: "Sports & Fitness",
+            outdoors: "Outdoors",
+            business: "Business & Networking",
+            charity: "Charity & Fundraising",
+            seasonal: "Seasonal & Holiday",
+          };
+          var out = [];
+          (Array.isArray(list) ? list : []).forEach(function(x){
+            var key = String(x || "").trim().toLowerCase();
+            if (!key) return;
+            var mapped = map[key] || x;
+            if (allowedCategories.indexOf(mapped) !== -1) out.push(mapped);
+          });
+          return out.slice(0,3);
+        }
+
+        function mapLocation(j){
+          var v = String(j.venue_name || "").trim();
+          if (v) return v;
+          var l = String(j.location_name || "").trim();
+          if (l) return l;
+          var parts = [];
+          if (j.address_line1) parts.push(String(j.address_line1).trim());
+          var city = String(j.city || "").trim();
+          var state = String(j.state || "").trim();
+          var zip = String(j.postal_code || "").trim();
+          var cityLine = "";
+          if (city) cityLine += city;
+          if (state) cityLine += (cityLine ? ", " : "") + state;
+          if (zip) cityLine += (cityLine ? " " : "") + zip;
+          if (cityLine) parts.push(cityLine);
+          return parts.join(", ");
+        }
+
+        function setVal(sel, val){
+          var el = form.querySelector(sel);
+          if (!el || val === undefined || val === null) return;
+          if (String(el.value || "").trim()) return; // don't overwrite manual edits
+          el.value = String(val);
+        }
+
+        function applyJson(j){
+          if (!j || typeof j !== "object") return;
+          setVal('input[name="title"]', j.title || "");
+          setVal('textarea[name="description"]', j.description_html || "");
+          setVal('textarea[name="goodToKnow"]', j.good_to_know_html || "");
+          setVal('input[name="location"]', mapLocation(j));
+          setVal('input[name="organizer"]', j.organizer_name || "");
+
+          var ticket = extractPlainUrl(j.ticket_url || j.event_url || "");
+          setVal('input[name="ticketUrl"]', ticket);
+          setVal('input[name="eventLink"]', extractPlainUrl(j.event_url || "") || j.event_url || "");
+
+          if (j.seo && typeof j.seo === "object") {
+            setVal('input[name="seoTitle"]', j.seo.seo_title || "");
+            setVal('textarea[name="metaDescription"]', j.seo.meta_description || "");
+            setVal('input[name="focusKeyphrase"]', j.seo.focus_keyphrase || "");
+          }
+          if (j.image && typeof j.image === "object") {
+            setVal('input[name="imageAlt"]', j.image.alt_text || "");
+          }
+
+          var cats = mapCategories(j.categories);
+          if (cats.length) {
+            var selects = form.querySelectorAll('select[name="categories"]');
+            for (var i=0;i<selects.length;i++){
+              if (cats[i]) selects[i].value = cats[i];
+            }
+          }
+
+          if (j.start_datetime) {
+            var startIso = String(j.start_datetime);
+            setVal('#startDateTimeISO', startIso);
+            setVal('#startDateTime', startIso.slice(0,16));
+          }
+          if (j.end_datetime) {
+            var endIso = String(j.end_datetime);
+            setVal('#endDateTimeISO', endIso);
+            setVal('#endDateTime', endIso.slice(0,16));
+          }
+        }
+
+        function syncNoValidate(){
+          if (!rawJsonEl) return;
+          var hasJson = String(rawJsonEl.value || "").trim().length > 0;
+          if (hasJson) form.setAttribute("novalidate", "novalidate");
+          else form.removeAttribute("novalidate");
+          if (jsonBadge) jsonBadge.classList.toggle("on", hasJson);
+        }
+        if (rawJsonEl) {
+          rawJsonEl.addEventListener("input", function(){
+            syncNoValidate();
+            try { applyJson(JSON.parse(rawJsonEl.value || "{}")); } catch (_) {}
+          });
+          rawJsonEl.addEventListener("change", function(){
+            syncNoValidate();
+            try { applyJson(JSON.parse(rawJsonEl.value || "{}")); } catch (_) {}
+          });
+          syncNoValidate();
+        }
 
         form.addEventListener("submit", function(){
           try {
