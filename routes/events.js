@@ -1012,6 +1012,10 @@ function isArchivedRow(item) {
   return s === "1" || s === "true" || s === "yes" || s === "on";
 }
 
+function setNoIndexHeader(res) {
+  res.set("X-Robots-Tag", "noindex, nofollow");
+}
+
 function effectiveEndTs(item) {
   const endTs = Date.parse(String((item && item.endDateTime) || ""));
   if (Number.isFinite(endTs)) return endTs;
@@ -1078,6 +1082,7 @@ router.get("/", async (req, res) => {
     const status = ["upcoming", "past", "archived", "all"].includes(statusRaw)
       ? statusRaw
       : "upcoming";
+    if (status === "archived") setNoIndexHeader(res);
 
     const sortDefault = (status === "past" || status === "archived") ? "latest" : "soonest";
     const sortRaw = String(req.query.sort ?? sortDefault).toLowerCase().trim();
@@ -1305,6 +1310,7 @@ router.get("/slug/:slug", async (req, res) => {
       recurrenceStartDate: rowFixed.recurrenceStartDate || null,
       recurrenceUntilDate: rowFixed.recurrenceUntilDate || null,
     };
+    if (isArchivedRow(base)) setNoIndexHeader(res);
 
     const nowUtc = Date.now();
     const windowDays = 90;
@@ -1695,6 +1701,7 @@ router.get("/:idOrSlug", async (req, res) => {
       recurrenceStartDate: rowFixed.recurrenceStartDate || null,
       recurrenceUntilDate: rowFixed.recurrenceUntilDate || null,
     };
+    if (isArchivedRow(base)) setNoIndexHeader(res);
 
     const nowUtc = Date.now();
     const windowDays = 90;
