@@ -157,6 +157,12 @@ function getSession(token) {
 }
 
 function requireLogin(req, res, next) {
+  // Parse session first so public endpoints can still see req.user when logged in.
+  const cookies = parseCookies(req.headers.cookie || "");
+  const token = cookies.oc_auth;
+  const sess = getSession(token);
+  if (sess) req.user = sess;
+
   // allow login + public endpoints
   if (
     req.path === "/login" ||
@@ -174,11 +180,7 @@ function requireLogin(req, res, next) {
     return next();
   }
 
-  const cookies = parseCookies(req.headers.cookie || "");
-  const token = cookies.oc_auth;
-  const sess = getSession(token);
   if (sess) {
-    req.user = sess;
     return next();
   }
 

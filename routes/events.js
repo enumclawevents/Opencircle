@@ -4,6 +4,9 @@ const express = require("express");
 const router = express.Router();
 const { all, get, run } = require("../db");
 const crypto = require("crypto");
+const PAST_EVENTS_LIMIT = 24;
+const PAST_EVENTS_CACHE_MS = 5 * 60 * 1000;
+const pastEventsCache = new Map();
 
 /**
  * Helpers
@@ -1024,6 +1027,13 @@ function effectiveEndTs(item) {
   return Number.isFinite(startTs) ? startTs : NaN;
 }
 
+function lifecycleStatus(item, nowTs) {
+  if (isArchivedRow(item)) return "archived";
+  const endTs = effectiveEndTs(item);
+  if (!Number.isFinite(endTs)) return "unknown";
+  return endTs < nowTs ? "past" : "upcoming";
+}
+
 function matchesLifecycleStatus(item, status, nowTs) {
   const archived = isArchivedRow(item);
 
@@ -1082,6 +1092,9 @@ router.get("/", async (req, res) => {
     const status = ["upcoming", "past", "archived", "all"].includes(statusRaw)
       ? statusRaw
       : "upcoming";
+    if (status === "archived" && String(req.user?.role || "") !== "admin") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     if (status === "archived") setNoIndexHeader(res);
 
     const sortDefault = (status === "past" || status === "archived") ? "latest" : "soonest";
@@ -1280,6 +1293,73 @@ router.get("/", async (req, res) => {
   }
 });
 
+// GET /events/past
+// Lightweight past listing for archive-style pages.
+router.get("/past", async (req, res) => {
+  try {
+    const city = String(req.query.city ?? "Enumclaw").trim();
+    const pageRaw = parseInt(String(req.query.page ?? "1"), 10);
+    const page = Math.max(1, Number.isFinite(pageRaw) ? pageRaw : 1);
+    const nowTs = Date.now();
+
+    const cacheKey = `${city.toLowerCase()}::${page}`;
+    const cached = pastEventsCache.get(cacheKey);
+    if (cached && cached.expiresAt > nowTs) {
+      res.set("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=60");
+      return res.json(cached.payload);
+    }
+
+    let rows = await all(
+      `SELECT title, slug, startDateTime, endDateTime, location, imageUrl, archived
+       FROM events
+       WHERE LOWER(city) = LOWER(?)
+         AND COALESCE(archived, 0) = 0
+      `,
+      [city]
+    );
+
+    rows = (rows || [])
+      .map((r) => normalizeRowTimes(r))
+      .filter((r) => {
+        if (!String(r.slug || "").trim()) return false;
+        const endTs = effectiveEndTs(r);
+        return Number.isFinite(endTs) && endTs < nowTs;
+      })
+      .sort((a, b) => effectiveEndTs(b) - effectiveEndTs(a));
+
+    const total = rows.length;
+    const pages = Math.max(1, Math.ceil(total / PAST_EVENTS_LIMIT));
+    const boundedPage = Math.min(page, pages);
+    const offset = (boundedPage - 1) * PAST_EVENTS_LIMIT;
+    const data = rows.slice(offset, offset + PAST_EVENTS_LIMIT).map((r) => ({
+      title: String(r.title || ""),
+      slug: String(r.slug || ""),
+      startDateTime: r.startDateTime || null,
+      location: String(r.location || ""),
+      imageUrl: r.imageUrl || null,
+    }));
+
+    const payload = {
+      data,
+      meta: {
+        page: boundedPage,
+        limit: PAST_EVENTS_LIMIT,
+        total,
+        pages,
+        hasPrev: boundedPage > 1,
+        hasNext: boundedPage < pages,
+      },
+    };
+
+    pastEventsCache.set(cacheKey, { expiresAt: nowTs + PAST_EVENTS_CACHE_MS, payload });
+    res.set("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=60");
+    return res.json(payload);
+  } catch (err) {
+    console.error("[/events/past] error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ data: [], meta: { page: 1, limit: PAST_EVENTS_LIMIT, total: 0, pages: 0 }, error: "Server error" });
+  }
+});
+
 
 // GET /events/slug/:slug
 router.get("/slug/:slug", async (req, res) => {
@@ -1313,6 +1393,7 @@ router.get("/slug/:slug", async (req, res) => {
     if (isArchivedRow(base)) setNoIndexHeader(res);
 
     const nowUtc = Date.now();
+    const state = lifecycleStatus(base, nowUtc);
     const windowDays = 90;
     const windowStartUtc = nowUtc - 5 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
@@ -1326,7 +1407,15 @@ router.get("/slug/:slug", async (req, res) => {
       .slice(0, 200)
       .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
 
-    res.json({ data: { ...base, occurrencesUpcoming } });
+    res.json({
+      data: {
+        ...base,
+        occurrencesUpcoming,
+        status: state,
+        eventEnded: state === "past" || state === "archived",
+        statusLabel: state === "past" || state === "archived" ? "Event ended." : "",
+      },
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -1704,6 +1793,7 @@ router.get("/:idOrSlug", async (req, res) => {
     if (isArchivedRow(base)) setNoIndexHeader(res);
 
     const nowUtc = Date.now();
+    const state = lifecycleStatus(base, nowUtc);
     const windowDays = 90;
     const windowStartUtc = nowUtc - 5 * 60 * 1000;
     const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
@@ -1717,7 +1807,15 @@ router.get("/:idOrSlug", async (req, res) => {
       .slice(0, 200)
       .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
 
-    res.json({ data: { ...base, occurrencesUpcoming } });
+    res.json({
+      data: {
+        ...base,
+        occurrencesUpcoming,
+        status: state,
+        eventEnded: state === "past" || state === "archived",
+        statusLabel: state === "past" || state === "archived" ? "Event ended." : "",
+      },
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });

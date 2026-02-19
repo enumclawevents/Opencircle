@@ -359,6 +359,10 @@ async function initDB() {
 // 2) endDateTime if present
 // 3) startDateTime fallback
 async function archiveExpiredEvents() {
+  const retentionDaysRaw = parseInt(String(process.env.AUTO_ARCHIVE_AFTER_DAYS || "120"), 10);
+  const retentionDays = Math.max(1, Number.isFinite(retentionDaysRaw) ? retentionDaysRaw : 120);
+  const archiveBeforeExpr = `datetime('now', '-${retentionDays} days')`;
+
   const cols = await tableInfo("events");
   const hasArchived = cols.some((c) => c.name === "archived");
   if (!hasArchived) return { archived: 0 };
@@ -373,12 +377,12 @@ async function archiveExpiredEvents() {
   let where = "";
   if (hasExpireDate) {
     where =
-      "expireDate IS NOT NULL AND trim(expireDate) <> '' AND date(expireDate) < date('now')";
+      `expireDate IS NOT NULL AND trim(expireDate) <> '' AND datetime(expireDate) < ${archiveBeforeExpr}`;
   } else if (hasEnd) {
     where =
-      "endDateTime IS NOT NULL AND trim(endDateTime) <> '' AND datetime(endDateTime) < datetime('now')";
+      `endDateTime IS NOT NULL AND trim(endDateTime) <> '' AND datetime(endDateTime) < ${archiveBeforeExpr}`;
   } else if (hasStart) {
-    where = "datetime(startDateTime) < datetime('now')";
+    where = `datetime(startDateTime) < ${archiveBeforeExpr}`;
   } else {
     return { archived: 0 };
   }
