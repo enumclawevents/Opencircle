@@ -191,8 +191,16 @@ router.post("/feature", async (req, res) => {
 router.get("/sitemap.xml", async (_req, res) => {
   try {
     const base = String(process.env.PUBLIC_BASE_URL || "https://enumclawevents.org").replace(/\/$/, "");
+    const info = await all("PRAGMA table_info(events)");
+    const colSet = new Set((info || []).map((r) => String(r.name)));
+    const cols = ["slug"];
+    if (colSet.has("updatedAt")) cols.push("updatedAt");
+    if (colSet.has("createdAt")) cols.push("createdAt");
+    if (colSet.has("expireDate")) cols.push("expireDate");
+    if (colSet.has("startDateTime")) cols.push("startDateTime");
+
     const rows = await all(
-      `SELECT slug, updatedAt, createdAt, archived, expireDate, startDateTime
+      `SELECT ${cols.join(", ")}
        FROM events
        WHERE archived = 0
          AND slug IS NOT NULL
@@ -203,8 +211,10 @@ router.get("/sitemap.xml", async (_req, res) => {
     const urls = (rows || []).map((r) => {
       const slug = String(r.slug || "").trim();
       if (!slug) return null;
-      const expireDate = String(r.expireDate || "").trim();
-      if (expireDate && expireDate < nowDate) return null;
+      if (colSet.has("expireDate")) {
+        const expireDate = String(r.expireDate || "").trim();
+        if (expireDate && expireDate < nowDate) return null;
+      }
 
       const lastmod = String(r.updatedAt || r.createdAt || "").trim();
       const loc = `${base}/events/${encodeURIComponent(slug)}`;
