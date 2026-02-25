@@ -62,6 +62,25 @@ function addHoursIso(iso, hours) {
   }
 }
 
+function normalizeTextForDupe(v) {
+  return String(v || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sameCalendarDay(aTs, bTs) {
+  if (!Number.isFinite(aTs) || !Number.isFinite(bTs)) return false;
+  const a = new Date(aTs);
+  const b = new Date(bTs);
+  return (
+    a.getUTCFullYear() === b.getUTCFullYear() &&
+    a.getUTCMonth() === b.getUTCMonth() &&
+    a.getUTCDate() === b.getUTCDate()
+  );
+}
+
 // Public submission endpoint (frontend form -> pending approvals)
 router.post("/submit", async (req, res) => {
   try {
@@ -97,6 +116,96 @@ router.post("/submit", async (req, res) => {
     // If no end time, default to +1 hour (can be edited in approvals)
     if (!endDateTime) {
       endDateTime = addHoursIso(startDateTime, 1);
+    }
+
+    // Duplicate detection: same city + very similar title and date/time.
+    // This is intentionally conservative so we only block likely duplicates.
+    const submittedStartTs = Date.parse(startDateTime);
+    const submittedTitleNorm = normalizeTextForDupe(title);
+    const submittedLocNorm = normalizeTextForDupe(location);
+
+    const activeEvents = await all(
+      `SELECT id, title, startDateTime, location, slug
+         FROM events
+        WHERE LOWER(city) = LOWER(?)
+          AND COALESCE(archived, 0) = 0
+        ORDER BY datetime(startDateTime) DESC
+        LIMIT 500`,
+      [city]
+    );
+
+    const pendingEvents = await all(
+      `SELECT id, title, startDateTime, location
+         FROM pending_events
+        WHERE LOWER(city) = LOWER(?)
+        ORDER BY datetime(startDateTime) DESC
+        LIMIT 500`,
+      [city]
+    );
+
+    const matches = [];
+
+    for (const row of activeEvents || []) {
+      const candTitleNorm = normalizeTextForDupe(row.title);
+      if (!candTitleNorm || candTitleNorm !== submittedTitleNorm) continue;
+
+      const candStartTs = Date.parse(String(row.startDateTime || ""));
+      const closeInTime =
+        Number.isFinite(submittedStartTs) &&
+        Number.isFinite(candStartTs) &&
+        Math.abs(submittedStartTs - candStartTs) <= 12 * 60 * 60 * 1000;
+
+      const sameDayAndPlace =
+        sameCalendarDay(submittedStartTs, candStartTs) &&
+        submittedLocNorm !== "" &&
+        normalizeTextForDupe(row.location) === submittedLocNorm;
+
+      if (!closeInTime && !sameDayAndPlace) continue;
+
+      matches.push({
+        source: "events",
+        id: row.id,
+        title: row.title,
+        startDateTime: row.startDateTime,
+        location: row.location || "",
+        slug: row.slug || "",
+      });
+    }
+
+    for (const row of pendingEvents || []) {
+      const candTitleNorm = normalizeTextForDupe(row.title);
+      if (!candTitleNorm || candTitleNorm !== submittedTitleNorm) continue;
+
+      const candStartTs = Date.parse(String(row.startDateTime || ""));
+      const closeInTime =
+        Number.isFinite(submittedStartTs) &&
+        Number.isFinite(candStartTs) &&
+        Math.abs(submittedStartTs - candStartTs) <= 12 * 60 * 60 * 1000;
+
+      const sameDayAndPlace =
+        sameCalendarDay(submittedStartTs, candStartTs) &&
+        submittedLocNorm !== "" &&
+        normalizeTextForDupe(row.location) === submittedLocNorm;
+
+      if (!closeInTime && !sameDayAndPlace) continue;
+
+      matches.push({
+        source: "pending_events",
+        id: row.id,
+        title: row.title,
+        startDateTime: row.startDateTime,
+        location: row.location || "",
+      });
+    }
+
+    if (matches.length > 0) {
+      const first = matches[0];
+      return res.status(409).json({
+        ok: false,
+        duplicate: true,
+        error: `Possible duplicate detected: "${first.title}" on ${first.startDateTime}.`,
+        matches: matches.slice(0, 10),
+      });
     }
 
     const cats = normalizeCategoriesInput(body.categories);

@@ -3411,7 +3411,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           var sp = new URLSearchParams(window.location.search || '');
           if (q) sp.set('q', q); else sp.delete('q');
           sp.set('pg', '1');
-          window.location.href = '/admin?' + sp.toString();
+          window.location.href = '/admin/existing-events?' + sp.toString();
         }
 
         input.addEventListener('keydown', function(ev){
