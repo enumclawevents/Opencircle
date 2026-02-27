@@ -463,10 +463,67 @@ async function ensurePickSchema() {
   _pickSchemaEnsured = true;
 }
 
+let _venueSchemaEnsured = false;
+let _venueColsCache = null;
+async function getVenueColumns() {
+  if (_venueColsCache) return _venueColsCache;
+  try {
+    const rows = await all("PRAGMA table_info(venues)");
+    _venueColsCache = new Set((rows || []).map((r) => String(r.name)));
+    return _venueColsCache;
+  } catch {
+    _venueColsCache = new Set();
+    return _venueColsCache;
+  }
+}
+
+async function ensureVenueSchema() {
+  if (_venueSchemaEnsured) return;
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS venues (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL DEFAULT 'Enumclaw',
+      slug TEXT,
+      name TEXT NOT NULL,
+      address TEXT,
+      website TEXT,
+      phone TEXT,
+      description TEXT,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
+  try {
+    await run(`CREATE INDEX IF NOT EXISTS idx_venues_city ON venues(city)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_venues_slug ON venues(slug)`);
+  } catch (_) {}
+
+  _venueColsCache = null;
+  _venueSchemaEnsured = true;
+}
+
+async function ensureUniqueVenueSlug(baseSlug, venueId) {
+  let base = String(baseSlug || "").trim();
+  if (!base) base = "venue";
+  let slug = base;
+  let n = 2;
+
+  while (true) {
+    const row = venueId
+      ? await get("SELECT id FROM venues WHERE slug = ? AND id <> ? LIMIT 1", [slug, venueId])
+      : await get("SELECT id FROM venues WHERE slug = ? LIMIT 1", [slug]);
+    if (!row) return slug;
+    slug = `${base}-${n++}`;
+  }
+}
+
 // GET /admin
 async function renderAdmin(req, res, view) {
   try {
     await ensurePickSchema();
+    await ensureVenueSchema();
     // ✅ Pagination + total count + optional server-side search
 const limit = Math.max(5, Math.min(200, parseInt(req.query.limit || "20", 10)));
 const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
@@ -1157,6 +1214,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const showCreate = view === "create";
     const showApprove = view === "approve";
     const showExisting = view === "existing";
+    const showVenueCreate = view === "venues-create";
+    const showVenueExisting = view === "venues-existing";
+    const showVenueAnalytics = view === "venues-analytics";
     const showUsers = view === "users";
     const showInvites = view === "invites";
 
@@ -1164,8 +1224,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     if (showInvites && !isAdminUser) return res.status(403).send("Forbidden");
     if (showApprove && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     if (showCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
-    const showSearch = showAnalytics || showExisting;
-    const isSingleManage = (showCreate ^ showExisting);
+    if (showVenueCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showVenueExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showVenueAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
+    const showSearch = showAnalytics || showExisting || showVenueExisting;
+    const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting);
 
     let pendingRows = [];
     if (showApprove) {
@@ -1341,12 +1404,73 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         : `<div class="muted">No users yet.</div>`;
     }
 
+    let editVenue = null;
+    if (showVenueCreate && req.query.edit) {
+      const venueId = parseInt(String(req.query.edit), 10);
+      if (!Number.isNaN(venueId)) {
+        editVenue = await get("SELECT * FROM venues WHERE id = ?", [venueId]);
+      }
+    }
+
+    let venueRows = [];
+    let venueTotal = 0;
+    let venuePages = 1;
+    let venueShowingFrom = 0;
+    let venueShowingTo = 0;
+    let venueByCity = [];
+
+    if (showVenueExisting || showVenueAnalytics) {
+      const venueWhere = [];
+      const venueParams = [];
+      if (selectedCity) {
+        venueWhere.push("city = ?");
+        venueParams.push(selectedCity);
+      }
+      if (q) {
+        const like = `%${q}%`;
+        venueWhere.push("(name LIKE ? OR slug LIKE ? OR address LIKE ? OR CAST(id AS TEXT) LIKE ?)");
+        venueParams.push(like, like, like, like);
+      }
+      const venueWhereSql = venueWhere.length ? `WHERE ${venueWhere.join(" AND ")}` : "";
+      const venueTotalRow = await get(`SELECT COUNT(*) AS n FROM venues ${venueWhereSql}`, venueParams);
+      venueTotal = Number(venueTotalRow?.n || 0);
+      venuePages = Math.max(1, Math.ceil(venueTotal / limit));
+      venueShowingFrom = venueTotal ? offset + 1 : 0;
+      venueShowingTo = Math.min(offset + limit, venueTotal);
+
+      if (showVenueExisting) {
+        venueRows = await all(
+          `SELECT id, city, slug, name, address, website, phone, description, createdAt
+           FROM venues
+           ${venueWhereSql}
+           ORDER BY datetime(createdAt) DESC, id DESC
+           LIMIT ? OFFSET ?`,
+          [...venueParams, limit, offset]
+        );
+      }
+
+      if (showVenueAnalytics) {
+        venueByCity = await all(
+          `SELECT city, COUNT(*) AS n
+           FROM venues
+           GROUP BY city
+           ORDER BY n DESC, city ASC`
+        );
+      }
+    }
+
     const pageTitleBase = showCreate
       ? "Create Events"
       : showApprove
       ? "Approve Events"
       : showExisting
       ? "All Events"
+      : showVenueCreate
+      ? "Create Venue"
+      : showVenueExisting
+      ? "All Venues"
+      : showVenueAnalytics
+      ? "Venue Analytics"
       : showUsers
       ? "Users"
       : showInvites
@@ -2421,6 +2545,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             </a>` : ``}
             ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
           </div>
+          <div class="sb-divider"></div>
+          <div class="nav-group" style="margin-top:16px;">
+            <div class="nav-title">Venues</div>
+            ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>` : ``}
+            ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueExisting ? "active" : ""}" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>` : ``}
+            ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
+          </div>
           ${isAdminUser ? `<div class="sb-divider"></div>
           <div class="nav-group" style="margin-top:16px;">
             <div class="nav-title">Admin</div>
@@ -2448,6 +2579,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Approve Events"
                 : showExisting
                 ? "All Events"
+                : showVenueCreate
+                ? "Create Venue"
+                : showVenueExisting
+                ? "All Venues"
+                : showVenueAnalytics
+                ? "Venue Analytics"
                 : showInvites
                 ? "Invites"
                 : "Events Dashboard"
@@ -2459,20 +2596,28 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Review pending submissions"
                 : showExisting
                 ? "Edit, delete, and check stats"
+                : showVenueCreate
+                ? "Create a venue record for this city"
+                : showVenueExisting
+                ? "Browse and search venue records"
+                : showVenueAnalytics
+                ? "Venue totals and city distribution"
                 : "Overview + event management"
             }</p>
           </div>
 
           <div class="h-right">
             ${showSearch ? `
-            <form class="search" method="GET" action="/admin/existing-events">
-              <input name="q" value="${esc(q)}" placeholder="Search events (title, slug, location, ID)..." />
+            <form class="search" method="GET" action="${showVenueExisting ? "/admin/venues" : "/admin/existing-events"}">
+              <input name="q" value="${esc(q)}" placeholder="${showVenueExisting ? "Search venues (name, slug, address, ID)..." : "Search events (title, slug, location, ID)..."}" />
               <input type="hidden" name="pg" value="1" />
               <input type="hidden" name="limit" value="${esc(String(limit))}" />
-              <input type="hidden" name="status" value="${esc(String(statusMode))}" />
-              ${recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``}
+              ${showVenueExisting ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
+              ${showVenueExisting ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``)}
               <button class="btn btn-primary" type="submit">Search</button>
-              ${q ? `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>` : ``}
+              ${q ? (showVenueExisting
+                ? `<a class="btn" href="/admin/venues?pg=1&limit=${esc(String(limit))}">Reset</a>`
+                : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`) : ``}
             </form>
             ` : ``}
           </div>
@@ -3037,6 +3182,130 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         </section>
         ` : ``}
 
+        ${(showVenueCreate || showVenueExisting || showVenueAnalytics) ? `
+        <section class="gridMain ${showVenueCreate ? "single" : ""}" id="venues">
+          ${showVenueCreate ? `
+          <div class="card" id="venue-create">
+            <div class="sectionTitle">
+              <div>
+                <h2>${editVenue ? "Edit venue" : "Create venue"}</h2>
+                <p class="sub">Saved to SQLite and used across event pages</p>
+              </div>
+              <div class="right">
+                <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
+              </div>
+            </div>
+
+            <form method="POST" action="/admin/venues">
+              ${editVenue ? `<input type="hidden" name="id" value="${esc(editVenue.id)}" />` : ""}
+              <input type="hidden" name="city" value="${esc(editVenue?.city || selectedCity)}" />
+
+              <label>Venue Name</label>
+              <input class="ctrl" name="name" value="${esc(editVenue?.name || "")}" required />
+
+              <label>Address</label>
+              <input class="ctrl" name="address" value="${esc(editVenue?.address || "")}" />
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Website</label>
+                  <input class="ctrl" name="website" value="${esc(editVenue?.website || "")}" placeholder="https://..." />
+                </div>
+                <div>
+                  <label style="margin-top:0;">Phone</label>
+                  <input class="ctrl" name="phone" value="${esc(editVenue?.phone || "")}" placeholder="(360) 555-1212" />
+                </div>
+              </div>
+
+              <label>Description</label>
+              <textarea class="ctrl" name="description" rows="5">${esc(editVenue?.description || "")}</textarea>
+
+              <div class="actions">
+                <button type="submit" class="btn btn-primary">${editVenue ? "Update Venue" : "Save Venue"}</button>
+                ${editVenue ? `<a class="btn btn-link" href="/admin/venues?pg=1&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}">Cancel</a>` : ""}
+              </div>
+            </form>
+          </div>
+          ` : ``}
+
+          ${showVenueExisting ? `
+          <div class="card" id="venue-existing">
+            <div class="sectionTitle">
+              <div>
+                <h2>All venues</h2>
+                <p class="sub">Search, edit, and manage venues</p>
+              </div>
+            </div>
+
+            <div class="muted" style="margin-bottom:12px;">
+              Total: <strong style="color:var(--text)">${venueTotal}</strong>
+              ${venueTotal ? ` · Showing ${venueShowingFrom}-${venueShowingTo}` : ``}
+            </div>
+
+            <div id="venuesList" style="display:grid; gap:var(--gap);">
+              ${venueRows.length ? venueRows.map((v) => `
+                <div class="event-card">
+                  <div class="event-left">
+                    <div class="event-main">
+                      <div class="event-title">#${v.id} — ${esc(v.name || "")}</div>
+                      <div class="event-meta">
+                        <div><strong>Slug:</strong> ${esc(v.slug || "")}</div>
+                        <div><strong>Address:</strong> ${esc(v.address || "")}</div>
+                        <div><strong>City:</strong> ${esc(v.city || "")}</div>
+                        ${v.website ? `<div><strong>Website:</strong> <a href="${esc(v.website)}" target="_blank" rel="noopener">${esc(v.website)}</a></div>` : ``}
+                        ${v.phone ? `<div><strong>Phone:</strong> ${esc(v.phone)}</div>` : ``}
+                      </div>
+                    </div>
+                    <div class="event-actions">
+                      <a class="btn btn-edit" href="/admin/venues/create?edit=${v.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}">Edit</a>
+                      <form method="POST" action="/admin/venues/${v.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" class="inline" onsubmit="return confirm('Delete this venue?');">
+                        <button type="submit" class="btn btn-danger">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              `).join("") : `<div class="muted">No venues found.</div>`}
+            </div>
+
+            ${venuePages > 1 ? `
+            <div class="pager" style="margin-top:14px;">
+              <div class="pager-right">
+                <a class="btn" href="/admin/venues?pg=1&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>First</a>
+                <a class="btn" href="/admin/venues?pg=${Math.max(1, pg - 1)}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>Prev</a>
+                <span class="muted" style="padding:0 8px;">Page <strong style="color:var(--text)">${pg}</strong> / ${venuePages}</span>
+                <a class="btn" href="/admin/venues?pg=${Math.min(venuePages, pg + 1)}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg >= venuePages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Next</a>
+                <a class="btn" href="/admin/venues?pg=${venuePages}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg >= venuePages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Last</a>
+              </div>
+            </div>
+            ` : ``}
+          </div>
+          ` : ``}
+
+          ${showVenueAnalytics ? `
+          <div class="card" id="venue-analytics">
+            <div class="sectionTitle">
+              <div>
+                <h2>Venue analytics</h2>
+                <p class="sub">Venue totals and city breakdown</p>
+              </div>
+            </div>
+            <div class="kpis">
+              <div class="kpi"><div class="label">Total Venues</div><div class="value">${venueTotal}</div></div>
+              <div class="kpi"><div class="label">Cities</div><div class="value">${venueByCity.length}</div></div>
+            </div>
+            <div class="mini" style="margin-top:14px;">
+              ${venueByCity.length ? venueByCity.map((r) => `
+                <div style="display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px solid var(--line);">
+                  <span>${esc(r.city || "Unknown")}</span>
+                  <strong>${Number(r.n || 0)}</strong>
+                </div>
+              `).join("") : `<div class="muted">No venue analytics yet.</div>`}
+            </div>
+          </div>
+          ` : ``}
+        </section>
+        ` : ``}
+
       </main>
     </div>
 
@@ -3411,7 +3680,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           var sp = new URLSearchParams(window.location.search || '');
           if (q) sp.set('q', q); else sp.delete('q');
           sp.set('pg', '1');
-          window.location.href = '/admin/existing-events?' + sp.toString();
+          window.location.href = window.location.pathname + '?' + sp.toString();
         }
 
         input.addEventListener('keydown', function(ev){
@@ -3890,6 +4159,9 @@ router.get("/", async (req, res) => renderAdmin(req, res, "analytics"));
 router.get("/create-events", async (req, res) => renderAdmin(req, res, "create"));
 router.get("/approve-events", async (req, res) => renderAdmin(req, res, "approve"));
 router.get("/existing-events", async (req, res) => renderAdmin(req, res, "existing"));
+router.get("/venues", async (req, res) => renderAdmin(req, res, "venues-existing"));
+router.get("/venues/create", async (req, res) => renderAdmin(req, res, "venues-create"));
+router.get("/venues/analytics", async (req, res) => renderAdmin(req, res, "venues-analytics"));
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 router.get("/pending-count", async (req, res) => {
@@ -4039,6 +4311,86 @@ router.post("/users/:id/resend-invite", async (req, res) => {
 });
 
 // POST /admin/events (create or update)
+router.post("/venues", async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor" || role === "creator")) {
+      return res.status(403).send("Forbidden");
+    }
+    await ensureVenueSchema();
+
+    const idRaw = String(req.body?.id || "").trim();
+    const id = idRaw ? parseInt(idRaw, 10) : null;
+    const isUpdate = Number.isInteger(id) && id > 0;
+
+    const userCity = String(req.user?.city || "Enumclaw");
+    const city = role === "admin"
+      ? String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw"
+      : userCity;
+
+    const name = String(req.body?.name || "").trim();
+    const address = String(req.body?.address || "").trim();
+    const website = String(req.body?.website || "").trim();
+    const phone = String(req.body?.phone || "").trim();
+    const description = String(req.body?.description || "").trim();
+
+    if (!name) return res.status(400).send("Venue name is required.");
+
+    const baseSlug = slugify(name);
+    const slug = await ensureUniqueVenueSlug(baseSlug, isUpdate ? id : null);
+
+    if (isUpdate) {
+      await run(
+        `UPDATE venues
+            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, description = ?, updatedAt = datetime('now')
+          WHERE id = ?`,
+        [city, slug, name, address || null, website || null, phone || null, description || null, id]
+      );
+    } else {
+      await run(
+        `INSERT INTO venues (city, slug, name, address, website, phone, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, name, address || null, website || null, phone || null, description || null]
+      );
+    }
+
+    const pg = req.query.pg ? String(req.query.pg) : "1";
+    const limit = req.query.limit ? String(req.query.limit) : "20";
+    const q = req.query.q ? String(req.query.q) : "";
+    const sp = new URLSearchParams({ pg, limit });
+    if (q) sp.set("q", q);
+    return res.redirect(`/admin/venues?${sp.toString()}`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Server error.");
+  }
+});
+
+router.post("/venues/:id/delete", async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor" || role === "creator")) {
+      return res.status(403).send("Forbidden");
+    }
+    await ensureVenueSchema();
+
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
+
+    await run("DELETE FROM venues WHERE id = ?", [id]);
+
+    const pg = req.query.pg ? String(req.query.pg) : "1";
+    const limit = req.query.limit ? String(req.query.limit) : "20";
+    const q = req.query.q ? String(req.query.q) : "";
+    const sp = new URLSearchParams({ pg, limit });
+    if (q) sp.set("q", q);
+    return res.redirect(`/admin/venues?${sp.toString()}`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Server error.");
+  }
+});
+
 router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
