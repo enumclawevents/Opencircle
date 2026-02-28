@@ -2554,8 +2554,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         flex-wrap:wrap;
       }
       .dashboard-overview{
-        grid-template-columns: minmax(0,1fr) minmax(320px,460px);
+        grid-template-columns: repeat(3, minmax(0,1fr));
         align-items: start;
+      }
+      .dashboard-overview > .card{
+        grid-column: auto !important;
+        display:flex;
+        flex-direction:column;
+        height:100%;
       }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
       .insight-list{
@@ -2582,7 +2588,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         font-weight:700;
         color: var(--text);
       }
-      .release-card{ margin-top: 14px; }
       .release-meta{
         display:grid;
         gap:10px;
@@ -2874,7 +2879,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <div class="insight-row"><div class="label">With Social</div><div class="value">${esc(venueStats.withSocial)}</div></div>
               <div class="insight-row"><div class="label">With Image</div><div class="value">${esc(venueStats.withImage)}</div></div>
             </div>
-            <div class="mini release-card">
+          </div>
+
+          <div class="card dashboard-card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Release notes</h2>
+                <p class="sub">Latest platform updates</p>
+              </div>
+            </div>
+            <div class="mini">
               <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
               <div class="release-meta">
                 <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
