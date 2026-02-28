@@ -2795,36 +2795,55 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           <div class="card">
             <div class="sectionTitle">
               <div>
-                <h2>At a glance</h2>
-                <p class="sub">High-level totals for events and venues</p>
+                <h2>Quick insights</h2>
+                <p class="sub">Events snapshot</p>
               </div>
             </div>
             <div class="kpis">
               <div class="kpi"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
               <div class="kpi"><div class="label">Upcoming</div><div class="value">${esc(stats.upcoming)}</div></div>
               <div class="kpi"><div class="label">Featured</div><div class="value">${esc(stats.featured)}</div></div>
-              <div class="kpi"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
-              <div class="kpi"><div class="label">With Hours</div><div class="value">${esc(venueStats.withHours)}</div></div>
-              <div class="kpi"><div class="label">With Social</div><div class="value">${esc(venueStats.withSocial)}</div></div>
+              <div class="kpi"><div class="label">Views</div><div class="value">${esc(stats.views)}</div></div>
             </div>
           </div>
 
           <div class="card">
             <div class="sectionTitle">
               <div>
-                <h2>Quick links</h2>
-                <p class="sub">Most common admin tasks</p>
+                <h2>Quick insights</h2>
+                <p class="sub">Venues snapshot + release notes</p>
               </div>
             </div>
-            <div style="display:grid; gap:8px;">
-              <a class="btn" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
-              <a class="btn" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
-              <a class="btn" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
-              <a class="btn" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
-              <a class="btn" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
-              ${(isAdminUser || isCityEditor) ? `<a class="btn" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
-              ${isAdminUser ? `<a class="btn" href="/admin/users">Users</a>` : ``}
+            <div class="kpis">
+              <div class="kpi"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
+              <div class="kpi"><div class="label">With Hours</div><div class="value">${esc(venueStats.withHours)}</div></div>
+              <div class="kpi"><div class="label">With Social</div><div class="value">${esc(venueStats.withSocial)}</div></div>
+              <div class="kpi"><div class="label">With Image</div><div class="value">${esc(venueStats.withImage)}</div></div>
             </div>
+            <div class="mini" style="margin-top:14px;">
+              <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
+              <div class="kv"><div class="k">App version</div><div class="v">${esc(stats.appVersion)}</div></div>
+              <div class="kv"><div class="k">Latest updates</div><div class="v">Venues module, categories, social, hours, SEO, image upload</div></div>
+              <div class="kv"><div class="k">Updated at</div><div class="v">${esc(stats.serverTime)}</div></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" id="dashboard-quick-links" style="margin-bottom:var(--gap);">
+          <div class="sectionTitle">
+            <div>
+              <h2>Quick links</h2>
+              <p class="sub">Most common admin tasks</p>
+            </div>
+          </div>
+          <div style="display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));">
+            <a class="btn" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
+            <a class="btn" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
+            <a class="btn" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
+            <a class="btn" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
+            <a class="btn" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
+            ${(isAdminUser || isCityEditor) ? `<a class="btn" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+            ${isAdminUser ? `<a class="btn" href="/admin/users">Users</a>` : ``}
           </div>
         </section>
         ` : ``}
