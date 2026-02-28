@@ -3295,21 +3295,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <label>Venue Name</label>
               <input class="ctrl" name="name" value="${esc(editVenue?.name || "")}" required />
 
-              <label>Address</label>
-              <input class="ctrl" name="address" value="${esc(editVenue?.address || "")}" />
-
-              <div class="rec-grid" style="margin-top:10px;">
-                <div>
-                  <label style="margin-top:0;">Venue Image (Upload)</label>
-                  <input class="ctrl" type="file" name="venueImageFile" accept="image/*" />
-                </div>
-                <div>
-                  <label style="margin-top:0;">Venue Image URL (Optional)</label>
-                  <input class="ctrl" name="imageUrl" value="${esc(editVenue?.imageUrl || "")}" placeholder="https://..." />
-                  ${editVenue?.imageUrl ? `<div class="note">Current: <a href="${esc(editVenue.imageUrl)}" target="_blank" rel="noopener">View image</a></div>` : ``}
-                </div>
-              </div>
-
               <div class="rec-box" style="margin-top:10px;">
                 <div style="font-weight:650; margin-bottom:6px;">Venue Categories (pick up to 3, at least 1 required)</div>
                 <div class="cat-grid">
@@ -3328,6 +3313,43 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                     </div>
                     `;
                   }).join("")}
+                </div>
+              </div>
+
+              <label>Address</label>
+              <input class="ctrl" name="address" value="${esc(editVenue?.address || "")}" />
+
+              <label>Description</label>
+              <textarea class="ctrl" name="description" rows="5">${esc(editVenue?.description || "")}</textarea>
+
+              <label>Hours (Sun-Sat)</label>
+              <div class="mini" style="display:grid; gap:8px; margin-top:8px;">
+                ${venueDays.map((d) => {
+                  const labels = { sun: "Sun", mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat" };
+                  const h = venueHours[d] || { open: "", close: "", closed: false };
+                  return `
+                    <div style="display:grid; grid-template-columns:70px 1fr 1fr auto; gap:10px; align-items:center;">
+                      <div class="muted">${labels[d]}</div>
+                      <input class="ctrl" type="time" name="venueHours_${d}_open" value="${esc(h.open || "")}" />
+                      <input class="ctrl" type="time" name="venueHours_${d}_close" value="${esc(h.close || "")}" />
+                      <label style="display:flex; gap:6px; align-items:center; margin:0;">
+                        <input type="checkbox" name="venueHours_${d}_closed" value="1" ${h.closed ? "checked" : ""} />
+                        <span class="muted">Closed</span>
+                      </label>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Venue Image (Upload)</label>
+                  <input class="ctrl" type="file" name="venueImageFile" accept="image/*" />
+                </div>
+                <div>
+                  <label style="margin-top:0;">Venue Image URL (Optional)</label>
+                  <input class="ctrl" name="imageUrl" value="${esc(editVenue?.imageUrl || "")}" placeholder="https://..." />
+                  ${editVenue?.imageUrl ? `<div class="note">Current: <a href="${esc(editVenue.imageUrl)}" target="_blank" rel="noopener">View image</a></div>` : ``}
                 </div>
               </div>
 
@@ -3375,28 +3397,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   </div>
                 </div>
               </div>
-
-              <label>Hours (Sun-Sat)</label>
-              <div class="mini" style="display:grid; gap:8px; margin-top:8px;">
-                ${venueDays.map((d) => {
-                  const labels = { sun: "Sun", mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat" };
-                  const h = venueHours[d] || { open: "", close: "", closed: false };
-                  return `
-                    <div style="display:grid; grid-template-columns:70px 1fr 1fr auto; gap:10px; align-items:center;">
-                      <div class="muted">${labels[d]}</div>
-                      <input class="ctrl" type="time" name="venueHours_${d}_open" value="${esc(h.open || "")}" />
-                      <input class="ctrl" type="time" name="venueHours_${d}_close" value="${esc(h.close || "")}" />
-                      <label style="display:flex; gap:6px; align-items:center; margin:0;">
-                        <input type="checkbox" name="venueHours_${d}_closed" value="1" ${h.closed ? "checked" : ""} />
-                        <span class="muted">Closed</span>
-                      </label>
-                    </div>
-                  `;
-                }).join("")}
-              </div>
-
-              <label>Description</label>
-              <textarea class="ctrl" name="description" rows="5">${esc(editVenue?.description || "")}</textarea>
 
               <div class="rec-box" style="margin-top:10px;">
                 <div style="font-weight:650; margin-bottom:6px;">SEO</div>
