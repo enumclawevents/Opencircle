@@ -1300,7 +1300,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     };
     const chartDataJson = JSON.stringify(chartSets);
 
-    const showAnalytics = view === "analytics";
+    const showDashboard = view === "dashboard";
+    const showAnalytics = view === "events-analytics" || view === "analytics";
     const showCreate = view === "create";
     const showApprove = view === "approve";
     const showExisting = view === "existing";
@@ -2767,7 +2768,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           ${(isAdminUser || isCityEditor) ? `
           <div class="nav-group">
             <div class="nav-title">Dashboard</div>
-            <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Overview</a>
+            <a class="subnav-link ${showDashboard ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Overview</a>
           </div>
           <div class="sb-divider"></div>
           ` : ``}
@@ -2775,6 +2776,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             <div class="nav-title">Events</div>
             <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
             ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
+            ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
             ${(isAdminUser || isCityEditor) ? `
             <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" style="display:flex; align-items:center; gap:8px;">
               <span>Approve Events</span>
@@ -2815,6 +2817,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Approve Events"
                 : showExisting
                 ? "All Events"
+                : showAnalytics
+                ? "Events Analytics"
                 : showVenueCreate
                 ? "Create Venue"
                 : showVenueExisting
@@ -2832,6 +2836,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Review pending submissions"
                 : showExisting
                 ? "Edit, delete, and check stats"
+                : showAnalytics
+                ? "Event metrics, charts, and top performers"
                 : showVenueCreate
                 ? "Create a venue record for this city"
                 : showVenueExisting
@@ -2844,7 +2850,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
           <div class="h-right">
             ${showSearch ? `
-            <form class="search" method="GET" action="${showVenueExisting ? "/admin/venues" : "/admin/existing-events"}">
+            <form class="search" method="GET" action="${showVenueExisting ? "/admin/venues" : (showAnalytics ? "/admin/events-analytics" : "/admin/existing-events")}">
               <input name="q" value="${esc(q)}" placeholder="${showVenueExisting ? "Search venues (name, slug, address, ID)..." : "Search events (title, slug, location, ID)..."}" />
               <input type="hidden" name="pg" value="1" />
               <input type="hidden" name="limit" value="${esc(String(limit))}" />
@@ -2853,7 +2859,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <button class="btn btn-primary" type="submit">Search</button>
               ${q ? (showVenueExisting
                 ? `<a class="btn" href="/admin/venues?pg=1&limit=${esc(String(limit))}">Reset</a>`
-                : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`) : ``}
+                : (showAnalytics
+                  ? `<a class="btn" href="/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`
+                  : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`)) : ``}
             </form>
             ` : ``}
           </div>
@@ -2900,7 +2908,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         </script>
 
         <!-- Dashboard Overview -->
-        ${showAnalytics ? `
+        ${showDashboard ? `
         <section class="dashboard-shell" id="dashboard-overview">
           <div class="dashboard-col dashboard-col-fill">
             <section class="card dashboard-card" id="dashboard-quick-links">
@@ -2915,7 +2923,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <div class="quick-links-group-title">Events</div>
                   <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
                   <a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
-                  <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
+                  <a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>
                 </div>
                 <div class="quick-links-group">
                   <div class="quick-links-group-title">Venues</div>
@@ -4588,7 +4596,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
   }
 }
 
-router.get("/", async (req, res) => renderAdmin(req, res, "analytics"));
+router.get("/", async (req, res) => renderAdmin(req, res, "dashboard"));
+router.get("/events-analytics", async (req, res) => renderAdmin(req, res, "events-analytics"));
 router.get("/create-events", async (req, res) => renderAdmin(req, res, "create"));
 router.get("/approve-events", async (req, res) => renderAdmin(req, res, "approve"));
 router.get("/existing-events", async (req, res) => renderAdmin(req, res, "existing"));
