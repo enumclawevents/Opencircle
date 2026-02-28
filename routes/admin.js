@@ -518,6 +518,7 @@ async function ensureVenueSchema() {
       website TEXT,
       phone TEXT,
       categoriesJson TEXT,
+      socialJson TEXT,
       hoursJson TEXT,
       description TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
@@ -536,6 +537,9 @@ async function ensureVenueSchema() {
   }
   if (!cols.has("categoriesJson")) {
     await run(`ALTER TABLE venues ADD COLUMN categoriesJson TEXT`);
+  }
+  if (!cols.has("socialJson")) {
+    await run(`ALTER TABLE venues ADD COLUMN socialJson TEXT`);
   }
 
   _venueColsCache = null;
@@ -1467,6 +1471,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       return out;
     })();
     const selectedVenueCats = normalizeVenueCategories(safeParseJson(editVenue?.categoriesJson, []));
+    const venueSocial = (() => {
+      const parsed = safeParseJson(editVenue?.socialJson, null);
+      const obj = (parsed && typeof parsed === "object") ? parsed : {};
+      return {
+        facebook: String(obj.facebook || ""),
+        instagram: String(obj.instagram || ""),
+        x: String(obj.x || ""),
+        tiktok: String(obj.tiktok || ""),
+        youtube: String(obj.youtube || ""),
+        linkedin: String(obj.linkedin || ""),
+      };
+    })();
 
     let venueRows = [];
     let venueTotal = 0;
@@ -1496,7 +1512,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
       if (showVenueExisting) {
         venueRows = await all(
-          `SELECT id, city, slug, name, address, website, phone, categoriesJson, description, createdAt
+          `SELECT id, city, slug, name, address, website, phone, categoriesJson, socialJson, description, createdAt
            FROM venues
            ${venueWhereSql}
            ORDER BY datetime(createdAt) DESC, id DESC
@@ -3294,6 +3310,40 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 </div>
               </div>
 
+              <div class="rec-box" style="margin-top:10px;">
+                <div style="font-weight:650; margin-bottom:6px;">Social Links</div>
+                <div class="rec-grid">
+                  <div>
+                    <label style="margin-top:0;">Facebook</label>
+                    <input class="ctrl" name="socialFacebook" value="${esc(venueSocial.facebook)}" placeholder="https://facebook.com/..." />
+                  </div>
+                  <div>
+                    <label style="margin-top:0;">Instagram</label>
+                    <input class="ctrl" name="socialInstagram" value="${esc(venueSocial.instagram)}" placeholder="https://instagram.com/..." />
+                  </div>
+                </div>
+                <div class="rec-grid" style="margin-top:10px;">
+                  <div>
+                    <label style="margin-top:0;">X</label>
+                    <input class="ctrl" name="socialX" value="${esc(venueSocial.x)}" placeholder="https://x.com/..." />
+                  </div>
+                  <div>
+                    <label style="margin-top:0;">TikTok</label>
+                    <input class="ctrl" name="socialTiktok" value="${esc(venueSocial.tiktok)}" placeholder="https://www.tiktok.com/@..." />
+                  </div>
+                </div>
+                <div class="rec-grid" style="margin-top:10px;">
+                  <div>
+                    <label style="margin-top:0;">YouTube</label>
+                    <input class="ctrl" name="socialYoutube" value="${esc(venueSocial.youtube)}" placeholder="https://youtube.com/..." />
+                  </div>
+                  <div>
+                    <label style="margin-top:0;">LinkedIn</label>
+                    <input class="ctrl" name="socialLinkedin" value="${esc(venueSocial.linkedin)}" placeholder="https://linkedin.com/company/..." />
+                  </div>
+                </div>
+              </div>
+
               <label>Hours (Sun-Sat)</label>
               <div class="mini" style="display:grid; gap:8px; margin-top:8px;">
                 ${venueDays.map((d) => {
@@ -3353,6 +3403,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                           return cats.length ? `<div><strong>Categories:</strong> ${esc(cats.join(", "))}</div>` : ``;
                         })()}
                         ${v.website ? `<div><strong>Website:</strong> <a href="${esc(v.website)}" target="_blank" rel="noopener">${esc(v.website)}</a></div>` : ``}
+                        ${(() => {
+                          const s = safeParseJson(v.socialJson, null);
+                          if (!s || typeof s !== "object") return ``;
+                          const parts = [];
+                          if (s.facebook) parts.push(`<a href="${esc(String(s.facebook))}" target="_blank" rel="noopener">Facebook</a>`);
+                          if (s.instagram) parts.push(`<a href="${esc(String(s.instagram))}" target="_blank" rel="noopener">Instagram</a>`);
+                          if (s.x) parts.push(`<a href="${esc(String(s.x))}" target="_blank" rel="noopener">X</a>`);
+                          if (s.tiktok) parts.push(`<a href="${esc(String(s.tiktok))}" target="_blank" rel="noopener">TikTok</a>`);
+                          if (s.youtube) parts.push(`<a href="${esc(String(s.youtube))}" target="_blank" rel="noopener">YouTube</a>`);
+                          if (s.linkedin) parts.push(`<a href="${esc(String(s.linkedin))}" target="_blank" rel="noopener">LinkedIn</a>`);
+                          return parts.length ? `<div><strong>Social:</strong> ${parts.join(" · ")}</div>` : ``;
+                        })()}
                         ${v.phone ? `<div><strong>Phone:</strong> ${esc(v.phone)}</div>` : ``}
                       </div>
                     </div>
@@ -4433,6 +4495,15 @@ router.post("/venues", async (req, res) => {
     const website = String(req.body?.website || "").trim();
     const phone = String(req.body?.phone || "").trim();
     const description = String(req.body?.description || "").trim();
+    const social = {
+      facebook: String(req.body?.socialFacebook || "").trim(),
+      instagram: String(req.body?.socialInstagram || "").trim(),
+      x: String(req.body?.socialX || "").trim(),
+      tiktok: String(req.body?.socialTiktok || "").trim(),
+      youtube: String(req.body?.socialYoutube || "").trim(),
+      linkedin: String(req.body?.socialLinkedin || "").trim(),
+    };
+    const socialJson = JSON.stringify(social);
     const venueCats = normalizeVenueCategories([
       req.body?.venueCategory1,
       req.body?.venueCategory2,
@@ -4461,15 +4532,15 @@ router.post("/venues", async (req, res) => {
     if (isUpdate) {
       await run(
         `UPDATE venues
-            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, categoriesJson = ?, hoursJson = ?, description = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, categoriesJson = ?, socialJson = ?, hoursJson = ?, description = ?, updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, name, address || null, website || null, phone || null, categoriesJson, hoursJson, description || null, id]
+        [city, slug, name, address || null, website || null, phone || null, categoriesJson, socialJson, hoursJson, description || null, id]
       );
     } else {
       await run(
-        `INSERT INTO venues (city, slug, name, address, website, phone, categoriesJson, hoursJson, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, name, address || null, website || null, phone || null, categoriesJson, hoursJson, description || null]
+        `INSERT INTO venues (city, slug, name, address, website, phone, categoriesJson, socialJson, hoursJson, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, name, address || null, website || null, phone || null, categoriesJson, socialJson, hoursJson, description || null]
       );
     }
 
