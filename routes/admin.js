@@ -2581,6 +2581,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         width:100%;
       }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
+      .dashboard-insights{
+        gap: calc(var(--gap) + 6px);
+      }
       .insight-list{
         display:grid;
         gap:10px;
@@ -2590,7 +2593,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         justify-content:space-between;
         align-items:center;
         gap:12px;
-        padding-bottom:10px;
+        padding: 4px 0 12px;
         border-bottom:1px solid var(--line);
       }
       .insight-row:last-child{
@@ -2915,7 +2918,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
                 </div>
                 <div class="quick-links-group">
-                  <div class="quick-links-group-title">Venues + Admin</div>
+                  <div class="quick-links-group-title">Venues</div>
                   <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
                   <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
                   ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
@@ -2941,7 +2944,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             </div>
           </div>
 
-          <div class="dashboard-col dashboard-col-fill">
+          <div class="dashboard-col dashboard-col-fill dashboard-insights">
             <div class="card dashboard-card">
               <div class="sectionTitle">
                 <div>
