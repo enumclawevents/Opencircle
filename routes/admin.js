@@ -2919,7 +2919,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
                   <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
                   ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
-                  ${isAdminUser ? `<a class="btn quick-link" href="/admin/users">Users</a>` : ``}
                 </div>
               </div>
             </section>
