@@ -2553,6 +2553,60 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         gap:14px;
         flex-wrap:wrap;
       }
+      .dashboard-overview{
+        grid-template-columns: minmax(0,1fr) minmax(320px,460px);
+        align-items: start;
+      }
+      .dashboard-card .sectionTitle{ margin-bottom: 14px; }
+      .insight-list{
+        display:grid;
+        gap:10px;
+      }
+      .insight-row{
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:12px;
+        padding-bottom:10px;
+        border-bottom:1px solid var(--line);
+      }
+      .insight-row:last-child{
+        border-bottom:0;
+        padding-bottom:0;
+      }
+      .insight-row .label{
+        font-weight:600;
+        color: var(--muted);
+      }
+      .insight-row .value{
+        font-weight:700;
+        color: var(--text);
+      }
+      .release-card{ margin-top: 14px; }
+      .release-meta{
+        display:grid;
+        gap:10px;
+      }
+      .release-row{
+        display:grid;
+        grid-template-columns: 120px minmax(0,1fr);
+        gap:10px;
+        align-items:start;
+      }
+      .release-row .label{
+        color: var(--muted);
+        font-weight:600;
+      }
+      .release-row .value{
+        color: var(--text);
+        overflow-wrap:anywhere;
+        word-break:break-word;
+      }
+      @media (max-width: 1100px){
+        .dashboard-overview{
+          grid-template-columns: 1fr;
+        }
+      }
       @media (max-width: 900px){
         .sectionTitle--chart{
           flex-direction: column;
@@ -2791,40 +2845,42 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
         <!-- Dashboard Overview -->
         ${showAnalytics ? `
-        <section class="grid2" id="dashboard-overview" style="margin-bottom:var(--gap);">
-          <div class="card">
+        <section class="grid2 dashboard-overview" id="dashboard-overview" style="margin-bottom:var(--gap);">
+          <div class="card dashboard-card">
             <div class="sectionTitle">
               <div>
                 <h2>Quick insights</h2>
                 <p class="sub">Events snapshot</p>
               </div>
             </div>
-            <div class="kpis">
-              <div class="kpi"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
-              <div class="kpi"><div class="label">Upcoming</div><div class="value">${esc(stats.upcoming)}</div></div>
-              <div class="kpi"><div class="label">Featured</div><div class="value">${esc(stats.featured)}</div></div>
-              <div class="kpi"><div class="label">Views</div><div class="value">${esc(stats.views)}</div></div>
+            <div class="insight-list">
+              <div class="insight-row"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
+              <div class="insight-row"><div class="label">Upcoming</div><div class="value">${esc(stats.upcoming)}</div></div>
+              <div class="insight-row"><div class="label">Featured</div><div class="value">${esc(stats.featured)}</div></div>
+              <div class="insight-row"><div class="label">Views</div><div class="value">${esc(stats.views)}</div></div>
             </div>
           </div>
 
-          <div class="card">
+          <div class="card dashboard-card">
             <div class="sectionTitle">
               <div>
-                <h2>Quick insights</h2>
-                <p class="sub">Venues snapshot + release notes</p>
+                <h2>Venue insights</h2>
+                <p class="sub">Venues snapshot</p>
               </div>
             </div>
-            <div class="kpis">
-              <div class="kpi"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
-              <div class="kpi"><div class="label">With Hours</div><div class="value">${esc(venueStats.withHours)}</div></div>
-              <div class="kpi"><div class="label">With Social</div><div class="value">${esc(venueStats.withSocial)}</div></div>
-              <div class="kpi"><div class="label">With Image</div><div class="value">${esc(venueStats.withImage)}</div></div>
+            <div class="insight-list">
+              <div class="insight-row"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
+              <div class="insight-row"><div class="label">With Hours</div><div class="value">${esc(venueStats.withHours)}</div></div>
+              <div class="insight-row"><div class="label">With Social</div><div class="value">${esc(venueStats.withSocial)}</div></div>
+              <div class="insight-row"><div class="label">With Image</div><div class="value">${esc(venueStats.withImage)}</div></div>
             </div>
-            <div class="mini" style="margin-top:14px;">
+            <div class="mini release-card">
               <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
-              <div class="kv"><div class="k">App version</div><div class="v">${esc(stats.appVersion)}</div></div>
-              <div class="kv"><div class="k">Latest updates</div><div class="v">Venues module, categories, social, hours, SEO, image upload</div></div>
-              <div class="kv"><div class="k">Updated at</div><div class="v">${esc(stats.serverTime)}</div></div>
+              <div class="release-meta">
+                <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
+                <div class="release-row"><div class="label">Latest updates</div><div class="value">Venues module, categories, social, hours, SEO, image upload</div></div>
+                <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.serverTime)}</div></div>
+              </div>
             </div>
           </div>
         </section>
