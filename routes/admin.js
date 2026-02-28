@@ -2555,23 +2555,30 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .dashboard-shell{
         display:grid;
-        grid-template-columns: repeat(3, minmax(0,1fr));
+        grid-template-columns: minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,0.9fr);
         gap:var(--gap);
         margin-bottom:var(--gap);
         align-items:stretch;
+        width:100%;
       }
       .dashboard-col{
         display:grid;
         gap:var(--gap);
         align-items:start;
+        min-width:0;
+        width:100%;
       }
       .dashboard-col-fill{
         display:flex;
         flex-direction:column;
         height:100%;
+        min-width:0;
+        width:100%;
       }
       .dashboard-col-fill > .card{
         flex:1 1 auto;
+        min-width:0;
+        width:100%;
       }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
       .insight-list{
@@ -2619,17 +2626,37 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .quick-links-grid{
         display:grid;
-        gap:10px;
-        grid-template-columns: 1fr;
+        gap:12px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .quick-links-group{
+        border:1px solid var(--line);
+        border-radius: var(--radius-inner);
+        background: var(--panel2);
+        padding:10px;
+        display:grid;
+        gap:8px;
+      }
+      .quick-links-group-title{
+        margin:2px 2px 4px;
+        font-size:12px;
+        font-weight:700;
+        letter-spacing:.3px;
+        text-transform:uppercase;
+        color: var(--muted);
       }
       .quick-link{
         min-height:56px;
         justify-content:flex-start;
         padding: 12px 14px;
         font-weight:650;
+        width:100%;
       }
       @media (max-width: 1100px){
         .dashboard-shell{
+          grid-template-columns: 1fr;
+        }
+        .quick-links-grid{
           grid-template-columns: 1fr;
         }
       }
@@ -2881,13 +2908,19 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 </div>
               </div>
               <div class="quick-links-grid">
-                <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
-                <a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
-                <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
-                <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
-                <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
-                ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
-                ${isAdminUser ? `<a class="btn quick-link" href="/admin/users">Users</a>` : ``}
+                <div class="quick-links-group">
+                  <div class="quick-links-group-title">Events</div>
+                  <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
+                  <a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
+                  <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
+                </div>
+                <div class="quick-links-group">
+                  <div class="quick-links-group-title">Venues + Admin</div>
+                  <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
+                  <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
+                  ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+                  ${isAdminUser ? `<a class="btn quick-link" href="/admin/users">Users</a>` : ``}
+                </div>
               </div>
             </section>
           </div>
