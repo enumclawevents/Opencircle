@@ -1090,6 +1090,34 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       autoArchive: cols.has("archived") ? "On" : "Off",
     };
 
+    // Venue dashboard metrics
+    const venueDashParams = [];
+    const venueDashWhere = [];
+    if (selectedCity) {
+      venueDashWhere.push("city = ?");
+      venueDashParams.push(selectedCity);
+    }
+    const venueDashWhereSql = venueDashWhere.length ? `WHERE ${venueDashWhere.join(" AND ")}` : "";
+    const venueTotalRowDash = await get(`SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}`, venueDashParams);
+    const venueWithImageRow = await get(
+      `SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}${venueDashWhereSql ? " AND " : "WHERE "}imageUrl IS NOT NULL AND trim(imageUrl) <> ''`,
+      venueDashParams
+    );
+    const venueWithSocialRow = await get(
+      `SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}${venueDashWhereSql ? " AND " : "WHERE "}socialJson IS NOT NULL AND trim(socialJson) <> ''`,
+      venueDashParams
+    );
+    const venueWithHoursRow = await get(
+      `SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}${venueDashWhereSql ? " AND " : "WHERE "}hoursJson IS NOT NULL AND trim(hoursJson) <> ''`,
+      venueDashParams
+    );
+    const venueStats = {
+      total: fmt(venueTotalRowDash?.n || 0),
+      withImage: fmt(venueWithImageRow?.n || 0),
+      withSocial: fmt(venueWithSocialRow?.n || 0),
+      withHours: fmt(venueWithHoursRow?.n || 0),
+    };
+
     // Top events by views (today / week / month / year)
     const hasViews = cols.has("viewCount");
     const topEventsFallback = `<div class="muted">Views not tracked.</div>`;
@@ -1567,7 +1595,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       ? "Users"
       : showInvites
       ? "Invites"
-      : "Events Dashboard";
+      : "Dashboard";
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
     res.send(`<!doctype html>
@@ -2635,7 +2663,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <span>Approve Events</span>
               ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
             </a>` : ``}
-            ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
+            ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Dashboard</a>` : ``}
           </div>
           <div class="sb-divider"></div>
           <div class="nav-group" style="margin-top:16px;">
@@ -2679,7 +2707,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Venue Analytics"
                 : showInvites
                 ? "Invites"
-                : "Events Dashboard"
+                : "Dashboard"
             }</h1>
             <p>${
               showCreate
@@ -2694,7 +2722,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Browse and search venue records"
                 : showVenueAnalytics
                 ? "Venue totals and city distribution"
-                : "Overview + event management"
+                : "Combined events/venues overview with quick actions"
             }</p>
           </div>
 
@@ -2754,6 +2782,46 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           setInterval(check, pollMs);
         })();
         </script>
+
+        <!-- Dashboard Overview -->
+        ${showAnalytics ? `
+        <section class="grid2" id="dashboard-overview" style="margin-bottom:var(--gap);">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>At a glance</h2>
+                <p class="sub">High-level totals for events and venues</p>
+              </div>
+            </div>
+            <div class="kpis">
+              <div class="kpi"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
+              <div class="kpi"><div class="label">Upcoming</div><div class="value">${esc(stats.upcoming)}</div></div>
+              <div class="kpi"><div class="label">Featured</div><div class="value">${esc(stats.featured)}</div></div>
+              <div class="kpi"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
+              <div class="kpi"><div class="label">With Hours</div><div class="value">${esc(venueStats.withHours)}</div></div>
+              <div class="kpi"><div class="label">With Social</div><div class="value">${esc(venueStats.withSocial)}</div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Quick links</h2>
+                <p class="sub">Most common admin tasks</p>
+              </div>
+            </div>
+            <div style="display:grid; gap:8px;">
+              <a class="btn" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
+              <a class="btn" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
+              <a class="btn" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
+              <a class="btn" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
+              <a class="btn" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
+              ${(isAdminUser || isCityEditor) ? `<a class="btn" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+              ${isAdminUser ? `<a class="btn" href="/admin/users">Users</a>` : ``}
+            </div>
+          </div>
+        </section>
+        ` : ``}
 
         <!-- Metrics -->
         ${showAnalytics ? `
