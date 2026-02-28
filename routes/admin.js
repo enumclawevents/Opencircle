@@ -517,9 +517,14 @@ async function ensureVenueSchema() {
       address TEXT,
       website TEXT,
       phone TEXT,
+      imageUrl TEXT,
       categoriesJson TEXT,
       socialJson TEXT,
       hoursJson TEXT,
+      seoTitle TEXT,
+      metaDescription TEXT,
+      focusKeyphrase TEXT,
+      imageAlt TEXT,
       description TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
@@ -540,6 +545,21 @@ async function ensureVenueSchema() {
   }
   if (!cols.has("socialJson")) {
     await run(`ALTER TABLE venues ADD COLUMN socialJson TEXT`);
+  }
+  if (!cols.has("imageUrl")) {
+    await run(`ALTER TABLE venues ADD COLUMN imageUrl TEXT`);
+  }
+  if (!cols.has("seoTitle")) {
+    await run(`ALTER TABLE venues ADD COLUMN seoTitle TEXT`);
+  }
+  if (!cols.has("metaDescription")) {
+    await run(`ALTER TABLE venues ADD COLUMN metaDescription TEXT`);
+  }
+  if (!cols.has("focusKeyphrase")) {
+    await run(`ALTER TABLE venues ADD COLUMN focusKeyphrase TEXT`);
+  }
+  if (!cols.has("imageAlt")) {
+    await run(`ALTER TABLE venues ADD COLUMN imageAlt TEXT`);
   }
 
   _venueColsCache = null;
@@ -1512,7 +1532,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
       if (showVenueExisting) {
         venueRows = await all(
-          `SELECT id, city, slug, name, address, website, phone, categoriesJson, socialJson, description, createdAt
+          `SELECT id, city, slug, name, address, website, phone, imageUrl, categoriesJson, socialJson, description, createdAt
            FROM venues
            ${venueWhereSql}
            ORDER BY datetime(createdAt) DESC, id DESC
@@ -3278,6 +3298,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <label>Address</label>
               <input class="ctrl" name="address" value="${esc(editVenue?.address || "")}" />
 
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Venue Image (Upload)</label>
+                  <input class="ctrl" type="file" name="venueImageFile" accept="image/*" />
+                </div>
+                <div>
+                  <label style="margin-top:0;">Venue Image URL (Optional)</label>
+                  <input class="ctrl" name="imageUrl" value="${esc(editVenue?.imageUrl || "")}" placeholder="https://..." />
+                  ${editVenue?.imageUrl ? `<div class="note">Current: <a href="${esc(editVenue.imageUrl)}" target="_blank" rel="noopener">View image</a></div>` : ``}
+                </div>
+              </div>
+
               <div class="rec-box" style="margin-top:10px;">
                 <div style="font-weight:650; margin-bottom:6px;">Venue Categories (pick up to 3, at least 1 required)</div>
                 <div class="cat-grid">
@@ -3366,6 +3398,21 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <label>Description</label>
               <textarea class="ctrl" name="description" rows="5">${esc(editVenue?.description || "")}</textarea>
 
+              <div class="rec-box" style="margin-top:10px;">
+                <div style="font-weight:650; margin-bottom:6px;">SEO</div>
+                <label>SEO Title</label>
+                <input class="ctrl" name="seoTitle" value="${esc(editVenue?.seoTitle || "")}" />
+
+                <label style="margin-top:10px;">Meta Description</label>
+                <textarea class="ctrl" name="metaDescription" rows="3">${esc(editVenue?.metaDescription || "")}</textarea>
+
+                <label style="margin-top:10px;">Focus Keyphrase</label>
+                <input class="ctrl" name="focusKeyphrase" value="${esc(editVenue?.focusKeyphrase || "")}" />
+
+                <label style="margin-top:10px;">Image Alt</label>
+                <input class="ctrl" name="imageAlt" value="${esc(editVenue?.imageAlt || "")}" />
+              </div>
+
               <div class="actions">
                 <button type="submit" class="btn btn-primary">${editVenue ? "Update Venue" : "Save Venue"}</button>
                 ${editVenue ? `<a class="btn btn-link" href="/admin/venues?pg=1&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}">Cancel</a>` : ""}
@@ -3398,6 +3445,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                         <div><strong>Slug:</strong> ${esc(v.slug || "")}</div>
                         <div><strong>Address:</strong> ${esc(v.address || "")}</div>
                         <div><strong>City:</strong> ${esc(v.city || "")}</div>
+                        ${v.imageUrl ? `<div><strong>Image:</strong> <a href="${esc(v.imageUrl)}" target="_blank" rel="noopener">View image</a></div>` : ``}
                         ${(() => {
                           const cats = normalizeVenueCategories(safeParseJson(v.categoriesJson, []));
                           return cats.length ? `<div><strong>Categories:</strong> ${esc(cats.join(", "))}</div>` : ``;
@@ -4473,7 +4521,7 @@ router.post("/users/:id/resend-invite", async (req, res) => {
 });
 
 // POST /admin/events (create or update)
-router.post("/venues", async (req, res) => {
+router.post("/venues", upload.single("venueImageFile"), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
     if (!(role === "admin" || role === "editor" || role === "creator")) {
@@ -4494,7 +4542,12 @@ router.post("/venues", async (req, res) => {
     const address = String(req.body?.address || "").trim();
     const website = String(req.body?.website || "").trim();
     const phone = String(req.body?.phone || "").trim();
+    let imageUrl = String(req.body?.imageUrl || "").trim();
     const description = String(req.body?.description || "").trim();
+    const seoTitle = String(req.body?.seoTitle || "").trim();
+    const metaDescription = String(req.body?.metaDescription || "").trim();
+    const focusKeyphrase = String(req.body?.focusKeyphrase || "").trim();
+    const imageAlt = String(req.body?.imageAlt || "").trim();
     const social = {
       facebook: String(req.body?.socialFacebook || "").trim(),
       instagram: String(req.body?.socialInstagram || "").trim(),
@@ -4524,6 +4577,18 @@ router.post("/venues", async (req, res) => {
     }
     const hoursJson = JSON.stringify(venueHours);
 
+    if (req.file) {
+      if (useR2) {
+        const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
+        const key = req.file.key || req.file.filename || "";
+        if (base && key) imageUrl = `${base}/${key}`;
+      } else if (req.file.filename) {
+        const proto = req.headers["x-forwarded-proto"] || req.protocol;
+        const host = req.headers["x-forwarded-host"] || req.get("host");
+        imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
+      }
+    }
+
     if (!name) return res.status(400).send("Venue name is required.");
 
     const baseSlug = slugify(name);
@@ -4532,15 +4597,15 @@ router.post("/venues", async (req, res) => {
     if (isUpdate) {
       await run(
         `UPDATE venues
-            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, categoriesJson = ?, socialJson = ?, hoursJson = ?, description = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, imageUrl = ?, categoriesJson = ?, socialJson = ?, hoursJson = ?, seoTitle = ?, metaDescription = ?, focusKeyphrase = ?, imageAlt = ?, description = ?, updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, name, address || null, website || null, phone || null, categoriesJson, socialJson, hoursJson, description || null, id]
+        [city, slug, name, address || null, website || null, phone || null, imageUrl || null, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description || null, id]
       );
     } else {
       await run(
-        `INSERT INTO venues (city, slug, name, address, website, phone, categoriesJson, socialJson, hoursJson, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, name, address || null, website || null, phone || null, categoriesJson, socialJson, hoursJson, description || null]
+        `INSERT INTO venues (city, slug, name, address, website, phone, imageUrl, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, name, address || null, website || null, phone || null, imageUrl || null, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description || null]
       );
     }
 
