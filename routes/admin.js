@@ -2553,15 +2553,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         gap:14px;
         flex-wrap:wrap;
       }
-      .dashboard-overview{
+      .dashboard-shell{
+        display:grid;
         grid-template-columns: repeat(3, minmax(0,1fr));
-        align-items: start;
+        gap:var(--gap);
+        margin-bottom:var(--gap);
+        align-items:start;
       }
-      .dashboard-overview > .card{
-        grid-column: auto !important;
-        display:flex;
-        flex-direction:column;
-        height:100%;
+      .dashboard-col{
+        display:grid;
+        gap:var(--gap);
+        align-items:start;
       }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
       .insight-list{
@@ -2610,7 +2612,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .quick-links-grid{
         display:grid;
         gap:10px;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: 1fr;
       }
       .quick-link{
         min-height:56px;
@@ -2619,15 +2621,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         font-weight:650;
       }
       @media (max-width: 1100px){
-        .dashboard-overview{
-          grid-template-columns: 1fr;
-        }
-        .quick-links-grid{
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-      }
-      @media (max-width: 700px){
-        .quick-links-grid{
+        .dashboard-shell{
           grid-template-columns: 1fr;
         }
       }
@@ -2869,70 +2863,76 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
         <!-- Dashboard Overview -->
         ${showAnalytics ? `
-        <section class="grid2 dashboard-overview" id="dashboard-overview" style="margin-bottom:var(--gap);">
-          <div class="card dashboard-card">
-            <div class="sectionTitle">
-              <div>
-                <h2>Event insights</h2>
-                <p class="sub">Events snapshot</p>
+        <section class="dashboard-shell" id="dashboard-overview">
+          <div class="dashboard-col">
+            <section class="card dashboard-card" id="dashboard-quick-links">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Quick links</h2>
+                  <p class="sub">Most common admin tasks</p>
+                </div>
+              </div>
+              <div class="quick-links-grid">
+                <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
+                <a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
+                <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
+                <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
+                <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
+                ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+                ${isAdminUser ? `<a class="btn quick-link" href="/admin/users">Users</a>` : ``}
+              </div>
+            </section>
+          </div>
+
+          <div class="dashboard-col">
+            <div class="card dashboard-card">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Event insights</h2>
+                  <p class="sub">Events snapshot</p>
+                </div>
+              </div>
+              <div class="insight-list">
+                <div class="insight-row"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
+                <div class="insight-row"><div class="label">Upcoming</div><div class="value">${esc(stats.upcoming)}</div></div>
+                <div class="insight-row"><div class="label">Featured</div><div class="value">${esc(stats.featured)}</div></div>
+                <div class="insight-row"><div class="label">Views</div><div class="value">${esc(stats.views)}</div></div>
               </div>
             </div>
-            <div class="insight-list">
-              <div class="insight-row"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
-              <div class="insight-row"><div class="label">Upcoming</div><div class="value">${esc(stats.upcoming)}</div></div>
-              <div class="insight-row"><div class="label">Featured</div><div class="value">${esc(stats.featured)}</div></div>
-              <div class="insight-row"><div class="label">Views</div><div class="value">${esc(stats.views)}</div></div>
+
+            <div class="card dashboard-card">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Venue insights</h2>
+                  <p class="sub">Venues snapshot</p>
+                </div>
+              </div>
+              <div class="insight-list">
+                <div class="insight-row"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
+                <div class="insight-row"><div class="label">With Hours</div><div class="value">${esc(venueStats.withHours)}</div></div>
+                <div class="insight-row"><div class="label">With Social</div><div class="value">${esc(venueStats.withSocial)}</div></div>
+                <div class="insight-row"><div class="label">With Image</div><div class="value">${esc(venueStats.withImage)}</div></div>
+              </div>
             </div>
           </div>
 
-          <div class="card dashboard-card">
-            <div class="sectionTitle">
-              <div>
-                <h2>Venue insights</h2>
-                <p class="sub">Venues snapshot</p>
+          <div class="dashboard-col">
+            <div class="card dashboard-card">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Release notes</h2>
+                  <p class="sub">Latest platform updates</p>
+                </div>
+              </div>
+              <div class="mini">
+                <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
+                <div class="release-meta">
+                  <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
+                  <div class="release-row"><div class="label">Latest updates</div><div class="value">Venues module, categories, social, hours, SEO, image upload</div></div>
+                  <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.serverTime)}</div></div>
+                </div>
               </div>
             </div>
-            <div class="insight-list">
-              <div class="insight-row"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
-              <div class="insight-row"><div class="label">With Hours</div><div class="value">${esc(venueStats.withHours)}</div></div>
-              <div class="insight-row"><div class="label">With Social</div><div class="value">${esc(venueStats.withSocial)}</div></div>
-              <div class="insight-row"><div class="label">With Image</div><div class="value">${esc(venueStats.withImage)}</div></div>
-            </div>
-          </div>
-
-          <div class="card dashboard-card">
-            <div class="sectionTitle">
-              <div>
-                <h2>Release notes</h2>
-                <p class="sub">Latest platform updates</p>
-              </div>
-            </div>
-            <div class="mini">
-              <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
-              <div class="release-meta">
-                <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
-                <div class="release-row"><div class="label">Latest updates</div><div class="value">Venues module, categories, social, hours, SEO, image upload</div></div>
-                <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.serverTime)}</div></div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="card" id="dashboard-quick-links" style="margin-bottom:var(--gap);">
-          <div class="sectionTitle">
-            <div>
-              <h2>Quick links</h2>
-              <p class="sub">Most common admin tasks</p>
-            </div>
-          </div>
-          <div class="quick-links-grid">
-            <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
-            <a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
-            <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
-            <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
-            <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
-            ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
-            ${isAdminUser ? `<a class="btn quick-link" href="/admin/users">Users</a>` : ``}
           </div>
         </section>
         ` : ``}
