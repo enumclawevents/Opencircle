@@ -2555,7 +2555,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .dashboard-shell{
         display:grid;
-        grid-template-columns: minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,0.9fr);
+        grid-template-columns: repeat(2, minmax(0,1fr));
         gap:var(--gap);
         margin-bottom:var(--gap);
         align-items:stretch;
@@ -2922,6 +2922,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 </div>
               </div>
             </section>
+
+            <div class="card dashboard-card">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Release notes</h2>
+                  <p class="sub">Latest platform updates</p>
+                </div>
+              </div>
+              <div class="mini">
+                <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
+                <div class="release-meta">
+                  <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
+                  <div class="release-row"><div class="label">Latest updates</div><div class="value">Venues module, categories, social, hours, SEO, image upload</div></div>
+                  <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.serverTime)}</div></div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="dashboard-col dashboard-col-fill">
@@ -2952,25 +2969,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 <div class="insight-row"><div class="label">With Hours</div><div class="value">${esc(venueStats.withHours)}</div></div>
                 <div class="insight-row"><div class="label">With Social</div><div class="value">${esc(venueStats.withSocial)}</div></div>
                 <div class="insight-row"><div class="label">With Image</div><div class="value">${esc(venueStats.withImage)}</div></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="dashboard-col">
-            <div class="card dashboard-card">
-              <div class="sectionTitle">
-                <div>
-                  <h2>Release notes</h2>
-                  <p class="sub">Latest platform updates</p>
-                </div>
-              </div>
-              <div class="mini">
-                <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
-                <div class="release-meta">
-                  <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
-                  <div class="release-row"><div class="label">Latest updates</div><div class="value">Venues module, categories, social, hours, SEO, image upload</div></div>
-                  <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.serverTime)}</div></div>
-                </div>
               </div>
             </div>
           </div>
