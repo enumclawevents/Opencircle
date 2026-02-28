@@ -489,6 +489,7 @@ async function ensureVenueSchema() {
       address TEXT,
       website TEXT,
       phone TEXT,
+      hoursJson TEXT,
       description TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
@@ -499,6 +500,11 @@ async function ensureVenueSchema() {
     await run(`CREATE INDEX IF NOT EXISTS idx_venues_city ON venues(city)`);
     await run(`CREATE INDEX IF NOT EXISTS idx_venues_slug ON venues(slug)`);
   } catch (_) {}
+
+  const cols = await getVenueColumns();
+  if (!cols.has("hoursJson")) {
+    await run(`ALTER TABLE venues ADD COLUMN hoursJson TEXT`);
+  }
 
   _venueColsCache = null;
   _venueSchemaEnsured = true;
@@ -1411,6 +1417,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         editVenue = await get("SELECT * FROM venues WHERE id = ?", [venueId]);
       }
     }
+    const venueDays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+    const venueHours = (() => {
+      const out = {};
+      for (const d of venueDays) out[d] = { open: "", close: "", closed: false };
+      const parsed = safeParseJson(editVenue?.hoursJson, null);
+      if (parsed && typeof parsed === "object") {
+        for (const d of venueDays) {
+          const row = parsed[d] || {};
+          out[d] = {
+            open: String(row.open || ""),
+            close: String(row.close || ""),
+            closed: row.closed === true || String(row.closed || "") === "1",
+          };
+        }
+      }
+      return out;
+    })();
 
     let venueRows = [];
     let venueTotal = 0;
@@ -3217,6 +3240,25 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 </div>
               </div>
 
+              <label>Hours (Sun-Sat)</label>
+              <div class="mini" style="display:grid; gap:8px; margin-top:8px;">
+                ${venueDays.map((d) => {
+                  const labels = { sun: "Sun", mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat" };
+                  const h = venueHours[d] || { open: "", close: "", closed: false };
+                  return `
+                    <div style="display:grid; grid-template-columns:70px 1fr 1fr auto; gap:10px; align-items:center;">
+                      <div class="muted">${labels[d]}</div>
+                      <input class="ctrl" type="time" name="venueHours_${d}_open" value="${esc(h.open || "")}" />
+                      <input class="ctrl" type="time" name="venueHours_${d}_close" value="${esc(h.close || "")}" />
+                      <label style="display:flex; gap:6px; align-items:center; margin:0;">
+                        <input type="checkbox" name="venueHours_${d}_closed" value="1" ${h.closed ? "checked" : ""} />
+                        <span class="muted">Closed</span>
+                      </label>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+
               <label>Description</label>
               <textarea class="ctrl" name="description" rows="5">${esc(editVenue?.description || "")}</textarea>
 
@@ -4333,6 +4375,16 @@ router.post("/venues", async (req, res) => {
     const website = String(req.body?.website || "").trim();
     const phone = String(req.body?.phone || "").trim();
     const description = String(req.body?.description || "").trim();
+    const venueDays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+    const venueHours = {};
+    for (const d of venueDays) {
+      venueHours[d] = {
+        open: String(req.body?.[`venueHours_${d}_open`] || "").trim(),
+        close: String(req.body?.[`venueHours_${d}_close`] || "").trim(),
+        closed: String(req.body?.[`venueHours_${d}_closed`] || "") === "1",
+      };
+    }
+    const hoursJson = JSON.stringify(venueHours);
 
     if (!name) return res.status(400).send("Venue name is required.");
 
@@ -4342,15 +4394,15 @@ router.post("/venues", async (req, res) => {
     if (isUpdate) {
       await run(
         `UPDATE venues
-            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, description = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, hoursJson = ?, description = ?, updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, name, address || null, website || null, phone || null, description || null, id]
+        [city, slug, name, address || null, website || null, phone || null, hoursJson, description || null, id]
       );
     } else {
       await run(
-        `INSERT INTO venues (city, slug, name, address, website, phone, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, name, address || null, website || null, phone || null, description || null]
+        `INSERT INTO venues (city, slug, name, address, website, phone, hoursJson, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, name, address || null, website || null, phone || null, hoursJson, description || null]
       );
     }
 
