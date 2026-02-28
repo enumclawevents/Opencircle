@@ -2654,6 +2654,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         </div>
 
         <nav class="nav">
+          ${(isAdminUser || isCityEditor) ? `
+          <div class="nav-group">
+            <div class="nav-title">Dashboard</div>
+            <a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Overview</a>
+          </div>
+          <div class="sb-divider"></div>
+          ` : ``}
           <div class="nav-group">
             <div class="nav-title">Events</div>
             <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
@@ -2663,7 +2670,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <span>Approve Events</span>
               ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
             </a>` : ``}
-            ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Dashboard</a>` : ``}
           </div>
           <div class="sb-divider"></div>
           <div class="nav-group" style="margin-top:16px;">
