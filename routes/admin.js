@@ -2558,12 +2558,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         grid-template-columns: repeat(3, minmax(0,1fr));
         gap:var(--gap);
         margin-bottom:var(--gap);
-        align-items:start;
+        align-items:stretch;
       }
       .dashboard-col{
         display:grid;
         gap:var(--gap);
         align-items:start;
+      }
+      .dashboard-col-fill{
+        display:flex;
+        flex-direction:column;
+        height:100%;
+      }
+      .dashboard-col-fill > .card{
+        flex:1 1 auto;
       }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
       .insight-list{
@@ -2864,7 +2872,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         <!-- Dashboard Overview -->
         ${showAnalytics ? `
         <section class="dashboard-shell" id="dashboard-overview">
-          <div class="dashboard-col">
+          <div class="dashboard-col dashboard-col-fill">
             <section class="card dashboard-card" id="dashboard-quick-links">
               <div class="sectionTitle">
                 <div>
@@ -2884,7 +2892,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             </section>
           </div>
 
-          <div class="dashboard-col">
+          <div class="dashboard-col dashboard-col-fill">
             <div class="card dashboard-card">
               <div class="sectionTitle">
                 <div>
