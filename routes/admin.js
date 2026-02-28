@@ -2607,8 +2607,27 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         overflow-wrap:anywhere;
         word-break:break-word;
       }
+      .quick-links-grid{
+        display:grid;
+        gap:10px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .quick-link{
+        min-height:56px;
+        justify-content:flex-start;
+        padding: 12px 14px;
+        font-weight:650;
+      }
       @media (max-width: 1100px){
         .dashboard-overview{
+          grid-template-columns: 1fr;
+        }
+        .quick-links-grid{
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 700px){
+        .quick-links-grid{
           grid-template-columns: 1fr;
         }
       }
@@ -2854,7 +2873,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           <div class="card dashboard-card">
             <div class="sectionTitle">
               <div>
-                <h2>Quick insights</h2>
+                <h2>Event insights</h2>
                 <p class="sub">Events snapshot</p>
               </div>
             </div>
@@ -2906,14 +2925,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <p class="sub">Most common admin tasks</p>
             </div>
           </div>
-          <div style="display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));">
-            <a class="btn" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
-            <a class="btn" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
-            <a class="btn" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
-            <a class="btn" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
-            <a class="btn" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
-            ${(isAdminUser || isCityEditor) ? `<a class="btn" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
-            ${isAdminUser ? `<a class="btn" href="/admin/users">Users</a>` : ``}
+          <div class="quick-links-grid">
+            <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
+            <a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
+            <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
+            <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
+            <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
+            ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+            ${isAdminUser ? `<a class="btn quick-link" href="/admin/users">Users</a>` : ``}
           </div>
         </section>
         ` : ``}
