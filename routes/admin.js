@@ -2583,7 +2583,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
       .dashboard-insights{
-        gap: calc(var(--gap) + 6px);
+        gap: var(--gap);
       }
       .dashboard-insights .dashboard-card{
         display:flex;
