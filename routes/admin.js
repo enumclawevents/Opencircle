@@ -2585,9 +2585,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .dashboard-insights{
         gap: calc(var(--gap) + 6px);
       }
+      .dashboard-insights .dashboard-card{
+        display:flex;
+        flex-direction:column;
+      }
       .insight-list{
         display:grid;
         gap:10px;
+      }
+      .dashboard-insights .insight-list{
+        flex: 1 1 auto;
+        display:flex;
+        flex-direction:column;
+        justify-content:space-between;
+        gap:0;
       }
       .insight-row{
         display:flex;
@@ -2596,6 +2607,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         gap:12px;
         padding: 4px 0 12px;
         border-bottom:1px solid var(--line);
+      }
+      .dashboard-insights .insight-row{
+        padding: 10px 0;
       }
       .insight-row:last-child{
         border-bottom:0;
@@ -2776,12 +2790,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             <div class="nav-title">Events</div>
             <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
             ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
-            ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
             ${(isAdminUser || isCityEditor) ? `
             <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" style="display:flex; align-items:center; gap:8px;">
               <span>Approve Events</span>
               ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
             </a>` : ``}
+            ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
           </div>
           <div class="sb-divider"></div>
           <div class="nav-group" style="margin-top:16px;">
