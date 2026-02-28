@@ -37,6 +37,21 @@ const ALLOWED_CATEGORIES = [
   "Seasonal & Holiday",
 ];
 
+const ALLOWED_VENUE_CATEGORIES = [
+  "Bars & Breweries",
+  "Restaurants & Cafés",
+  "Wineries & Tasting Rooms",
+  "Live Music Venues",
+  "Theaters & Performance Spaces",
+  "Event Centers & Banquet Halls",
+  "Expo & Fairgrounds",
+  "Community & Civic Spaces",
+  "Parks & Outdoor Spaces",
+  "Schools & Campus Venues",
+  "Churches & Faith Centers",
+  "Nonprofits & Community Orgs",
+];
+
 // --- Uploads (R2 preferred; fallback to local disk) ---
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || "";
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || "";
@@ -113,6 +128,19 @@ function normalizeCategories(input) {
     const v = String(c || "").trim();
     if (!v) continue;
     if (!ALLOWED_CATEGORIES.includes(v)) continue;
+    if (!uniq.includes(v)) uniq.push(v);
+    if (uniq.length >= 3) break;
+  }
+  return uniq;
+}
+
+function normalizeVenueCategories(input) {
+  const arr = Array.isArray(input) ? input : [input];
+  const uniq = [];
+  for (const c of arr) {
+    const v = String(c || "").trim();
+    if (!v) continue;
+    if (!ALLOWED_VENUE_CATEGORIES.includes(v)) continue;
     if (!uniq.includes(v)) uniq.push(v);
     if (uniq.length >= 3) break;
   }
@@ -489,6 +517,7 @@ async function ensureVenueSchema() {
       address TEXT,
       website TEXT,
       phone TEXT,
+      categoriesJson TEXT,
       hoursJson TEXT,
       description TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
@@ -504,6 +533,9 @@ async function ensureVenueSchema() {
   const cols = await getVenueColumns();
   if (!cols.has("hoursJson")) {
     await run(`ALTER TABLE venues ADD COLUMN hoursJson TEXT`);
+  }
+  if (!cols.has("categoriesJson")) {
+    await run(`ALTER TABLE venues ADD COLUMN categoriesJson TEXT`);
   }
 
   _venueColsCache = null;
@@ -1434,6 +1466,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       return out;
     })();
+    const selectedVenueCats = normalizeVenueCategories(safeParseJson(editVenue?.categoriesJson, []));
 
     let venueRows = [];
     let venueTotal = 0;
@@ -1463,7 +1496,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
       if (showVenueExisting) {
         venueRows = await all(
-          `SELECT id, city, slug, name, address, website, phone, description, createdAt
+          `SELECT id, city, slug, name, address, website, phone, categoriesJson, description, createdAt
            FROM venues
            ${venueWhereSql}
            ORDER BY datetime(createdAt) DESC, id DESC
@@ -3229,6 +3262,27 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <label>Address</label>
               <input class="ctrl" name="address" value="${esc(editVenue?.address || "")}" />
 
+              <div class="rec-box" style="margin-top:10px;">
+                <div style="font-weight:650; margin-bottom:6px;">Venue Categories (pick up to 3, at least 1 required)</div>
+                <div class="cat-grid">
+                  ${[0, 1, 2].map((idx) => {
+                    const current = selectedVenueCats[idx] || "";
+                    return `
+                    <div>
+                      <div class="muted" style="font-size:12px; margin-bottom:6px;">Category ${idx + 1}</div>
+                      <select name="venueCategory${idx + 1}" class="ctrl" ${idx === 0 ? "required" : ""}>
+                        <option value="">— ${idx === 0 ? "Select one" : "None"} —</option>
+                        ${ALLOWED_VENUE_CATEGORIES.map((c) => {
+                          const sel = current === c ? "selected" : "";
+                          return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
+                        }).join("")}
+                      </select>
+                    </div>
+                    `;
+                  }).join("")}
+                </div>
+              </div>
+
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
                   <label style="margin-top:0;">Website</label>
@@ -3294,6 +3348,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                         <div><strong>Slug:</strong> ${esc(v.slug || "")}</div>
                         <div><strong>Address:</strong> ${esc(v.address || "")}</div>
                         <div><strong>City:</strong> ${esc(v.city || "")}</div>
+                        ${(() => {
+                          const cats = normalizeVenueCategories(safeParseJson(v.categoriesJson, []));
+                          return cats.length ? `<div><strong>Categories:</strong> ${esc(cats.join(", "))}</div>` : ``;
+                        })()}
                         ${v.website ? `<div><strong>Website:</strong> <a href="${esc(v.website)}" target="_blank" rel="noopener">${esc(v.website)}</a></div>` : ``}
                         ${v.phone ? `<div><strong>Phone:</strong> ${esc(v.phone)}</div>` : ``}
                       </div>
@@ -4375,6 +4433,15 @@ router.post("/venues", async (req, res) => {
     const website = String(req.body?.website || "").trim();
     const phone = String(req.body?.phone || "").trim();
     const description = String(req.body?.description || "").trim();
+    const venueCats = normalizeVenueCategories([
+      req.body?.venueCategory1,
+      req.body?.venueCategory2,
+      req.body?.venueCategory3,
+    ]);
+    if (venueCats.length < 1) {
+      return res.status(400).send("At least one venue category is required.");
+    }
+    const categoriesJson = JSON.stringify(venueCats);
     const venueDays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
     const venueHours = {};
     for (const d of venueDays) {
@@ -4394,15 +4461,15 @@ router.post("/venues", async (req, res) => {
     if (isUpdate) {
       await run(
         `UPDATE venues
-            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, hoursJson = ?, description = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, categoriesJson = ?, hoursJson = ?, description = ?, updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, name, address || null, website || null, phone || null, hoursJson, description || null, id]
+        [city, slug, name, address || null, website || null, phone || null, categoriesJson, hoursJson, description || null, id]
       );
     } else {
       await run(
-        `INSERT INTO venues (city, slug, name, address, website, phone, hoursJson, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, name, address || null, website || null, phone || null, hoursJson, description || null]
+        `INSERT INTO venues (city, slug, name, address, website, phone, categoriesJson, hoursJson, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, name, address || null, website || null, phone || null, categoriesJson, hoursJson, description || null]
       );
     }
 
