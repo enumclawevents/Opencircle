@@ -147,6 +147,26 @@ function normalizeVenueCategories(input) {
   return uniq;
 }
 
+function normalizeHttpUrl(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  if (/^(none|null|undefined)$/i.test(raw)) return "";
+
+  let out = raw;
+  if (out.startsWith("//")) out = "https:" + out;
+  else if (!/^https?:\/\//i.test(out) && /^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[\/:?#].*)?$/i.test(out)) out = "https://" + out;
+
+  out = out.replace(/^http:\/\//i, "https://");
+
+  try {
+    const u = new URL(out);
+    if (!/^https?:$/i.test(u.protocol)) return "";
+    return u.toString();
+  } catch (_) {
+    return "";
+  }
+}
+
 function safeParseJson(val, fallback) {
   if (val === null || val === undefined || val === "") return fallback;
   if (typeof val === "object") return val;
@@ -3682,7 +3702,19 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
             <div id="venuesList" style="display:grid; gap:var(--gap);">
               ${venueRows.length ? venueRows.map((v) => `
+                ${(() => {
+                  const thumbHtml = v.imageUrl
+                    ? `
+                        <a class="thumb-link" href="${esc(v.imageUrl)}" target="_blank" rel="noopener" title="View image">
+                          <img class="event-thumb-img" src="${esc(v.imageUrl)}" alt="${esc(v.name || "Venue")} image" loading="lazy"
+                               onerror="this.closest('.event-thumb').classList.add('broken'); this.style.display='none';" />
+                          <div class="thumb-fallback">Image not found</div>
+                        </a>
+                      `
+                    : `<div class="thumb-empty">No image</div>`;
+                  return `
                 <div class="event-card">
+                  <div class="event-thumb">${thumbHtml}</div>
                   <div class="event-left">
                     <div class="event-main">
                       <div class="event-title">#${v.id} — ${esc(v.name || "")}</div>
@@ -3719,6 +3751,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                     </div>
                   </div>
                 </div>
+                  `;
+                })()}
               `).join("") : `<div class="muted">No venues found.</div>`}
             </div>
 
@@ -4786,7 +4820,7 @@ router.post("/venues", upload.single("venueImageFile"), async (req, res) => {
 
     const name = String(req.body?.name || "").trim();
     const address = String(req.body?.address || "").trim();
-    const website = String(req.body?.website || "").trim();
+    const website = normalizeHttpUrl(req.body?.website || "");
     const phone = String(req.body?.phone || "").trim();
     let imageUrl = String(req.body?.imageUrl || "").trim();
     const description = String(req.body?.description || "").trim();

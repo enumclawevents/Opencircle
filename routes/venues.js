@@ -31,6 +31,26 @@ function normalizeVenueCategories(input) {
   return out;
 }
 
+function normalizeHttpUrl(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  if (/^(none|null|undefined)$/i.test(raw)) return "";
+
+  let out = raw;
+  if (out.startsWith("//")) out = "https:" + out;
+  else if (!/^https?:\/\//i.test(out) && /^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[\/:?#].*)?$/i.test(out)) out = "https://" + out;
+
+  out = out.replace(/^http:\/\//i, "https://");
+
+  try {
+    const u = new URL(out);
+    if (!/^https?:$/i.test(u.protocol)) return "";
+    return u.toString();
+  } catch (_) {
+    return "";
+  }
+}
+
 async function getVenueColumns() {
   if (_colsCache) return _colsCache;
   try {
@@ -93,7 +113,7 @@ function mapVenueRow(r) {
     slug: String(r.slug || ""),
     name: String(r.name || ""),
     address: String(r.address || ""),
-    website: String(r.website || ""),
+    website: normalizeHttpUrl(r.website || ""),
     phone: String(r.phone || ""),
     description: String(r.description || ""),
     imageUrl: String(r.imageUrl || ""),
