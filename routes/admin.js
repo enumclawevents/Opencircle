@@ -1166,11 +1166,97 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       `SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}${venueDashWhereSql ? " AND " : "WHERE "}hoursJson IS NOT NULL AND trim(hoursJson) <> ''`,
       venueDashParams
     );
+    const venueWithWebsiteRow = await get(
+      `SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}${venueDashWhereSql ? " AND " : "WHERE "}website IS NOT NULL AND trim(website) <> ''`,
+      venueDashParams
+    );
+    const venueWithGalleryRow = await get(
+      `SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}${venueDashWhereSql ? " AND " : "WHERE "}galleryJson IS NOT NULL AND trim(galleryJson) <> ''`,
+      venueDashParams
+    );
+    const venueViewsRow = await get(
+      `SELECT COALESCE(SUM(viewCount), 0) AS n FROM venues ${venueDashWhereSql}`,
+      venueDashParams
+    );
+    const venuePhoneClicksRow = await get(
+      `SELECT COALESCE(SUM(phoneClickCount), 0) AS n FROM venues ${venueDashWhereSql}`,
+      venueDashParams
+    );
+    const venueWebsiteClicksRow = await get(
+      `SELECT COALESCE(SUM(websiteClickCount), 0) AS n FROM venues ${venueDashWhereSql}`,
+      venueDashParams
+    );
+    const venueSocialClicksRow = await get(
+      `SELECT COALESCE(SUM(socialClickCount), 0) AS n FROM venues ${venueDashWhereSql}`,
+      venueDashParams
+    );
+
+    const venueTopViewsRows = await all(
+      `SELECT id, name, slug, COALESCE(viewCount, 0) AS viewCount
+       FROM venues
+       ${venueDashWhereSql}
+       ORDER BY COALESCE(viewCount, 0) DESC, id DESC
+       LIMIT 5`,
+      venueDashParams
+    );
+    const venueTopClicksRows = await all(
+      `SELECT id, name, slug,
+              (COALESCE(phoneClickCount,0) + COALESCE(websiteClickCount,0) + COALESCE(socialClickCount,0)) AS totalClicks
+       FROM venues
+       ${venueDashWhereSql}
+       ORDER BY totalClicks DESC, id DESC
+       LIMIT 5`,
+      venueDashParams
+    );
+
+    const venueTotalCount = Number(venueTotalRowDash?.n || 0);
+    const venueWithImageCount = Number(venueWithImageRow?.n || 0);
+    const venueWithSocialCount = Number(venueWithSocialRow?.n || 0);
+    const venueWithHoursCount = Number(venueWithHoursRow?.n || 0);
+    const venueWithWebsiteCount = Number(venueWithWebsiteRow?.n || 0);
+    const venueWithGalleryCount = Number(venueWithGalleryRow?.n || 0);
+    const venueViewsCount = Number(venueViewsRow?.n || 0);
+    const venuePhoneClicksCount = Number(venuePhoneClicksRow?.n || 0);
+    const venueWebsiteClicksCount = Number(venueWebsiteClicksRow?.n || 0);
+    const venueSocialClicksCount = Number(venueSocialClicksRow?.n || 0);
+    const venueTotalClicksCount = venuePhoneClicksCount + venueWebsiteClicksCount + venueSocialClicksCount;
+
+    const pctVenue = (n) => {
+      if (!venueTotalCount) return "0%";
+      return `${Math.round((Number(n || 0) / venueTotalCount) * 100)}%`;
+    };
+
     const venueStats = {
-      total: fmt(venueTotalRowDash?.n || 0),
-      withImage: fmt(venueWithImageRow?.n || 0),
-      withSocial: fmt(venueWithSocialRow?.n || 0),
-      withHours: fmt(venueWithHoursRow?.n || 0),
+      total: fmt(venueTotalCount),
+      withImage: fmt(venueWithImageCount),
+      withSocial: fmt(venueWithSocialCount),
+      withHours: fmt(venueWithHoursCount),
+      withWebsite: fmt(venueWithWebsiteCount),
+      withGallery: fmt(venueWithGalleryCount),
+      views: fmt(venueViewsCount),
+      phoneClicks: fmt(venuePhoneClicksCount),
+      websiteClicks: fmt(venueWebsiteClicksCount),
+      socialClicks: fmt(venueSocialClicksCount),
+      totalClicks: fmt(venueTotalClicksCount),
+      avgViewsPerVenue: fmt(venueTotalCount ? Math.round(venueViewsCount / venueTotalCount) : 0),
+      avgClicksPerVenue: fmt(venueTotalCount ? Math.round(venueTotalClicksCount / venueTotalCount) : 0),
+      withImagePct: pctVenue(venueWithImageCount),
+      withSocialPct: pctVenue(venueWithSocialCount),
+      withHoursPct: pctVenue(venueWithHoursCount),
+      withWebsitePct: pctVenue(venueWithWebsiteCount),
+      withGalleryPct: pctVenue(venueWithGalleryCount),
+      topByViews: (venueTopViewsRows || []).map((r) => ({
+        id: Number(r.id || 0),
+        name: String(r.name || "Venue"),
+        slug: String(r.slug || ""),
+        views: Number(r.viewCount || 0),
+      })),
+      topByClicks: (venueTopClicksRows || []).map((r) => ({
+        id: Number(r.id || 0),
+        name: String(r.name || "Venue"),
+        slug: String(r.slug || ""),
+        clicks: Number(r.totalClicks || 0),
+      })),
     };
 
     // Top events by views (today / week / month / year)
@@ -1630,8 +1716,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         venueByCity = await all(
           `SELECT city, COUNT(*) AS n
            FROM venues
+           ${selectedCity ? "WHERE city = ?" : ""}
            GROUP BY city
-           ORDER BY n DESC, city ASC`
+           ORDER BY n DESC, city ASC`,
+          selectedCity ? [selectedCity] : []
         );
       }
     }
@@ -2079,6 +2167,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .grid4 > .card{ height:100%; }
 
+      .venue-analytics-grid2{
+        display:grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap:var(--gap);
+      }
+      .venue-analytics-grid2 > .card{ height:100%; }
+
       .gridMain{
         display:grid;
         /* 40% Create form / 60% Existing events */
@@ -2094,6 +2189,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         .metrics{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .grid2{ grid-template-columns: 1fr; }
         .grid4{ grid-template-columns: 1fr; }
+        .venue-analytics-grid2{ grid-template-columns: 1fr; }
         .gridMain{ grid-template-columns: 1fr; }
         .rail{ display:none; }
         .sidebar{ display:none; }
@@ -3063,9 +3159,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               </div>
               <div class="insight-list">
                 <div class="insight-row"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
-                <div class="insight-row"><div class="label">With Hours</div><div class="value">${esc(venueStats.withHours)}</div></div>
-                <div class="insight-row"><div class="label">With Social</div><div class="value">${esc(venueStats.withSocial)}</div></div>
-                <div class="insight-row"><div class="label">With Image</div><div class="value">${esc(venueStats.withImage)}</div></div>
+                <div class="insight-row"><div class="label">Views</div><div class="value">${esc(venueStats.views)}</div></div>
+                <div class="insight-row"><div class="label">Total Link Clicks</div><div class="value">${esc(venueStats.totalClicks)}</div></div>
+                <div class="insight-row"><div class="label">With Website</div><div class="value">${esc(venueStats.withWebsite)} (${esc(venueStats.withWebsitePct)})</div></div>
               </div>
             </div>
           </div>
@@ -3863,20 +3959,94 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             <div class="sectionTitle">
               <div>
                 <h2>Venue analytics</h2>
-                <p class="sub">Venue totals and city breakdown</p>
+                <p class="sub">Performance and data quality for venues</p>
               </div>
             </div>
             <div class="kpis">
-              <div class="kpi"><div class="label">Total Venues</div><div class="value">${venueTotal}</div></div>
+              <div class="kpi"><div class="label">Total Venues</div><div class="value">${esc(venueStats.total)}</div></div>
               <div class="kpi"><div class="label">Cities</div><div class="value">${venueByCity.length}</div></div>
+              <div class="kpi"><div class="label">Venue Views</div><div class="value">${esc(venueStats.views)}</div></div>
+              <div class="kpi"><div class="label">Total Link Clicks</div><div class="value">${esc(venueStats.totalClicks)}</div></div>
+              <div class="kpi"><div class="label">Avg Views / Venue</div><div class="value">${esc(venueStats.avgViewsPerVenue)}</div></div>
+              <div class="kpi"><div class="label">Avg Clicks / Venue</div><div class="value">${esc(venueStats.avgClicksPerVenue)}</div></div>
             </div>
-            <div class="mini" style="margin-top:14px;">
-              ${venueByCity.length ? venueByCity.map((r) => `
-                <div style="display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px solid var(--line);">
-                  <span>${esc(r.city || "Unknown")}</span>
-                  <strong>${Number(r.n || 0)}</strong>
+
+            <div class="venue-analytics-grid2" style="margin-top:14px;">
+              <div class="card">
+                <div class="sectionTitle">
+                  <div>
+                    <h2>Top venues by views</h2>
+                    <p class="sub">Most viewed venue pages</p>
+                  </div>
                 </div>
-              `).join("") : `<div class="muted">No venue analytics yet.</div>`}
+                <div class="mini">
+                  ${venueStats.topByViews.length ? venueStats.topByViews.map((r) => `
+                    <div class="kv">
+                      <span class="k"><a href="/admin/venues/create?edit=${r.id}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">${esc(r.name)}</a></span>
+                      <strong class="v">${Number(r.views || 0).toLocaleString("en-US")}</strong>
+                    </div>
+                  `).join("") : `<div class="muted">No venue views yet.</div>`}
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="sectionTitle">
+                  <div>
+                    <h2>Top venues by clicks</h2>
+                    <p class="sub">Phone + website + social clicks</p>
+                  </div>
+                </div>
+                <div class="mini">
+                  ${venueStats.topByClicks.length ? venueStats.topByClicks.map((r) => `
+                    <div class="kv">
+                      <span class="k"><a href="/admin/venues/create?edit=${r.id}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">${esc(r.name)}</a></span>
+                      <strong class="v">${Number(r.clicks || 0).toLocaleString("en-US")}</strong>
+                    </div>
+                  `).join("") : `<div class="muted">No venue link clicks yet.</div>`}
+                </div>
+              </div>
+            </div>
+
+            <div class="venue-analytics-grid2" style="margin-top:14px;">
+              <div class="card">
+                <div class="sectionTitle">
+                  <div>
+                    <h2>Data completeness</h2>
+                    <p class="sub">Coverage for key venue fields</p>
+                  </div>
+                </div>
+                <div class="mini">
+                  <div class="kv"><span class="k">With Website</span><strong class="v">${esc(venueStats.withWebsite)} (${esc(venueStats.withWebsitePct)})</strong></div>
+                  <div class="kv"><span class="k">With Image</span><strong class="v">${esc(venueStats.withImage)} (${esc(venueStats.withImagePct)})</strong></div>
+                  <div class="kv"><span class="k">With Gallery</span><strong class="v">${esc(venueStats.withGallery)} (${esc(venueStats.withGalleryPct)})</strong></div>
+                  <div class="kv"><span class="k">With Social</span><strong class="v">${esc(venueStats.withSocial)} (${esc(venueStats.withSocialPct)})</strong></div>
+                  <div class="kv"><span class="k">With Hours</span><strong class="v">${esc(venueStats.withHours)} (${esc(venueStats.withHoursPct)})</strong></div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="sectionTitle">
+                  <div>
+                    <h2>City breakdown</h2>
+                    <p class="sub">Venue count by city</p>
+                  </div>
+                </div>
+                <div class="mini">
+                  ${venueByCity.length ? venueByCity.map((r) => `
+                    <div class="kv">
+                      <span class="k">${esc(r.city || "Unknown")}</span>
+                      <strong class="v">${Number(r.n || 0).toLocaleString("en-US")}</strong>
+                    </div>
+                  `).join("") : `<div class="muted">No venue analytics yet.</div>`}
+                </div>
+              </div>
+            </div>
+
+            <div class="grid4" style="margin-top:14px;">
+              <div class="metric"><div><div class="k">Phone clicks</div><div class="v">${esc(venueStats.phoneClicks)}</div></div></div>
+              <div class="metric"><div><div class="k">Website clicks</div><div class="v">${esc(venueStats.websiteClicks)}</div></div></div>
+              <div class="metric"><div><div class="k">Social clicks</div><div class="v">${esc(venueStats.socialClicks)}</div></div></div>
+              <div class="metric"><div><div class="k">Total clicks</div><div class="v">${esc(venueStats.totalClicks)}</div></div></div>
             </div>
           </div>
           ` : ``}
