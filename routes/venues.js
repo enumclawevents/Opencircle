@@ -94,6 +94,9 @@ async function ensureVenueSchema() {
       description TEXT,
       galleryJson TEXT,
       viewCount INTEGER NOT NULL DEFAULT 0,
+      phoneClickCount INTEGER NOT NULL DEFAULT 0,
+      websiteClickCount INTEGER NOT NULL DEFAULT 0,
+      socialClickCount INTEGER NOT NULL DEFAULT 0,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     )
@@ -111,6 +114,9 @@ async function ensureVenueSchema() {
     ["imageAlt", "ALTER TABLE venues ADD COLUMN imageAlt TEXT"],
     ["galleryJson", "ALTER TABLE venues ADD COLUMN galleryJson TEXT"],
     ["viewCount", "ALTER TABLE venues ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0"],
+    ["phoneClickCount", "ALTER TABLE venues ADD COLUMN phoneClickCount INTEGER NOT NULL DEFAULT 0"],
+    ["websiteClickCount", "ALTER TABLE venues ADD COLUMN websiteClickCount INTEGER NOT NULL DEFAULT 0"],
+    ["socialClickCount", "ALTER TABLE venues ADD COLUMN socialClickCount INTEGER NOT NULL DEFAULT 0"],
   ];
 
   for (const [name, sql] of migrations) {
@@ -147,23 +153,52 @@ function mapVenueRow(r) {
     focusKeyphrase: String(r.focusKeyphrase || ""),
     imageAlt: String(r.imageAlt || ""),
     viewCount: Number(r.viewCount || 0),
+    phoneClickCount: Number(r.phoneClickCount || 0),
+    websiteClickCount: Number(r.websiteClickCount || 0),
+    socialClickCount: Number(r.socialClickCount || 0),
     createdAt: r.createdAt || null,
     updatedAt: r.updatedAt || null,
   };
 }
 
-async function incrementVenueView(venueId) {
+async function incrementVenueCounter(venueId, field) {
   const id = Number(venueId || 0);
   if (!Number.isInteger(id) || id <= 0) return;
+
+  const allowed = new Set(["viewCount", "phoneClickCount", "websiteClickCount", "socialClickCount"]);
+  if (!allowed.has(String(field || ""))) return;
+
   try {
     await run(
       `UPDATE venues
-          SET viewCount = COALESCE(viewCount, 0) + 1,
+          SET ${field} = COALESCE(${field}, 0) + 1,
               updatedAt = datetime('now')
         WHERE id = ?`,
       [id]
     );
   } catch (_) {}
+}
+
+async function incrementVenueView(venueId) {
+  await incrementVenueCounter(venueId, "viewCount");
+}
+
+async function getVenueRowByIdOrSlug(idOrSlug) {
+  const raw = String(idOrSlug || "").trim();
+  if (!raw) return null;
+
+  const asId = Number(raw);
+  const isId = Number.isInteger(asId) && asId > 0;
+
+  return isId
+    ? await get("SELECT * FROM venues WHERE id = ? LIMIT 1", [asId])
+    : await get("SELECT * FROM venues WHERE LOWER(slug) = LOWER(?) LIMIT 1", [raw]);
+}
+
+function normalizeSocialPlatform(input) {
+  const k = String(input || "").trim().toLowerCase();
+  if (k === "twitter") return "x";
+  return k;
 }
 
 function dedupeByKey(rows) {
@@ -355,6 +390,68 @@ router.get("/slug/:slug", async (req, res) => {
   }
 });
 
+router.get("/:idOrSlug/out/phone", async (req, res) => {
+  try {
+    await ensureVenueSchema();
+
+    const row = await getVenueRowByIdOrSlug(req.params.idOrSlug);
+    if (!row) return res.status(404).send("Venue not found");
+
+    const phoneRaw = String(row.phone || "").trim();
+    if (!phoneRaw) return res.status(404).send("Phone not available");
+
+    const digits = phoneRaw.replace(/\D+/g, "");
+    const tel = digits ? `tel:${digits}` : `tel:${phoneRaw}`;
+
+    await incrementVenueCounter(row.id, "phoneClickCount");
+    return res.redirect(302, tel);
+  } catch (err) {
+    console.error("[/venues/:idOrSlug/out/phone] error:", err && err.stack ? err.stack : err);
+    return res.status(500).send("Server error");
+  }
+});
+
+router.get("/:idOrSlug/out/website", async (req, res) => {
+  try {
+    await ensureVenueSchema();
+
+    const row = await getVenueRowByIdOrSlug(req.params.idOrSlug);
+    if (!row) return res.status(404).send("Venue not found");
+
+    const website = normalizeHttpUrl(row.website || "");
+    if (!website) return res.status(404).send("Website not available");
+
+    await incrementVenueCounter(row.id, "websiteClickCount");
+    return res.redirect(302, website);
+  } catch (err) {
+    console.error("[/venues/:idOrSlug/out/website] error:", err && err.stack ? err.stack : err);
+    return res.status(500).send("Server error");
+  }
+});
+
+router.get("/:idOrSlug/out/social/:platform", async (req, res) => {
+  try {
+    await ensureVenueSchema();
+
+    const row = await getVenueRowByIdOrSlug(req.params.idOrSlug);
+    if (!row) return res.status(404).send("Venue not found");
+
+    const social = safeParseJson(row.socialJson, {});
+    const platform = normalizeSocialPlatform(req.params.platform);
+    const allowed = new Set(["facebook", "instagram", "x", "tiktok", "youtube", "linkedin"]);
+    if (!allowed.has(platform)) return res.status(404).send("Social platform not supported");
+
+    const socialUrl = normalizeHttpUrl((social && typeof social === "object") ? social[platform] : "");
+    if (!socialUrl) return res.status(404).send("Social link not available");
+
+    await incrementVenueCounter(row.id, "socialClickCount");
+    return res.redirect(302, socialUrl);
+  } catch (err) {
+    console.error("[/venues/:idOrSlug/out/social/:platform] error:", err && err.stack ? err.stack : err);
+    return res.status(500).send("Server error");
+  }
+});
+
 router.get("/:idOrSlug", async (req, res) => {
   try {
     await ensureVenueSchema();
@@ -362,12 +459,7 @@ router.get("/:idOrSlug", async (req, res) => {
     const raw = String(req.params.idOrSlug || "").trim();
     if (!raw) return res.status(400).json({ error: "Missing id/slug" });
 
-    const asId = Number(raw);
-    const isId = Number.isInteger(asId) && asId > 0;
-
-    const row = isId
-      ? await get("SELECT * FROM venues WHERE id = ? LIMIT 1", [asId])
-      : await get("SELECT * FROM venues WHERE LOWER(slug) = LOWER(?) LIMIT 1", [raw]);
+    const row = await getVenueRowByIdOrSlug(raw);
 
     if (!row) return res.status(404).json({ error: "Venue not found" });
 

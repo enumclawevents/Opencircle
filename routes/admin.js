@@ -562,6 +562,9 @@ async function ensureVenueSchema() {
       focusKeyphrase TEXT,
       imageAlt TEXT,
       galleryJson TEXT,
+      phoneClickCount INTEGER NOT NULL DEFAULT 0,
+      websiteClickCount INTEGER NOT NULL DEFAULT 0,
+      socialClickCount INTEGER NOT NULL DEFAULT 0,
       description TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
@@ -603,6 +606,15 @@ async function ensureVenueSchema() {
   }
   if (!cols.has("viewCount")) {
     await run(`ALTER TABLE venues ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.has("phoneClickCount")) {
+    await run(`ALTER TABLE venues ADD COLUMN phoneClickCount INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.has("websiteClickCount")) {
+    await run(`ALTER TABLE venues ADD COLUMN websiteClickCount INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.has("socialClickCount")) {
+    await run(`ALTER TABLE venues ADD COLUMN socialClickCount INTEGER NOT NULL DEFAULT 0`);
   }
 
   _venueColsCache = null;
@@ -1605,7 +1617,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
       if (showVenueExisting) {
         venueRows = await all(
-          `SELECT id, city, slug, name, address, website, phone, imageUrl, categoriesJson, socialJson, galleryJson, description, viewCount, createdAt
+          `SELECT id, city, slug, name, address, website, phone, imageUrl, categoriesJson, socialJson, galleryJson, description, viewCount, phoneClickCount, websiteClickCount, socialClickCount, createdAt
            FROM venues
            ${venueWhereSql}
            ORDER BY datetime(createdAt) DESC, id DESC
@@ -2452,6 +2464,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .event-card.venue-card .event-actions{ margin-top: 12px; }
       .event-card.venue-card .event-meta{ overflow-wrap: anywhere; }
+      .event-card.venue-card .event-stats{
+        height: auto;
+        min-height: var(--event-side-h);
+        justify-content: flex-start;
+      }
+      .event-card.venue-card .event-stats .stat{ margin: 4px 0; }
 
       .pager{
         display:grid;
@@ -3816,6 +3834,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   </div>
                   <div class="event-stats">
                     <div class="stat"><span>Views</span><strong>${Number(v.viewCount || 0)}</strong></div>
+                    <div class="stat"><span>Phone clicks</span><strong>${Number(v.phoneClickCount || 0)}</strong></div>
+                    <div class="stat"><span>Website clicks</span><strong>${Number(v.websiteClickCount || 0)}</strong></div>
+                    <div class="stat"><span>Social clicks</span><strong>${Number(v.socialClickCount || 0)}</strong></div>
                   </div>
                 </div>
                   `;
