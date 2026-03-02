@@ -226,6 +226,297 @@ function dedupeByKey(rows) {
   return out;
 }
 
+function parseOccurrenceTs(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const ts = Date.parse(raw);
+  if (!Number.isFinite(ts)) return null;
+  return { raw, ts };
+}
+
+function parseIsoParts(iso) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(Z|[+-]\d{2}:?\d{2})$/);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+  const second = Number(m[6] || "0");
+
+  let offset = 0;
+  const z = m[7];
+  if (z !== "Z") {
+    const sign = z[0] === "-" ? -1 : 1;
+    const hh = Number(z.slice(1, 3));
+    const mm = Number(z.slice(-2));
+    offset = sign * (hh * 60 + mm);
+  }
+
+  return { year, month, day, hour, minute, second, offset };
+}
+
+function partsToUtcMs(parts) {
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - parts.offset * 60000;
+}
+
+function utcMsToLocalParts(utcMs, offset) {
+  const d = new Date(utcMs + offset * 60000);
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    hour: d.getUTCHours(),
+    minute: d.getUTCMinutes(),
+    second: d.getUTCSeconds(),
+    offset,
+  };
+}
+
+function partsToIso(parts) {
+  const y = String(parts.year).padStart(4, "0");
+  const m = String(parts.month).padStart(2, "0");
+  const d = String(parts.day).padStart(2, "0");
+  const hh = String(parts.hour).padStart(2, "0");
+  const mm = String(parts.minute).padStart(2, "0");
+  const ss = String(parts.second).padStart(2, "0");
+
+  const off = parts.offset || 0;
+  const sign = off >= 0 ? "+" : "-";
+  const abs = Math.abs(off);
+  const oh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const om = String(abs % 60).padStart(2, "0");
+
+  return y + '-' + m + '-' + d + 'T' + hh + ':' + mm + ':' + ss + sign + oh + ':' + om;
+}
+
+function daysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0, 12, 0, 0)).getUTCDate();
+}
+
+function weekdayKeyFromLocalParts(parts) {
+  const d = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0));
+  return ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][d.getUTCDay()];
+}
+
+function startOfWeekLocalDate(parts) {
+  const d = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0));
+  const dow = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - dow);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
+function monthsDiff(y1, m1, y2, m2) {
+  return (y2 - y1) * 12 + (m2 - m1);
+}
+
+function nthWeekdayOfMonth(year, month, weekdayKey, setPos) {
+  const map = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+  const target = map[weekdayKey];
+  if (target === undefined) return null;
+  const dim = daysInMonth(year, month);
+
+  if (setPos === -1) {
+    for (let day = dim; day >= 1; day--) {
+      const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      if (d.getUTCDay() === target) return day;
+    }
+    return null;
+  }
+
+  let count = 0;
+  for (let day = 1; day <= dim; day++) {
+    const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    if (d.getUTCDay() === target) {
+      count++;
+      if (count === setPos) return day;
+    }
+  }
+  return null;
+}
+
+function buildDateOnlyStartIso(ymd, baseStartIso) {
+  const m = String(ymd || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return "";
+  const sp = parseIsoParts(baseStartIso);
+  if (!sp) return m[1] + '-' + m[2] + '-' + m[3] + 'T00:00:00+00:00';
+  return partsToIso({
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: sp.hour,
+    minute: sp.minute,
+    second: sp.second,
+    offset: sp.offset,
+  });
+}
+
+function pushParsedCandidate(candidates, rawStart, rawEnd, nowTs, baseStartRaw, baseEndRaw) {
+  let startRaw = String(rawStart || "").trim();
+  if (!startRaw) return;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(startRaw)) {
+    startRaw = buildDateOnlyStartIso(startRaw, baseStartRaw);
+  }
+
+  const parsed = parseOccurrenceTs(startRaw);
+  if (!parsed || parsed.ts < nowTs) return;
+
+  let endRaw = String(rawEnd || "").trim();
+  if (endRaw && /^\d{4}-\d{2}-\d{2}$/.test(endRaw)) {
+    endRaw = buildDateOnlyStartIso(endRaw, baseEndRaw || baseStartRaw);
+  }
+
+  candidates.push({ startRaw: parsed.raw, startTs: parsed.ts, endRaw });
+}
+
+function nextOccurrenceFromPatternRule(r, rule, nowTs) {
+  if (!rule || typeof rule !== "object") return null;
+
+  const startISO = String(r.startDateTime || "").trim();
+  const endISO = String(r.endDateTime || "").trim();
+  const startParts = parseIsoParts(startISO);
+  const endParts = parseIsoParts(endISO);
+  if (!startParts || !endParts) return null;
+
+  const baseStartUtc = Date.parse(startISO);
+  const baseEndUtc = Date.parse(endISO);
+  if (!Number.isFinite(baseStartUtc)) return null;
+  const durationMs = Number.isFinite(baseEndUtc) ? Math.max(0, baseEndUtc - baseStartUtc) : 0;
+
+  const ruleType = String(rule.type || "").toLowerCase();
+  const interval = Math.max(1, Number(rule.interval || 1));
+  const untilRaw = String(r.recurrenceUntilDate || "").trim();
+  const untilTs = Date.parse(untilRaw);
+  const windowStartUtcMs = nowTs;
+  const windowEndUtcMs = Number.isFinite(untilTs)
+    ? Math.max(windowStartUtcMs, untilTs + 24 * 60 * 60 * 1000)
+    : (windowStartUtcMs + 366 * 24 * 60 * 60 * 1000);
+
+  if (ruleType === "weekly") {
+    const byDay = Array.isArray(rule.byDay) ? rule.byDay : [];
+    const byDaySet = new Set(byDay.map((d) => String(d || "").toUpperCase()).filter(Boolean));
+    const defaultDay = weekdayKeyFromLocalParts(startParts);
+    if (!byDaySet.size) byDaySet.add(defaultDay);
+
+    const dayMs = 24 * 60 * 60 * 1000;
+    const anchorWeekStart = startOfWeekLocalDate(startParts);
+    const anchorWsUtc = Date.UTC(anchorWeekStart.year, anchorWeekStart.month - 1, anchorWeekStart.day, 0, 0, 0);
+
+    for (let t = windowStartUtcMs; t <= windowEndUtcMs; t += dayMs) {
+      const lp = utcMsToLocalParts(t, startParts.offset);
+      const wk = weekdayKeyFromLocalParts(lp);
+      if (!byDaySet.has(wk)) continue;
+
+      const candWeekStart = startOfWeekLocalDate(lp);
+      const candWsUtc = Date.UTC(candWeekStart.year, candWeekStart.month - 1, candWeekStart.day, 0, 0, 0);
+      const weekIndex = Math.floor((candWsUtc - anchorWsUtc) / (7 * dayMs));
+      if (weekIndex < 0 || weekIndex % interval !== 0) continue;
+
+      const occ = {
+        year: lp.year,
+        month: lp.month,
+        day: lp.day,
+        hour: startParts.hour,
+        minute: startParts.minute,
+        second: startParts.second,
+        offset: startParts.offset,
+      };
+      const occStartTs = partsToUtcMs(occ);
+      if (occStartTs < nowTs || occStartTs < baseStartUtc) continue;
+      const occEndParts = utcMsToLocalParts(occStartTs + durationMs, startParts.offset);
+      return {
+        startRaw: partsToIso(occ),
+        startTs: occStartTs,
+        endRaw: durationMs > 0 ? partsToIso(occEndParts) : "",
+      };
+    }
+  }
+
+  if (ruleType === "monthly") {
+    const mode = rule.mode === "nthweekday" ? "nthweekday" : "monthday";
+    const nowLocal = utcMsToLocalParts(nowTs, startParts.offset);
+    const anchorY = startParts.year;
+    const anchorM = startParts.month;
+    const startMi = Math.max(0, monthsDiff(anchorY, anchorM, nowLocal.year, nowLocal.month));
+
+    for (let mi = startMi; mi < startMi + 36; mi++) {
+      if (mi % interval !== 0) continue;
+
+      const base = new Date(Date.UTC(anchorY, anchorM - 1, 1, 12, 0, 0));
+      base.setUTCMonth(base.getUTCMonth() + mi);
+      const y = base.getUTCFullYear();
+      const m = base.getUTCMonth() + 1;
+
+      let day = null;
+      if (mode === "monthday") {
+        const md = Number(rule.byMonthday || startParts.day || 1);
+        day = Math.min(Math.max(1, md), daysInMonth(y, m));
+      } else {
+        const setPos = Number(rule.setPos || 1);
+        const wd = String(rule.byDay || weekdayKeyFromLocalParts(startParts)).trim().toUpperCase();
+        day = nthWeekdayOfMonth(y, m, wd, setPos);
+        if (!day) continue;
+      }
+
+      const occ = {
+        year: y,
+        month: m,
+        day,
+        hour: startParts.hour,
+        minute: startParts.minute,
+        second: startParts.second,
+        offset: startParts.offset,
+      };
+      const occStartTs = partsToUtcMs(occ);
+      if (occStartTs < nowTs || occStartTs < baseStartUtc) continue;
+      if (Number.isFinite(untilTs) && occStartTs > untilTs + 24 * 60 * 60 * 1000) continue;
+      const occEndParts = utcMsToLocalParts(occStartTs + durationMs, startParts.offset);
+      return {
+        startRaw: partsToIso(occ),
+        startTs: occStartTs,
+        endRaw: durationMs > 0 ? partsToIso(occEndParts) : "",
+      };
+    }
+  }
+
+  return null;
+}
+
+function nextOccurrenceFromEventRow(r, nowTs) {
+  const candidates = [];
+
+  const recurrenceRule = safeParseJson(r.recurrenceRule, null);
+
+  const recurrenceDates = safeParseJson(r.recurrenceDates, []);
+  if (Array.isArray(recurrenceDates)) {
+    for (const d of recurrenceDates) {
+      pushParsedCandidate(candidates, d, "", nowTs, r.startDateTime, r.endDateTime);
+    }
+  }
+
+  if (recurrenceRule && Array.isArray(recurrenceRule.items)) {
+    for (const item of recurrenceRule.items) {
+      if (typeof item === "string") {
+        pushParsedCandidate(candidates, item, "", nowTs, r.startDateTime, r.endDateTime);
+        continue;
+      }
+      if (item && typeof item === "object") {
+        const start = item.startDateTime || item.date || item.start || item.datetime || "";
+        const end = item.endDateTime || item.end || "";
+        pushParsedCandidate(candidates, start, end, nowTs, r.startDateTime, r.endDateTime);
+      }
+    }
+  }
+
+  const patternCandidate = nextOccurrenceFromPatternRule(r, recurrenceRule, nowTs);
+  if (patternCandidate) candidates.push(patternCandidate);
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.startTs - b.startTs);
+  return candidates[0];
+}
+
 async function getUpcomingEventsForVenue(venue, limit) {
   const lim = Math.max(1, Math.min(50, parseInt(String(limit || 12), 10) || 12));
   const city = String(venue.city || "").trim();
@@ -272,35 +563,11 @@ async function getUpcomingEventsForVenue(venue, limit) {
       recurrenceDatesRaw !== "" ||
       String(r.recurrenceStartDate || "").trim() !== "";
 
+    const nextOccurrence = hasRecurrence ? nextOccurrenceFromEventRow(r, nowTs) : null;
+
     let hasFutureRecurrence = false;
-
     if (hasRecurrence) {
-      const recurrenceDates = safeParseJson(r.recurrenceDates, []);
-      if (Array.isArray(recurrenceDates) && recurrenceDates.length) {
-        hasFutureRecurrence = recurrenceDates.some((d) => {
-          const ts = Date.parse(String(d || ""));
-          return Number.isFinite(ts) && ts >= nowTs;
-        });
-      }
-
-      if (!hasFutureRecurrence) {
-        const recurrenceRule = safeParseJson(r.recurrenceRule, null);
-        if (recurrenceRule && Array.isArray(recurrenceRule.items) && recurrenceRule.items.length) {
-          hasFutureRecurrence = recurrenceRule.items.some((item) => {
-            if (typeof item === "string") {
-              const ts = Date.parse(item);
-              return Number.isFinite(ts) && ts >= nowTs;
-            }
-            if (item && typeof item === "object") {
-              const candidate = item.startDateTime || item.date || item.start || item.datetime || "";
-              const ts = Date.parse(String(candidate));
-              return Number.isFinite(ts) && ts >= nowTs;
-            }
-            return false;
-          });
-        }
-      }
-
+      hasFutureRecurrence = !!nextOccurrence;
       if (!hasFutureRecurrence) {
         const untilTs = Date.parse(String(r.recurrenceUntilDate || ""));
         if (Number.isFinite(untilTs)) {
@@ -315,12 +582,26 @@ async function getUpcomingEventsForVenue(venue, limit) {
     const isCurrentByStartEnd = Number.isFinite(effectiveEnd) && effectiveEnd >= nowTs;
     if (!isCurrentByStartEnd && !hasFutureRecurrence) continue;
 
+    let displayStart = String(r.startDateTime || "");
+    let displayEnd = String(r.endDateTime || "");
+    if (nextOccurrence) {
+      displayStart = nextOccurrence.startRaw;
+      if (nextOccurrence.endRaw) {
+        displayEnd = nextOccurrence.endRaw;
+      } else {
+        const durMs = (Number.isFinite(st) && Number.isFinite(en) && en > st) ? (en - st) : 0;
+        if (durMs > 0) {
+          displayEnd = new Date(nextOccurrence.startTs + durMs).toISOString();
+        }
+      }
+    }
+
     out.push({
       id: Number(r.id || 0),
       slug: String(r.slug || ""),
       title: String(r.title || ""),
-      startDateTime: String(r.startDateTime || ""),
-      endDateTime: String(r.endDateTime || ""),
+      startDateTime: displayStart,
+      endDateTime: displayEnd,
       location: String(r.location || ""),
       imageUrl: String(r.imageUrl || ""),
       categories: Array.isArray(safeParseJson(r.categories, [])) ? safeParseJson(r.categories, []) : [],
