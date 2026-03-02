@@ -6,6 +6,7 @@ const { all, get, run } = require("../db");
 
 let _schemaEnsured = false;
 let _colsCache = null;
+let _eventColsCache = null;
 
 function safeParseJson(v, fallback) {
   try {
@@ -76,6 +77,18 @@ async function getVenueColumns() {
   } catch (_) {
     _colsCache = new Set();
     return _colsCache;
+  }
+}
+
+async function getEventColumns() {
+  if (_eventColsCache) return _eventColsCache;
+  try {
+    const rows = await all("PRAGMA table_info(events)");
+    _eventColsCache = new Set((rows || []).map((r) => String(r.name)));
+    return _eventColsCache;
+  } catch (_) {
+    _eventColsCache = new Set();
+    return _eventColsCache;
   }
 }
 
@@ -221,11 +234,20 @@ async function getUpcomingEventsForVenue(venue, limit) {
   const needles = [name, address].map((s) => s.toLowerCase()).filter(Boolean);
   if (!city || !needles.length) return [];
 
+  const eventCols = await getEventColumns();
+  const hasCol = (name) => eventCols.has(name);
+
   const rows = await all(
-    `SELECT id, slug, title, startDateTime, endDateTime, location, imageUrl, categories, archived
+    `SELECT id, slug, title, startDateTime, endDateTime, location, imageUrl, categories,
+            ${hasCol("archived") ? "archived" : "0 AS archived"},
+            ${hasCol("hasRecurrence") ? "hasRecurrence" : "0 AS hasRecurrence"},
+            ${hasCol("recurrenceDates") ? "recurrenceDates" : "NULL AS recurrenceDates"},
+            ${hasCol("recurrenceRule") ? "recurrenceRule" : "NULL AS recurrenceRule"},
+            ${hasCol("recurrenceStartDate") ? "recurrenceStartDate" : "NULL AS recurrenceStartDate"},
+            ${hasCol("recurrenceUntilDate") ? "recurrenceUntilDate" : "NULL AS recurrenceUntilDate"}
        FROM events
       WHERE LOWER(city) = LOWER(?)
-        AND COALESCE(archived, 0) = 0
+        AND COALESCE(${hasCol("archived") ? "archived" : "0"}, 0) = 0
       ORDER BY datetime(startDateTime) ASC`,
     [city]
   );
@@ -241,7 +263,57 @@ async function getUpcomingEventsForVenue(venue, limit) {
     const st = Date.parse(String(r.startDateTime || ""));
     const en = Date.parse(String(r.endDateTime || ""));
     const effectiveEnd = Number.isFinite(en) ? en : st;
-    if (!Number.isFinite(effectiveEnd) || effectiveEnd < nowTs) continue;
+
+    const recurrenceRuleRaw = String(r.recurrenceRule || "").trim();
+    const recurrenceDatesRaw = String(r.recurrenceDates || "").trim();
+    const hasRecurrence =
+      Number(r.hasRecurrence || 0) === 1 ||
+      recurrenceRuleRaw !== "" ||
+      recurrenceDatesRaw !== "" ||
+      String(r.recurrenceStartDate || "").trim() !== "";
+
+    let hasFutureRecurrence = false;
+
+    if (hasRecurrence) {
+      const recurrenceDates = safeParseJson(r.recurrenceDates, []);
+      if (Array.isArray(recurrenceDates) && recurrenceDates.length) {
+        hasFutureRecurrence = recurrenceDates.some((d) => {
+          const ts = Date.parse(String(d || ""));
+          return Number.isFinite(ts) && ts >= nowTs;
+        });
+      }
+
+      if (!hasFutureRecurrence) {
+        const recurrenceRule = safeParseJson(r.recurrenceRule, null);
+        if (recurrenceRule && Array.isArray(recurrenceRule.items) && recurrenceRule.items.length) {
+          hasFutureRecurrence = recurrenceRule.items.some((item) => {
+            if (typeof item === "string") {
+              const ts = Date.parse(item);
+              return Number.isFinite(ts) && ts >= nowTs;
+            }
+            if (item && typeof item === "object") {
+              const candidate = item.startDateTime || item.date || item.start || item.datetime || "";
+              const ts = Date.parse(String(candidate));
+              return Number.isFinite(ts) && ts >= nowTs;
+            }
+            return false;
+          });
+        }
+      }
+
+      if (!hasFutureRecurrence) {
+        const untilTs = Date.parse(String(r.recurrenceUntilDate || ""));
+        if (Number.isFinite(untilTs)) {
+          hasFutureRecurrence = untilTs >= nowTs;
+        } else {
+          // No explicit end date for recurrence: treat as ongoing until archived.
+          hasFutureRecurrence = true;
+        }
+      }
+    }
+
+    const isCurrentByStartEnd = Number.isFinite(effectiveEnd) && effectiveEnd >= nowTs;
+    if (!isCurrentByStartEnd && !hasFutureRecurrence) continue;
 
     out.push({
       id: Number(r.id || 0),
