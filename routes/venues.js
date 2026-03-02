@@ -31,6 +31,22 @@ function normalizeVenueCategories(input) {
   return out;
 }
 
+function normalizeGalleryImages(input, max = 3) {
+  const out = [];
+  const seen = new Set();
+  const arr = Array.isArray(input) ? input : [input];
+  for (const item of arr) {
+    const u = normalizeHttpUrl(item);
+    if (!u) continue;
+    const k = u.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(u);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 function normalizeHttpUrl(input) {
   const raw = String(input || "").trim();
   if (!raw) return "";
@@ -76,6 +92,8 @@ async function ensureVenueSchema() {
       website TEXT,
       phone TEXT,
       description TEXT,
+      galleryJson TEXT,
+      viewCount INTEGER NOT NULL DEFAULT 0,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     )
@@ -91,6 +109,8 @@ async function ensureVenueSchema() {
     ["metaDescription", "ALTER TABLE venues ADD COLUMN metaDescription TEXT"],
     ["focusKeyphrase", "ALTER TABLE venues ADD COLUMN focusKeyphrase TEXT"],
     ["imageAlt", "ALTER TABLE venues ADD COLUMN imageAlt TEXT"],
+    ["galleryJson", "ALTER TABLE venues ADD COLUMN galleryJson TEXT"],
+    ["viewCount", "ALTER TABLE venues ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0"],
   ];
 
   for (const [name, sql] of migrations) {
@@ -107,6 +127,7 @@ function mapVenueRow(r) {
   const cats = normalizeVenueCategories(safeParseJson(r.categoriesJson, []));
   const social = safeParseJson(r.socialJson, {});
   const hours = safeParseJson(r.hoursJson, {});
+  const galleryImages = normalizeGalleryImages(safeParseJson(r.galleryJson, []), 3);
   return {
     id: Number(r.id || 0),
     city: String(r.city || ""),
@@ -117,6 +138,7 @@ function mapVenueRow(r) {
     phone: String(r.phone || ""),
     description: String(r.description || ""),
     imageUrl: String(r.imageUrl || ""),
+    galleryImages,
     categories: cats,
     social,
     hours,
@@ -124,9 +146,24 @@ function mapVenueRow(r) {
     metaDescription: String(r.metaDescription || ""),
     focusKeyphrase: String(r.focusKeyphrase || ""),
     imageAlt: String(r.imageAlt || ""),
+    viewCount: Number(r.viewCount || 0),
     createdAt: r.createdAt || null,
     updatedAt: r.updatedAt || null,
   };
+}
+
+async function incrementVenueView(venueId) {
+  const id = Number(venueId || 0);
+  if (!Number.isInteger(id) || id <= 0) return;
+  try {
+    await run(
+      `UPDATE venues
+          SET viewCount = COALESCE(viewCount, 0) + 1,
+              updatedAt = datetime('now')
+        WHERE id = ?`,
+      [id]
+    );
+  } catch (_) {}
 }
 
 function dedupeByKey(rows) {
@@ -301,6 +338,12 @@ router.get("/slug/:slug", async (req, res) => {
     const row = await get("SELECT * FROM venues WHERE LOWER(slug) = LOWER(?) LIMIT 1", [slug]);
     if (!row) return res.status(404).json({ error: "Venue not found" });
 
+    const shouldTrack = String(req.query.track || "1") !== "0";
+    if (shouldTrack) {
+      await incrementVenueView(row.id);
+      row.viewCount = Number(row.viewCount || 0) + 1;
+    }
+
     const venue = mapVenueRow(row);
     const upcomingLimit = Math.max(1, Math.min(24, parseInt(String(req.query.upcomingLimit || "12"), 10) || 12));
     venue.upcomingEvents = await getUpcomingEventsForVenue(venue, upcomingLimit);
@@ -327,6 +370,12 @@ router.get("/:idOrSlug", async (req, res) => {
       : await get("SELECT * FROM venues WHERE LOWER(slug) = LOWER(?) LIMIT 1", [raw]);
 
     if (!row) return res.status(404).json({ error: "Venue not found" });
+
+    const shouldTrack = String(req.query.track || "1") !== "0";
+    if (shouldTrack) {
+      await incrementVenueView(row.id);
+      row.viewCount = Number(row.viewCount || 0) + 1;
+    }
 
     const venue = mapVenueRow(row);
     const upcomingLimit = Math.max(1, Math.min(24, parseInt(String(req.query.upcomingLimit || "12"), 10) || 12));

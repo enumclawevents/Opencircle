@@ -147,6 +147,22 @@ function normalizeVenueCategories(input) {
   return uniq;
 }
 
+function normalizeGalleryImages(input, max = 3) {
+  const arr = Array.isArray(input) ? input : [input];
+  const uniq = [];
+  const seen = new Set();
+  for (const item of arr) {
+    const url = normalizeHttpUrl(item);
+    if (!url) continue;
+    const key = url.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniq.push(url);
+    if (uniq.length >= max) break;
+  }
+  return uniq;
+}
+
 function normalizeHttpUrl(input) {
   const raw = String(input || "").trim();
   if (!raw) return "";
@@ -545,6 +561,7 @@ async function ensureVenueSchema() {
       metaDescription TEXT,
       focusKeyphrase TEXT,
       imageAlt TEXT,
+      galleryJson TEXT,
       description TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
@@ -580,6 +597,12 @@ async function ensureVenueSchema() {
   }
   if (!cols.has("imageAlt")) {
     await run(`ALTER TABLE venues ADD COLUMN imageAlt TEXT`);
+  }
+  if (!cols.has("galleryJson")) {
+    await run(`ALTER TABLE venues ADD COLUMN galleryJson TEXT`);
+  }
+  if (!cols.has("viewCount")) {
+    await run(`ALTER TABLE venues ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0`);
   }
 
   _venueColsCache = null;
@@ -1540,6 +1563,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       return out;
     })();
     const selectedVenueCats = normalizeVenueCategories(safeParseJson(editVenue?.categoriesJson, []));
+    const venueGallery = normalizeGalleryImages(safeParseJson(editVenue?.galleryJson, []), 3);
     const venueSocial = (() => {
       const parsed = safeParseJson(editVenue?.socialJson, null);
       const obj = (parsed && typeof parsed === "object") ? parsed : {};
@@ -1581,7 +1605,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
       if (showVenueExisting) {
         venueRows = await all(
-          `SELECT id, city, slug, name, address, website, phone, imageUrl, categoriesJson, socialJson, description, createdAt
+          `SELECT id, city, slug, name, address, website, phone, imageUrl, categoriesJson, socialJson, galleryJson, description, viewCount, createdAt
            FROM venues
            ${venueWhereSql}
            ORDER BY datetime(createdAt) DESC, id DESC
@@ -3540,7 +3564,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         ` : ``}
 
         ${(showVenueCreate || showVenueExisting || showVenueAnalytics) ? `
-        <section class="gridMain ${showVenueCreate ? "single" : ""}" id="venues">
+        <section class="gridMain ${(showVenueCreate || showVenueExisting || showVenueAnalytics) ? "single" : ""}" id="venues">
           ${showVenueCreate ? `
           <div class="card" id="venue-create">
             <div class="sectionTitle">
@@ -3616,6 +3640,32 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <input class="ctrl" name="imageUrl" value="${esc(editVenue?.imageUrl || "")}" placeholder="https://..." />
                   ${editVenue?.imageUrl ? `<div class="note">Current: <a href="${esc(editVenue.imageUrl)}" target="_blank" rel="noopener">View image</a></div>` : ``}
                 </div>
+              </div>
+
+              <div class="rec-box" style="margin-top:10px;">
+                <div style="font-weight:650; margin-bottom:6px;">Gallery Images (up to 3)</div>
+                <div class="note" style="margin-bottom:8px;">Add up to 3 image URLs and/or upload up to 3 gallery images.</div>
+                <div class="rec-grid">
+                  <div>
+                    <label style="margin-top:0;">Gallery Image URL 1</label>
+                    <input class="ctrl" name="galleryImage1" value="${esc(venueGallery[0] || "")}" placeholder="https://..." />
+                  </div>
+                  <div>
+                    <label style="margin-top:0;">Gallery Image URL 2</label>
+                    <input class="ctrl" name="galleryImage2" value="${esc(venueGallery[1] || "")}" placeholder="https://..." />
+                  </div>
+                </div>
+                <div class="rec-grid" style="margin-top:10px;">
+                  <div>
+                    <label style="margin-top:0;">Gallery Image URL 3</label>
+                    <input class="ctrl" name="galleryImage3" value="${esc(venueGallery[2] || "")}" placeholder="https://..." />
+                  </div>
+                  <div>
+                    <label style="margin-top:0;">Gallery Images (Upload, max 3)</label>
+                    <input class="ctrl" type="file" name="venueGalleryFiles" accept="image/*" multiple />
+                  </div>
+                </div>
+                ${venueGallery.length ? `<div class="note" style="margin-top:8px;">Current: ${venueGallery.map((u, idx) => `<a href="${esc(u)}" target="_blank" rel="noopener">Image ${idx + 1}</a>`).join(" · ")}</div>` : ``}
               </div>
 
               <div class="rec-grid" style="margin-top:10px;">
@@ -3741,6 +3791,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                           return parts.length ? `<div><strong>Social:</strong> ${parts.join(" · ")}</div>` : ``;
                         })()}
                         ${v.phone ? `<div><strong>Phone:</strong> ${esc(v.phone)}</div>` : ``}
+                        ${(() => {
+                          const gallery = normalizeGalleryImages(safeParseJson(v.galleryJson, []), 3);
+                          return gallery.length ? `<div><strong>Gallery:</strong> ${gallery.length} image${gallery.length === 1 ? "" : "s"}</div>` : ``;
+                        })()}
                       </div>
                     </div>
                     <div class="event-actions">
@@ -3749,6 +3803,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                         <button type="submit" class="btn btn-danger">Delete</button>
                       </form>
                     </div>
+                  </div>
+                  <div class="event-stats">
+                    <div class="stat"><span>Views</span><strong>${Number(v.viewCount || 0)}</strong></div>
                   </div>
                 </div>
                   `;
@@ -4801,7 +4858,7 @@ router.post("/users/:id/resend-invite", async (req, res) => {
 });
 
 // POST /admin/events (create or update)
-router.post("/venues", upload.single("venueImageFile"), async (req, res) => {
+router.post("/venues", upload.fields([{ name: "venueImageFile", maxCount: 1 }, { name: "venueGalleryFiles", maxCount: 3 }]), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
     if (!(role === "admin" || role === "editor" || role === "creator")) {
@@ -4823,6 +4880,11 @@ router.post("/venues", upload.single("venueImageFile"), async (req, res) => {
     const website = normalizeHttpUrl(req.body?.website || "");
     const phone = String(req.body?.phone || "").trim();
     let imageUrl = String(req.body?.imageUrl || "").trim();
+    let galleryImages = normalizeGalleryImages([
+      req.body?.galleryImage1,
+      req.body?.galleryImage2,
+      req.body?.galleryImage3,
+    ], 3);
     const description = String(req.body?.description || "").trim();
     const seoTitle = String(req.body?.seoTitle || "").trim();
     const metaDescription = String(req.body?.metaDescription || "").trim();
@@ -4857,17 +4919,38 @@ router.post("/venues", upload.single("venueImageFile"), async (req, res) => {
     }
     const hoursJson = JSON.stringify(venueHours);
 
-    if (req.file) {
+    const primaryFile = req.files?.venueImageFile?.[0] || null;
+    const galleryFiles = Array.isArray(req.files?.venueGalleryFiles) ? req.files.venueGalleryFiles : [];
+
+    if (primaryFile) {
       if (useR2) {
         const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
-        const key = req.file.key || req.file.filename || "";
+        const key = primaryFile.key || primaryFile.filename || "";
         if (base && key) imageUrl = `${base}/${key}`;
-      } else if (req.file.filename) {
+      } else if (primaryFile.filename) {
         const proto = req.headers["x-forwarded-proto"] || req.protocol;
         const host = req.headers["x-forwarded-host"] || req.get("host");
-        imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
+        imageUrl = `${proto}://${host}/uploads/${primaryFile.filename}`;
       }
     }
+
+    if (galleryFiles.length) {
+      const proto = req.headers["x-forwarded-proto"] || req.protocol;
+      const host = req.headers["x-forwarded-host"] || req.get("host");
+      const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
+      const uploaded = [];
+      for (const f of galleryFiles.slice(0, 3)) {
+        if (useR2) {
+          const key = f.key || f.filename || "";
+          if (base && key) uploaded.push(`${base}/${key}`);
+        } else if (f.filename) {
+          uploaded.push(`${proto}://${host}/uploads/${f.filename}`);
+        }
+      }
+      galleryImages = normalizeGalleryImages([...(galleryImages || []), ...uploaded], 3);
+    }
+
+    const galleryJson = JSON.stringify(galleryImages);
 
     if (!name) return res.status(400).send("Venue name is required.");
 
@@ -4877,15 +4960,15 @@ router.post("/venues", upload.single("venueImageFile"), async (req, res) => {
     if (isUpdate) {
       await run(
         `UPDATE venues
-            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, imageUrl = ?, categoriesJson = ?, socialJson = ?, hoursJson = ?, seoTitle = ?, metaDescription = ?, focusKeyphrase = ?, imageAlt = ?, description = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, imageUrl = ?, galleryJson = ?, categoriesJson = ?, socialJson = ?, hoursJson = ?, seoTitle = ?, metaDescription = ?, focusKeyphrase = ?, imageAlt = ?, description = ?, updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, name, address || null, website || null, phone || null, imageUrl || null, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description || null, id]
+        [city, slug, name, address || null, website || null, phone || null, imageUrl || null, galleryJson, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description || null, id]
       );
     } else {
       await run(
-        `INSERT INTO venues (city, slug, name, address, website, phone, imageUrl, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, name, address || null, website || null, phone || null, imageUrl || null, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description || null]
+        `INSERT INTO venues (city, slug, name, address, website, phone, imageUrl, galleryJson, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, name, address || null, website || null, phone || null, imageUrl || null, galleryJson, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description || null]
       );
     }
 
