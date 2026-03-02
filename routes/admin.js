@@ -3533,7 +3533,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               </div>
             </div>
 
-            <form method="POST" action="/admin/venues">
+            <form method="POST" action="/admin/venues" enctype="multipart/form-data">
               ${editVenue ? `<input type="hidden" name="id" value="${esc(editVenue.id)}" />` : ""}
               <input type="hidden" name="city" value="${esc(editVenue?.city || selectedCity)}" />
 
