@@ -2443,6 +2443,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .stat{ display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--muted); margin: 6px 0; }
       .stat strong{ color: var(--text); font-size: 16px; }
 
+      /* Venue list can be taller than event cards; avoid clipping/overflow */
+      .event-card.venue-card{ align-items:flex-start; }
+      .event-card.venue-card .event-left{
+        height: auto;
+        min-height: var(--event-side-h);
+        justify-content: flex-start;
+      }
+      .event-card.venue-card .event-actions{ margin-top: 12px; }
+      .event-card.venue-card .event-meta{ overflow-wrap: anywhere; }
+
       .pager{
         display:grid;
         grid-template-columns: 1fr auto;
@@ -3763,7 +3773,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                       `
                     : `<div class="thumb-empty">No image</div>`;
                   return `
-                <div class="event-card">
+                <div class="event-card venue-card">
                   <div class="event-thumb">${thumbHtml}</div>
                   <div class="event-left">
                     <div class="event-main">
