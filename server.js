@@ -11,6 +11,7 @@ const { initDB, archiveExpiredEvents, get, run } = require("./db");
 
 const eventsRouter = require("./routes/events");
 const adminRouter = require("./routes/admin");
+const venuesRouter = require("./routes/venues");
 
 const app = express();
 app.locals.reqTimes = [];
@@ -173,6 +174,7 @@ function requireLogin(req, res, next) {
     req.path.startsWith("/events/submit") ||
     req.path.startsWith("/events/feature") ||
     req.path.startsWith("/events") ||
+    req.path.startsWith("/venues") ||
 
     req.path.startsWith("/uploads") ||
     req.path.startsWith("/assets")
@@ -596,7 +598,7 @@ app.get("/", (req, res) => {
   res.json({
     name: "OpenCircle API",
     status: "ok",
-    endpoints: ["/events", "/events/:id", "/admin", "/uploads/*", "/assets/brand/*"],
+    endpoints: ["/events", "/events/:id", "/venues", "/venues/:id-or-slug", "/admin", "/uploads/*", "/assets/brand/*"],
   });
 });
 
@@ -607,6 +609,7 @@ app.use(express.text({ type: "text/plain" })); // for sendBeacon payloads
 // Routes
 app.use(requireLogin);
 app.use("/events", eventsRouter);
+app.use("/venues", venuesRouter);
 app.use("/admin", adminRouter);
 
 // Global error handler (so 500s are logged)
