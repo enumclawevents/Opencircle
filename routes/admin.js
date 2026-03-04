@@ -841,6 +841,38 @@ try {
 }
 
 
+
+// Per-event source stats for current page (All Events)
+const eventSourceStats = new Map();
+try {
+  const eventIds = (events || []).map((e) => Number(e.id || 0)).filter((n) => Number.isInteger(n) && n > 0);
+  if (eventIds.length) {
+    const placeholders = eventIds.map(() => "?").join(",");
+    const rows = await all(
+      `SELECT
+         eventId,
+         COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:direct%' OR COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 1 ELSE 0 END), 0) AS directCount,
+         COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:referral%' THEN 1 ELSE 0 END), 0) AS referralCount,
+         COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount,
+         COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:campaign%' THEN 1 ELSE 0 END), 0) AS campaignCount
+       FROM event_views
+       WHERE eventId IN (${placeholders})
+       GROUP BY eventId`,
+      eventIds
+    );
+    for (const r of rows || []) {
+      eventSourceStats.set(Number(r.eventId || 0), {
+        direct: Number(r.directCount || 0),
+        referral: Number(r.referralCount || 0),
+        internal: Number(r.internalCount || 0),
+        campaign: Number(r.campaignCount || 0),
+      });
+    }
+  }
+} catch (_) {
+  // event_views table may not exist in some environments
+}
+
     const editId = req.query.edit ? parseInt(req.query.edit, 10) : null;
     const pendingId = req.query.pending ? parseInt(req.query.pending, 10) : null;
     let editEvent = null;
@@ -947,6 +979,9 @@ try {
   const interested = Number(e.interestedCount || 0);
 const views = Number(e.viewCount || 0);
 const uniques = Number(e.uniqueViewCount || 0);
+const sourceStats = eventSourceStats.get(Number(e.id || 0)) || { direct: 0, referral: 0, internal: 0, campaign: 0 };
+const directViews = Number(sourceStats.direct || 0);
+const referralViews = Number(sourceStats.referral || 0);
 
             const thumbHtml = e.imageUrl
               ? `
@@ -1029,6 +1064,8 @@ return `
 <div class="event-stats">
   <div class="stat"><span>Views</span><strong class="js-views">${views}</strong></div>
   <div class="stat"><span>Unique</span><strong class="js-unique">${uniques}</strong></div>
+  <div class="stat"><span>Direct</span><strong>${directViews}</strong></div>
+  <div class="stat"><span>Referral</span><strong>${referralViews}</strong></div>
   <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
   <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
 </div>
@@ -1117,6 +1154,37 @@ return `
       pastViews = Number(rvPast?.n || 0);
     }
 
+
+    // Source tracking rollups from event_views (direct/referral/internal/campaign)
+    let sourceTracked = 0;
+    let sourceDirect = 0;
+    let sourceReferral = 0;
+    let sourceInternal = 0;
+    let sourceCampaign = 0;
+    let sourceUnknown = 0;
+    try {
+      const srcRow = await get(
+        `SELECT
+           COUNT(*) AS tracked,
+           COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:direct%' OR COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 1 ELSE 0 END), 0) AS directCount,
+           COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:referral%' THEN 1 ELSE 0 END), 0) AS referralCount,
+           COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount,
+           COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:campaign%' THEN 1 ELSE 0 END), 0) AS campaignCount,
+           COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:%' THEN 0 WHEN COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 0 ELSE 1 END), 0) AS unknownCount
+         FROM event_views
+         WHERE eventId IN (SELECT id FROM events ${whereSql})`,
+        whereParams
+      );
+      sourceTracked = Number(srcRow?.tracked || 0);
+      sourceDirect = Number(srcRow?.directCount || 0);
+      sourceReferral = Number(srcRow?.referralCount || 0);
+      sourceInternal = Number(srcRow?.internalCount || 0);
+      sourceCampaign = Number(srcRow?.campaignCount || 0);
+      sourceUnknown = Number(srcRow?.unknownCount || 0);
+    } catch (_) {
+      // event_views table may not exist in some environments
+    }
+
     const fmt = (n) => Number(n || 0).toLocaleString("en-US");
 
     const diskInfo = getDiskInfo();
@@ -1128,6 +1196,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
       ? req.app.locals.reqTimes.length
       : 0;
+    const sourcePct = (n) => {
+      if (!sourceTracked) return "0%";
+      return Math.round((Number(n || 0) / sourceTracked) * 100) + "%";
+    };
+
     const stats = {
       total: fmt(totalOccurrences || total),
       upcoming: fmt(upcoming),
@@ -1136,6 +1209,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       views: fmt(viewsSum),
       upcomingViews: fmt(upcomingViews),
       pastViews: fmt(pastViews),
+      sourceTracked: fmt(sourceTracked),
+      sourceDirect: fmt(sourceDirect),
+      sourceReferral: fmt(sourceReferral),
+      sourceInternal: fmt(sourceInternal),
+      sourceCampaign: fmt(sourceCampaign),
+      sourceUnknown: fmt(sourceUnknown),
+      sourceDirectPct: sourcePct(sourceDirect),
+      sourceReferralPct: sourcePct(sourceReferral),
+      sourceInternalPct: sourcePct(sourceInternal),
+      sourceCampaignPct: sourcePct(sourceCampaign),
+      sourceUnknownPct: sourcePct(sourceUnknown),
       serverTime: new Date().toISOString().replace("T", " ").slice(0, 19) + "Z",
       diskFree,
       diskTotal,
@@ -3198,6 +3282,34 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               <div class="v">${esc(stats.views)}</div>
             </div>
             <div class="tag blue">Tracked</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">Direct views</div>
+              <div class="v">${esc(stats.sourceDirect)}</div>
+            </div>
+            <div class="tag">${esc(stats.sourceDirectPct)}</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">Referral views</div>
+              <div class="v">${esc(stats.sourceReferral)}</div>
+            </div>
+            <div class="tag">${esc(stats.sourceReferralPct)}</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">Campaign views</div>
+              <div class="v">${esc(stats.sourceCampaign)}</div>
+            </div>
+            <div class="tag">${esc(stats.sourceCampaignPct)}</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">Internal views</div>
+              <div class="v">${esc(stats.sourceInternal)}</div>
+            </div>
+            <div class="tag">${esc(stats.sourceInternalPct)}</div>
           </div>
         </section>
         ` : ``}
