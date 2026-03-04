@@ -2632,7 +2632,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         flex-direction:column;
         justify-content:space-between;
       }
+      .event-card:not(.venue-card) .event-stats{
+        width: 230px;
+        flex: 0 0 230px;
+        display:grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px 12px;
+        align-content: start;
+      }
       .stat{ display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--muted); margin: 6px 0; }
+      .event-card:not(.venue-card) .event-stats .stat{ margin: 0; }
       .stat strong{ color: var(--text); font-size: 16px; }
 
       /* Venue list can be taller than event cards; avoid clipping/overflow */
