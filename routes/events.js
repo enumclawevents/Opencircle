@@ -375,7 +375,20 @@ router.post("/:idOrSlug/view", async (req, res) => {
     body = body && typeof body === "object" ? body : {};
 
     const sid = String(body.sid || "").trim();
-    const ref = String(req.get("referer") || "").slice(0, 500);
+    const sourceType = String(body.sourceType || body.source || "").trim().toLowerCase();
+    const sourceHost = String(body.sourceHost || "").trim().toLowerCase();
+    const utmSource = String(body.utmSource || "").trim().toLowerCase();
+    const bodyRef = String(body.referrer || body.ref || "").trim();
+    const headerRef = String(req.get("referer") || "").trim();
+
+    let ref = bodyRef || headerRef;
+    if (!ref && sourceType === "direct") ref = "__direct__";
+    const srcTag = [sourceType, sourceHost, utmSource].filter(Boolean).join("|");
+    if (srcTag) {
+      ref = ref ? (`[src:${srcTag}] ${ref}`) : (`[src:${srcTag}]`);
+    }
+    ref = String(ref || "").slice(0, 500);
+
     const ua  = String(req.get("user-agent") || "").slice(0, 300);
 
     // Optional: hash IP (simple + non-reversible enough for basic analytics)
@@ -1956,11 +1969,23 @@ router.post("/:idOrSlug/view", async (req, res) => {
 
     // Privacy-friendly dedupe key:
     const sid = String(req.body?.sid || "").trim() || null;
+    const sourceType = String(req.body?.sourceType || req.body?.source || "").trim().toLowerCase();
+    const sourceHost = String(req.body?.sourceHost || "").trim().toLowerCase();
+    const utmSource = String(req.body?.utmSource || "").trim().toLowerCase();
 
     const ip =
       (req.headers["x-forwarded-for"]?.toString().split(",")[0] || req.socket.remoteAddress || "").trim();
     const ua = (req.headers["user-agent"] || "").toString().slice(0, 255);
-    const ref = (req.headers["referer"] || req.headers["referrer"] || "").toString().slice(0, 500);
+    const bodyRef = String(req.body?.referrer || req.body?.ref || "").trim();
+    const headerRef = (req.headers["referer"] || req.headers["referrer"] || "").toString().trim();
+
+    let ref = bodyRef || headerRef;
+    if (!ref && sourceType === "direct") ref = "__direct__";
+    const srcTag = [sourceType, sourceHost, utmSource].filter(Boolean).join("|");
+    if (srcTag) {
+      ref = ref ? (`[src:${srcTag}] ${ref}`) : (`[src:${srcTag}]`);
+    }
+    ref = String(ref || "").slice(0, 500);
 
     const ipHash = sid ? sha256(`sid:${sid}`) : sha256(`ip:${ip}|ua:${ua}`);
 
