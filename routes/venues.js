@@ -448,35 +448,49 @@ function nextOccurrenceFromPatternRule(r, rule, nowTs) {
       const y = base.getUTCFullYear();
       const m = base.getUTCMonth() + 1;
 
-      let day = null;
+      let days = [];
       if (mode === "monthday") {
         const md = Number(rule.byMonthday || startParts.day || 1);
-        day = Math.min(Math.max(1, md), daysInMonth(y, m));
+        days = [Math.min(Math.max(1, md), daysInMonth(y, m))];
       } else {
         const setPos = Number(rule.setPos || 1);
-        const wd = String(rule.byDay || weekdayKeyFromLocalParts(startParts)).trim().toUpperCase();
-        day = nthWeekdayOfMonth(y, m, wd, setPos);
-        if (!day) continue;
+        const byDayRaw = Array.isArray(rule.byDay) ? rule.byDay : [rule.byDay];
+        const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
+        const byDays = byDayRaw
+          .map((d) => String(d || "").trim().toUpperCase())
+          .filter((d) => allowed.has(d));
+        const fallbackDay = weekdayKeyFromLocalParts(startParts);
+        if (!byDays.length) byDays.push(fallbackDay);
+
+        const uniq = [];
+        for (const wd of byDays) {
+          const day = nthWeekdayOfMonth(y, m, wd, setPos);
+          if (!day) continue;
+          if (!uniq.includes(day)) uniq.push(day);
+        }
+        days = uniq.sort((a,b) => a-b);
       }
 
-      const occ = {
-        year: y,
-        month: m,
-        day,
-        hour: startParts.hour,
-        minute: startParts.minute,
-        second: startParts.second,
-        offset: startParts.offset,
-      };
-      const occStartTs = partsToUtcMs(occ);
-      if (occStartTs < nowTs || occStartTs < baseStartUtc) continue;
-      if (Number.isFinite(untilTs) && occStartTs > untilTs + 24 * 60 * 60 * 1000) continue;
-      const occEndParts = utcMsToLocalParts(occStartTs + durationMs, startParts.offset);
-      return {
-        startRaw: partsToIso(occ),
-        startTs: occStartTs,
-        endRaw: durationMs > 0 ? partsToIso(occEndParts) : "",
-      };
+      for (const day of days) {
+        const occ = {
+          year: y,
+          month: m,
+          day,
+          hour: startParts.hour,
+          minute: startParts.minute,
+          second: startParts.second,
+          offset: startParts.offset,
+        };
+        const occStartTs = partsToUtcMs(occ);
+        if (occStartTs < nowTs || occStartTs < baseStartUtc) continue;
+        if (Number.isFinite(untilTs) && occStartTs > untilTs + 24 * 60 * 60 * 1000) continue;
+        const occEndParts = utcMsToLocalParts(occStartTs + durationMs, startParts.offset);
+        return {
+          startRaw: partsToIso(occ),
+          startTs: occStartTs,
+          endRaw: durationMs > 0 ? partsToIso(occEndParts) : "",
+        };
+      }
     }
   }
 

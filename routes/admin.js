@@ -942,7 +942,11 @@ try {
     const monthlyMode = String(rule.mode || "monthday");
     const byMonthday = rule.byMonthday ? String(rule.byMonthday) : "";
     const setPos = rule.setPos ? String(rule.setPos) : "1";
-    const monthlyByDay = rule.byDay ? String(rule.byDay) : "MO";
+    const monthlyByDay = (function(){
+      if (Array.isArray(rule.byDay)) return rule.byDay.map((d) => String(d || "").trim().toUpperCase()).filter(Boolean);
+      const one = String(rule.byDay || "").trim().toUpperCase();
+      return one ? [one] : ["MO"];
+    })();
     const recurrenceInterval = rule.interval ? String(rule.interval) : "1";
 
     const categorySelect = (idx) => {
@@ -3667,16 +3671,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                         </select>
                       </div>
                       <div>
-                        <div class="rec-label">Weekday</div>
-                        <select name="monthlyByDay" class="ctrl">
-                          <option value="SU" ${monthlyByDay === "SU" ? "selected" : ""}>Sunday</option>
-                          <option value="MO" ${monthlyByDay === "MO" ? "selected" : ""}>Monday</option>
-                          <option value="TU" ${monthlyByDay === "TU" ? "selected" : ""}>Tuesday</option>
-                          <option value="WE" ${monthlyByDay === "WE" ? "selected" : ""}>Wednesday</option>
-                          <option value="TH" ${monthlyByDay === "TH" ? "selected" : ""}>Thursday</option>
-                          <option value="FR" ${monthlyByDay === "FR" ? "selected" : ""}>Friday</option>
-                          <option value="SA" ${monthlyByDay === "SA" ? "selected" : ""}>Saturday</option>
-                        </select>
+                        <div class="rec-label">Weekdays</div>
+                        <div class="dow">
+                          <label class="dow-pill"><input type="checkbox" name="monthlyByDay" value="SU" ${isChecked(monthlyByDay, "SU")} />Sun</label>
+                          <label class="dow-pill"><input type="checkbox" name="monthlyByDay" value="MO" ${isChecked(monthlyByDay, "MO")} />Mon</label>
+                          <label class="dow-pill"><input type="checkbox" name="monthlyByDay" value="TU" ${isChecked(monthlyByDay, "TU")} />Tue</label>
+                          <label class="dow-pill"><input type="checkbox" name="monthlyByDay" value="WE" ${isChecked(monthlyByDay, "WE")} />Wed</label>
+                          <label class="dow-pill"><input type="checkbox" name="monthlyByDay" value="TH" ${isChecked(monthlyByDay, "TH")} />Thu</label>
+                          <label class="dow-pill"><input type="checkbox" name="monthlyByDay" value="FR" ${isChecked(monthlyByDay, "FR")} />Fri</label>
+                          <label class="dow-pill"><input type="checkbox" name="monthlyByDay" value="SA" ${isChecked(monthlyByDay, "SA")} />Sat</label>
+                        </div>
+                        <div class="rec-help">Pick one or more days (e.g., last Wed + Thu).</div>
                       </div>
                     </div>
                   </div>
@@ -5600,9 +5605,20 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         const mode = String(monthlyMode || "monthday");
 
         if (mode === "nthweekday") {
+          let days = [];
+          if (Array.isArray(monthlyByDay)) days = monthlyByDay;
+          else if (typeof monthlyByDay === "string" && monthlyByDay.trim() !== "") days = [monthlyByDay];
+
+          const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
+          const uniq = [];
+          for (const d of days.map((x) => String(x || "").trim().toUpperCase()).filter(Boolean)) {
+            if (!allowed.has(d)) continue;
+            if (!uniq.includes(d)) uniq.push(d);
+          }
+          if (!uniq.length) uniq.push("MO");
+
           const sp = parseInt(setPos || "1", 10);
-          const wd = String(monthlyByDay || "").trim() || "MO";
-          recurrenceRule = { type: "monthly", interval, mode: "nthweekday", setPos: sp, byDay: wd };
+          recurrenceRule = { type: "monthly", interval, mode: "nthweekday", setPos: sp, byDay: uniq };
         } else {
           const md = Math.max(1, Math.min(31, parseInt(byMonthday || "0", 10) || 0));
           recurrenceRule = { type: "monthly", interval, mode: "monthday", byMonthday: md };
