@@ -636,11 +636,87 @@ async function ensureUniqueVenueSlug(baseSlug, venueId) {
   }
 }
 
+let _jobSchemaEnsured = false;
+let _jobColsCache = null;
+async function getJobColumns() {
+  if (_jobColsCache) return _jobColsCache;
+  try {
+    const rows = await all("PRAGMA table_info(jobs)");
+    _jobColsCache = new Set((rows || []).map((r) => String(r.name)));
+    return _jobColsCache;
+  } catch {
+    _jobColsCache = new Set();
+    return _jobColsCache;
+  }
+}
+
+async function ensureJobSchema() {
+  if (_jobSchemaEnsured) return;
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL DEFAULT 'Enumclaw',
+      slug TEXT,
+      title TEXT NOT NULL,
+      company TEXT,
+      location TEXT,
+      employmentType TEXT,
+      salaryRange TEXT,
+      applyUrl TEXT,
+      imageUrl TEXT,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      viewCount INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
+  try {
+    await run(`CREATE INDEX IF NOT EXISTS idx_jobs_city ON jobs(city)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_jobs_slug ON jobs(slug)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)`);
+  } catch (_) {}
+
+  const cols = await getJobColumns();
+  if (!cols.has("company")) await run(`ALTER TABLE jobs ADD COLUMN company TEXT`);
+  if (!cols.has("location")) await run(`ALTER TABLE jobs ADD COLUMN location TEXT`);
+  if (!cols.has("employmentType")) await run(`ALTER TABLE jobs ADD COLUMN employmentType TEXT`);
+  if (!cols.has("salaryRange")) await run(`ALTER TABLE jobs ADD COLUMN salaryRange TEXT`);
+  if (!cols.has("applyUrl")) await run(`ALTER TABLE jobs ADD COLUMN applyUrl TEXT`);
+  if (!cols.has("imageUrl")) await run(`ALTER TABLE jobs ADD COLUMN imageUrl TEXT`);
+  if (!cols.has("description")) await run(`ALTER TABLE jobs ADD COLUMN description TEXT`);
+  if (!cols.has("status")) await run(`ALTER TABLE jobs ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
+  if (!cols.has("viewCount")) await run(`ALTER TABLE jobs ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0`);
+  if (!cols.has("createdAt")) await run(`ALTER TABLE jobs ADD COLUMN createdAt TEXT DEFAULT (datetime('now'))`);
+  if (!cols.has("updatedAt")) await run(`ALTER TABLE jobs ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'))`);
+
+  _jobColsCache = null;
+  _jobSchemaEnsured = true;
+}
+
+async function ensureUniqueJobSlug(baseSlug, jobId) {
+  let base = String(baseSlug || "").trim();
+  if (!base) base = "job";
+  let slug = base;
+  let n = 2;
+
+  while (true) {
+    const row = jobId
+      ? await get("SELECT id FROM jobs WHERE slug = ? AND id <> ? LIMIT 1", [slug, jobId])
+      : await get("SELECT id FROM jobs WHERE slug = ? LIMIT 1", [slug]);
+    if (!row) return slug;
+    slug = `${base}-${n++}`;
+  }
+}
+
 // GET /admin
 async function renderAdmin(req, res, view) {
   try {
     await ensurePickSchema();
     await ensureVenueSchema();
+    await ensureJobSchema();
     // ✅ Pagination + total count + optional server-side search
 const limit = Math.max(5, Math.min(200, parseInt(req.query.limit || "20", 10)));
 const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
@@ -1537,6 +1613,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const showVenueCreate = view === "venues-create";
     const showVenueExisting = view === "venues-existing";
     const showVenueAnalytics = view === "venues-analytics";
+    const showJobsCreate = view === "jobs-create";
+    const showJobsExisting = view === "jobs-existing";
     const showUsers = view === "users";
     const showInvites = view === "invites";
 
@@ -1547,8 +1625,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     if (showVenueCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showVenueExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showVenueAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
-    const showSearch = showAnalytics || showExisting || showVenueExisting;
-    const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting);
+    if (showJobsCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showJobsExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    const showSearch = showAnalytics || showExisting || showVenueExisting || showJobsExisting;
+    const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting);
 
     let pendingRows = [];
     if (showApprove) {
@@ -1724,6 +1804,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         : `<div class="muted">No users yet.</div>`;
     }
 
+    let editJob = null;
+    if (showJobsCreate && req.query.edit) {
+      const jobId = parseInt(String(req.query.edit), 10);
+      if (!Number.isNaN(jobId)) {
+        editJob = await get("SELECT * FROM jobs WHERE id = ?", [jobId]);
+      }
+    }
+
     let editVenue = null;
     if (showVenueCreate && req.query.edit) {
       const venueId = parseInt(String(req.query.edit), 10);
@@ -1769,6 +1857,38 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     let venueShowingFrom = 0;
     let venueShowingTo = 0;
     let venueByCity = [];
+
+    let jobRows = [];
+    let jobTotal = 0;
+    let jobPages = 1;
+    let jobShowingFrom = 0;
+    let jobShowingTo = 0;
+
+    if (showJobsExisting) {
+      const jobWhere = [];
+      const jobParams = [];
+      if (selectedCity) {
+        jobWhere.push("city = ?");
+        jobParams.push(selectedCity);
+      }
+      if (q) {
+        const like = "%" + q + "%";
+        jobWhere.push("(title LIKE ? OR company LIKE ? OR slug LIKE ? OR location LIKE ? OR CAST(id AS TEXT) LIKE ?)");
+        jobParams.push(like, like, like, like, like);
+      }
+      const jobWhereSql = jobWhere.length ? ("WHERE " + jobWhere.join(" AND ")) : "";
+      const jobTotalRow = await get("SELECT COUNT(*) AS n FROM jobs " + jobWhereSql, jobParams);
+      jobTotal = Number(jobTotalRow?.n || 0);
+      jobPages = Math.max(1, Math.ceil(jobTotal / limit));
+      jobShowingFrom = jobTotal ? offset + 1 : 0;
+      jobShowingTo = Math.min(offset + limit, jobTotal);
+
+      jobRows = await all(
+        "SELECT id, city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status, viewCount, createdAt " +
+        "FROM jobs " + jobWhereSql + " ORDER BY datetime(createdAt) DESC, id DESC LIMIT ? OFFSET ?",
+        [...jobParams, limit, offset]
+      );
+    }
 
     if (showVenueExisting || showVenueAnalytics) {
       const venueWhere = [];
@@ -1824,6 +1944,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       ? "All Venues"
       : showVenueAnalytics
       ? "Venue Analytics"
+      : showJobsCreate
+      ? "Create Job"
+      : showJobsExisting
+      ? "All Jobs"
       : showUsers
       ? "Users"
       : showInvites
@@ -3069,6 +3193,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venues</a>` : ``}
             ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
           </div>
+          <div class="sb-divider"></div>
+          <div class="nav-group" style="margin-top:16px;">
+            <div class="nav-title">Jobs</div>
+            ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsExisting ? "active" : ""}" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>` : ``}
+            ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsCreate ? "active" : ""}" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Jobs</a>` : ``}
+          </div>
           ${isAdminUser ? `<div class="sb-divider"></div>
           <div class="nav-group" style="margin-top:16px;">
             <div class="nav-title">Admin</div>
@@ -3104,6 +3234,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "All Venues"
                 : showVenueAnalytics
                 ? "Venue Analytics"
+                : showJobsCreate
+                ? "Create Jobs"
+                : showJobsExisting
+                ? "All Jobs"
                 : showInvites
                 ? "Invites"
                 : "Dashboard"
@@ -3123,24 +3257,30 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Browse and search venue records"
                 : showVenueAnalytics
                 ? "Venue totals and city distribution"
+                : showJobsCreate
+                ? "Create a local job listing"
+                : showJobsExisting
+                ? "Browse and search local jobs"
                 : "Combined events/venues overview with quick actions"
             }</p>
           </div>
 
           <div class="h-right">
             ${showSearch ? `
-            <form class="search" method="GET" action="${showVenueExisting ? "/admin/venues" : (showAnalytics ? "/admin/events-analytics" : "/admin/existing-events")}">
-              <input name="q" value="${esc(q)}" placeholder="${showVenueExisting ? "Search venues (name, slug, address, ID)..." : "Search events (title, slug, location, ID)..."}" />
+            <form class="search" method="GET" action="${showVenueExisting ? "/admin/venues" : (showJobsExisting ? "/admin/jobs" : (showAnalytics ? "/admin/events-analytics" : "/admin/existing-events"))}">
+              <input name="q" value="${esc(q)}" placeholder="${showVenueExisting ? "Search venues (name, slug, address, ID)..." : (showJobsExisting ? "Search jobs (title, company, location, ID)..." : "Search events (title, slug, location, ID)...")}" />
               <input type="hidden" name="pg" value="1" />
               <input type="hidden" name="limit" value="${esc(String(limit))}" />
-              ${showVenueExisting ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
-              ${showVenueExisting ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``)}
+              ${(showVenueExisting || showJobsExisting) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
+              ${(showVenueExisting || showJobsExisting) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``)}
               <button class="btn btn-primary" type="submit">Search</button>
               ${q ? (showVenueExisting
                 ? `<a class="btn" href="/admin/venues?pg=1&limit=${esc(String(limit))}">Reset</a>`
+                : (showJobsExisting
+                  ? `<a class="btn" href="/admin/jobs?pg=1&limit=${esc(String(limit))}">Reset</a>`
                 : (showAnalytics
                   ? `<a class="btn" href="/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`
-                  : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`)) : ``}
+                  : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`))) : ``}
             </form>
             ` : ``}
           </div>
@@ -3209,6 +3349,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
                   <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
                   ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+                </div>
+                <div class="quick-links-group">
+                  <div class="quick-links-group-title">Jobs</div>
+                  <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
+                  <a class="btn quick-link" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>
                 </div>
               </div>
             </section>
@@ -4179,6 +4324,166 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         </section>
         ` : ``}
 
+        ${(showJobsCreate || showJobsExisting) ? `
+        <section class="gridMain ${(showJobsCreate || showJobsExisting) ? "single" : ""}" id="jobs">
+          ${showJobsCreate ? `
+          <div class="card" id="job-create">
+            <div class="sectionTitle">
+              <div>
+                <h2>${editJob ? "Edit job" : "Create job"}</h2>
+                <p class="sub">Publish local job listings</p>
+              </div>
+              <div class="right">
+                <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
+              </div>
+            </div>
+
+            <form method="POST" action="/admin/jobs" enctype="multipart/form-data">
+              ${editJob ? `<input type="hidden" name="id" value="${esc(editJob.id)}" />` : ""}
+              <input type="hidden" name="city" value="${esc(editJob?.city || selectedCity)}" />
+
+              <label>Job Title</label>
+              <input class="ctrl" name="title" value="${esc(editJob?.title || "")}" required />
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Company</label>
+                  <input class="ctrl" name="company" value="${esc(editJob?.company || "")}" />
+                </div>
+                <div>
+                  <label style="margin-top:0;">Location</label>
+                  <input class="ctrl" name="location" value="${esc(editJob?.location || "")}" placeholder="Enumclaw, WA" />
+                </div>
+              </div>
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Employment Type</label>
+                  <select class="ctrl" name="employmentType">
+                    <option value="" ${!String(editJob?.employmentType || "") ? "selected" : ""}>Select type</option>
+                    <option value="Full-time" ${String(editJob?.employmentType || "") === "Full-time" ? "selected" : ""}>Full-time</option>
+                    <option value="Part-time" ${String(editJob?.employmentType || "") === "Part-time" ? "selected" : ""}>Part-time</option>
+                    <option value="Contract" ${String(editJob?.employmentType || "") === "Contract" ? "selected" : ""}>Contract</option>
+                    <option value="Temporary" ${String(editJob?.employmentType || "") === "Temporary" ? "selected" : ""}>Temporary</option>
+                    <option value="Seasonal" ${String(editJob?.employmentType || "") === "Seasonal" ? "selected" : ""}>Seasonal</option>
+                    <option value="Internship" ${String(editJob?.employmentType || "") === "Internship" ? "selected" : ""}>Internship</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="margin-top:0;">Salary / Pay Range</label>
+                  <input class="ctrl" name="salaryRange" value="${esc(editJob?.salaryRange || "")}" placeholder="$20/hr · $45k-$60k" />
+                </div>
+              </div>
+
+              <label>Apply URL</label>
+              <input class="ctrl" name="applyUrl" value="${esc(editJob?.applyUrl || "")}" placeholder="https://..." required />
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Job Image (Upload)</label>
+                  <input class="ctrl" type="file" name="jobImageFile" accept="image/*" />
+                </div>
+                <div>
+                  <label style="margin-top:0;">Job Image URL (Optional)</label>
+                  <input class="ctrl" name="imageUrl" value="${esc(editJob?.imageUrl || "")}" placeholder="https://..." />
+                  ${editJob?.imageUrl ? `<div class="note">Current: <a href="${esc(editJob.imageUrl)}" target="_blank" rel="noopener">View image</a></div>` : ``}
+                </div>
+              </div>
+
+              <label>Description</label>
+              <textarea class="ctrl" name="description" rows="5">${esc(editJob?.description || "")}</textarea>
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Status</label>
+                  <select class="ctrl" name="status">
+                    <option value="active" ${String(editJob?.status || "active") === "active" ? "selected" : ""}>Active</option>
+                    <option value="paused" ${String(editJob?.status || "") === "paused" ? "selected" : ""}>Paused</option>
+                    <option value="filled" ${String(editJob?.status || "") === "filled" ? "selected" : ""}>Filled</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="actions">
+                <button type="submit" class="btn btn-primary">${editJob ? "Update Job" : "Save Job"}</button>
+                ${editJob ? `<a class="btn btn-link" href="/admin/jobs?pg=1&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}">Cancel</a>` : ""}
+              </div>
+            </form>
+          </div>
+          ` : ``}
+
+          ${showJobsExisting ? `
+          <div class="card" id="job-existing">
+            <div class="sectionTitle">
+              <div>
+                <h2>All jobs</h2>
+                <p class="sub">Search, edit, and manage local job listings</p>
+              </div>
+            </div>
+
+            <div class="muted" style="margin-bottom:12px;">
+              Total: <strong style="color:var(--text)">${jobTotal}</strong>
+              ${jobTotal ? ` · Showing ${jobShowingFrom}-${jobShowingTo}` : ``}
+            </div>
+
+            <div id="jobsList" style="display:grid; gap:var(--gap);">
+              ${jobRows.length ? jobRows.map((j) => {
+                const thumbHtml = j.imageUrl
+                  ? `
+                    <a class="thumb-link" href="${esc(j.imageUrl)}" target="_blank" rel="noopener" title="View image">
+                      <img class="event-thumb-img" src="${esc(j.imageUrl)}" alt="${esc(j.title || "Job")} image" loading="lazy"
+                           onerror="this.closest('.event-thumb').classList.add('broken'); this.style.display='none';" />
+                      <div class="thumb-fallback">Image not found</div>
+                    </a>
+                  `
+                  : `<div class="thumb-empty">No image</div>`;
+                return `
+                <div class="event-card venue-card">
+                  <div class="event-thumb">${thumbHtml}</div>
+                  <div class="event-left">
+                    <div class="event-main">
+                      <div class="event-title">#${j.id} — ${esc(j.title || "")}</div>
+                      <div class="event-meta">
+                        <div><strong>Slug:</strong> ${esc(j.slug || "")}</div>
+                        <div><strong>Company:</strong> ${esc(j.company || "")}</div>
+                        <div><strong>Location:</strong> ${esc(j.location || "")}</div>
+                        <div><strong>Type:</strong> ${esc(j.employmentType || "")}</div>
+                        <div><strong>Pay:</strong> ${esc(j.salaryRange || "")}</div>
+                        ${j.applyUrl ? `<div><strong>Apply:</strong> <a href="${esc(j.applyUrl)}" target="_blank" rel="noopener">${esc(j.applyUrl)}</a></div>` : ``}
+                        <div><strong>Status:</strong> ${esc(j.status || "active")}</div>
+                      </div>
+                    </div>
+                    <div class="event-actions">
+                      <a class="btn btn-edit" href="/admin/jobs/create?edit=${j.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}">Edit</a>
+                      <form method="POST" action="/admin/jobs/${j.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" class="inline" onsubmit="return confirm('Delete this job listing?');">
+                        <button type="submit" class="btn btn-danger">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+                  <div class="event-stats">
+                    <div class="stat"><span>Views</span><strong>${Number(j.viewCount || 0)}</strong></div>
+                  </div>
+                </div>
+                `;
+              }).join("") : `<div class="muted">No jobs found.</div>`}
+            </div>
+
+            ${jobPages > 1 ? `
+            <div class="pager" style="margin-top:14px;">
+              <div class="pager-right">
+                <a class="btn" href="/admin/jobs?pg=1&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>First</a>
+                <a class="btn" href="/admin/jobs?pg=${Math.max(1, pg - 1)}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>Prev</a>
+                <span class="muted" style="padding:0 8px;">Page <strong style="color:var(--text)">${pg}</strong> / ${jobPages}</span>
+                <a class="btn" href="/admin/jobs?pg=${Math.min(jobPages, pg + 1)}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg >= jobPages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Next</a>
+                <a class="btn" href="/admin/jobs?pg=${jobPages}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg >= jobPages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Last</a>
+              </div>
+            </div>
+            ` : ``}
+          </div>
+          ` : ``}
+        </section>
+        ` : ``}
+
       </main>
     </div>
 
@@ -5036,6 +5341,8 @@ router.get("/existing-events", async (req, res) => renderAdmin(req, res, "existi
 router.get("/venues", async (req, res) => renderAdmin(req, res, "venues-existing"));
 router.get("/venues/create", async (req, res) => renderAdmin(req, res, "venues-create"));
 router.get("/venues/analytics", async (req, res) => renderAdmin(req, res, "venues-analytics"));
+router.get("/jobs", async (req, res) => renderAdmin(req, res, "jobs-existing"));
+router.get("/jobs/create", async (req, res) => renderAdmin(req, res, "jobs-create"));
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 router.get("/pending-count", async (req, res) => {
@@ -5330,6 +5637,105 @@ router.post("/venues/:id/delete", async (req, res) => {
     const sp = new URLSearchParams({ pg, limit });
     if (q) sp.set("q", q);
     return res.redirect(`/admin/venues?${sp.toString()}`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Server error.");
+  }
+});
+
+router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor" || role === "creator")) {
+      return res.status(403).send("Forbidden");
+    }
+    await ensureJobSchema();
+
+    const idRaw = String(req.body?.id || "").trim();
+    const id = idRaw ? parseInt(idRaw, 10) : null;
+    const isUpdate = Number.isInteger(id) && id > 0;
+
+    const userCity = String(req.user?.city || "Enumclaw");
+    const city = role === "admin"
+      ? String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw"
+      : userCity;
+
+    const title = String(req.body?.title || "").trim();
+    const company = String(req.body?.company || "").trim();
+    const location = String(req.body?.location || "").trim();
+    const employmentType = String(req.body?.employmentType || "").trim();
+    const salaryRange = String(req.body?.salaryRange || "").trim();
+    const applyUrl = normalizeHttpUrl(req.body?.applyUrl || "");
+    const description = String(req.body?.description || "").trim();
+    const statusRaw = String(req.body?.status || "active").trim().toLowerCase();
+    const status = ["active", "paused", "filled"].includes(statusRaw) ? statusRaw : "active";
+    let imageUrl = String(req.body?.imageUrl || "").trim();
+
+    if (!title) return res.status(400).send("Job title is required.");
+    if (!applyUrl) return res.status(400).send("Apply URL is required.");
+
+    const imageFile = req.file || null;
+    if (imageFile) {
+      if (useR2) {
+        const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
+        const key = imageFile.key || imageFile.filename || "";
+        if (base && key) imageUrl = `${base}/${key}`;
+      } else if (imageFile.filename) {
+        const proto = req.headers["x-forwarded-proto"] || req.protocol;
+        const host = req.headers["x-forwarded-host"] || req.get("host");
+        imageUrl = `${proto}://${host}/uploads/${imageFile.filename}`;
+      }
+    }
+
+    const baseSlug = slugify(`${title}-${company}`);
+    const slug = await ensureUniqueJobSlug(baseSlug, isUpdate ? id : null);
+
+    if (isUpdate) {
+      await run(
+        `UPDATE jobs
+            SET city = ?, slug = ?, title = ?, company = ?, location = ?, employmentType = ?, salaryRange = ?, applyUrl = ?, imageUrl = ?, description = ?, status = ?, updatedAt = datetime('now')
+          WHERE id = ?`,
+        [city, slug, title, company || null, location || null, employmentType || null, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, id]
+      );
+    } else {
+      await run(
+        `INSERT INTO jobs (city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, title, company || null, location || null, employmentType || null, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status]
+      );
+    }
+
+    const pg = req.query.pg ? String(req.query.pg) : "1";
+    const limit = req.query.limit ? String(req.query.limit) : "20";
+    const q = req.query.q ? String(req.query.q) : "";
+    const sp = new URLSearchParams({ pg, limit });
+    if (q) sp.set("q", q);
+    return res.redirect(`/admin/jobs?${sp.toString()}`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Server error.");
+  }
+});
+
+router.post("/jobs/:id/delete", async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor" || role === "creator")) {
+      return res.status(403).send("Forbidden");
+    }
+    await ensureJobSchema();
+
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
+
+    await run("DELETE FROM jobs WHERE id = ?", [id]);
+
+    const pg = req.query.pg ? String(req.query.pg) : "1";
+    const limit = req.query.limit ? String(req.query.limit) : "20";
+    const q = req.query.q ? String(req.query.q) : "";
+    const sp = new URLSearchParams({ pg, limit });
+    if (q) sp.set("q", q);
+    return res.redirect(`/admin/jobs?${sp.toString()}`);
   } catch (err) {
     console.error(err);
     return res.status(500).send("Server error.");
