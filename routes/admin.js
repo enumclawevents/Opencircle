@@ -2419,7 +2419,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         letter-spacing:0;
         text-transform:none;
         line-height:1.25;
-        padding:0 14px;
+        padding:0 10px;
         cursor:pointer;
       }
       .nav-title-btn,
@@ -2430,10 +2430,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         text-decoration:none;
       }
       .nav-title-btn .nav-title-icon{
-        margin-right:10px;
-        width:14px;
+        margin-right:6px;
+        width:18px;
         text-align:center;
-        font-size:12px;
+        font-size:16px;
         opacity:.95;
       }
       .nav-title-btn:hover{
