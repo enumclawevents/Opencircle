@@ -711,12 +711,43 @@ async function ensureUniqueJobSlug(baseSlug, jobId) {
   }
 }
 
+let _jobApplicantSchemaEnsured = false;
+async function ensureJobApplicantSchema() {
+  if (_jobApplicantSchemaEnsured) return;
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS job_applicants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      jobId INTEGER,
+      firstName TEXT,
+      lastName TEXT,
+      email TEXT,
+      phone TEXT,
+      resumeUrl TEXT,
+      coverLetter TEXT,
+      status TEXT NOT NULL DEFAULT 'new',
+      source TEXT,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
+  try {
+    await run(`CREATE INDEX IF NOT EXISTS idx_job_applicants_jobId ON job_applicants(jobId)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_job_applicants_status ON job_applicants(status)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_job_applicants_createdAt ON job_applicants(createdAt)`);
+  } catch (_) {}
+
+  _jobApplicantSchemaEnsured = true;
+}
+
 // GET /admin
 async function renderAdmin(req, res, view) {
   try {
     await ensurePickSchema();
     await ensureVenueSchema();
     await ensureJobSchema();
+    await ensureJobApplicantSchema();
     // ✅ Pagination + total count + optional server-side search
 const limit = Math.max(5, Math.min(200, parseInt(req.query.limit || "20", 10)));
 const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
@@ -1615,6 +1646,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const showVenueAnalytics = view === "venues-analytics";
     const showJobsCreate = view === "jobs-create";
     const showJobsExisting = view === "jobs-existing";
+    const showJobsApplicants = view === "jobs-applicants";
+    const showJobsAnalytics = view === "jobs-analytics";
     const showUsers = view === "users";
     const showInvites = view === "invites";
 
@@ -1627,8 +1660,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     if (showVenueAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     if (showJobsCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showJobsExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
-    const showSearch = showAnalytics || showExisting || showVenueExisting || showJobsExisting;
-    const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting);
+    if (showJobsApplicants && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showJobsAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
+    const showSearch = showAnalytics || showExisting || showVenueExisting || showJobsExisting || showJobsApplicants;
+    const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics);
 
     let pendingRows = [];
     if (showApprove) {
@@ -1863,6 +1898,31 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     let jobPages = 1;
     let jobShowingFrom = 0;
     let jobShowingTo = 0;
+    let jobApplicantsRows = [];
+    let jobApplicantsTotal = 0;
+    let jobApplicantsPages = 1;
+    let jobApplicantsShowingFrom = 0;
+    let jobApplicantsShowingTo = 0;
+    let jobApplicantStats = {
+      total: 0,
+      newCount: 0,
+      reviewedCount: 0,
+      interviewCount: 0,
+      hiredCount: 0,
+      rejectedCount: 0,
+    };
+    let jobTypeRows = [];
+    let jobAnalyticsStats = {
+      total: 0,
+      active: 0,
+      paused: 0,
+      filled: 0,
+      views: 0,
+      withImage: 0,
+      withPay: 0,
+      withApplyUrl: 0,
+      avgViews: 0,
+    };
 
     if (showJobsExisting) {
       const jobWhere = [];
@@ -1888,6 +1948,122 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         "FROM jobs " + jobWhereSql + " ORDER BY datetime(createdAt) DESC, id DESC LIMIT ? OFFSET ?",
         [...jobParams, limit, offset]
       );
+    }
+
+    if (showJobsApplicants) {
+      const applicantWhere = [];
+      const applicantParams = [];
+      if (selectedCity) {
+        applicantWhere.push("j.city = ?");
+        applicantParams.push(selectedCity);
+      }
+      if (q) {
+        const like = "%" + q + "%";
+        applicantWhere.push("(a.firstName LIKE ? OR a.lastName LIKE ? OR a.email LIKE ? OR a.phone LIKE ? OR j.title LIKE ? OR j.company LIKE ? OR CAST(a.id AS TEXT) LIKE ?)");
+        applicantParams.push(like, like, like, like, like, like, like);
+      }
+      const applicantWhereSql = applicantWhere.length ? ("WHERE " + applicantWhere.join(" AND ")) : "";
+      const applicantTotalRow = await get(
+        "SELECT COUNT(*) AS n FROM job_applicants a LEFT JOIN jobs j ON j.id = a.jobId " + applicantWhereSql,
+        applicantParams
+      );
+      jobApplicantsTotal = Number(applicantTotalRow?.n || 0);
+      jobApplicantsPages = Math.max(1, Math.ceil(jobApplicantsTotal / limit));
+      jobApplicantsShowingFrom = jobApplicantsTotal ? offset + 1 : 0;
+      jobApplicantsShowingTo = Math.min(offset + limit, jobApplicantsTotal);
+
+      jobApplicantsRows = await all(
+        "SELECT a.id, a.jobId, a.firstName, a.lastName, a.email, a.phone, a.resumeUrl, a.coverLetter, a.status, a.source, a.createdAt, " +
+        "j.title AS jobTitle, j.company AS jobCompany, j.city AS jobCity " +
+        "FROM job_applicants a LEFT JOIN jobs j ON j.id = a.jobId " +
+        applicantWhereSql + " ORDER BY datetime(a.createdAt) DESC, a.id DESC LIMIT ? OFFSET ?",
+        [...applicantParams, limit, offset]
+      );
+
+      const applicantStatsRow = await get(
+        "SELECT " +
+        "COUNT(*) AS total, " +
+        "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'new' THEN 1 ELSE 0 END),0) AS newCount, " +
+        "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'reviewed' THEN 1 ELSE 0 END),0) AS reviewedCount, " +
+        "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'interview' THEN 1 ELSE 0 END),0) AS interviewCount, " +
+        "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'hired' THEN 1 ELSE 0 END),0) AS hiredCount, " +
+        "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'rejected' THEN 1 ELSE 0 END),0) AS rejectedCount " +
+        "FROM job_applicants a LEFT JOIN jobs j ON j.id = a.jobId " + applicantWhereSql,
+        applicantParams
+      );
+      jobApplicantStats = {
+        total: Number(applicantStatsRow?.total || 0),
+        newCount: Number(applicantStatsRow?.newCount || 0),
+        reviewedCount: Number(applicantStatsRow?.reviewedCount || 0),
+        interviewCount: Number(applicantStatsRow?.interviewCount || 0),
+        hiredCount: Number(applicantStatsRow?.hiredCount || 0),
+        rejectedCount: Number(applicantStatsRow?.rejectedCount || 0),
+      };
+    }
+
+    if (showJobsAnalytics) {
+      const jobCityWhere = [];
+      const jobCityParams = [];
+      if (selectedCity) {
+        jobCityWhere.push("city = ?");
+        jobCityParams.push(selectedCity);
+      }
+      const jobCityWhereSql = jobCityWhere.length ? ("WHERE " + jobCityWhere.join(" AND ")) : "";
+      const row = await get(
+        "SELECT " +
+        "COUNT(*) AS total, " +
+        "COALESCE(SUM(CASE WHEN lower(COALESCE(status,'')) = 'active' THEN 1 ELSE 0 END),0) AS activeCount, " +
+        "COALESCE(SUM(CASE WHEN lower(COALESCE(status,'')) = 'paused' THEN 1 ELSE 0 END),0) AS pausedCount, " +
+        "COALESCE(SUM(CASE WHEN lower(COALESCE(status,'')) = 'filled' THEN 1 ELSE 0 END),0) AS filledCount, " +
+        "COALESCE(SUM(COALESCE(viewCount,0)),0) AS viewsCount, " +
+        "COALESCE(SUM(CASE WHEN imageUrl IS NOT NULL AND trim(imageUrl) <> '' THEN 1 ELSE 0 END),0) AS withImageCount, " +
+        "COALESCE(SUM(CASE WHEN salaryRange IS NOT NULL AND trim(salaryRange) <> '' THEN 1 ELSE 0 END),0) AS withPayCount, " +
+        "COALESCE(SUM(CASE WHEN applyUrl IS NOT NULL AND trim(applyUrl) <> '' THEN 1 ELSE 0 END),0) AS withApplyUrlCount " +
+        "FROM jobs " + jobCityWhereSql,
+        jobCityParams
+      );
+      const totalJobs = Number(row?.total || 0);
+      const totalViews = Number(row?.viewsCount || 0);
+      jobAnalyticsStats = {
+        total: totalJobs,
+        active: Number(row?.activeCount || 0),
+        paused: Number(row?.pausedCount || 0),
+        filled: Number(row?.filledCount || 0),
+        views: totalViews,
+        withImage: Number(row?.withImageCount || 0),
+        withPay: Number(row?.withPayCount || 0),
+        withApplyUrl: Number(row?.withApplyUrlCount || 0),
+        avgViews: totalJobs ? Math.round(totalViews / totalJobs) : 0,
+      };
+
+      jobTypeRows = await all(
+        "SELECT COALESCE(NULLIF(trim(employmentType), ''), '(unspecified)') AS employmentType, COUNT(*) AS n " +
+        "FROM jobs " + jobCityWhereSql + " GROUP BY employmentType ORDER BY n DESC, employmentType ASC",
+        jobCityParams
+      );
+
+      if (!showJobsApplicants) {
+        const applicantStatsRow = await get(
+          "SELECT " +
+          "COUNT(*) AS total, " +
+          "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'new' THEN 1 ELSE 0 END),0) AS newCount, " +
+          "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'reviewed' THEN 1 ELSE 0 END),0) AS reviewedCount, " +
+          "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'interview' THEN 1 ELSE 0 END),0) AS interviewCount, " +
+          "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'hired' THEN 1 ELSE 0 END),0) AS hiredCount, " +
+          "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'rejected' THEN 1 ELSE 0 END),0) AS rejectedCount " +
+          "FROM job_applicants a LEFT JOIN jobs j ON j.id = a.jobId " +
+          (selectedCity ? "WHERE j.city = ?" : ""),
+          selectedCity ? [selectedCity] : []
+        );
+        jobApplicantStats = {
+          total: Number(applicantStatsRow?.total || 0),
+          newCount: Number(applicantStatsRow?.newCount || 0),
+          reviewedCount: Number(applicantStatsRow?.reviewedCount || 0),
+          interviewCount: Number(applicantStatsRow?.interviewCount || 0),
+          hiredCount: Number(applicantStatsRow?.hiredCount || 0),
+          rejectedCount: Number(applicantStatsRow?.rejectedCount || 0),
+        };
+      }
     }
 
     if (showVenueExisting || showVenueAnalytics) {
@@ -1948,6 +2124,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       ? "Create Job"
       : showJobsExisting
       ? "All Jobs"
+      : showJobsApplicants
+      ? "Job Applicants"
+      : showJobsAnalytics
+      ? "Job Analytics"
       : showUsers
       ? "Users"
       : showInvites
@@ -1955,7 +2135,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       : "Dashboard";
     const eventsMenuOpen = showExisting || showCreate || showApprove || showAnalytics;
     const venuesMenuOpen = showVenueExisting || showVenueCreate || showVenueAnalytics;
-    const jobsMenuOpen = showJobsExisting || showJobsCreate;
+    const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants || showJobsAnalytics;
     const adminMenuOpen = showUsers || showInvites;
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
@@ -2010,7 +2190,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         background:var(--sidebar-panel);
         border-right:1px solid var(--sidebar-line);
         padding:5px 18px 18px;
-        position:sticky; top:0; height:100vh; overflow:auto;
+        position:sticky; top:0; height:100vh; overflow-y:auto; overflow-x:visible;
         display:flex; flex-direction:column;
         color:var(--sidebar-text);
       }
@@ -2182,10 +2362,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         gap:8px;
         margin:10px -18px 0;
         width:calc(100% + 36px);
+        position:relative;
+        z-index:5;
       }
       .nav-group{
         display:grid;
         gap:0;
+        position:relative;
       }
       .nav-title-btn{
         appearance:none;
@@ -2203,6 +2386,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .nav-title-btn:hover{
         color:#cbd5e1;
+        background: rgba(255,255,255,.04);
       }
       .nav-title-btn:focus{
         outline:none;
@@ -2210,29 +2394,53 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .nav-sub{
         display:grid;
         gap:2px;
-        padding-bottom:2px;
+        position:absolute;
+        left:calc(100% + 8px);
+        top:0;
+        min-width:220px;
+        background:#26313b;
+        border:1px solid rgba(255,255,255,.08);
+        border-radius:4px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.35);
+        padding:10px 0;
+        opacity:0;
+        transform: translateX(6px);
+        pointer-events:none;
+        transition: opacity .12s ease, transform .12s ease;
       }
-      .nav-sub[hidden]{
-        display:none !important;
+      .nav-sub::before{
+        content:"";
+        position:absolute;
+        left:-8px;
+        top:16px;
+        border-top:8px solid transparent;
+        border-bottom:8px solid transparent;
+        border-right:8px solid #26313b;
+      }
+      .nav-group:hover .nav-sub,
+      .nav-group.is-open .nav-sub{
+        opacity:1;
+        transform: translateX(0);
+        pointer-events:auto;
       }
       .subnav-link{
         text-decoration:none;
-        color:#ffffff !important;
+        color:#c5ced6 !important;
         display:flex;
         align-items:center;
-        padding:8px 18px;
-        font-weight:300;
-        font-size:14px;
-        border-left:2px solid transparent;
+        padding:8px 16px;
+        font-weight:400;
+        font-size:15px;
+        border-left:0;
+        white-space:nowrap;
       }
       .subnav-link:hover{
         color:#ffffff;
-        background: rgba(255,255,255,.04);
+        background: rgba(255,255,255,.06);
       }
       .subnav-link.active{
         color:#ffffff !important;
-        background: rgba(0,192,139,.10);
-        border-left-color: var(--brand);
+        background: rgba(255,255,255,.08);
       }
       .subnav-link:visited,
       .subnav-link:focus,
@@ -3193,18 +3401,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
         <nav class="nav">
           ${(isAdminUser || isCityEditor) ? `
-          <div class="nav-group nav-collapsible" data-nav-group>
+          <div class="nav-group nav-collapsible ${showDashboard ? "is-open" : ""}" data-nav-group>
             <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${showDashboard ? "true" : "false"}">Dashboard</button>
-            <div class="nav-sub" data-nav-sub ${showDashboard ? "" : "hidden"}>
+            <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showDashboard ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Overview</a>
             </div>
           </div>
           <div class="sb-divider"></div>
           ` : ``}
 
-          <div class="nav-group nav-collapsible" data-nav-group>
+          <div class="nav-group nav-collapsible ${eventsMenuOpen ? "is-open" : ""}" data-nav-group>
             <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${eventsMenuOpen ? "true" : "false"}">Events</button>
-            <div class="nav-sub" data-nav-sub ${eventsMenuOpen ? "" : "hidden"}>
+            <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
               ${(isAdminUser || isCityEditor) ? `
@@ -3217,9 +3425,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           </div>
           <div class="sb-divider"></div>
 
-          <div class="nav-group nav-collapsible" data-nav-group>
+          <div class="nav-group nav-collapsible ${venuesMenuOpen ? "is-open" : ""}" data-nav-group>
             <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${venuesMenuOpen ? "true" : "false"}">Venues</button>
-            <div class="nav-sub" data-nav-sub ${venuesMenuOpen ? "" : "hidden"}>
+            <div class="nav-sub" data-nav-sub>
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueExisting ? "active" : ""}" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>` : ``}
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venues</a>` : ``}
               ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
@@ -3227,18 +3435,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           </div>
           <div class="sb-divider"></div>
 
-          <div class="nav-group nav-collapsible" data-nav-group>
+          <div class="nav-group nav-collapsible ${jobsMenuOpen ? "is-open" : ""}" data-nav-group>
             <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${jobsMenuOpen ? "true" : "false"}">Jobs</button>
-            <div class="nav-sub" data-nav-sub ${jobsMenuOpen ? "" : "hidden"}>
+            <div class="nav-sub" data-nav-sub>
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsExisting ? "active" : ""}" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>` : ``}
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsCreate ? "active" : ""}" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Jobs</a>` : ``}
+              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsApplicants ? "active" : ""}" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>` : ``}
+              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
             </div>
           </div>
 
           ${isAdminUser ? `<div class="sb-divider"></div>
-          <div class="nav-group nav-collapsible" data-nav-group>
+          <div class="nav-group nav-collapsible ${adminMenuOpen ? "is-open" : ""}" data-nav-group>
             <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${adminMenuOpen ? "true" : "false"}">Admin</button>
-            <div class="nav-sub" data-nav-sub ${adminMenuOpen ? "" : "hidden"}>
+            <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>
               <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
             </div>
@@ -3276,6 +3486,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Create Jobs"
                 : showJobsExisting
                 ? "All Jobs"
+                : showJobsApplicants
+                ? "Job Applicants"
+                : showJobsAnalytics
+                ? "Job Analytics"
                 : showInvites
                 ? "Invites"
                 : "Dashboard"
@@ -3299,26 +3513,32 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Create a local job listing"
                 : showJobsExisting
                 ? "Browse and search local jobs"
+                : showJobsApplicants
+                ? "Review candidates submitted for local jobs"
+                : showJobsAnalytics
+                ? "Performance and funnel metrics for jobs"
                 : "Combined events/venues overview with quick actions"
             }</p>
           </div>
 
           <div class="h-right">
             ${showSearch ? `
-            <form class="search" method="GET" action="${showVenueExisting ? "/admin/venues" : (showJobsExisting ? "/admin/jobs" : (showAnalytics ? "/admin/events-analytics" : "/admin/existing-events"))}">
-              <input name="q" value="${esc(q)}" placeholder="${showVenueExisting ? "Search venues (name, slug, address, ID)..." : (showJobsExisting ? "Search jobs (title, company, location, ID)..." : "Search events (title, slug, location, ID)...")}" />
+            <form class="search" method="GET" action="${showVenueExisting ? "/admin/venues" : (showJobsExisting ? "/admin/jobs" : (showJobsApplicants ? "/admin/jobs/applicants" : (showAnalytics ? "/admin/events-analytics" : "/admin/existing-events")))}">
+              <input name="q" value="${esc(q)}" placeholder="${showVenueExisting ? "Search venues (name, slug, address, ID)..." : (showJobsExisting ? "Search jobs (title, company, location, ID)..." : (showJobsApplicants ? "Search applicants (name, email, phone, job)..." : "Search events (title, slug, location, ID)..."))}" />
               <input type="hidden" name="pg" value="1" />
               <input type="hidden" name="limit" value="${esc(String(limit))}" />
-              ${(showVenueExisting || showJobsExisting) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
-              ${(showVenueExisting || showJobsExisting) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``)}
+              ${(showVenueExisting || showJobsExisting || showJobsApplicants) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
+              ${(showVenueExisting || showJobsExisting || showJobsApplicants) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``)}
               <button class="btn btn-primary" type="submit">Search</button>
               ${q ? (showVenueExisting
                 ? `<a class="btn" href="/admin/venues?pg=1&limit=${esc(String(limit))}">Reset</a>`
                 : (showJobsExisting
                   ? `<a class="btn" href="/admin/jobs?pg=1&limit=${esc(String(limit))}">Reset</a>`
-                : (showAnalytics
-                  ? `<a class="btn" href="/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`
-                  : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`))) : ``}
+                  : (showJobsApplicants
+                    ? `<a class="btn" href="/admin/jobs/applicants?pg=1&limit=${esc(String(limit))}">Reset</a>`
+                  : (showAnalytics
+                    ? `<a class="btn" href="/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`
+                    : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`)))) : ``}
             </form>
             ` : ``}
           </div>
@@ -3392,6 +3612,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   <div class="quick-links-group-title">Jobs</div>
                   <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
                   <a class="btn quick-link" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>
+                  <a class="btn quick-link" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
+                  ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
                 </div>
               </div>
             </section>
@@ -4362,8 +4584,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         </section>
         ` : ``}
 
-        ${(showJobsCreate || showJobsExisting) ? `
-        <section class="gridMain ${(showJobsCreate || showJobsExisting) ? "single" : ""}" id="jobs">
+        ${(showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics) ? `
+        <section class="gridMain ${(showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics) ? "single" : ""}" id="jobs">
           ${showJobsCreate ? `
           <div class="card" id="job-create">
             <div class="sectionTitle">
@@ -4519,6 +4741,135 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             ` : ``}
           </div>
           ` : ``}
+
+          ${showJobsApplicants ? `
+          <div class="card" id="job-applicants">
+            <div class="sectionTitle">
+              <div>
+                <h2>Applicants</h2>
+                <p class="sub">Candidates submitted for job listings</p>
+              </div>
+            </div>
+
+            <div class="kpis" style="margin-bottom:14px;">
+              <div class="kpi"><div class="label">Total</div><div class="value">${Number(jobApplicantStats.total || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">New</div><div class="value">${Number(jobApplicantStats.newCount || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Reviewed</div><div class="value">${Number(jobApplicantStats.reviewedCount || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Interview</div><div class="value">${Number(jobApplicantStats.interviewCount || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Hired</div><div class="value">${Number(jobApplicantStats.hiredCount || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Rejected</div><div class="value">${Number(jobApplicantStats.rejectedCount || 0).toLocaleString("en-US")}</div></div>
+            </div>
+
+            <div class="muted" style="margin-bottom:12px;">
+              Total: <strong style="color:var(--text)">${jobApplicantsTotal}</strong>
+              ${jobApplicantsTotal ? ` · Showing ${jobApplicantsShowingFrom}-${jobApplicantsShowingTo}` : ``}
+            </div>
+
+            <div id="jobApplicantsList" style="display:grid; gap:var(--gap);">
+              ${jobApplicantsRows.length ? jobApplicantsRows.map((a) => `
+                <div class="event-card venue-card">
+                  <div class="event-thumb">
+                    <div class="thumb-empty">${esc(String(a.firstName || "").slice(0,1) + String(a.lastName || "").slice(0,1) || "AP")}</div>
+                  </div>
+                  <div class="event-left">
+                    <div class="event-main">
+                      <div class="event-title">#${a.id} — ${esc([a.firstName, a.lastName].filter(Boolean).join(" ") || "Applicant")}</div>
+                      <div class="event-meta">
+                        <div><strong>Email:</strong> ${a.email ? `<a href="mailto:${esc(a.email)}">${esc(a.email)}</a>` : "—"}</div>
+                        <div><strong>Phone:</strong> ${a.phone ? `<a href="tel:${esc(a.phone)}">${esc(a.phone)}</a>` : "—"}</div>
+                        <div><strong>Job:</strong> ${esc(a.jobTitle || "Unknown job")}${a.jobCompany ? ` · ${esc(a.jobCompany)}` : ""}</div>
+                        <div><strong>City:</strong> ${esc(a.jobCity || "")}</div>
+                        <div><strong>Status:</strong> ${esc(a.status || "new")}</div>
+                        <div><strong>Source:</strong> ${esc(a.source || "direct")}</div>
+                        <div><strong>Applied:</strong> ${esc(fmtPendingDate(a.createdAt))}</div>
+                        ${a.resumeUrl ? `<div><strong>Resume:</strong> <a href="${esc(a.resumeUrl)}" target="_blank" rel="noopener">View</a></div>` : ``}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              `).join("") : `<div class="muted">No applicants yet.</div>`}
+            </div>
+
+            ${jobApplicantsPages > 1 ? `
+            <div class="pager" style="margin-top:14px;">
+              <div class="pager-right">
+                <a class="btn" href="/admin/jobs/applicants?pg=1&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>First</a>
+                <a class="btn" href="/admin/jobs/applicants?pg=${Math.max(1, pg - 1)}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>Prev</a>
+                <span class="muted" style="padding:0 8px;">Page <strong style="color:var(--text)">${pg}</strong> / ${jobApplicantsPages}</span>
+                <a class="btn" href="/admin/jobs/applicants?pg=${Math.min(jobApplicantsPages, pg + 1)}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg >= jobApplicantsPages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Next</a>
+                <a class="btn" href="/admin/jobs/applicants?pg=${jobApplicantsPages}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg >= jobApplicantsPages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Last</a>
+              </div>
+            </div>
+            ` : ``}
+          </div>
+          ` : ``}
+
+          ${showJobsAnalytics ? `
+          <div class="card" id="jobs-analytics">
+            <div class="sectionTitle">
+              <div>
+                <h2>Job analytics</h2>
+                <p class="sub">Performance and funnel metrics for job listings</p>
+              </div>
+            </div>
+
+            <div class="kpis">
+              <div class="kpi"><div class="label">Total Jobs</div><div class="value">${Number(jobAnalyticsStats.total || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Active</div><div class="value">${Number(jobAnalyticsStats.active || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Paused</div><div class="value">${Number(jobAnalyticsStats.paused || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Filled</div><div class="value">${Number(jobAnalyticsStats.filled || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Total Views</div><div class="value">${Number(jobAnalyticsStats.views || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Avg Views / Job</div><div class="value">${Number(jobAnalyticsStats.avgViews || 0).toLocaleString("en-US")}</div></div>
+            </div>
+
+            <div class="venue-analytics-grid2" style="margin-top:14px;">
+              <div class="card">
+                <div class="sectionTitle">
+                  <div>
+                    <h2>Job data quality</h2>
+                    <p class="sub">Coverage for key listing fields</p>
+                  </div>
+                </div>
+                <div class="mini">
+                  <div class="kv"><span class="k">With image</span><strong class="v">${Number(jobAnalyticsStats.withImage || 0).toLocaleString("en-US")}</strong></div>
+                  <div class="kv"><span class="k">With pay range</span><strong class="v">${Number(jobAnalyticsStats.withPay || 0).toLocaleString("en-US")}</strong></div>
+                  <div class="kv"><span class="k">With apply URL</span><strong class="v">${Number(jobAnalyticsStats.withApplyUrl || 0).toLocaleString("en-US")}</strong></div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="sectionTitle">
+                  <div>
+                    <h2>Applicants funnel</h2>
+                    <p class="sub">Status totals across all applicants</p>
+                  </div>
+                </div>
+                <div class="mini">
+                  <div class="kv"><span class="k">Total applicants</span><strong class="v">${Number(jobApplicantStats.total || 0).toLocaleString("en-US")}</strong></div>
+                  <div class="kv"><span class="k">New</span><strong class="v">${Number(jobApplicantStats.newCount || 0).toLocaleString("en-US")}</strong></div>
+                  <div class="kv"><span class="k">Reviewed</span><strong class="v">${Number(jobApplicantStats.reviewedCount || 0).toLocaleString("en-US")}</strong></div>
+                  <div class="kv"><span class="k">Interview</span><strong class="v">${Number(jobApplicantStats.interviewCount || 0).toLocaleString("en-US")}</strong></div>
+                  <div class="kv"><span class="k">Hired</span><strong class="v">${Number(jobApplicantStats.hiredCount || 0).toLocaleString("en-US")}</strong></div>
+                  <div class="kv"><span class="k">Rejected</span><strong class="v">${Number(jobApplicantStats.rejectedCount || 0).toLocaleString("en-US")}</strong></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:14px;">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Employment type breakdown</h2>
+                  <p class="sub">Distribution by listing type</p>
+                </div>
+              </div>
+              <div class="mini">
+                ${jobTypeRows.length ? jobTypeRows.map((r) => `
+                  <div class="kv"><span class="k">${esc(r.employmentType || "(unspecified)")}</span><strong class="v">${Number(r.n || 0).toLocaleString("en-US")}</strong></div>
+                `).join("") : `<div class="muted">No job listings yet.</div>`}
+              </div>
+            </div>
+          </div>
+          ` : ``}
         </section>
         ` : ``}
 
@@ -4532,13 +4883,28 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         if (!groups || !groups.length) return;
         groups.forEach(function(group){
           var toggle = group.querySelector("[data-nav-toggle]");
-          var sub = group.querySelector("[data-nav-sub]");
-          if (!toggle || !sub) return;
+          if (!toggle) return;
           toggle.addEventListener("click", function(){
             var open = toggle.getAttribute("aria-expanded") === "true";
-            toggle.setAttribute("aria-expanded", open ? "false" : "true");
-            if (open) sub.setAttribute("hidden", "");
-            else sub.removeAttribute("hidden");
+            groups.forEach(function(other){
+              var t = other.querySelector("[data-nav-toggle]");
+              if (!t) return;
+              other.classList.remove("is-open");
+              t.setAttribute("aria-expanded", "false");
+            });
+            if (!open) {
+              group.classList.add("is-open");
+              toggle.setAttribute("aria-expanded", "true");
+            }
+          });
+        });
+        document.addEventListener("click", function(e){
+          if (e.target.closest(".sidebar")) return;
+          groups.forEach(function(group){
+            var t = group.querySelector("[data-nav-toggle]");
+            if (!t) return;
+            group.classList.remove("is-open");
+            t.setAttribute("aria-expanded", "false");
           });
         });
       })();
@@ -5397,6 +5763,8 @@ router.get("/venues/create", async (req, res) => renderAdmin(req, res, "venues-c
 router.get("/venues/analytics", async (req, res) => renderAdmin(req, res, "venues-analytics"));
 router.get("/jobs", async (req, res) => renderAdmin(req, res, "jobs-existing"));
 router.get("/jobs/create", async (req, res) => renderAdmin(req, res, "jobs-create"));
+router.get("/jobs/applicants", async (req, res) => renderAdmin(req, res, "jobs-applicants"));
+router.get("/jobs/analytics", async (req, res) => renderAdmin(req, res, "jobs-analytics"));
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 router.get("/pending-count", async (req, res) => {
