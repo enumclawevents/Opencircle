@@ -2394,45 +2394,33 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .nav-sub{
         display:grid;
         gap:2px;
-        position:absolute;
-        left:calc(100% + 8px);
-        top:0;
-        min-width:220px;
-        background:#26313b;
-        border:1px solid rgba(255,255,255,.08);
-        border-radius:4px;
-        box-shadow: 0 8px 24px rgba(0,0,0,.35);
-        padding:10px 0;
+        margin: 0 8px 8px 8px;
+        padding: 0;
+        background: rgba(255,255,255,.04);
+        border:1px solid var(--sidebar-line);
+        border-radius:6px;
+        max-height:0;
+        overflow:hidden;
         opacity:0;
-        transform: translateX(6px);
-        pointer-events:none;
-        transition: opacity .12s ease, transform .12s ease;
+        transition:max-height .2s ease, opacity .15s ease, padding .2s ease;
       }
-      .nav-sub::before{
-        content:"";
-        position:absolute;
-        left:-8px;
-        top:16px;
-        border-top:8px solid transparent;
-        border-bottom:8px solid transparent;
-        border-right:8px solid #26313b;
-      }
+      .nav-group.is-open .nav-sub,
       .nav-group:hover .nav-sub,
-      .nav-group.is-open .nav-sub{
+      .nav-group:focus-within .nav-sub{
+        max-height:900px;
         opacity:1;
-        transform: translateX(0);
-        pointer-events:auto;
+        padding: 8px 0;
       }
       .subnav-link{
         text-decoration:none;
         color:#c5ced6 !important;
         display:flex;
         align-items:center;
-        padding:8px 16px;
+        padding:8px 12px;
         font-weight:400;
-        font-size:15px;
+        font-size:14px;
         border-left:0;
-        white-space:nowrap;
+        white-space:normal;
       }
       .subnav-link:hover{
         color:#ffffff;
