@@ -2169,9 +2169,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         /* Sidebar (dark) */
         --sidebar-bg:#0b1220;
         --sidebar-panel:#0f172a;
-        --sidebar-text:#e5e7eb;
-        --sidebar-muted:#475569;
-        --sidebar-line:rgba(148,163,184,.16);
+        --sidebar-text:#f0f0f1;
+        --sidebar-muted:#a7aaad;
+        --sidebar-line:rgba(240,246,252,.08);
       }
 
       *{ box-sizing:border-box; }
@@ -2193,6 +2193,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         position:sticky; top:0; height:100vh; overflow-y:auto; overflow-x:visible;
         display:flex; flex-direction:column;
         color:var(--sidebar-text);
+        z-index: 80;
       }
       .sidebar .card{
         background: rgba(255,255,255,.04);
@@ -2376,76 +2377,86 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         background:transparent;
         width:100%;
         text-align:left;
-        color:#ffffff;
+        color:#f0f0f1;
         font-size:12px;
         font-weight:700;
         letter-spacing:.08em;
         text-transform:uppercase;
+        line-height:1.35;
         padding:8px 18px 6px;
         cursor:pointer;
       }
       .nav-title-btn:hover{
         color:#ffffff;
-        background: rgba(255,255,255,.05);
+        background: rgba(255,255,255,.04);
+      }
+      .nav-group.is-open > .nav-title-btn{
+        background:#2271b1;
+        color:#ffffff;
+        position:relative;
+      }
+      .nav-group.is-open > .nav-title-btn::after{
+        content:"";
+        position:absolute;
+        right:10px;
+        top:50%;
+        transform:translateY(-50%);
+        width:0;
+        height:0;
+        border-top:8px solid transparent;
+        border-bottom:8px solid transparent;
+        border-right:8px solid #ffffff;
       }
       .nav-title-btn:focus{
         outline:none;
       }
       .nav-sub{
-        position:absolute;
-        left: calc(100% - 8px);
-        top: 0;
-        min-width: 250px;
+        position:static;
+        left:auto;
+        top:auto;
+        min-width:0;
         display:grid;
-        gap:2px;
-        margin: 0;
-        padding: 8px 0;
-        background: #13233e;
+        gap:0;
+        margin: 0 16px 8px 16px;
+        padding: 0;
+        background: rgba(255,255,255,.03);
         border:1px solid var(--sidebar-line);
         border-radius:6px;
-        box-shadow: 0 18px 40px rgba(2,6,23,.45);
+        box-shadow:none;
+        max-height:0;
+        overflow:hidden;
         opacity:0;
-        transform: translateX(-8px);
+        transform:none;
         pointer-events:none;
-        transition:opacity .16s ease, transform .16s ease;
-        z-index:60;
-      }
-      .nav-sub::before{
-        content:"";
-        position:absolute;
-        left:-8px;
-        top:14px;
-        width:0;
-        height:0;
-        border-top:8px solid transparent;
-        border-bottom:8px solid transparent;
-        border-right:8px solid #13233e;
+        transition:max-height .2s ease, opacity .15s ease, padding .2s ease;
+        z-index:1;
       }
       .nav-group.is-open .nav-sub,
-      .nav-group:hover .nav-sub,
       .nav-group:focus-within .nav-sub{
+        max-height:900px;
         opacity:1;
-        transform: translateX(0);
+        padding: 8px 0;
         pointer-events:auto;
       }
       .subnav-link{
         text-decoration:none;
-        color:#c5ced6 !important;
+        color:#dcdcde !important;
         display:flex;
         align-items:center;
-        padding:8px 12px;
+        padding:10px 14px;
         font-weight:400;
         font-size:14px;
+        line-height:1.25;
         border-left:0;
         white-space:normal;
       }
       .subnav-link:hover{
         color:#ffffff;
-        background: rgba(255,255,255,.06);
+        background: rgba(255,255,255,.08);
       }
       .subnav-link.active{
         color:#ffffff !important;
-        background: rgba(255,255,255,.08);
+        background: rgba(255,255,255,.12);
       }
       .subnav-link:visited,
       .subnav-link:focus,
@@ -2507,6 +2518,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         flex:1;
         padding:22px;
         min-width:0;
+        position: relative;
+        z-index: 1;
       }
 
       /* Header */
