@@ -2360,7 +2360,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
       .nav{
         display:grid;
-        gap:8px;
+        gap:0;
         margin:10px -18px 0;
         width:calc(100% + 36px);
         position:relative;
@@ -2394,6 +2394,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         background:#2271b1;
         color:#ffffff;
         position:relative;
+        border-radius:0;
+        margin:0;
       }
       .nav-group.is-open > .nav-title-btn::after{
         content:"";
@@ -2415,13 +2417,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         left:auto;
         top:auto;
         min-width:0;
+        width:100%;
         display:grid;
         gap:0;
-        margin: 0 16px 8px 16px;
+        margin: 0;
         padding: 0;
         background: rgba(255,255,255,.03);
-        border:1px solid var(--sidebar-line);
-        border-radius:6px;
+        border-top:1px solid var(--sidebar-line);
+        border-bottom:1px solid var(--sidebar-line);
+        border-left:0;
+        border-right:0;
+        border-radius:0;
         box-shadow:none;
         max-height:0;
         overflow:hidden;
