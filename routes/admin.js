@@ -2409,6 +2409,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         background:transparent;
         width:100%;
         height:39.5px;
+        display:flex;
+        align-items:center;
         text-align:left;
         color:#f0f0f1;
         font-size:14px;
@@ -3459,7 +3461,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         <nav class="nav">
           ${(isAdminUser || isCityEditor) ? `
           <div class="nav-group nav-collapsible ${showDashboard ? "is-open" : ""}" data-nav-group>
-            <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${showDashboard ? "true" : "false"}">Dashboard</button>
+            <a class="nav-title-btn" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${showDashboard ? "page" : "false"}">Dashboard</a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showDashboard ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Overview</a>
             </div>
@@ -3468,8 +3470,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           ` : ``}
 
           <div class="nav-group nav-collapsible ${eventsMenuOpen ? "is-open" : ""}" data-nav-group>
-            <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${eventsMenuOpen ? "true" : "false"}">Events</button>
+            <a class="nav-title-btn" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${eventsMenuOpen ? "page" : "false"}">Events</a>
             <div class="nav-sub" data-nav-sub>
+              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
               <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
               ${(isAdminUser || isCityEditor) ? `
@@ -3477,34 +3480,33 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 <span>Approve Events</span>
                 ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
               </a>` : ``}
-              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
             </div>
           </div>
           <div class="sb-divider"></div>
 
           <div class="nav-group nav-collapsible ${venuesMenuOpen ? "is-open" : ""}" data-nav-group>
-            <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${venuesMenuOpen ? "true" : "false"}">Venues</button>
+            <a class="nav-title-btn" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${venuesMenuOpen ? "page" : "false"}">Venues</a>
             <div class="nav-sub" data-nav-sub>
+              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueExisting ? "active" : ""}" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>` : ``}
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venues</a>` : ``}
-              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
             </div>
           </div>
           <div class="sb-divider"></div>
 
           <div class="nav-group nav-collapsible ${jobsMenuOpen ? "is-open" : ""}" data-nav-group>
-            <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${jobsMenuOpen ? "true" : "false"}">Jobs</button>
+            <a class="nav-title-btn" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${jobsMenuOpen ? "page" : "false"}">Jobs</a>
             <div class="nav-sub" data-nav-sub>
+              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsExisting ? "active" : ""}" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>` : ``}
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsCreate ? "active" : ""}" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Jobs</a>` : ``}
               ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsApplicants ? "active" : ""}" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>` : ``}
-              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
             </div>
           </div>
 
           ${isAdminUser ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${adminMenuOpen ? "is-open" : ""}" data-nav-group>
-            <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${adminMenuOpen ? "true" : "false"}">Admin</button>
+            <a class="nav-title-btn" href="/admin/users${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${adminMenuOpen ? "page" : "false"}">Admin</a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>
               <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
