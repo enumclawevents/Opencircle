@@ -2515,11 +2515,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         background: transparent;
         border-color: transparent !important;
         box-shadow:none !important;
+        font-weight:600;
       }
       .subnav-link:visited,
       .subnav-link:focus,
       .subnav-link:active{
         color:#7f8a97 !important;
+      }
+      .subnav-link.active:visited,
+      .subnav-link.active:focus,
+      .subnav-link.active:active{
+        color:#ffffff !important;
       }
       .subnav-link:focus,
       .subnav-link:active,
