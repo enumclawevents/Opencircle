@@ -1304,6 +1304,36 @@ return `
     const dbSize = bytesToHuman(getDbSizeBytes());
 
 const appVersion = String(process.env.APP_VERSION || "v0.0.4");
+    let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
+    try {
+      const st = fs.statSync(__filename);
+      if (st && st.mtime) {
+        releaseUpdatedAt = new Date(st.mtime).toISOString().replace("T", " ").slice(0, 19) + "Z";
+      }
+    } catch (_) {}
+
+    const hasVenueTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='venues'"));
+    const hasJobsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'"));
+    const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
+    const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
+    const releaseItems = [];
+    releaseItems.push("Events module");
+    if (hasVenueTable) {
+      releaseItems.push("Venues module");
+    }
+    if (hasJobsTable) {
+      releaseItems.push("Jobs module");
+    }
+    if (hasApplicantsTable) {
+      releaseItems.push("Applicants");
+    }
+    if (hasSourceTrackingTable) {
+      releaseItems.push("Source tracking");
+    }
+    releaseItems.push("Venue gallery");
+    releaseItems.push("Dashboard insights");
+    const releaseSummary = String(process.env.RELEASE_NOTES || releaseItems.join(", "));
+
     const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
       ? req.app.locals.reqTimes.length
       : 0;
@@ -1335,6 +1365,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       diskFree,
       diskTotal,
       appVersion,
+      releaseSummary,
+      releaseUpdatedAt,
       dbSize,
       reqCount5m: fmt(reqCount5m),
       autoArchive: cols.has("archived") ? "On" : "Off",
@@ -2001,7 +2033,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       };
     }
 
-    if (showJobsAnalytics) {
+    if (showJobsAnalytics || showDashboard) {
       const jobCityWhere = [];
       const jobCityParams = [];
       if (selectedCity) {
@@ -2247,7 +2279,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .sb-divider{
         height:1px;
         background: var(--sidebar-line);
-        margin: 10px -18px;
+        margin: 0 -18px;
       }
       .sb-city-wrap{
         position: relative;
@@ -2441,7 +2473,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .nav-group:focus-within .nav-sub{
         max-height:900px;
         opacity:1;
-        padding: 8px 0;
+        padding: 0;
         pointer-events:auto;
       }
       .subnav-link{
@@ -3635,7 +3667,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 <div class="quick-links-group">
                   <div class="quick-links-group-title">Jobs</div>
                   <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
-                  <a class="btn quick-link" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>
                   <a class="btn quick-link" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
                   ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
                 </div>
@@ -3653,8 +3684,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
                 <div class="release-meta">
                   <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
-                  <div class="release-row"><div class="label">Latest updates</div><div class="value">Venues module, categories, social, hours, SEO, image upload</div></div>
-                  <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.serverTime)}</div></div>
+                  <div class="release-row"><div class="label">Latest updates</div><div class="value">${esc(stats.releaseSummary)}</div></div>
+                  <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.releaseUpdatedAt)}</div></div>
                 </div>
               </div>
             </div>
@@ -3688,6 +3719,21 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 <div class="insight-row"><div class="label">Views</div><div class="value">${esc(venueStats.views)}</div></div>
                 <div class="insight-row"><div class="label">Total Link Clicks</div><div class="value">${esc(venueStats.totalClicks)}</div></div>
                 <div class="insight-row"><div class="label">With Website</div><div class="value">${esc(venueStats.withWebsite)} (${esc(venueStats.withWebsitePct)})</div></div>
+              </div>
+            </div>
+
+            <div class="card dashboard-card">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Job analytics</h2>
+                  <p class="sub">Jobs snapshot</p>
+                </div>
+              </div>
+              <div class="insight-list">
+                <div class="insight-row"><div class="label">Jobs</div><div class="value">${esc(jobAnalyticsStats.total)}</div></div>
+                <div class="insight-row"><div class="label">Active</div><div class="value">${esc(jobAnalyticsStats.active)}</div></div>
+                <div class="insight-row"><div class="label">Applicants</div><div class="value">${esc(jobApplicantStats.total)}</div></div>
+                <div class="insight-row"><div class="label">Views</div><div class="value">${esc(jobAnalyticsStats.views)}</div></div>
               </div>
             </div>
           </div>
