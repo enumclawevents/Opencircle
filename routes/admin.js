@@ -2496,7 +2496,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .subnav-link{
         text-decoration:none;
-        color:#dcdcde !important;
+        color:#a7aaad !important;
         display:flex;
         align-items:center;
         padding:10px 14px;
@@ -2513,6 +2513,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .subnav-link.active{
         color:#ffffff !important;
         background: transparent;
+        border-color: transparent !important;
+        box-shadow:none !important;
       }
       .subnav-link:visited,
       .subnav-link:focus,
@@ -2567,6 +2569,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         background: rgba(0,192,139,.10);
         border-color: rgba(0,192,139,.22);
         text-decoration:none;
+      }
+      .nav .subnav-link.active{
+        background: transparent !important;
+        border-color: transparent !important;
       }
       .nav a.active .n-dot{ background: var(--brand); }
 
