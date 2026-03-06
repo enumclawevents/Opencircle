@@ -2408,6 +2408,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         border:0;
         background:transparent;
         width:100%;
+        height:35px;
         text-align:left;
         color:#f0f0f1;
         font-size:12px;
@@ -2415,7 +2416,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         letter-spacing:.08em;
         text-transform:uppercase;
         line-height:1.35;
-        padding:8px 18px 6px;
+        padding:0 18px;
         cursor:pointer;
       }
       .nav-title-btn:hover{
