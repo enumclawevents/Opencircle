@@ -1953,6 +1953,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       : showInvites
       ? "Invites"
       : "Dashboard";
+    const eventsMenuOpen = showExisting || showCreate || showApprove || showAnalytics;
+    const venuesMenuOpen = showVenueExisting || showVenueCreate || showVenueAnalytics;
+    const jobsMenuOpen = showJobsExisting || showJobsCreate;
+    const adminMenuOpen = showUsers || showInvites;
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
     res.send(`<!doctype html>
@@ -2181,15 +2185,35 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .nav-group{
         display:grid;
-        gap:6px;
+        gap:0;
       }
-      .nav-title{
+      .nav-title-btn{
+        appearance:none;
+        border:0;
+        background:transparent;
+        width:100%;
+        text-align:left;
         color: var(--sidebar-muted);
         font-size:12px;
         font-weight:700;
         letter-spacing:.08em;
         text-transform:uppercase;
-        padding:6px 18px 2px;
+        padding:8px 18px 4px;
+        cursor:pointer;
+      }
+      .nav-title-btn:hover{
+        color:#cbd5e1;
+      }
+      .nav-title-btn:focus{
+        outline:none;
+      }
+      .nav-sub{
+        display:grid;
+        gap:2px;
+        padding-bottom:2px;
+      }
+      .nav-sub[hidden]{
+        display:none !important;
       }
       .subnav-link{
         text-decoration:none;
@@ -3169,41 +3193,55 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
         <nav class="nav">
           ${(isAdminUser || isCityEditor) ? `
-          <div class="nav-group">
-            <div class="nav-title">Dashboard</div>
-            <a class="subnav-link ${showDashboard ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Overview</a>
+          <div class="nav-group nav-collapsible" data-nav-group>
+            <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${showDashboard ? "true" : "false"}">Dashboard</button>
+            <div class="nav-sub" data-nav-sub ${showDashboard ? "" : "hidden"}>
+              <a class="subnav-link ${showDashboard ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Overview</a>
+            </div>
           </div>
           <div class="sb-divider"></div>
           ` : ``}
-          <div class="nav-group">
-            <div class="nav-title">Events</div>
-            <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
-            ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
-            ${(isAdminUser || isCityEditor) ? `
-            <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" style="display:flex; align-items:center; gap:8px;">
-              <span>Approve Events</span>
-              ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
-            </a>` : ``}
-            ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
+
+          <div class="nav-group nav-collapsible" data-nav-group>
+            <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${eventsMenuOpen ? "true" : "false"}">Events</button>
+            <div class="nav-sub" data-nav-sub ${eventsMenuOpen ? "" : "hidden"}>
+              <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
+              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
+              ${(isAdminUser || isCityEditor) ? `
+              <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" style="display:flex; align-items:center; gap:8px;">
+                <span>Approve Events</span>
+                ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
+              </a>` : ``}
+              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
+            </div>
           </div>
           <div class="sb-divider"></div>
-          <div class="nav-group" style="margin-top:16px;">
-            <div class="nav-title">Venues</div>
-            ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueExisting ? "active" : ""}" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>` : ``}
-            ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venues</a>` : ``}
-            ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Analytics</a>` : ``}
+
+          <div class="nav-group nav-collapsible" data-nav-group>
+            <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${venuesMenuOpen ? "true" : "false"}">Venues</button>
+            <div class="nav-sub" data-nav-sub ${venuesMenuOpen ? "" : "hidden"}>
+              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueExisting ? "active" : ""}" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>` : ``}
+              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venues</a>` : ``}
+              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+            </div>
           </div>
           <div class="sb-divider"></div>
-          <div class="nav-group" style="margin-top:16px;">
-            <div class="nav-title">Jobs</div>
-            ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsExisting ? "active" : ""}" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>` : ``}
-            ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsCreate ? "active" : ""}" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Jobs</a>` : ``}
+
+          <div class="nav-group nav-collapsible" data-nav-group>
+            <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${jobsMenuOpen ? "true" : "false"}">Jobs</button>
+            <div class="nav-sub" data-nav-sub ${jobsMenuOpen ? "" : "hidden"}>
+              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsExisting ? "active" : ""}" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>` : ``}
+              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsCreate ? "active" : ""}" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Jobs</a>` : ``}
+            </div>
           </div>
+
           ${isAdminUser ? `<div class="sb-divider"></div>
-          <div class="nav-group" style="margin-top:16px;">
-            <div class="nav-title">Admin</div>
-            <a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>
-            <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
+          <div class="nav-group nav-collapsible" data-nav-group>
+            <button type="button" class="nav-title-btn" data-nav-toggle aria-expanded="${adminMenuOpen ? "true" : "false"}">Admin</button>
+            <div class="nav-sub" data-nav-sub ${adminMenuOpen ? "" : "hidden"}>
+              <a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>
+              <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
+            </div>
           </div>` : ``}
         </nav>
 
@@ -4489,6 +4527,22 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
     <script>
       // ---- helpers ----
+      (function(){
+        var groups = document.querySelectorAll("[data-nav-group]");
+        if (!groups || !groups.length) return;
+        groups.forEach(function(group){
+          var toggle = group.querySelector("[data-nav-toggle]");
+          var sub = group.querySelector("[data-nav-sub]");
+          if (!toggle || !sub) return;
+          toggle.addEventListener("click", function(){
+            var open = toggle.getAttribute("aria-expanded") === "true";
+            toggle.setAttribute("aria-expanded", open ? "false" : "true");
+            if (open) sub.setAttribute("hidden", "");
+            else sub.removeAttribute("hidden");
+          });
+        });
+      })();
+
       // ---- sort dropdown (server-side) ----
       (function(){
         var sel = document.getElementById("sortBy");
