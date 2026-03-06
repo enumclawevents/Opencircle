@@ -2512,7 +2512,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .subnav-link.active{
         color:#ffffff !important;
-        background: rgba(0,192,139,.18);
+        background: transparent;
       }
       .subnav-link:visited,
       .subnav-link:focus,
