@@ -2376,40 +2376,57 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         background:transparent;
         width:100%;
         text-align:left;
-        color: var(--sidebar-muted);
+        color:#ffffff;
         font-size:12px;
         font-weight:700;
         letter-spacing:.08em;
         text-transform:uppercase;
-        padding:8px 18px 4px;
+        padding:8px 18px 6px;
         cursor:pointer;
       }
       .nav-title-btn:hover{
-        color:#cbd5e1;
-        background: rgba(255,255,255,.04);
+        color:#ffffff;
+        background: rgba(255,255,255,.05);
       }
       .nav-title-btn:focus{
         outline:none;
       }
       .nav-sub{
+        position:absolute;
+        left: calc(100% - 8px);
+        top: 0;
+        min-width: 250px;
         display:grid;
         gap:2px;
-        margin: 0 8px 8px 8px;
-        padding: 0;
-        background: rgba(255,255,255,.04);
+        margin: 0;
+        padding: 8px 0;
+        background: #13233e;
         border:1px solid var(--sidebar-line);
         border-radius:6px;
-        max-height:0;
-        overflow:hidden;
+        box-shadow: 0 18px 40px rgba(2,6,23,.45);
         opacity:0;
-        transition:max-height .2s ease, opacity .15s ease, padding .2s ease;
+        transform: translateX(-8px);
+        pointer-events:none;
+        transition:opacity .16s ease, transform .16s ease;
+        z-index:60;
+      }
+      .nav-sub::before{
+        content:"";
+        position:absolute;
+        left:-8px;
+        top:14px;
+        width:0;
+        height:0;
+        border-top:8px solid transparent;
+        border-bottom:8px solid transparent;
+        border-right:8px solid #13233e;
       }
       .nav-group.is-open .nav-sub,
       .nav-group:hover .nav-sub,
       .nav-group:focus-within .nav-sub{
-        max-height:900px;
         opacity:1;
-        padding: 8px 0;
+        transform: translateX(0);
+        pointer-events:auto;
       }
       .subnav-link{
         text-decoration:none;
