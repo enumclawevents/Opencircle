@@ -2235,7 +2235,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .sidebar .card .muted{ color: var(--sidebar-muted); }
       .sb-brand{
-        display:flex; align-items:center; justify-content:flex-start; margin-bottom:24px;
+        display:flex; align-items:center; justify-content:flex-start; margin-bottom:0;
         margin-left:-18px;
         margin-right:-18px;
         margin-top:-18px;
@@ -2393,7 +2393,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .nav{
         display:grid;
         gap:0;
-        margin:10px -18px 0;
+        margin:0 -18px 0;
         width:calc(100% + 36px);
         position:relative;
         z-index:5;
