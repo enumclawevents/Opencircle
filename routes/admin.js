@@ -2421,12 +2421,19 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         padding:0 14px;
         cursor:pointer;
       }
+      .nav-title-btn,
+      .nav-title-btn:visited,
+      .nav-title-btn:active,
+      .nav-title-btn:focus{
+        color:#ffffff !important;
+        text-decoration:none;
+      }
       .nav-title-btn:hover{
         color:#ffffff;
         background: rgba(255,255,255,.04);
       }
       .nav-group.is-open > .nav-title-btn{
-        background:#2271b1;
+        background:var(--brand);
         color:#ffffff;
         position:relative;
         border-radius:0;
@@ -2497,7 +2504,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .subnav-link.active{
         color:#ffffff !important;
-        background: rgba(255,255,255,.12);
+        background: rgba(0,192,139,.18);
       }
       .subnav-link:visited,
       .subnav-link:focus,
@@ -2898,7 +2905,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .inline{ display:inline; margin:0; }
       .muted{ color: var(--muted); }
 
-      a:not(.btn){ color: var(--brand2); text-decoration:none; font-weight:600; font-size:14px; }
+      a:not(.btn):not(.nav-title-btn):not(.subnav-link){ color: var(--brand2); text-decoration:none; font-weight:600; font-size:14px; }
       a:not(.btn):hover{ text-decoration:underline; }
       .event-actions a:not(.btn){ font-size:14px; }
 
