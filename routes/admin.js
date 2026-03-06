@@ -2408,15 +2408,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         border:0;
         background:transparent;
         width:100%;
-        height:35px;
+        height:39.5px;
         text-align:left;
         color:#f0f0f1;
-        font-size:12px;
-        font-weight:700;
-        letter-spacing:.08em;
-        text-transform:uppercase;
-        line-height:1.35;
-        padding:0 18px;
+        font-size:14px;
+        font-weight:400;
+        letter-spacing:0;
+        text-transform:none;
+        line-height:1.25;
+        padding:0 14px;
         cursor:pointer;
       }
       .nav-title-btn:hover{
