@@ -2496,7 +2496,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .subnav-link{
         text-decoration:none;
-        color:#a7aaad !important;
+        color:#7f8a97 !important;
         display:flex;
         align-items:center;
         padding:10px 14px;
