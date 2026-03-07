@@ -2756,6 +2756,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .header-icon-btn i{
         font-size:15px;
       }
+      .header-icon-btn .header-avatar{
+        width:100%;
+        height:100%;
+        border-radius:999px;
+        object-fit:cover;
+        display:block;
+      }
       .header-icon-btn .icon-badge{
         position:absolute;
         top:-4px;
@@ -3840,7 +3847,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ${(isAdminUser || isCityEditor) && pendingCount > 0 ? `<span class="icon-badge">${pendingCount > 99 ? "99+" : pendingCount}</span>` : ``}
               </a>
               <a class="header-icon-btn" href="/admin/preferences" title="Account" aria-label="Account">
-                <i class="fa-regular fa-user" aria-hidden="true"></i>
+                ${currentUser?.photoUrl
+                  ? `<img class="header-avatar" src="${esc(currentUser.photoUrl)}" alt="${esc(currentUser.displayName || currentUser.username || "User")}" />`
+                  : `<i class="fa-regular fa-user" aria-hidden="true"></i>`}
               </a>
             </div>
           </div>
