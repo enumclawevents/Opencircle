@@ -2791,21 +2791,45 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
       .search{
         display:flex; align-items:center; gap:10px;
-        background:var(--panel);
-        border:1px solid var(--line);
-        border-radius: var(--radius-inner);
-        padding: 8px 10px;
-        box-shadow: var(--shadow);
+        background:transparent;
+        border:0;
+        border-radius:0;
+        padding: 0;
         width:100%;
         max-width:700px;
+        position:relative;
+      }
+      .search::before{
+        content:"\f002";
+        font-family:"Font Awesome 6 Free";
+        font-weight:900;
+        position:absolute;
+        left:14px;
+        top:50%;
+        transform:translateY(-50%);
+        color:#6b7280;
+        font-size:16px;
+        pointer-events:none;
+        z-index:2;
       }
       .search input{
-        border:0; outline:none; background:transparent;
+        border:1px solid #e5e7eb;
+        outline:none;
+        background:#ffffff;
+        border-radius:10px;
         width:auto;
         min-width:0;
         flex:1 1 auto;
         font-size:14px; font-weight:500; color:var(--text);
         height: var(--ctrl-h);
+        padding:0 14px 0 42px;
+      }
+      .search input::placeholder{
+        color:#9ca3af;
+      }
+      .search .btn{
+        border-radius:10px;
+        height:var(--ctrl-h);
       }
 
       /* Cards + widgets */
