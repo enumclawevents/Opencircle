@@ -3289,6 +3289,33 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         width:100%;
       }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
+      .dashboard-card .sectionTitle h2{ margin:0; }
+      .dashboard-card .card-toggle{
+        width:100%;
+        border:0;
+        background:transparent;
+        padding:0;
+        margin:0;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        text-align:left;
+        cursor:pointer;
+      }
+      .dashboard-card .card-toggle .card-caret{
+        font-size:14px;
+        color: var(--muted);
+        transition: transform .16s ease;
+      }
+      .dashboard-card[data-collapsed="true"] .card-toggle .card-caret{
+        transform: rotate(-90deg);
+      }
+      .dashboard-card .card-body{
+        display:block;
+      }
+      .dashboard-card[data-collapsed="true"] .card-body{
+        display:none;
+      }
       .dashboard-insights{
         gap: var(--gap);
       }
@@ -3674,96 +3701,106 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         ${showDashboard ? `
         <section class="dashboard-shell" id="dashboard-overview">
           <div class="dashboard-col dashboard-col-fill">
-            <section class="card dashboard-card" id="dashboard-quick-links">
+            <section class="card dashboard-card" id="dashboard-quick-links" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
                   <h2>Quick links</h2>
-                  <p class="sub">Most common admin tasks</p>
-                </div>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
-              <div class="quick-links-grid">
-                <div class="quick-links-group">
-                  <div class="quick-links-group-title">Events</div>
-                  <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
-                  <a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
-                  <a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>
-                </div>
-                <div class="quick-links-group">
-                  <div class="quick-links-group-title">Venues</div>
-                  <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
-                  <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
-                  ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
-                </div>
-                <div class="quick-links-group">
-                  <div class="quick-links-group-title">Jobs</div>
-                  <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
-                  <a class="btn quick-link" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
-                  ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
+              <div class="card-body" id="dashboard-quick-links-body">
+                <div class="quick-links-grid">
+                  <div class="quick-links-group">
+                    <div class="quick-links-group-title">Events</div>
+                    <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
+                    <a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
+                    <a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>
+                  </div>
+                  <div class="quick-links-group">
+                    <div class="quick-links-group-title">Venues</div>
+                    <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
+                    <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
+                    ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+                  </div>
+                  <div class="quick-links-group">
+                    <div class="quick-links-group-title">Jobs</div>
+                    <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
+                    <a class="btn quick-link" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
+                    ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
+                  </div>
                 </div>
               </div>
             </section>
 
-            <div class="card dashboard-card">
+            <div class="card dashboard-card" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
                   <h2>Release notes</h2>
-                  <p class="sub">Latest platform updates</p>
-                </div>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
-              <div class="mini">
-                <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
-                <div class="release-meta">
-                  <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
-                  <div class="release-row"><div class="label">Latest updates</div><div class="value">${esc(stats.releaseSummary)}</div></div>
-                  <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.releaseUpdatedAt)}</div></div>
+              <div class="card-body" id="dashboard-release-notes-body">
+                <div class="mini">
+                  <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
+                  <div class="release-meta">
+                    <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
+                    <div class="release-row"><div class="label">Latest updates</div><div class="value">${esc(stats.releaseSummary)}</div></div>
+                    <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.releaseUpdatedAt)}</div></div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           <div class="dashboard-col dashboard-col-fill dashboard-insights">
-            <div class="card dashboard-card">
+            <div class="card dashboard-card" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-event-insights-body">
                   <h2>Event insights</h2>
-                  <p class="sub">Events snapshot</p>
-                </div>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
-              <div class="insight-list">
-                <div class="insight-row"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
-                <div class="insight-row"><div class="label">Upcoming</div><div class="value">${esc(stats.upcoming)}</div></div>
-                <div class="insight-row"><div class="label">Featured</div><div class="value">${esc(stats.featured)}</div></div>
-                <div class="insight-row"><div class="label">Views</div><div class="value">${esc(stats.views)}</div></div>
+              <div class="card-body" id="dashboard-event-insights-body">
+                <div class="insight-list">
+                  <div class="insight-row"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
+                  <div class="insight-row"><div class="label">Upcoming</div><div class="value">${esc(stats.upcoming)}</div></div>
+                  <div class="insight-row"><div class="label">Featured</div><div class="value">${esc(stats.featured)}</div></div>
+                  <div class="insight-row"><div class="label">Views</div><div class="value">${esc(stats.views)}</div></div>
+                </div>
               </div>
             </div>
 
-            <div class="card dashboard-card">
+            <div class="card dashboard-card" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-venue-insights-body">
                   <h2>Venue insights</h2>
-                  <p class="sub">Venues snapshot</p>
-                </div>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
-              <div class="insight-list">
-                <div class="insight-row"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
-                <div class="insight-row"><div class="label">Views</div><div class="value">${esc(venueStats.views)}</div></div>
-                <div class="insight-row"><div class="label">Total Link Clicks</div><div class="value">${esc(venueStats.totalClicks)}</div></div>
-                <div class="insight-row"><div class="label">With Website</div><div class="value">${esc(venueStats.withWebsite)} (${esc(venueStats.withWebsitePct)})</div></div>
+              <div class="card-body" id="dashboard-venue-insights-body">
+                <div class="insight-list">
+                  <div class="insight-row"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
+                  <div class="insight-row"><div class="label">Views</div><div class="value">${esc(venueStats.views)}</div></div>
+                  <div class="insight-row"><div class="label">Total Link Clicks</div><div class="value">${esc(venueStats.totalClicks)}</div></div>
+                  <div class="insight-row"><div class="label">With Website</div><div class="value">${esc(venueStats.withWebsite)} (${esc(venueStats.withWebsitePct)})</div></div>
+                </div>
               </div>
             </div>
 
-            <div class="card dashboard-card">
+            <div class="card dashboard-card" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-job-insights-body">
                   <h2>Job Insights</h2>
-                  <p class="sub">Jobs snapshot</p>
-                </div>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
-              <div class="insight-list">
-                <div class="insight-row"><div class="label">Jobs</div><div class="value">${esc(jobAnalyticsStats.total)}</div></div>
-                <div class="insight-row"><div class="label">Active</div><div class="value">${esc(jobAnalyticsStats.active)}</div></div>
-                <div class="insight-row"><div class="label">Applicants</div><div class="value">${esc(jobApplicantStats.total)}</div></div>
-                <div class="insight-row"><div class="label">Views</div><div class="value">${esc(jobAnalyticsStats.views)}</div></div>
+              <div class="card-body" id="dashboard-job-insights-body">
+                <div class="insight-list">
+                  <div class="insight-row"><div class="label">Jobs</div><div class="value">${esc(jobAnalyticsStats.total)}</div></div>
+                  <div class="insight-row"><div class="label">Active</div><div class="value">${esc(jobAnalyticsStats.active)}</div></div>
+                  <div class="insight-row"><div class="label">Applicants</div><div class="value">${esc(jobApplicantStats.total)}</div></div>
+                  <div class="insight-row"><div class="label">Views</div><div class="value">${esc(jobAnalyticsStats.views)}</div></div>
+                </div>
               </div>
             </div>
           </div>
@@ -5005,6 +5042,21 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             if (!t) return;
             group.classList.remove("is-open");
             t.setAttribute("aria-expanded", "false");
+          });
+        });
+      })();
+
+      // ---- dashboard card collapse ----
+      (function(){
+        var cards = document.querySelectorAll('[data-collapsible-card]');
+        if (!cards || !cards.length) return;
+        cards.forEach(function(card){
+          var btn = card.querySelector('[data-card-toggle]');
+          if (!btn) return;
+          btn.addEventListener('click', function(){
+            var collapsed = card.getAttribute('data-collapsed') === 'true';
+            card.setAttribute('data-collapsed', collapsed ? 'false' : 'true');
+            btn.setAttribute('aria-expanded', collapsed ? 'true' : 'false');
           });
         });
       })();
