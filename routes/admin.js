@@ -2182,22 +2182,22 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     <style>
       :root{
         /* Main (light, WordPress-like) */
-        --bg:#eef2f6;
+        --bg:#edf2f7;
         --panel:#ffffff;
-        --panel2:#f8fafc;
+        --panel2:#f6f9fc;
         --text:#0f172a;
-        --muted:#475569;
-        --line:rgba(15,23,42,.12);
+        --muted:#526377;
+        --line:rgba(15,23,42,.10);
         --brand:#00c08b;
         --brand2:#0ea5e9;
         --danger:#ef4444;
-        --shadow:none;
-        --radius:8px;
-        --radius-inner:6px;
-        --radius2:8px;
+        --shadow:0 8px 28px rgba(15,23,42,.06);
+        --radius:12px;
+        --radius-inner:10px;
+        --radius2:12px;
         --event-side-h: 140px;
         --ctrl-h: 44px;
-        --gap:22px;
+        --gap:20px;
 
         /* Sidebar (dark) */
         --sidebar-bg:#0b1220;
@@ -2213,6 +2213,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         background:var(--bg);
         color:var(--text);
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        line-height:1.45;
       }
 
       /* Layout */
@@ -2584,7 +2585,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
       .main{
         flex:1;
-        padding:22px;
+        padding:24px;
         min-width:0;
         position: relative;
         z-index: 1;
@@ -2593,10 +2594,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       /* Header */
       .header{
         display:flex; align-items:center; justify-content:space-between; gap:14px;
-        margin-bottom:var(--gap);
+        margin-bottom:18px;
       }
-      .h-left h1{ margin:0; font-size:22px; letter-spacing:.2px; font-weight:600; }
-      .h-left p{ margin:6px 0 0; color:var(--muted); font-size:13px; }
+      .h-left h1{ margin:0; font-size:30px; letter-spacing:-.02em; font-weight:700; line-height:1.1; }
+      .h-left p{ margin:10px 0 0; color:var(--muted); font-size:15px; line-height:1.45; max-width:68ch; }
       .h-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
       .h-right{ flex:1; justify-content:flex-end; }
 
@@ -2605,7 +2606,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         background:var(--panel);
         border:1px solid var(--line);
         border-radius: var(--radius-inner);
-        padding: 10px 12px;
+        padding: 8px 10px;
         box-shadow: var(--shadow);
         width:100%;
         max-width:700px;
@@ -2625,7 +2626,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         border:1px solid var(--line);
         border-radius: var(--radius);
         box-shadow: var(--shadow);
-        padding: 16px;
+        padding: 18px;
       }
 
       /* Chart card uses the original dark treatment so the canvas grid/ticks remain legible */
@@ -2652,7 +2653,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
       .metric{
         display:flex; align-items:flex-end; justify-content:space-between; gap:10px;
-        padding:14px;
+        padding:16px;
         border-radius: var(--radius);
         background: var(--panel);
         border:1px solid var(--line);
@@ -2727,8 +2728,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         .search input{ min-width: 160px; }
       }
 
-      h2{ margin:0 0 10px; font-size:16px; font-weight:600; }
-      .sub{ margin:0; color:var(--muted); font-size:13px; }
+      h2{ margin:0 0 10px; font-size:22px; font-weight:700; letter-spacing:-.01em; line-height:1.2; }
+      .sub{ margin:0; color:var(--muted); font-size:14px; line-height:1.5; }
 
       /* Controls */
       label{ display:block; margin: 14px 0 6px; font-weight:600; font-size:12px; color:var(--text); }
@@ -2744,7 +2745,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         padding: 10px 12px;
         border: 1px solid var(--line);
         border-radius: var(--radius-inner);
-        background: var(--panel2);
+        background: #ffffff;
         color: var(--text);
         font-size: 14px;
         outline: none;
@@ -2893,16 +2894,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         padding: 10px 14px;
         border-radius: var(--radius-inner);
         border: 1px solid var(--line);
-        background: var(--panel);
+        background: #ffffff;
         cursor:pointer;
-        font-weight:600;
+        font-weight:650;
         text-decoration:none;
         color: var(--text);
         font-size:14px;
         line-height:1;
         height: var(--ctrl-h);
+        transition: transform .12s ease, box-shadow .14s ease, border-color .14s ease, background-color .14s ease;
       }
-      .btn:hover{ transform: translateY(-1px); }
+      .btn:hover{ transform: translateY(-1px); box-shadow: 0 6px 18px rgba(15,23,42,.10); border-color: rgba(15,23,42,.18); }
       .btn-primary{
         background: var(--brand);
         border-color: var(--brand);
@@ -2934,7 +2936,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         border: 1px solid var(--line);
         background: var(--panel2);
         border-radius: var(--radius-inner);
-        padding: 12px;
+        padding: 14px;
       }
       .mini + .mini{ margin-top:var(--gap); }
       .kv{ display:flex; justify-content:space-between; align-items:center; margin: 10px 0; color:var(--muted); font-size:13px; }
@@ -3014,17 +3016,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .event-card{
         border: 1px solid var(--line);
         border-radius: var(--radius);
-        padding: 12px;
+        padding: 14px;
         background: var(--panel);
         display:flex;
         justify-content:space-between;
         gap:14px;
         align-items:center;
+        box-shadow: 0 6px 18px rgba(15,23,42,.04);
       }
       .event-left{ flex: 1; min-width: 0; display:flex; flex-direction:column; height: var(--event-side-h); justify-content:space-between; }
       .event-main{ min-width:0; }
-      .event-title{ font-weight:650; margin-bottom:6px; }
-      .event-meta{ color: var(--muted); font-size: 13px; display:grid; gap:2px; }
+      .event-title{ font-weight:700; margin-bottom:8px; font-size:17px; letter-spacing:-.01em; line-height:1.25; }
+      .event-meta{ color: var(--muted); font-size: 14px; display:grid; gap:4px; line-height:1.45; }
       .event-actions{ margin-top:6px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 
       
@@ -3195,7 +3198,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         align-items:flex-start;
         justify-content:flex-start;
         gap:10px;
-        margin-bottom:10px;
+        margin-bottom:14px;
       }
       .sectionTitle > div{ width:auto; }
       .sectionTitle .right{ width:auto; display:flex; gap:12px; justify-content:flex-start; flex-wrap:wrap; }
@@ -3339,7 +3342,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         justify-content:space-between;
         align-items:center;
         gap:12px;
-        padding: 4px 0 12px;
+        padding: 8px 0 12px;
         border-bottom:1px solid var(--line);
       }
       .dashboard-insights .insight-row{
