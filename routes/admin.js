@@ -3755,7 +3755,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             <div class="card dashboard-card">
               <div class="sectionTitle">
                 <div>
-                  <h2>Job analytics</h2>
+                  <h2>Job Insights</h2>
                   <p class="sub">Jobs snapshot</p>
                 </div>
               </div>
