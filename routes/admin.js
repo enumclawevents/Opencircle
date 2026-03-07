@@ -2600,6 +2600,51 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .h-left p{ margin:10px 0 0; color:var(--muted); font-size:15px; line-height:1.45; max-width:68ch; }
       .h-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
       .h-right{ flex:1; justify-content:flex-end; }
+      .header-tools{
+        display:flex;
+        align-items:center;
+        gap:10px;
+      }
+      .header-icon-btn{
+        position:relative;
+        width:40px;
+        height:40px;
+        border-radius:999px;
+        border:1px solid var(--line);
+        background:#fff;
+        color:var(--muted);
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        text-decoration:none;
+        box-shadow: var(--shadow);
+        transition: transform .12s ease, box-shadow .14s ease, color .14s ease, border-color .14s ease;
+      }
+      .header-icon-btn:hover{
+        transform: translateY(-1px);
+        color: var(--text);
+        border-color: rgba(15,23,42,.18);
+        box-shadow: 0 6px 18px rgba(15,23,42,.10);
+      }
+      .header-icon-btn i{
+        font-size:15px;
+      }
+      .header-icon-btn .icon-badge{
+        position:absolute;
+        top:-4px;
+        right:-4px;
+        min-width:18px;
+        height:18px;
+        padding:0 5px;
+        border-radius:999px;
+        background:#ef4444;
+        color:#fff;
+        font-size:11px;
+        font-weight:700;
+        line-height:18px;
+        text-align:center;
+        border:2px solid var(--panel);
+      }
 
       .search{
         display:flex; align-items:center; gap:10px;
@@ -3657,6 +3702,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                     : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`)))) : ``}
             </form>
             ` : ``}
+            <div class="header-tools">
+              <a class="header-icon-btn" href="${(isAdminUser || isCityEditor) ? `/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}` : `/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`}" title="Notifications" aria-label="Notifications">
+                <i class="fa-regular fa-bell" aria-hidden="true"></i>
+                ${(isAdminUser || isCityEditor) && pendingCount > 0 ? `<span class="icon-badge">${pendingCount > 99 ? "99+" : pendingCount}</span>` : ``}
+              </a>
+              <a class="header-icon-btn" href="${isAdminUser ? "/admin/users" : "/logout"}" title="Account" aria-label="Account">
+                <i class="fa-regular fa-user" aria-hidden="true"></i>
+              </a>
+            </div>
           </div>
         </div>
 
