@@ -766,13 +766,38 @@ async function ensureJobApplicantSchema() {
 let _userProfileSchemaEnsured = false;
 async function ensureUserProfileSchema() {
   if (_userProfileSchemaEnsured) return;
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE,
+      username TEXT UNIQUE,
+      passwordHash TEXT,
+      role TEXT DEFAULT 'creator',
+      city TEXT DEFAULT 'Enumclaw',
+      displayName TEXT,
+      phone TEXT,
+      photoUrl TEXT,
+      bio TEXT,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT
+    )
+  `);
+
   const rows = await all("PRAGMA table_info(users)");
   const cols = new Set((rows || []).map((r) => String(r.name)));
-  if (!cols.has("displayName")) await run(`ALTER TABLE users ADD COLUMN displayName TEXT`);
-  if (!cols.has("phone")) await run(`ALTER TABLE users ADD COLUMN phone TEXT`);
-  if (!cols.has("photoUrl")) await run(`ALTER TABLE users ADD COLUMN photoUrl TEXT`);
-  if (!cols.has("bio")) await run(`ALTER TABLE users ADD COLUMN bio TEXT`);
-  if (!cols.has("updatedAt")) await run(`ALTER TABLE users ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'))`);
+
+  const addCol = async (name, ddl) => {
+    if (cols.has(name)) return;
+    try { await run(ddl); } catch (_) {}
+  };
+
+  await addCol("displayName", "ALTER TABLE users ADD COLUMN displayName TEXT");
+  await addCol("phone", "ALTER TABLE users ADD COLUMN phone TEXT");
+  await addCol("photoUrl", "ALTER TABLE users ADD COLUMN photoUrl TEXT");
+  await addCol("bio", "ALTER TABLE users ADD COLUMN bio TEXT");
+  await addCol("updatedAt", "ALTER TABLE users ADD COLUMN updatedAt TEXT");
+
   _userProfileSchemaEnsured = true;
 }
 
@@ -6196,6 +6221,7 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
 
 router.post("/preferences/password", async (req, res) => {
   try {
+    await ensureUserProfileSchema();
     const role = req.user?.role || "creator";
     if (!(role === "admin" || role === "editor" || role === "creator")) {
       return res.status(403).send("Forbidden");
