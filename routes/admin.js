@@ -2318,7 +2318,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         --brand:#00c08b;
         --brand2:#0ea5e9;
         --danger:#ef4444;
-        --shadow:0 8px 28px rgba(15,23,42,.06);
+        --shadow:none;
         --radius:12px;
         --radius-inner:10px;
         --radius2:12px;
@@ -2490,7 +2490,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         padding:0;
         display:none;
         z-index: 30;
-        box-shadow: 0 16px 40px rgba(2,6,23,.45);
+        box-shadow: none;
       }
       .sb-city-dd.is-open .sb-city-menu{ display:block; }
       .sb-city-opt{
@@ -2744,14 +2744,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         align-items:center;
         justify-content:center;
         text-decoration:none;
-        box-shadow: var(--shadow);
-        transition: transform .12s ease, box-shadow .14s ease, color .14s ease, border-color .14s ease;
+        box-shadow: none;
+        transition: color .14s ease, border-color .14s ease, background-color .14s ease;
       }
       .header-icon-btn:hover{
-        transform: translateY(-1px);
         color: var(--text);
         border-color: rgba(15,23,42,.18);
-        box-shadow: 0 6px 18px rgba(15,23,42,.10);
+        background: #f8fafc;
+        box-shadow: none;
       }
       .header-icon-btn i{
         font-size:15px;
@@ -3081,9 +3081,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         font-size:14px;
         line-height:1;
         height: var(--ctrl-h);
-        transition: transform .12s ease, box-shadow .14s ease, border-color .14s ease, background-color .14s ease;
+        transition: border-color .14s ease, background-color .14s ease, color .14s ease;
       }
-      .btn:hover{ transform: translateY(-1px); box-shadow: 0 6px 18px rgba(15,23,42,.10); border-color: rgba(15,23,42,.18); }
+      .btn:hover{ border-color: rgba(15,23,42,.18); background: #f8fafc; box-shadow:none; }
       .btn-primary{
         background: var(--brand);
         border-color: var(--brand);
@@ -3201,7 +3201,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         justify-content:space-between;
         gap:14px;
         align-items:center;
-        box-shadow: 0 6px 18px rgba(15,23,42,.04);
+        box-shadow: none;
       }
       .event-left{ flex: 1; min-width: 0; display:flex; flex-direction:column; height: var(--event-side-h); justify-content:space-between; }
       .event-main{ min-width:0; }
@@ -4094,7 +4094,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             </div>
             <div class="chart-wrap" id="eventsChartWrap">
               <canvas id="eventsChart" style="width:100%; height:260px; display:block;"></canvas>
-                <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:0 8px 20px rgba(15,23,42,.12);"></div>
+                <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
           </div>
 
