@@ -11,9 +11,31 @@ const { S3Client } = require("@aws-sdk/client-s3");
 const multerS3 = require("multer-s3");
 const { sendEmail } = require("../mailer");
 const crypto = require("crypto");
+const PASSWORD_ITER = 120000;
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto
+    .pbkdf2Sync(String(password || ""), salt, PASSWORD_ITER, 32, "sha256")
+    .toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  const [salt, hash] = String(stored || "").split(":");
+  if (!salt || !hash) return false;
+  const test = crypto
+    .pbkdf2Sync(String(password || ""), salt, PASSWORD_ITER, 32, "sha256")
+    .toString("hex");
+  try {
+    return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(test, "hex"));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -741,6 +763,19 @@ async function ensureJobApplicantSchema() {
   _jobApplicantSchemaEnsured = true;
 }
 
+let _userProfileSchemaEnsured = false;
+async function ensureUserProfileSchema() {
+  if (_userProfileSchemaEnsured) return;
+  const rows = await all("PRAGMA table_info(users)");
+  const cols = new Set((rows || []).map((r) => String(r.name)));
+  if (!cols.has("displayName")) await run(`ALTER TABLE users ADD COLUMN displayName TEXT`);
+  if (!cols.has("phone")) await run(`ALTER TABLE users ADD COLUMN phone TEXT`);
+  if (!cols.has("photoUrl")) await run(`ALTER TABLE users ADD COLUMN photoUrl TEXT`);
+  if (!cols.has("bio")) await run(`ALTER TABLE users ADD COLUMN bio TEXT`);
+  if (!cols.has("updatedAt")) await run(`ALTER TABLE users ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'))`);
+  _userProfileSchemaEnsured = true;
+}
+
 // GET /admin
 async function renderAdmin(req, res, view) {
   try {
@@ -748,6 +783,7 @@ async function renderAdmin(req, res, view) {
     await ensureVenueSchema();
     await ensureJobSchema();
     await ensureJobApplicantSchema();
+    await ensureUserProfileSchema();
     // ✅ Pagination + total count + optional server-side search
 const limit = Math.max(5, Math.min(200, parseInt(req.query.limit || "20", 10)));
 const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
@@ -1680,6 +1716,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const showJobsExisting = view === "jobs-existing";
     const showJobsApplicants = view === "jobs-applicants";
     const showJobsAnalytics = view === "jobs-analytics";
+    const showPreferences = view === "preferences";
     const showUsers = view === "users";
     const showInvites = view === "invites";
 
@@ -1695,7 +1732,29 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     if (showJobsApplicants && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showJobsAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     const showSearch = showAnalytics || showExisting || showVenueExisting || showJobsExisting || showJobsApplicants;
-    const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics);
+    const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showPreferences);
+
+    const currentUserKey = String(req.user?.user || "").trim();
+    const currentUser = await get(
+      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      [currentUserKey, currentUserKey]
+    );
+    const prefNotice = String(req.query.notice || "").trim().toLowerCase();
+    const prefNoticeHtml = prefNotice
+      ? (prefNotice === "profile_saved"
+          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Profile updated.</div>`
+          : prefNotice === "password_saved"
+          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Password updated.</div>`
+          : prefNotice === "password_mismatch"
+          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">New passwords do not match.</div>`
+          : prefNotice === "password_short"
+          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">New password must be at least 8 characters.</div>`
+          : prefNotice === "password_invalid"
+          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">Current password is incorrect.</div>`
+          : prefNotice === "user_not_found"
+          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">User record not found.</div>`
+          : "")
+      : "";
 
     let pendingRows = [];
     if (showApprove) {
@@ -2160,6 +2219,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       ? "Job Applicants"
       : showJobsAnalytics
       ? "Job Analytics"
+      : showPreferences
+      ? "Preferences"
       : showUsers
       ? "Users"
       : showInvites
@@ -2168,7 +2229,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const eventsMenuOpen = showExisting || showCreate || showApprove || showAnalytics;
     const venuesMenuOpen = showVenueExisting || showVenueCreate || showVenueAnalytics;
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants || showJobsAnalytics;
-    const adminMenuOpen = showUsers || showInvites;
+    const adminMenuOpen = showUsers || showInvites || showPreferences;
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
     res.send(`<!doctype html>
@@ -3610,6 +3671,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           <div class="nav-group nav-collapsible ${adminMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin/users${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
+              <a class="subnav-link ${showPreferences ? "active" : ""}" href="/admin/preferences">Preferences</a>
               <a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>
               <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
             </div>
@@ -3651,6 +3713,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Job Applicants"
                 : showJobsAnalytics
                 ? "Job Analytics"
+                : showPreferences
+                ? "Preferences"
                 : showInvites
                 ? "Invites"
                 : "Dashboard"
@@ -3678,6 +3742,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Review candidates submitted for local jobs"
                 : showJobsAnalytics
                 ? "Performance and funnel metrics for jobs"
+                : showPreferences
+                ? "Manage your account details, profile photo, and password"
                 : "Combined events/venues overview with quick actions"
             }</p>
           </div>
@@ -3707,7 +3773,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 <i class="fa-regular fa-bell" aria-hidden="true"></i>
                 ${(isAdminUser || isCityEditor) && pendingCount > 0 ? `<span class="icon-badge">${pendingCount > 99 ? "99+" : pendingCount}</span>` : ``}
               </a>
-              <a class="header-icon-btn" href="${isAdminUser ? "/admin/users" : "/logout"}" title="Account" aria-label="Account">
+              <a class="header-icon-btn" href="/admin/preferences" title="Account" aria-label="Account">
                 <i class="fa-regular fa-user" aria-hidden="true"></i>
               </a>
             </div>
@@ -4080,6 +4146,81 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           ` : ``}
           <div style="height:12px;"></div>
           ${invitesHtml}
+        </section>
+        ` : ``}
+
+        ${showPreferences ? `
+        <section class="gridMain single" id="preferences">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Account preferences</h2>
+              </div>
+            </div>
+            ${prefNoticeHtml}
+            ${currentUser ? `
+            <div class="grid2" style="grid-template-columns: 2fr 1fr; margin-bottom:0;">
+              <div class="card">
+                <div class="sectionTitle"><div><h2>Profile</h2></div></div>
+                <form method="POST" action="/admin/preferences" enctype="multipart/form-data">
+                  <label>Display name</label>
+                  <input class="ctrl" name="displayName" value="${esc(currentUser.displayName || "")}" placeholder="Your name" />
+
+                  <label>Email</label>
+                  <input class="ctrl" value="${esc(currentUser.email || "")}" disabled />
+
+                  <label>Username</label>
+                  <input class="ctrl" value="${esc(currentUser.username || "")}" disabled />
+
+                  <label>Phone</label>
+                  <input class="ctrl" name="phone" value="${esc(currentUser.phone || "")}" placeholder="(555) 555-5555" />
+
+                  <label>Photo URL (optional)</label>
+                  <input class="ctrl" name="photoUrl" value="${esc(currentUser.photoUrl || "")}" placeholder="https://..." />
+
+                  <label>Upload photo</label>
+                  <input type="file" name="profilePhoto" accept="image/*" />
+                  <div class="note">If uploaded, this replaces the Photo URL.</div>
+
+                  <label>Bio</label>
+                  <textarea class="ctrl" name="bio" rows="4" placeholder="Short profile bio">${esc(currentUser.bio || "")}</textarea>
+
+                  <div class="actions">
+                    <button class="btn btn-primary" type="submit">Save profile</button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="card">
+                <div class="sectionTitle"><div><h2>Photo</h2></div></div>
+                <div class="mini" style="display:flex; align-items:center; justify-content:center; min-height:220px;">
+                  ${currentUser.photoUrl
+                    ? `<img src="${esc(currentUser.photoUrl)}" alt="Profile photo" style="width:160px; height:160px; border-radius:999px; object-fit:cover; border:1px solid var(--line);" />`
+                    : `<div style="width:160px; height:160px; border-radius:999px; border:1px dashed var(--line); display:flex; align-items:center; justify-content:center; color:var(--muted);">No photo</div>`}
+                </div>
+                <div class="note" style="margin-top:10px;">Role: <strong style="color:var(--text);">${esc(currentUser.role || "creator")}</strong> · City: <strong style="color:var(--text);">${esc(currentUser.city || selectedCity)}</strong></div>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:var(--gap);">
+              <div class="sectionTitle"><div><h2>Change password</h2></div></div>
+              <form method="POST" action="/admin/preferences/password">
+                <label>Current password</label>
+                <input class="ctrl" type="password" name="currentPassword" required />
+
+                <label>New password</label>
+                <input class="ctrl" type="password" name="newPassword" required minlength="8" />
+
+                <label>Confirm new password</label>
+                <input class="ctrl" type="password" name="confirmPassword" required minlength="8" />
+
+                <div class="actions">
+                  <button class="btn btn-primary" type="submit">Update password</button>
+                </div>
+              </form>
+            </div>
+            ` : `<div class="mini">User record not found for this session.</div>`}
+          </div>
         </section>
         ` : ``}
 
@@ -5974,6 +6115,7 @@ router.get("/jobs", async (req, res) => renderAdmin(req, res, "jobs-existing"));
 router.get("/jobs/create", async (req, res) => renderAdmin(req, res, "jobs-create"));
 router.get("/jobs/applicants", async (req, res) => renderAdmin(req, res, "jobs-applicants"));
 router.get("/jobs/analytics", async (req, res) => renderAdmin(req, res, "jobs-analytics"));
+router.get("/preferences", async (req, res) => renderAdmin(req, res, "preferences"));
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 router.get("/pending-count", async (req, res) => {
@@ -6007,6 +6149,78 @@ router.post("/invites", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to create invite.");
+  }
+});
+
+router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor" || role === "creator")) {
+      return res.status(403).send("Forbidden");
+    }
+    await ensureUserProfileSchema();
+    const key = String(req.user?.user || "").trim();
+    const u = await get(
+      "SELECT id FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      [key, key]
+    );
+    if (!u?.id) return res.redirect("/admin/preferences?notice=user_not_found");
+
+    const displayName = String(req.body?.displayName || "").trim().slice(0, 120);
+    const phone = String(req.body?.phone || "").trim().slice(0, 40);
+    const bio = String(req.body?.bio || "").trim().slice(0, 3000);
+    let photoUrl = normalizeHttpUrl(req.body?.photoUrl || "");
+
+    if (req.file) {
+      if (useR2) {
+        const base = (R2_PUBLIC_URL || "").replace(/\/+$/, "");
+        const keyName = req.file.key || req.file.filename || "";
+        if (base && keyName) photoUrl = `${base}/${keyName}`;
+      } else if (req.file.filename) {
+        const proto = req.get("x-forwarded-proto") || req.protocol;
+        const host = req.get("host");
+        photoUrl = `${proto}://${host}/uploads/${req.file.filename}`;
+      }
+    }
+
+    await run(
+      "UPDATE users SET displayName = ?, phone = ?, bio = ?, photoUrl = ?, updatedAt = datetime('now') WHERE id = ?",
+      [displayName || null, phone || null, bio || null, photoUrl || null, u.id]
+    );
+    return res.redirect("/admin/preferences?notice=profile_saved");
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to update preferences.");
+  }
+});
+
+router.post("/preferences/password", async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor" || role === "creator")) {
+      return res.status(403).send("Forbidden");
+    }
+    const key = String(req.user?.user || "").trim();
+    const u = await get(
+      "SELECT id, passwordHash FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      [key, key]
+    );
+    if (!u?.id) return res.redirect("/admin/preferences?notice=user_not_found");
+
+    const currentPassword = String(req.body?.currentPassword || "");
+    const newPassword = String(req.body?.newPassword || "");
+    const confirmPassword = String(req.body?.confirmPassword || "");
+
+    if (newPassword.length < 8) return res.redirect("/admin/preferences?notice=password_short");
+    if (newPassword !== confirmPassword) return res.redirect("/admin/preferences?notice=password_mismatch");
+    if (!verifyPassword(currentPassword, u.passwordHash || "")) return res.redirect("/admin/preferences?notice=password_invalid");
+
+    const nextHash = hashPassword(newPassword);
+    await run("UPDATE users SET passwordHash = ?, updatedAt = datetime('now') WHERE id = ?", [nextHash, u.id]);
+    return res.redirect("/admin/preferences?notice=password_saved");
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to update password.");
   }
 });
 
