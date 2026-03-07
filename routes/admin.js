@@ -2756,6 +2756,39 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .header-icon-btn i{
         font-size:15px;
       }
+      .header-account-btn{
+        width:auto;
+        min-width:0;
+        max-width:280px;
+        padding:0 10px 0 12px;
+        border-radius:999px;
+        gap:8px;
+      }
+      .header-account-btn .header-account-name{
+        font-size:13px;
+        font-weight:600;
+        color:var(--text);
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        max-width:190px;
+      }
+      .header-account-btn .header-avatar-wrap{
+        width:26px;
+        height:26px;
+        border-radius:999px;
+        border:1px solid var(--line);
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        overflow:hidden;
+        background:#fff;
+        flex:0 0 26px;
+      }
+      .header-account-btn .header-avatar-wrap i{
+        font-size:13px;
+        color:var(--muted);
+      }
       .header-icon-btn .header-avatar{
         width:100%;
         height:100%;
@@ -3842,14 +3875,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
             </form>
             ` : ``}
             <div class="header-tools">
+              <a class="header-icon-btn header-account-btn" href="/admin/preferences" title="Account" aria-label="Account">
+                <span class="header-account-name">${esc(currentUser?.displayName || currentUser?.username || currentUser?.email || req.user?.user || "Account")}</span>
+                <span class="header-avatar-wrap" aria-hidden="true">
+                  ${currentUser?.photoUrl
+                    ? `<img class="header-avatar" src="${esc(currentUser.photoUrl)}" alt="${esc(currentUser.displayName || currentUser.username || "User")}" />`
+                    : `<i class="fa-regular fa-user" aria-hidden="true"></i>`}
+                </span>
+              </a>
               <a class="header-icon-btn" href="${(isAdminUser || isCityEditor) ? `/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}` : `/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`}" title="Notifications" aria-label="Notifications">
                 <i class="fa-regular fa-bell" aria-hidden="true"></i>
                 ${(isAdminUser || isCityEditor) && pendingCount > 0 ? `<span class="icon-badge">${pendingCount > 99 ? "99+" : pendingCount}</span>` : ``}
-              </a>
-              <a class="header-icon-btn" href="/admin/preferences" title="Account" aria-label="Account">
-                ${currentUser?.photoUrl
-                  ? `<img class="header-avatar" src="${esc(currentUser.photoUrl)}" alt="${esc(currentUser.displayName || currentUser.username || "User")}" />`
-                  : `<i class="fa-regular fa-user" aria-hidden="true"></i>`}
               </a>
             </div>
           </div>
