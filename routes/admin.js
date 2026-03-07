@@ -801,6 +801,51 @@ async function ensureUserProfileSchema() {
   _userProfileSchemaEnsured = true;
 }
 
+async function resolveSessionUser(req) {
+  await ensureUserProfileSchema();
+  const rawKey = String(req.user?.user || "").trim();
+  const role = String(req.user?.role || "creator").trim().toLowerCase();
+  const city = String(req.user?.city || "Enumclaw").trim() || "Enumclaw";
+  const lowerKey = rawKey.toLowerCase();
+
+  const candidates = Array.from(
+    new Set(
+      [rawKey, req.user?.email, req.user?.username]
+        .map((v) => String(v || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  for (const key of candidates) {
+    const row = await get(
+      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      [key, key]
+    );
+    if (row?.id) return row;
+  }
+
+  if (role === "admin") {
+    let adminRow = await get(
+      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, createdAt FROM users WHERE lower(COALESCE(role,'')) = 'admin' ORDER BY id ASC LIMIT 1"
+    );
+    if (adminRow?.id) return adminRow;
+
+    const username = rawKey && !rawKey.includes("@") ? rawKey : "admin";
+    const email = rawKey.includes("@") ? lowerKey : null;
+    await run(
+      "INSERT INTO users (email, username, passwordHash, role, city, createdAt, updatedAt) VALUES (?, ?, ?, 'admin', ?, datetime('now'), datetime('now'))",
+      [email, username, "", city]
+    );
+    adminRow = await get(
+      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      [username, email || username]
+    );
+    if (adminRow?.id) return adminRow;
+  }
+
+  return null;
+}
+
 // GET /admin
 async function renderAdmin(req, res, view) {
   try {
@@ -1759,11 +1804,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const showSearch = showAnalytics || showExisting || showVenueExisting || showJobsExisting || showJobsApplicants;
     const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showPreferences);
 
-    const currentUserKey = String(req.user?.user || "").trim();
-    const currentUser = await get(
-      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
-      [currentUserKey, currentUserKey]
-    );
+    const currentUser = await resolveSessionUser(req);
     const prefNotice = String(req.query.notice || "").trim().toLowerCase();
     const prefNoticeHtml = prefNotice
       ? (prefNotice === "profile_saved"
@@ -6183,12 +6224,7 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
     if (!(role === "admin" || role === "editor" || role === "creator")) {
       return res.status(403).send("Forbidden");
     }
-    await ensureUserProfileSchema();
-    const key = String(req.user?.user || "").trim();
-    const u = await get(
-      "SELECT id FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
-      [key, key]
-    );
+    const u = await resolveSessionUser(req);
     if (!u?.id) return res.redirect("/admin/preferences?notice=user_not_found");
 
     const displayName = String(req.body?.displayName || "").trim().slice(0, 120);
@@ -6221,16 +6257,14 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
 
 router.post("/preferences/password", async (req, res) => {
   try {
-    await ensureUserProfileSchema();
     const role = req.user?.role || "creator";
     if (!(role === "admin" || role === "editor" || role === "creator")) {
       return res.status(403).send("Forbidden");
     }
-    const key = String(req.user?.user || "").trim();
-    const u = await get(
-      "SELECT id, passwordHash FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
-      [key, key]
-    );
+    const sessionUser = await resolveSessionUser(req);
+    const u = sessionUser?.id
+      ? await get("SELECT id, passwordHash FROM users WHERE id = ? LIMIT 1", [sessionUser.id])
+      : null;
     if (!u?.id) return res.redirect("/admin/preferences?notice=user_not_found");
 
     const currentPassword = String(req.body?.currentPassword || "");
