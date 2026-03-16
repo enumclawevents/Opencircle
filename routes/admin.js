@@ -3353,20 +3353,99 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .pager-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; }
 
       /* Existing events: keep Clear inline with search (wrap only on small screens) */
+	      .eventsFilters{
+	        border: 1px solid var(--line);
+	        background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%);
+	        border-radius: var(--radius);
+	        padding: 14px;
+	        margin: 10px 0 14px;
+	        display: grid;
+	        gap: 12px;
+	      }
+	      .eventsFilterTabs{
+	        display:flex;
+	        gap:10px;
+	        flex-wrap:wrap;
+	        align-items:center;
+	      }
+	      .eventsFilterTabs .btn{
+	        min-width:0;
+	        padding: 9px 14px;
+	        height: 40px;
+	      }
+	      .eventsFilterTabs .btn-wide{
+	        min-width: 160px;
+	        justify-content:center;
+	      }
 	      .listSearchRow{
 	        display:grid;
-	        grid-template-columns: minmax(220px, 1fr) 180px 180px auto auto;
+	        grid-template-columns: minmax(240px, 1.3fr) minmax(180px, .7fr) auto auto auto;
 	        gap:12px;
-	        align-items:center;
-	        margin: 10px 0 14px;
+	        align-items:end;
 	      }
-	      .listSearchRow #eventSearch{ flex: 1 1 auto; min-width: 280px; }
-	      .listSearchRow .dateCtrl{ min-width: 0; }
-	      .listSearchRow .btn{ min-width:140px; }
-	      @media (max-width: 900px){
-	        .listSearchRow{ grid-template-columns: 1fr 1fr; }
-	        .listSearchRow #eventSearch{ flex: 1 1 100%; min-width: 0; }
-	        .listSearchRow .btn{ min-width: 0; }
+	      .filterField{
+	        min-width:0;
+	        display:grid;
+	        gap:6px;
+	      }
+	      .filterField label{
+	        margin:0;
+	        font-size:12px;
+	        font-weight:650;
+	        color: var(--muted);
+	      }
+	      .dateRange{
+	        display:grid;
+	        grid-template-columns: 1fr auto 1fr;
+	        gap:8px;
+	        align-items:center;
+	      }
+	      .dateRange .dateCtrl{
+	        min-width: 0;
+	      }
+	      .dateRangeSep{
+	        font-size:12px;
+	        color: var(--muted);
+	        font-weight:650;
+	      }
+	      .filterActions{
+	        display:flex;
+	        gap:10px;
+	        align-items:end;
+	        justify-content:flex-end;
+	      }
+	      .filterActions .btn{
+	        min-width: 112px;
+	      }
+	      @media (max-width: 1100px){
+	        .listSearchRow{
+	          grid-template-columns: 1fr 1fr;
+	          align-items:stretch;
+	        }
+	        .filterActions{
+	          justify-content:flex-start;
+	        }
+	      }
+	      @media (max-width: 700px){
+	        .eventsFilters{
+	          padding: 12px;
+	        }
+	        .listSearchRow{
+	          grid-template-columns: 1fr;
+	        }
+	        .dateRange{
+	          grid-template-columns: 1fr;
+	        }
+	        .dateRangeSep{
+	          display:none;
+	        }
+	        .filterActions{
+	          flex-wrap:wrap;
+	        }
+	        .filterActions .btn{
+	          flex:1 1 0;
+	          min-width: 0;
+	        }
 	      }
 
       /* Category selection */
@@ -4635,37 +4714,51 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           ` : ``}
 
           ${showExisting ? `
-          <div class="card" id="existing">
-            <div class="sectionTitle">
-              <div>
-                <h2>All events</h2>
-                <p class="sub">Edit, delete, and check stats</p>
-              </div>
-              <div class="right">
-                <div class="rightRow">
-	                  <a class="btn ${statusMode === "upcoming" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=upcoming${recurringOnly ? `&recurring=1` : ``}">Upcoming</a>
-	                  <a class="btn ${statusMode === "past" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=past${recurringOnly ? `&recurring=1` : ``}">Past</a>
-	                  <a class="btn ${statusMode === "archived" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=archived${recurringOnly ? `&recurring=1` : ``}">Archived</a>
-	                  <a class="btn ${recurringOnly ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=${encodeURIComponent(statusMode)}${recurringOnly ? `` : `&recurring=1`}">${recurringOnly ? "Recurring: On" : "Recurring Only"}</a>
-
-                  <select id="sortBy" class="ctrl sortBy">
-                    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
-                    <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Sort: Alphabetical (A–Z)</option>
-                    <option value="recent" ${sort === "recent" ? "selected" : ""}>Sort: Recently added</option>
-                    <option value="id" ${sort === "id" ? "selected" : ""}>Sort: ID (newest)</option>
-                  </select></div>
-              </div>
-            </div>
-
-	            <div class="listSearchRow">
-	              <input id="eventSearch" class="ctrl" type="text" placeholder="Filter all events..." value="${esc(q)}" />
-	              <input id="eventDateFrom" class="ctrl dateCtrl" type="date" value="${esc(fromDate)}" />
-	              <input id="eventDateTo" class="ctrl dateCtrl" type="date" value="${esc(toDate)}" />
-	              <button id="eventSearchApply" type="button" class="btn btn-primary">Apply</button>
-	              <button id="eventSearchClear" type="button" class="btn">Clear</button>
+	          <div class="card" id="existing">
+	            <div class="sectionTitle">
+	              <div>
+	                <h2>All events</h2>
+	                <p class="sub">Edit, delete, and check stats</p>
+	              </div>
 	            </div>
 
-            ${pagerHtml}
+	            <div class="eventsFilters">
+	              <div class="eventsFilterTabs">
+	                <a class="btn ${statusMode === "upcoming" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=upcoming${recurringOnly ? `&recurring=1` : ``}">Upcoming</a>
+	                <a class="btn ${statusMode === "past" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=past${recurringOnly ? `&recurring=1` : ``}">Past</a>
+	                <a class="btn ${statusMode === "archived" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=archived${recurringOnly ? `&recurring=1` : ``}">Archived</a>
+	                <a class="btn btn-wide ${recurringOnly ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=${encodeURIComponent(statusMode)}${recurringOnly ? `` : `&recurring=1`}">${recurringOnly ? "Recurring On" : "Recurring Only"}</a>
+	              </div>
+	              <div class="listSearchRow">
+	                <div class="filterField">
+	                  <label for="eventSearch">Search</label>
+	                  <input id="eventSearch" class="ctrl" type="text" placeholder="Search title, slug, location, or ID" value="${esc(q)}" />
+	                </div>
+	                <div class="filterField">
+	                  <label for="sortBy">Sort by</label>
+	                  <select id="sortBy" class="ctrl sortBy">
+	                    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Event date/time</option>
+	                    <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Alphabetical (A-Z)</option>
+	                    <option value="recent" ${sort === "recent" ? "selected" : ""}>Recently added</option>
+	                    <option value="id" ${sort === "id" ? "selected" : ""}>Newest ID first</option>
+	                  </select>
+	                </div>
+	                <div class="filterField">
+	                  <label for="eventDateFrom">Date range</label>
+	                  <div class="dateRange">
+	                    <input id="eventDateFrom" class="ctrl dateCtrl" type="date" value="${esc(fromDate)}" />
+	                    <span class="dateRangeSep">to</span>
+	                    <input id="eventDateTo" class="ctrl dateCtrl" type="date" value="${esc(toDate)}" />
+	                  </div>
+	                </div>
+	                <div class="filterActions">
+	                  <button id="eventSearchApply" type="button" class="btn btn-primary">Apply</button>
+	                  <button id="eventSearchClear" type="button" class="btn">Reset</button>
+	                </div>
+	              </div>
+	            </div>
+
+	            ${pagerHtml}
 
             <div id="eventsList" style="display:grid; gap:var(--gap);">${listHtml}</div>
             <div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
