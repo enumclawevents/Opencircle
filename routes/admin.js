@@ -861,6 +861,12 @@ const offset = (pg - 1) * limit;
 
 const q = String(req.query.q || "").trim();
 const sort = String(req.query.sort || "datetime"); // datetime | alpha | recent | id
+const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || "").trim())
+  ? String(req.query.from).trim()
+  : "";
+const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "").trim())
+  ? String(req.query.to).trim()
+  : "";
 
 // Lifecycle filter for admin list:
 // status=upcoming|past|archived, recurring=1 (optional)
@@ -897,6 +903,19 @@ let whereParams = [];
       whereParts.push(`city = ?`);
       whereParams.push(selectedCity);
     }
+
+if (fromDate && toDate) {
+  const rangeStart = fromDate <= toDate ? fromDate : toDate;
+  const rangeEnd = fromDate <= toDate ? toDate : fromDate;
+  whereParts.push(`date(startDateTime) >= date(?) AND date(startDateTime) <= date(?)`);
+  whereParams.push(rangeStart, rangeEnd);
+} else if (fromDate) {
+  whereParts.push(`date(startDateTime) = date(?)`);
+  whereParams.push(fromDate);
+} else if (toDate) {
+  whereParts.push(`date(startDateTime) = date(?)`);
+  whereParams.push(toDate);
+}
 
 // Archive constraints (only if DB has the columns)
 const colsForWhere = await getEventsColumns();
@@ -976,6 +995,8 @@ const baseListPath = "/admin/existing-events";
       if (q) sp.set("q", q);
       if (statusMode) sp.set("status", statusMode);
       if (recurringOnly) sp.set("recurring", "1");
+      if (fromDate) sp.set("from", fromDate);
+      if (toDate) sp.set("to", toDate);
       if (selectedCity) sp.set("city", selectedCity);
       return `${baseListPath}?${sp.toString()}`;
     }
@@ -1244,31 +1265,31 @@ return `
 
       <div class="event-actions">
         ${isAdminUser || isCityEditor ? `
-          <a class="btn btn-edit" href="/admin/create-events?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit</a>
+	          <a class="btn btn-edit" href="/admin/create-events?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit</a>
 
-          <form method="POST"
-                action="/admin/events/${e.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
-                class="inline"
-                onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
-            <button type="submit" class="btn btn-danger">Delete</button>
+	          <form method="POST"
+	                action="/admin/events/${e.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
+	                class="inline"
+	                onsubmit="return confirm('Delete this event permanently? This cannot be undone.');">
+	            <button type="submit" class="btn btn-danger">Delete</button>
           </form>
 
           ${
             Number(e.isArchived || 0) === 1
-              ? `
-                <form method="POST"
-                      action="/admin/events/${e.id}/unarchive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
-                      class="inline"
-                      onsubmit="return confirm('Unarchive this event?');">
-                  <button type="submit" class="btn">Unarchive</button>
+	              ? `
+	                <form method="POST"
+	                      action="/admin/events/${e.id}/unarchive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
+	                      class="inline"
+	                      onsubmit="return confirm('Unarchive this event?');">
+	                  <button type="submit" class="btn">Unarchive</button>
                 </form>
               `
-              : `
-                <form method="POST"
-                      action="/admin/events/${e.id}/archive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
-                      class="inline"
-                      onsubmit="return confirm('Archive this event? (It will be hidden from the public list)');">
-                  <button type="submit" class="btn">Archive</button>
+	              : `
+	                <form method="POST"
+	                      action="/admin/events/${e.id}/archive?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}"
+	                      class="inline"
+	                      onsubmit="return confirm('Archive this event? (It will be hidden from the public list)');">
+	                  <button type="submit" class="btn">Archive</button>
                 </form>
               `
           }
@@ -3332,19 +3353,21 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       .pager-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; }
 
       /* Existing events: keep Clear inline with search (wrap only on small screens) */
-      .listSearchRow{
-        display:grid;
-        grid-template-columns: 1fr auto auto;
-        gap:12px;
-        align-items:center;
-        margin: 10px 0 14px;
-      }
-      .listSearchRow #eventSearch{ flex: 1 1 auto; min-width: 280px; }
-      .listSearchRow .btn{ min-width:140px; }
-      @media (max-width: 900px){
-        .listSearchRow{ flex-wrap: wrap; }
-        .listSearchRow #eventSearch{ flex: 1 1 100%; min-width: 0; }
-      }
+	      .listSearchRow{
+	        display:grid;
+	        grid-template-columns: minmax(220px, 1fr) 180px 180px auto auto;
+	        gap:12px;
+	        align-items:center;
+	        margin: 10px 0 14px;
+	      }
+	      .listSearchRow #eventSearch{ flex: 1 1 auto; min-width: 280px; }
+	      .listSearchRow .dateCtrl{ min-width: 0; }
+	      .listSearchRow .btn{ min-width:140px; }
+	      @media (max-width: 900px){
+	        .listSearchRow{ grid-template-columns: 1fr 1fr; }
+	        .listSearchRow #eventSearch{ flex: 1 1 100%; min-width: 0; }
+	        .listSearchRow .btn{ min-width: 0; }
+	      }
 
       /* Category selection */
       .cat-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
@@ -4604,7 +4627,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
               <div class="actions">
                 <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
-                ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}">Cancel</a>` : ""}
+	                ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
                 <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
               </div>
             </form>
@@ -4620,10 +4643,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               </div>
               <div class="right">
                 <div class="rightRow">
-                  <a class="btn ${statusMode === "upcoming" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&status=upcoming${recurringOnly ? `&recurring=1` : ``}">Upcoming</a>
-                  <a class="btn ${statusMode === "past" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&status=past${recurringOnly ? `&recurring=1` : ``}">Past</a>
-                  <a class="btn ${statusMode === "archived" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&status=archived${recurringOnly ? `&recurring=1` : ``}">Archived</a>
-                  <a class="btn ${recurringOnly ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}&sort=${encodeURIComponent(sort)}&status=${encodeURIComponent(statusMode)}${recurringOnly ? `` : `&recurring=1`}">${recurringOnly ? "Recurring: On" : "Recurring Only"}</a>
+	                  <a class="btn ${statusMode === "upcoming" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=upcoming${recurringOnly ? `&recurring=1` : ``}">Upcoming</a>
+	                  <a class="btn ${statusMode === "past" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=past${recurringOnly ? `&recurring=1` : ``}">Past</a>
+	                  <a class="btn ${statusMode === "archived" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=archived${recurringOnly ? `&recurring=1` : ``}">Archived</a>
+	                  <a class="btn ${recurringOnly ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=${encodeURIComponent(statusMode)}${recurringOnly ? `` : `&recurring=1`}">${recurringOnly ? "Recurring: On" : "Recurring Only"}</a>
 
                   <select id="sortBy" class="ctrl sortBy">
                     <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Sort: Event date/time</option>
@@ -4634,11 +4657,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               </div>
             </div>
 
-            <div class="listSearchRow">
-              <input id="eventSearch" class="ctrl" type="text" placeholder="Filter all events..." value="${esc(q)}" />
-              <button id="eventSearchApply" type="button" class="btn btn-primary">Apply</button>
-              <button id="eventSearchClear" type="button" class="btn">Clear</button>
-            </div>
+	            <div class="listSearchRow">
+	              <input id="eventSearch" class="ctrl" type="text" placeholder="Filter all events..." value="${esc(q)}" />
+	              <input id="eventDateFrom" class="ctrl dateCtrl" type="date" value="${esc(fromDate)}" />
+	              <input id="eventDateTo" class="ctrl dateCtrl" type="date" value="${esc(toDate)}" />
+	              <button id="eventSearchApply" type="button" class="btn btn-primary">Apply</button>
+	              <button id="eventSearchClear" type="button" class="btn">Clear</button>
+	            </div>
 
             ${pagerHtml}
 
@@ -5532,6 +5557,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       // Server-side filter (applies across all pages)
       (function(){
         var input = document.getElementById('eventSearch');
+        var fromInput = document.getElementById('eventDateFrom');
+        var toInput = document.getElementById('eventDateTo');
         var applyBtn = document.getElementById('eventSearchApply');
         var clearBtn = document.getElementById('eventSearchClear');
         if(!input) return;
@@ -5542,7 +5569,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           } catch (_) {}
           var q = String(input.value || '').trim();
           var sp = new URLSearchParams(window.location.search || '');
+          var from = String((fromInput && fromInput.value) || '').trim();
+          var to = String((toInput && toInput.value) || '').trim();
           if (q) sp.set('q', q); else sp.delete('q');
+          if (from) sp.set('from', from); else sp.delete('from');
+          if (to) sp.set('to', to); else sp.delete('to');
           sp.set('pg', '1');
           window.location.href = window.location.pathname + '?' + sp.toString();
         }
@@ -5561,6 +5592,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         if(clearBtn){
           clearBtn.addEventListener('click', function(){
             input.value = '';
+            if (fromInput) fromInput.value = '';
+            if (toInput) toInput.value = '';
             go();
           });
         }
@@ -6836,6 +6869,8 @@ await run(`UPDATE events SET ${sets.join(", ")} WHERE id=?`, vals);
 const pg = req.query.pg ? String(req.query.pg) : "1";
 const limit = req.query.limit ? String(req.query.limit) : "20";
 const q = req.query.q ? String(req.query.q) : "";
+const from = req.query.from ? String(req.query.from) : "";
+const to = req.query.to ? String(req.query.to) : "";
 
 const status = req.query.status ? String(req.query.status) : "upcoming";
 const recurring = req.query.recurring ? String(req.query.recurring) : "0";
@@ -6843,6 +6878,8 @@ const recurring = req.query.recurring ? String(req.query.recurring) : "0";
 const sp = new URLSearchParams({ edit: String(id), pg, limit, status });
 if (recurring === "1") sp.set("recurring", "1");
 if (q) sp.set("q", q);
+if (from) sp.set("from", from);
+if (to) sp.set("to", to);
 
 return res.redirect(`/admin/create-events?${sp.toString()}`);
 
@@ -6875,6 +6912,8 @@ if (pendingId) {
 const pg = req.query.pg ? String(req.query.pg) : "1";
 const limit = req.query.limit ? String(req.query.limit) : "20";
 const q = req.query.q ? String(req.query.q) : "";
+const from = req.query.from ? String(req.query.from) : "";
+const to = req.query.to ? String(req.query.to) : "";
 
 const status = req.query.status ? String(req.query.status) : "upcoming";
 const recurring = req.query.recurring ? String(req.query.recurring) : "0";
@@ -6882,6 +6921,8 @@ const recurring = req.query.recurring ? String(req.query.recurring) : "0";
 const sp = new URLSearchParams({ pg, limit, status });
 if (recurring === "1") sp.set("recurring", "1");
 if (q) sp.set("q", q);
+if (from) sp.set("from", from);
+if (to) sp.set("to", to);
 
 return res.redirect(`/admin/create-events?${sp.toString()}`);
 
@@ -6944,6 +6985,8 @@ router.post("/events/:id/delete", async (req, res) => {
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";
     const q = req.query.q ? String(req.query.q) : "";
+    const from = req.query.from ? String(req.query.from) : "";
+    const to = req.query.to ? String(req.query.to) : "";
     const status = req.query.status ? String(req.query.status) : "upcoming";
     const recurring = req.query.recurring ? String(req.query.recurring) : "0";
     const sort = req.query.sort ? String(req.query.sort) : "datetime";
@@ -6951,6 +6994,8 @@ router.post("/events/:id/delete", async (req, res) => {
     const sp = new URLSearchParams({ pg, limit, status, sort });
     if (recurring === "1") sp.set("recurring", "1");
     if (q) sp.set("q", q);
+    if (from) sp.set("from", from);
+    if (to) sp.set("to", to);
 
     return res.redirect(`/admin/existing-events?${sp.toString()}`);
   } catch (err) {
@@ -6992,6 +7037,8 @@ router.post("/events/:id/archive", async (req, res) => {
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";
     const q = req.query.q ? String(req.query.q) : "";
+    const from = req.query.from ? String(req.query.from) : "";
+    const to = req.query.to ? String(req.query.to) : "";
     const status = req.query.status ? String(req.query.status) : "upcoming";
     const recurring = req.query.recurring ? String(req.query.recurring) : "0";
     const sort = req.query.sort ? String(req.query.sort) : "datetime";
@@ -6999,6 +7046,8 @@ router.post("/events/:id/archive", async (req, res) => {
     const sp = new URLSearchParams({ pg, limit, status, sort });
     if (recurring === "1") sp.set("recurring", "1");
     if (q) sp.set("q", q);
+    if (from) sp.set("from", from);
+    if (to) sp.set("to", to);
 
     return res.redirect(`/admin/existing-events?${sp.toString()}`);
   } catch (err) {
@@ -7036,6 +7085,8 @@ router.post("/events/:id/unarchive", async (req, res) => {
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";
     const q = req.query.q ? String(req.query.q) : "";
+    const from = req.query.from ? String(req.query.from) : "";
+    const to = req.query.to ? String(req.query.to) : "";
     const status = req.query.status ? String(req.query.status) : "upcoming";
     const recurring = req.query.recurring ? String(req.query.recurring) : "0";
     const sort = req.query.sort ? String(req.query.sort) : "datetime";
@@ -7043,6 +7094,8 @@ router.post("/events/:id/unarchive", async (req, res) => {
     const sp = new URLSearchParams({ pg, limit, status, sort });
     if (recurring === "1") sp.set("recurring", "1");
     if (q) sp.set("q", q);
+    if (from) sp.set("from", from);
+    if (to) sp.set("to", to);
 
     return res.redirect(`/admin/existing-events?${sp.toString()}`);
   } catch (err) {
