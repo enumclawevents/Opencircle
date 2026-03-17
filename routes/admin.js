@@ -3524,31 +3524,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 	      }
 	      .venue-monthly-grid{
 	        display:grid;
-	        grid-template-columns: 320px 1fr;
+	        grid-template-columns: 1fr;
 	        gap:14px;
 	        margin-top:14px;
-	      }
-	      .venue-monthly-kpis{
-	        display:grid;
-	        gap:10px;
-	      }
-	      .venue-mini-kpi{
-	        border:1px solid var(--line);
-	        border-radius: var(--radius-inner);
-	        background: var(--panel2);
-	        padding:12px 14px;
-	      }
-	      .venue-mini-kpi .k{
-	        font-size:12px;
-	        color: var(--muted);
-	        font-weight:650;
-	        margin-bottom:6px;
-	      }
-	      .venue-mini-kpi .v{
-	        font-size:24px;
-	        font-weight:750;
-	        color: var(--text);
-	        line-height:1.1;
 	      }
 	      .venue-monthly-table{
 	        width:100%;
@@ -3576,9 +3554,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 	        border-bottom:0;
 	      }
 	      @media (max-width: 980px){
-	        .venue-monthly-grid{
-	          grid-template-columns: 1fr;
-	        }
 	        .analytics-toolbar .ctrl{
 	          min-width: 0;
 	          width: 100%;
@@ -5210,16 +5185,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 	                <p class="sub">Performance and data quality for venues</p>
               </div>
             </div>
-            <div class="kpis">
-              <div class="kpi"><div class="label">Total Venues</div><div class="value">${esc(venueStats.total)}</div></div>
-              <div class="kpi"><div class="label">Cities</div><div class="value">${venueByCity.length}</div></div>
-              <div class="kpi"><div class="label">Venue Views</div><div class="value">${esc(venueStats.views)}</div></div>
-              <div class="kpi"><div class="label">Total Link Clicks</div><div class="value">${esc(venueStats.totalClicks)}</div></div>
-              <div class="kpi"><div class="label">Avg Views / Venue</div><div class="value">${esc(venueStats.avgViewsPerVenue)}</div></div>
-              <div class="kpi"><div class="label">Avg Clicks / Venue</div><div class="value">${esc(venueStats.avgClicksPerVenue)}</div></div>
-            </div>
-
-            <div class="venue-analytics-grid2" style="margin-top:14px;">
+	            <div class="venue-analytics-grid2" style="margin-top:14px;">
               <div class="card">
                 <div class="sectionTitle">
                   <div>
@@ -5290,13 +5256,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               </div>
             </div>
 
-	            <div class="grid4" style="margin-top:14px;">
-	              <div class="metric"><div><div class="k">Phone clicks</div><div class="v">${esc(venueStats.phoneClicks)}</div></div></div>
-	              <div class="metric"><div><div class="k">Website clicks</div><div class="v">${esc(venueStats.websiteClicks)}</div></div></div>
-	              <div class="metric"><div><div class="k">Social clicks</div><div class="v">${esc(venueStats.socialClicks)}</div></div></div>
-	              <div class="metric"><div><div class="k">Total clicks</div><div class="v">${esc(venueStats.totalClicks)}</div></div></div>
-	            </div>
-
 	            <div class="card" style="margin-top:14px;">
 	              <div class="sectionTitle">
 	                <div>
@@ -5320,34 +5279,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 	                </div>
 	                <button class="btn btn-primary" type="submit" ${venueAnalyticsOptions.length ? "" : "disabled"}>View venue</button>
 	              </form>
-	              <div class="note">Monthly venue interaction history starts from this update forward. Existing lifetime totals below are preserved.</div>
+	              <div class="note">Monthly venue interaction history starts from this update forward.</div>
 
 	              ${selectedVenue ? `
 	                <div class="venue-monthly-grid">
-	                  <div class="venue-monthly-kpis">
-	                    <div class="venue-mini-kpi">
-	                      <div class="k">Selected venue</div>
-	                      <div class="v" style="font-size:20px;">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)}</div>
-	                    </div>
-	                    <div class="venue-mini-kpi">
-	                      <div class="k">Lifetime views</div>
-	                      <div class="v">${Number(selectedVenue.viewCount || 0).toLocaleString("en-US")}</div>
-	                    </div>
-	                    <div class="venue-mini-kpi">
-	                      <div class="k">Lifetime phone clicks</div>
-	                      <div class="v">${Number(selectedVenue.phoneClickCount || 0).toLocaleString("en-US")}</div>
-	                    </div>
-	                    <div class="venue-mini-kpi">
-	                      <div class="k">Lifetime website clicks</div>
-	                      <div class="v">${Number(selectedVenue.websiteClickCount || 0).toLocaleString("en-US")}</div>
-	                    </div>
-	                    <div class="venue-mini-kpi">
-	                      <div class="k">Lifetime social clicks</div>
-	                      <div class="v">${Number(selectedVenue.socialClickCount || 0).toLocaleString("en-US")}</div>
-	                    </div>
-	                  </div>
 	                  <div class="mini">
-	                    <div style="font-weight:700; margin-bottom:10px;">Monthly interaction history</div>
+	                    <div style="font-weight:700; margin-bottom:10px;">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)} monthly interaction history</div>
 	                    <table class="venue-monthly-table">
 	                      <thead>
 	                        <tr>
