@@ -747,6 +747,102 @@ async function ensureUniqueJobSlug(baseSlug, jobId) {
   }
 }
 
+let _adSchemaEnsured = false;
+let _adColsCache = null;
+async function getAdColumns() {
+  if (_adColsCache) return _adColsCache;
+  try {
+    const rows = await all("PRAGMA table_info(ads)");
+    _adColsCache = new Set((rows || []).map((r) => String(r.name)));
+    return _adColsCache;
+  } catch {
+    _adColsCache = new Set();
+    return _adColsCache;
+  }
+}
+
+async function ensureAdSchema() {
+  if (_adSchemaEnsured) return;
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS ads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL DEFAULT 'Enumclaw',
+      slug TEXT,
+      name TEXT NOT NULL,
+      placement TEXT NOT NULL DEFAULT 'default',
+      imageUrl TEXT,
+      targetUrl TEXT,
+      altText TEXT,
+      visibilityPercent REAL NOT NULL DEFAULT 100,
+      status TEXT NOT NULL DEFAULT 'active',
+      startsAt TEXT,
+      endsAt TEXT,
+      notes TEXT,
+      viewCount INTEGER NOT NULL DEFAULT 0,
+      clickCount INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
+  try {
+    await run(`CREATE INDEX IF NOT EXISTS idx_ads_city ON ads(city)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_ads_slug ON ads(slug)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_ads_placement ON ads(placement)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_ads_status ON ads(status)`);
+  } catch (_) {}
+
+  const cols = await getAdColumns();
+  if (!cols.has("city")) await run(`ALTER TABLE ads ADD COLUMN city TEXT NOT NULL DEFAULT 'Enumclaw'`);
+  if (!cols.has("slug")) await run(`ALTER TABLE ads ADD COLUMN slug TEXT`);
+  if (!cols.has("placement")) await run(`ALTER TABLE ads ADD COLUMN placement TEXT NOT NULL DEFAULT 'default'`);
+  if (!cols.has("imageUrl")) await run(`ALTER TABLE ads ADD COLUMN imageUrl TEXT`);
+  if (!cols.has("targetUrl")) await run(`ALTER TABLE ads ADD COLUMN targetUrl TEXT`);
+  if (!cols.has("altText")) await run(`ALTER TABLE ads ADD COLUMN altText TEXT`);
+  if (!cols.has("visibilityPercent")) await run(`ALTER TABLE ads ADD COLUMN visibilityPercent REAL NOT NULL DEFAULT 100`);
+  if (!cols.has("status")) await run(`ALTER TABLE ads ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
+  if (!cols.has("startsAt")) await run(`ALTER TABLE ads ADD COLUMN startsAt TEXT`);
+  if (!cols.has("endsAt")) await run(`ALTER TABLE ads ADD COLUMN endsAt TEXT`);
+  if (!cols.has("notes")) await run(`ALTER TABLE ads ADD COLUMN notes TEXT`);
+  if (!cols.has("viewCount")) await run(`ALTER TABLE ads ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0`);
+  if (!cols.has("clickCount")) await run(`ALTER TABLE ads ADD COLUMN clickCount INTEGER NOT NULL DEFAULT 0`);
+  if (!cols.has("createdAt")) await run(`ALTER TABLE ads ADD COLUMN createdAt TEXT DEFAULT (datetime('now'))`);
+  if (!cols.has("updatedAt")) await run(`ALTER TABLE ads ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'))`);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS ad_metric_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      adId INTEGER NOT NULL,
+      metric TEXT NOT NULL,
+      createdAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  try {
+    await run(`CREATE INDEX IF NOT EXISTS idx_ad_metric_events_adId ON ad_metric_events(adId)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_ad_metric_events_metric ON ad_metric_events(metric)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_ad_metric_events_createdAt ON ad_metric_events(createdAt)`);
+  } catch (_) {}
+
+  _adColsCache = null;
+  _adSchemaEnsured = true;
+}
+
+async function ensureUniqueAdSlug(baseSlug, adId) {
+  let base = String(baseSlug || "").trim();
+  if (!base) base = "ad";
+  let slug = base;
+  let n = 2;
+
+  while (true) {
+    const row = adId
+      ? await get("SELECT id FROM ads WHERE slug = ? AND id <> ? LIMIT 1", [slug, adId])
+      : await get("SELECT id FROM ads WHERE slug = ? LIMIT 1", [slug]);
+    if (!row) return slug;
+    slug = `${base}-${n++}`;
+  }
+}
+
 let _jobApplicantSchemaEnsured = false;
 async function ensureJobApplicantSchema() {
   if (_jobApplicantSchemaEnsured) return;
@@ -1912,6 +2008,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const showJobsExisting = view === "jobs-existing";
     const showJobsApplicants = view === "jobs-applicants";
     const showJobsAnalytics = view === "jobs-analytics";
+    const showAdsCreate = view === "ads-create";
+    const showAdsExisting = view === "ads-existing";
+    const showAdsAnalytics = view === "ads-analytics";
     const showPreferences = view === "preferences";
     const showUsers = view === "users";
     const showInvites = view === "invites";
@@ -1927,8 +2026,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     if (showJobsExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showJobsApplicants && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showJobsAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
-    const showSearch = showAnalytics || showExisting || showVenueExisting || showJobsExisting || showJobsApplicants;
-    const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showPreferences);
+    if (showAdsCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showAdsExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showAdsAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
+    const showSearch = showAnalytics || showExisting || showVenueExisting || showJobsExisting || showJobsApplicants || showAdsExisting;
+    const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showAdsCreate ^ showAdsExisting ^ showAdsAnalytics ^ showPreferences);
 
     const currentUser = await resolveSessionUser(req);
     const prefNotice = String(req.query.notice || "").trim().toLowerCase();
@@ -2137,6 +2239,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         editVenue = await get("SELECT * FROM venues WHERE id = ?", [venueId]);
       }
     }
+    if (showAdsCreate) {
+      await ensureAdSchema();
+    }
+    let editAd = null;
+    if (showAdsCreate && req.query.edit) {
+      await ensureAdSchema();
+      const adId = parseInt(String(req.query.edit), 10);
+      if (!Number.isNaN(adId)) {
+        editAd = await get("SELECT * FROM ads WHERE id = ?", [adId]);
+      }
+    }
     const venueDays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
     const venueHours = (() => {
       const out = {};
@@ -2206,6 +2319,27 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       withApplyUrl: 0,
       avgViews: 0,
     };
+    let adRows = [];
+    let adTotal = 0;
+    let adPages = 1;
+    let adShowingFrom = 0;
+    let adShowingTo = 0;
+    let adAnalyticsStats = {
+      total: 0,
+      active: 0,
+      paused: 0,
+      views: 0,
+      clicks: 0,
+      avgViews: 0,
+      avgClicks: 0,
+    };
+    let adTopViewsRows = [];
+    let adTopClicksRows = [];
+    let adPlacementRows = [];
+    let adAnalyticsOptions = [];
+    let adMonthlyHistory = [];
+    let selectedAd = null;
+    let selectedAdActualId = null;
 
     if (showJobsExisting) {
       const jobWhere = [];
@@ -2349,6 +2483,133 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
     }
 
+    if (showAdsExisting || showAdsAnalytics) {
+      await ensureAdSchema();
+      const adWhere = [];
+      const adParams = [];
+      if (selectedCity) {
+        adWhere.push("city = ?");
+        adParams.push(selectedCity);
+      }
+      if (q) {
+        const like = "%" + q + "%";
+        adWhere.push("(name LIKE ? OR slug LIKE ? OR placement LIKE ? OR targetUrl LIKE ? OR CAST(id AS TEXT) LIKE ?)");
+        adParams.push(like, like, like, like, like);
+      }
+      const adWhereSql = adWhere.length ? ("WHERE " + adWhere.join(" AND ")) : "";
+      const adTotalRow = await get("SELECT COUNT(*) AS n FROM ads " + adWhereSql, adParams);
+      adTotal = Number(adTotalRow?.n || 0);
+      adPages = Math.max(1, Math.ceil(adTotal / limit));
+      adShowingFrom = adTotal ? offset + 1 : 0;
+      adShowingTo = Math.min(offset + limit, adTotal);
+
+      if (showAdsExisting) {
+        adRows = await all(
+          "SELECT id, city, slug, name, placement, imageUrl, targetUrl, altText, visibilityPercent, status, startsAt, endsAt, notes, viewCount, clickCount, createdAt " +
+          "FROM ads " + adWhereSql + " ORDER BY datetime(createdAt) DESC, id DESC LIMIT ? OFFSET ?",
+          [...adParams, limit, offset]
+        );
+      }
+
+      if (showAdsAnalytics) {
+        const adDashWhere = [];
+        const adDashParams = [];
+        if (selectedCity) {
+          adDashWhere.push("city = ?");
+          adDashParams.push(selectedCity);
+        }
+        const adDashWhereSql = adDashWhere.length ? ("WHERE " + adDashWhere.join(" AND ")) : "";
+
+        const row = await get(
+          "SELECT " +
+          "COUNT(*) AS total, " +
+          "COALESCE(SUM(CASE WHEN lower(COALESCE(status,'')) = 'active' THEN 1 ELSE 0 END),0) AS activeCount, " +
+          "COALESCE(SUM(CASE WHEN lower(COALESCE(status,'')) = 'paused' THEN 1 ELSE 0 END),0) AS pausedCount, " +
+          "COALESCE(SUM(COALESCE(viewCount,0)),0) AS viewsCount, " +
+          "COALESCE(SUM(COALESCE(clickCount,0)),0) AS clicksCount " +
+          "FROM ads " + adDashWhereSql,
+          adDashParams
+        );
+        const totalAds = Number(row?.total || 0);
+        const totalViews = Number(row?.viewsCount || 0);
+        const totalClicks = Number(row?.clicksCount || 0);
+        adAnalyticsStats = {
+          total: totalAds,
+          active: Number(row?.activeCount || 0),
+          paused: Number(row?.pausedCount || 0),
+          views: totalViews,
+          clicks: totalClicks,
+          avgViews: totalAds ? Math.round(totalViews / totalAds) : 0,
+          avgClicks: totalAds ? Math.round(totalClicks / totalAds) : 0,
+        };
+
+        adTopViewsRows = await all(
+          "SELECT id, name, slug, placement, COALESCE(viewCount, 0) AS viewCount FROM ads " +
+          adDashWhereSql + " ORDER BY COALESCE(viewCount,0) DESC, id DESC LIMIT 8",
+          adDashParams
+        );
+        adTopClicksRows = await all(
+          "SELECT id, name, slug, placement, COALESCE(clickCount, 0) AS clickCount FROM ads " +
+          adDashWhereSql + " ORDER BY COALESCE(clickCount,0) DESC, id DESC LIMIT 8",
+          adDashParams
+        );
+        adPlacementRows = await all(
+          "SELECT COALESCE(NULLIF(trim(placement), ''), 'default') AS placement, COUNT(*) AS n FROM ads " +
+          adDashWhereSql + " GROUP BY placement ORDER BY n DESC, placement ASC",
+          adDashParams
+        );
+        adAnalyticsOptions = await all(
+          "SELECT id, name, slug, placement, COALESCE(viewCount,0) AS viewCount, COALESCE(clickCount,0) AS clickCount FROM ads " +
+          adDashWhereSql + " ORDER BY name COLLATE NOCASE ASC, id ASC",
+          adDashParams
+        );
+
+        const selectedAdIdRaw = parseInt(String(req.query.ad || ""), 10);
+        const requestedAdId = Number.isInteger(selectedAdIdRaw) && selectedAdIdRaw > 0 ? selectedAdIdRaw : null;
+        selectedAd =
+          (requestedAdId ? adAnalyticsOptions.find((ad) => Number(ad.id || 0) === requestedAdId) : null) ||
+          adAnalyticsOptions[0] ||
+          null;
+        selectedAdActualId = selectedAd ? Number(selectedAd.id || 0) : null;
+
+        if (selectedAdActualId) {
+          const monthlyRows = await all(
+            `SELECT strftime('%Y-%m', createdAt) AS ym,
+                    COALESCE(SUM(CASE WHEN metric = 'view' THEN 1 ELSE 0 END), 0) AS views,
+                    COALESCE(SUM(CASE WHEN metric = 'click' THEN 1 ELSE 0 END), 0) AS clicks
+             FROM ad_metric_events
+             WHERE adId = ?
+               AND date(createdAt) >= date('now', 'start of month', '-11 month')
+             GROUP BY ym
+             ORDER BY ym ASC`,
+            [selectedAdActualId]
+          );
+          const monthlyMap = new Map(
+            (monthlyRows || []).map((item) => [
+              String(item.ym || ""),
+              {
+                views: Number(item.views || 0),
+                clicks: Number(item.clicks || 0),
+              },
+            ])
+          );
+          const monthCursor = new Date();
+          monthCursor.setDate(1);
+          for (let i = 11; i >= 0; i--) {
+            const dt = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - i, 1);
+            const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+            const base = monthlyMap.get(ym) || { views: 0, clicks: 0 };
+            adMonthlyHistory.push({
+              ym,
+              label: dt.toLocaleString("en-US", { month: "short", year: "numeric" }),
+              views: base.views,
+              clicks: base.clicks,
+            });
+          }
+        }
+      }
+    }
+
     if (showVenueExisting || showVenueAnalytics) {
       const venueWhere = [];
       const venueParams = [];
@@ -2391,6 +2652,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       }
     }
 
+    const adChartDataJson = JSON.stringify({
+      views: {
+        labels: adMonthlyHistory.map((row) => row.label),
+        values: adMonthlyHistory.map((row) => Number(row.views || 0)),
+      },
+      clicks: {
+        labels: adMonthlyHistory.map((row) => row.label),
+        values: adMonthlyHistory.map((row) => Number(row.clicks || 0)),
+      },
+    });
+
     const pageTitleBase = showCreate
       ? "Create Events"
       : showApprove
@@ -2411,6 +2683,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       ? "Job Applicants"
       : showJobsAnalytics
       ? "Job Analytics"
+      : showAdsCreate
+      ? "Create Ad"
+      : showAdsExisting
+      ? "All Ads"
+      : showAdsAnalytics
+      ? "Ads Analytics"
       : showPreferences
       ? "Preferences"
       : showUsers
@@ -2421,6 +2699,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     const eventsMenuOpen = showExisting || showCreate || showApprove || showAnalytics;
     const venuesMenuOpen = showVenueExisting || showVenueCreate || showVenueAnalytics;
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants || showJobsAnalytics;
+    const adsMenuOpen = showAdsExisting || showAdsCreate || showAdsAnalytics;
     const adminMenuOpen = showUsers || showInvites || showPreferences;
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
@@ -4026,6 +4305,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
             </div>
           </div>
+          <div class="sb-divider"></div>
+
+          <div class="nav-group nav-collapsible ${adsMenuOpen ? "is-open" : ""}" data-nav-group>
+            <a class="nav-title-btn" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${adsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-image nav-title-icon" aria-hidden="true"></i><span>Ads</span></a>
+            <div class="nav-sub" data-nav-sub>
+              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showAdsExisting ? "active" : ""}" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>` : ``}
+              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showAdsCreate ? "active" : ""}" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ads</a>` : ``}
+              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAdsAnalytics ? "active" : ""}" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
+            </div>
+          </div>
 
           ${isAdminUser ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${adminMenuOpen ? "is-open" : ""}" data-nav-group>
@@ -4073,6 +4362,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Job Applicants"
                 : showJobsAnalytics
                 ? "Job Analytics"
+                : showAdsCreate
+                ? "Create Ads"
+                : showAdsExisting
+                ? "All Ads"
+                : showAdsAnalytics
+                ? "Ads Analytics"
                 : showPreferences
                 ? "Preferences"
                 : showInvites
@@ -4102,6 +4397,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Review candidates submitted for local jobs"
                 : showJobsAnalytics
                 ? "Performance and funnel metrics for jobs"
+                : showAdsCreate
+                ? "Create and manage rotating ads"
+                : showAdsExisting
+                ? "Browse and search ad inventory"
+                : showAdsAnalytics
+                ? "Views, clicks, and monthly ad performance"
                 : showPreferences
                 ? "Manage your account details, profile photo, and password"
                 : "Combined events/venues overview with quick actions"
@@ -4110,12 +4411,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
           <div class="h-right">
             ${showSearch ? `
-            <form class="search" method="GET" action="${showVenueExisting ? "/admin/venues" : (showJobsExisting ? "/admin/jobs" : (showJobsApplicants ? "/admin/jobs/applicants" : (showAnalytics ? "/admin/events-analytics" : "/admin/existing-events")))}">
-              <input name="q" value="${esc(q)}" placeholder="${showVenueExisting ? "Search venues (name, slug, address, ID)..." : (showJobsExisting ? "Search jobs (title, company, location, ID)..." : (showJobsApplicants ? "Search applicants (name, email, phone, job)..." : "Search events (title, slug, location, ID)..."))}" />
+            <form class="search" method="GET" action="${showVenueExisting ? "/admin/venues" : (showJobsExisting ? "/admin/jobs" : (showJobsApplicants ? "/admin/jobs/applicants" : (showAdsExisting ? "/admin/ads" : (showAnalytics ? "/admin/events-analytics" : "/admin/existing-events"))))}">
+              <input name="q" value="${esc(q)}" placeholder="${showVenueExisting ? "Search venues (name, slug, address, ID)..." : (showJobsExisting ? "Search jobs (title, company, location, ID)..." : (showJobsApplicants ? "Search applicants (name, email, phone, job)..." : (showAdsExisting ? "Search ads (name, placement, slug, URL, ID)..." : "Search events (title, slug, location, ID)...")))}" />
               <input type="hidden" name="pg" value="1" />
               <input type="hidden" name="limit" value="${esc(String(limit))}" />
-              ${(showVenueExisting || showJobsExisting || showJobsApplicants) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
-              ${(showVenueExisting || showJobsExisting || showJobsApplicants) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``)}
+              ${(showVenueExisting || showJobsExisting || showJobsApplicants || showAdsExisting) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
+              ${(showVenueExisting || showJobsExisting || showJobsApplicants || showAdsExisting) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="${esc(String(1))}" />` : ``)}
               <button class="btn btn-primary" type="submit">Search</button>
               ${q ? (showVenueExisting
                 ? `<a class="btn" href="/admin/venues?pg=1&limit=${esc(String(limit))}">Reset</a>`
@@ -4123,9 +4424,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                   ? `<a class="btn" href="/admin/jobs?pg=1&limit=${esc(String(limit))}">Reset</a>`
                   : (showJobsApplicants
                     ? `<a class="btn" href="/admin/jobs/applicants?pg=1&limit=${esc(String(limit))}">Reset</a>`
-                  : (showAnalytics
-                    ? `<a class="btn" href="/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`
-                    : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`)))) : ``}
+                    : (showAdsExisting
+                      ? `<a class="btn" href="/admin/ads?pg=1&limit=${esc(String(limit))}">Reset</a>`
+                      : (showAnalytics
+                        ? `<a class="btn" href="/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`
+                        : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`))))) : ``}
             </form>
             ` : ``}
             <div class="header-tools">
@@ -4213,6 +4516,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                     <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
                     <a class="btn quick-link" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
                     ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
+                  </div>
+                  <div class="quick-links-group">
+                    <div class="quick-links-group-title">Ads</div>
+                    <a class="btn quick-link" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ad</a>
+                    <a class="btn quick-link" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>
+                    ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
                   </div>
                 </div>
               </div>
@@ -5575,6 +5884,294 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         </section>
         ` : ``}
 
+        ${(showAdsCreate || showAdsExisting || showAdsAnalytics) ? `
+        <section class="gridMain single" id="ads">
+          ${showAdsCreate ? `
+          <div class="card" id="ads-create">
+            <div class="sectionTitle">
+              <div>
+                <h2>${editAd ? "Edit ad" : "Create ad"}</h2>
+                <p class="sub">Manage a rotating ad with weighted visibility</p>
+              </div>
+              <div class="right">
+                <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
+              </div>
+            </div>
+
+            <form method="POST" action="/admin/ads" enctype="multipart/form-data">
+              ${editAd ? `<input type="hidden" name="id" value="${esc(editAd.id)}" />` : ""}
+              <input type="hidden" name="city" value="${esc(editAd?.city || selectedCity)}" />
+
+              <label>Ad Name</label>
+              <input class="ctrl" name="name" value="${esc(editAd?.name || "")}" required />
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Placement</label>
+                  <input class="ctrl" name="placement" value="${esc(editAd?.placement || "default")}" placeholder="homepage-sidebar" required />
+                  <div class="note">Use the same placement key anywhere this ad slot appears.</div>
+                </div>
+                <div>
+                  <label style="margin-top:0;">Visibility %</label>
+                  <input class="ctrl" type="number" name="visibilityPercent" min="0" max="100" step="0.1" value="${esc(editAd?.visibilityPercent ?? 100)}" required />
+                  <div class="note">Example: 25 means this ad is eligible 25% of the time for its slot.</div>
+                </div>
+              </div>
+
+              <label>Target URL</label>
+              <input class="ctrl" name="targetUrl" value="${esc(editAd?.targetUrl || "")}" placeholder="https://..." required />
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Ad Image (Upload)</label>
+                  <input class="ctrl" type="file" name="adImageFile" accept="image/*" />
+                </div>
+                <div>
+                  <label style="margin-top:0;">Ad Image URL (Optional)</label>
+                  <input class="ctrl" name="imageUrl" value="${esc(editAd?.imageUrl || "")}" placeholder="https://..." />
+                  ${editAd?.imageUrl ? `<div class="note">Current: <a href="${esc(editAd.imageUrl)}" target="_blank" rel="noopener">View image</a></div>` : ``}
+                </div>
+              </div>
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Alt Text</label>
+                  <input class="ctrl" name="altText" value="${esc(editAd?.altText || "")}" placeholder="Sponsor banner alt text" />
+                </div>
+                <div>
+                  <label style="margin-top:0;">Status</label>
+                  <select class="ctrl" name="status">
+                    <option value="active" ${String(editAd?.status || "active") === "active" ? "selected" : ""}>Active</option>
+                    <option value="paused" ${String(editAd?.status || "") === "paused" ? "selected" : ""}>Paused</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
+                  <label style="margin-top:0;">Start Date</label>
+                  <input class="ctrl" type="date" name="startsAt" value="${esc(String(editAd?.startsAt || "").slice(0, 10))}" />
+                </div>
+                <div>
+                  <label style="margin-top:0;">End Date</label>
+                  <input class="ctrl" type="date" name="endsAt" value="${esc(String(editAd?.endsAt || "").slice(0, 10))}" />
+                </div>
+              </div>
+
+              <label>Notes</label>
+              <textarea class="ctrl" name="notes" rows="4" placeholder="Optional internal notes">${esc(editAd?.notes || "")}</textarea>
+
+              <div class="actions">
+                <button type="submit" class="btn btn-primary">${editAd ? "Update Ad" : "Save Ad"}</button>
+                ${editAd ? `<a class="btn btn-link" href="/admin/ads?pg=1&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}">Cancel</a>` : ""}
+              </div>
+            </form>
+          </div>
+          ` : ``}
+
+          ${showAdsExisting ? `
+          <div class="card" id="ads-existing">
+            <div class="sectionTitle">
+              <div>
+                <h2>All ads</h2>
+                <p class="sub">Search, edit, and manage rotating ad inventory</p>
+              </div>
+            </div>
+
+            <div class="muted" style="margin-bottom:12px;">
+              Total: <strong style="color:var(--text)">${adTotal}</strong>
+              ${adTotal ? ` · Showing ${adShowingFrom}-${adShowingTo}` : ``}
+            </div>
+
+            <div id="adsList" style="display:grid; gap:var(--gap);">
+              ${adRows.length ? adRows.map((ad) => {
+                const thumbHtml = ad.imageUrl
+                  ? `
+                    <a class="thumb-link" href="${esc(ad.imageUrl)}" target="_blank" rel="noopener" title="View image">
+                      <img class="event-thumb-img" src="${esc(ad.imageUrl)}" alt="${esc(ad.altText || ad.name || "Ad")} image" loading="lazy"
+                           onerror="this.closest('.event-thumb').classList.add('broken'); this.style.display='none';" />
+                      <div class="thumb-fallback">Image not found</div>
+                    </a>
+                  `
+                  : `<div class="thumb-empty">No image</div>`;
+                return `
+                <div class="event-card venue-card">
+                  <div class="event-thumb">${thumbHtml}</div>
+                  <div class="event-left">
+                    <div class="event-main">
+                      <div class="event-title">#${ad.id} — ${esc(ad.name || "")}</div>
+                      <div class="event-meta">
+                        <div><strong>Slug:</strong> ${esc(ad.slug || "")}</div>
+                        <div><strong>Placement:</strong> ${esc(ad.placement || "default")}</div>
+                        <div><strong>Visibility:</strong> ${Number(ad.visibilityPercent || 0).toLocaleString("en-US")}%</div>
+                        <div><strong>Status:</strong> ${esc(ad.status || "active")}</div>
+                        <div><strong>Target:</strong> ${ad.targetUrl ? `<a href="${esc(ad.targetUrl)}" target="_blank" rel="noopener">${esc(ad.targetUrl)}</a>` : "—"}</div>
+                        ${(ad.startsAt || ad.endsAt) ? `<div><strong>Schedule:</strong> ${esc(String(ad.startsAt || "").slice(0, 10) || "Now")} to ${esc(String(ad.endsAt || "").slice(0, 10) || "Open")}</div>` : ``}
+                      </div>
+                    </div>
+                    <div class="event-actions">
+                      <a class="btn btn-edit" href="/admin/ads/create?edit=${ad.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}">Edit</a>
+                      <form method="POST" action="/admin/ads/${ad.id}/delete?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" class="inline" onsubmit="return confirm('Delete this ad?');">
+                        <button type="submit" class="btn btn-danger">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+                  <div class="event-stats">
+                    <div class="stat"><span>Views</span><strong>${Number(ad.viewCount || 0)}</strong></div>
+                    <div class="stat"><span>Clicks</span><strong>${Number(ad.clickCount || 0)}</strong></div>
+                  </div>
+                </div>
+                `;
+              }).join("") : `<div class="muted">No ads found.</div>`}
+            </div>
+
+            ${adPages > 1 ? `
+            <div class="pager" style="margin-top:14px;">
+              <div class="pager-right">
+                <a class="btn" href="/admin/ads?pg=1&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>First</a>
+                <a class="btn" href="/admin/ads?pg=${Math.max(1, pg - 1)}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>Prev</a>
+                <span class="muted" style="padding:0 8px;">Page <strong style="color:var(--text)">${pg}</strong> / ${adPages}</span>
+                <a class="btn" href="/admin/ads?pg=${Math.min(adPages, pg + 1)}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg >= adPages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Next</a>
+                <a class="btn" href="/admin/ads?pg=${adPages}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}" ${pg >= adPages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Last</a>
+              </div>
+            </div>
+            ` : ``}
+          </div>
+          ` : ``}
+
+          ${showAdsAnalytics ? `
+          <div class="card" id="ads-analytics">
+            <div class="sectionTitle">
+              <div>
+                <h2>Ads analytics</h2>
+                <p class="sub">Track visibility and clicks for rotating ads</p>
+              </div>
+            </div>
+
+            <div class="kpis">
+              <div class="kpi"><div class="label">Total Ads</div><div class="value">${Number(adAnalyticsStats.total || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Active</div><div class="value">${Number(adAnalyticsStats.active || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Paused</div><div class="value">${Number(adAnalyticsStats.paused || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Total Views</div><div class="value">${Number(adAnalyticsStats.views || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Total Clicks</div><div class="value">${Number(adAnalyticsStats.clicks || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Avg CTR</div><div class="value">${adAnalyticsStats.views ? `${Math.round((Number(adAnalyticsStats.clicks || 0) / Number(adAnalyticsStats.views || 1)) * 100)}%` : "0%"}</div></div>
+            </div>
+
+            <div class="venue-analytics-grid2" style="margin-top:14px;">
+              <div class="card">
+                <div class="sectionTitle">
+                  <div>
+                    <h2>Top ads by views</h2>
+                    <p class="sub">Most seen placements</p>
+                  </div>
+                </div>
+                <div class="mini">
+                  ${adTopViewsRows.length ? adTopViewsRows.map((ad) => `
+                    <div class="kv">
+                      <span class="k"><a href="/admin/ads/create?edit=${ad.id}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">${esc(ad.name)}</a></span>
+                      <strong class="v">${Number(ad.viewCount || 0).toLocaleString("en-US")}</strong>
+                    </div>
+                  `).join("") : `<div class="muted">No ad views yet.</div>`}
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="sectionTitle">
+                  <div>
+                    <h2>Top ads by clicks</h2>
+                    <p class="sub">Highest click volume</p>
+                  </div>
+                </div>
+                <div class="mini">
+                  ${adTopClicksRows.length ? adTopClicksRows.map((ad) => `
+                    <div class="kv">
+                      <span class="k"><a href="/admin/ads/create?edit=${ad.id}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">${esc(ad.name)}</a></span>
+                      <strong class="v">${Number(ad.clickCount || 0).toLocaleString("en-US")}</strong>
+                    </div>
+                  `).join("") : `<div class="muted">No ad clicks yet.</div>`}
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:14px;">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Ad monthly performance</h2>
+                  <p class="sub">Choose one ad to review monthly views and clicks</p>
+                </div>
+              </div>
+              <form class="analytics-toolbar" method="GET" action="/admin/ads/analytics">
+                ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
+                <div style="min-width:0; flex:1 1 260px;">
+                  <label for="adAnalyticsSelect" style="margin-top:0;">Ad</label>
+                  <select id="adAnalyticsSelect" name="ad" class="ctrl">
+                    ${adAnalyticsOptions.length
+                      ? adAnalyticsOptions.map((ad) => `
+                        <option value="${Number(ad.id || 0)}" ${selectedAdActualId === Number(ad.id || 0) ? "selected" : ""}>
+                          ${esc(ad.name || `Ad #${ad.id}`)} · ${esc(ad.placement || "default")}
+                        </option>
+                      `).join("")
+                      : `<option value="">No ads available</option>`}
+                  </select>
+                </div>
+                <button class="btn btn-primary" type="submit" ${adAnalyticsOptions.length ? "" : "disabled"}>View ad</button>
+              </form>
+
+              <div class="venue-analytics-grid2" style="margin-top:14px;">
+                <div class="card">
+                  <div class="sectionTitle">
+                    <div>
+                      <h2>Placement breakdown</h2>
+                      <p class="sub">How many ads exist per slot</p>
+                    </div>
+                  </div>
+                  <div class="mini">
+                    ${adPlacementRows.length ? adPlacementRows.map((row) => `
+                      <div class="kv"><span class="k">${esc(row.placement || "default")}</span><strong class="v">${Number(row.n || 0).toLocaleString("en-US")}</strong></div>
+                    `).join("") : `<div class="muted">No ads yet.</div>`}
+                  </div>
+                </div>
+
+                <div class="card">
+                  ${selectedAd ? `
+                  <div class="mini">
+                    <div class="kv"><span class="k">Placement</span><strong class="v">${esc(selectedAd.placement || "default")}</strong></div>
+                    <div class="kv"><span class="k">Lifetime views</span><strong class="v">${Number(selectedAd.viewCount || 0).toLocaleString("en-US")}</strong></div>
+                    <div class="kv"><span class="k">Lifetime clicks</span><strong class="v">${Number(selectedAd.clickCount || 0).toLocaleString("en-US")}</strong></div>
+                  </div>
+                  ` : `<div class="muted">Select an ad to view details.</div>`}
+                </div>
+              </div>
+
+              ${selectedAd ? `
+              <div class="venue-monthly-grid" style="margin-top:14px;">
+                <div class="mini">
+                  <div class="sectionTitle sectionTitle--chart" style="margin-bottom:10px;">
+                    <div class="left">
+                      <div style="font-weight:700;">${esc(selectedAd.name || `Ad #${selectedAd.id}`)} monthly performance</div>
+                      <p class="sub">Last 12 months</p>
+                    </div>
+                    <div class="right">
+                      <div class="metricToggle" id="adChartMetricSeg" aria-label="Ad metric toggle">
+                        <button type="button" data-metric="views" class="on">Views</button>
+                        <button type="button" data-metric="clicks">Clicks</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="chart-wrap" id="adChartWrap" style="min-height:320px;">
+                    <div id="adChartData" data-chart="${esc(adChartDataJson)}" hidden></div>
+                    <canvas id="adChart" style="width:100%; height:260px; display:block;"></canvas>
+                    <div id="adChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
+                  </div>
+                </div>
+              </div>
+              ` : `<div class="muted" style="margin-top:12px;">Create an ad first to see monthly performance.</div>`}
+            </div>
+          </div>
+          ` : ``}
+        </section>
+        ` : ``}
+
       </main>
     </div>
 
@@ -6510,8 +7107,224 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     window.addEventListener("resize", () => window.requestAnimationFrame(draw));
   }
 
+  function initAdChart(){
+    const $data = document.getElementById("adChartData");
+    const $canvas = document.getElementById("adChart");
+    const $wrap = document.getElementById("adChartWrap");
+    const $tip = document.getElementById("adChartTip");
+    const $metricSeg = document.getElementById("adChartMetricSeg");
+    if (!$canvas || !$wrap || !$metricSeg) return;
+
+    const ctx = $canvas.getContext("2d");
+    if (!ctx) return;
+
+    let chartSets = {
+      views: { labels: [], values: [] },
+      clicks: { labels: [], values: [] },
+    };
+    try {
+      if ($data) {
+        const parsed = JSON.parse($data.getAttribute("data-chart") || "{}");
+        if (parsed && typeof parsed === "object") {
+          chartSets = {
+            views: {
+              labels: Array.isArray(parsed.views?.labels) ? parsed.views.labels : [],
+              values: Array.isArray(parsed.views?.values) ? parsed.views.values : [],
+            },
+            clicks: {
+              labels: Array.isArray(parsed.clicks?.labels) ? parsed.clicks.labels : [],
+              values: Array.isArray(parsed.clicks?.values) ? parsed.clicks.values : [],
+            },
+          };
+        }
+      }
+    } catch (_) {}
+
+    let metric = "views";
+    let hoverIndex = -1;
+
+    function getSet(){
+      return chartSets[metric] || { labels: [], values: [] };
+    }
+
+    function setActiveBtn(){
+      $metricSeg.querySelectorAll("[data-metric]").forEach((btn) => {
+        const on = btn.getAttribute("data-metric") === metric;
+        btn.classList.toggle("on", on);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+    }
+
+    function sizeCanvas(){
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      let w = $wrap.clientWidth;
+      if (!w || w < 10) w = Math.floor($wrap.getBoundingClientRect().width || 0);
+      w = Math.max(320, w);
+      let h = $wrap.clientHeight;
+      if (!h || h < 10) h = Math.floor($wrap.getBoundingClientRect().height || 0);
+      h = Math.max(260, h || 320);
+      $canvas.style.width = w + "px";
+      $canvas.style.height = h + "px";
+      $canvas.width = Math.floor(w * dpr);
+      $canvas.height = Math.floor(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { w, h };
+    }
+
+    function draw(){
+      const set = getSet();
+      const labels = set.labels || [];
+      const values = set.values || [];
+      const out = sizeCanvas();
+      const w = out.w;
+      const h = out.h;
+      ctx.clearRect(0, 0, w, h);
+
+      if (!labels.length || !values.length) {
+        ctx.fillStyle = "rgba(15,23,42,.75)";
+        ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+        ctx.fillText("No monthly ad history yet", 18, 90);
+        return;
+      }
+
+      const padL = 56, padR = 18, padT = 18, padB = 46;
+      const gw = w - padL - padR;
+      const gh = h - padT - padB;
+      const maxV = Math.max(1, ...values);
+      const yTicks = Math.min(6, maxV);
+      const tickStep = Math.max(1, Math.ceil(maxV / yTicks));
+      const yMax = tickStep * yTicks;
+
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(15,23,42,.12)";
+      ctx.fillStyle = "rgba(15,23,42,.92)";
+      ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+
+      for (let i = 0; i <= yTicks; i++) {
+        const v = i * tickStep;
+        const y = padT + gh - (v / yMax) * gh;
+        ctx.beginPath();
+        ctx.moveTo(padL, y);
+        ctx.lineTo(padL + gw, y);
+        ctx.stroke();
+        ctx.fillText(String(v), 18, y + 4);
+      }
+
+      const n = values.length;
+      const gap = 16;
+      const barW = Math.max(10, Math.floor((gw - gap * (n - 1)) / n));
+      const totalW = barW * n + gap * (n - 1);
+      const x0 = padL + Math.max(0, (gw - totalW) / 2);
+
+      for (let i = 0; i < n; i++) {
+        const v = values[i];
+        const bh = (v / yMax) * gh;
+        const x = x0 + i * (barW + gap);
+        const y = padT + gh - bh;
+
+        ctx.fillStyle = metric === "clicks" ? "rgba(59,130,246,.45)" : "rgba(16,185,129,.45)";
+        ctx.fillRect(x, y, barW, bh);
+
+        if (i === hoverIndex) {
+          ctx.strokeStyle = metric === "clicks" ? "rgba(59,130,246,.95)" : "rgba(16,185,129,.95)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 0.5, y + 0.5, barW - 1, bh - 1);
+          ctx.lineWidth = 1;
+        }
+
+        const lab = labels[i] || "";
+        ctx.save();
+        ctx.translate(x + barW / 2, padT + gh + 22);
+        ctx.rotate(-0.35);
+        ctx.textAlign = "center";
+        ctx.fillStyle = "rgba(15,23,42,.92)";
+        ctx.fillText(lab, 0, 0);
+        ctx.restore();
+      }
+    }
+
+    function getBarIndexFromEvent(ev){
+      const set = getSet();
+      const values = set.values || [];
+      if (!values.length) return -1;
+      const rect = $canvas.getBoundingClientRect();
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      const padL = 56, padR = 18, padT = 18, padB = 46;
+      const gw = rect.width - padL - padR;
+      const gh = rect.height - padT - padB;
+      if (mx < padL || mx > padL + gw || my < padT || my > padT + gh) return -1;
+      const n = values.length;
+      const gap = 16;
+      const barW = Math.max(10, Math.floor((gw - gap * (n - 1)) / n));
+      const totalW = barW * n + gap * (n - 1);
+      const x0 = padL + Math.max(0, (gw - totalW) / 2);
+      for (let i = 0; i < n; i++) {
+        const x = x0 + i * (barW + gap);
+        if (mx >= x && mx <= x + barW) return i;
+      }
+      return -1;
+    }
+
+    function showTip(ev, idx){
+      if (!$tip) return;
+      const set = getSet();
+      const labels = set.labels || [];
+      const values = set.values || [];
+      const value = Number(values[idx] || 0);
+      $tip.textContent =
+        String(labels[idx] || "") +
+        ": " +
+        value.toLocaleString("en-US") +
+        " " +
+        (metric === "clicks" ? "clicks" : "views");
+      $tip.style.display = "block";
+      const rect = $canvas.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+      const tipRect = $tip.getBoundingClientRect();
+      const left = Math.min(rect.width - tipRect.width - 10, x + 12);
+      const top = Math.max(10, y - 32);
+      $tip.style.left = left + "px";
+      $tip.style.top = top + "px";
+    }
+
+    function hideTip(){
+      if ($tip) $tip.style.display = "none";
+    }
+
+    $metricSeg.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-metric]");
+      if (!btn) return;
+      metric = btn.getAttribute("data-metric") || "views";
+      hoverIndex = -1;
+      hideTip();
+      setActiveBtn();
+      draw();
+    });
+
+    $canvas.addEventListener("mousemove", (e) => {
+      const idx = getBarIndexFromEvent(e);
+      if (idx !== hoverIndex) {
+        hoverIndex = idx;
+        draw();
+      }
+      if (idx >= 0) showTip(e, idx); else hideTip();
+    });
+    $canvas.addEventListener("mouseleave", () => {
+      hoverIndex = -1;
+      hideTip();
+      draw();
+    });
+
+    setActiveBtn();
+    draw();
+    window.addEventListener("resize", () => window.requestAnimationFrame(draw));
+  }
+
   initEventsChart();
   initVenueChart();
+  initAdChart();
 })();</script>
   </body>
 </html>`);
@@ -6533,6 +7346,9 @@ router.get("/jobs", async (req, res) => renderAdmin(req, res, "jobs-existing"));
 router.get("/jobs/create", async (req, res) => renderAdmin(req, res, "jobs-create"));
 router.get("/jobs/applicants", async (req, res) => renderAdmin(req, res, "jobs-applicants"));
 router.get("/jobs/analytics", async (req, res) => renderAdmin(req, res, "jobs-analytics"));
+router.get("/ads", async (req, res) => renderAdmin(req, res, "ads-existing"));
+router.get("/ads/create", async (req, res) => renderAdmin(req, res, "ads-create"));
+router.get("/ads/analytics", async (req, res) => renderAdmin(req, res, "ads-analytics"));
 router.get("/preferences", async (req, res) => renderAdmin(req, res, "preferences"));
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
@@ -6993,6 +7809,111 @@ router.post("/jobs/:id/delete", async (req, res) => {
     const sp = new URLSearchParams({ pg, limit });
     if (q) sp.set("q", q);
     return res.redirect(`/admin/jobs?${sp.toString()}`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Server error.");
+  }
+});
+
+router.post("/ads", upload.single("adImageFile"), async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor" || role === "creator")) {
+      return res.status(403).send("Forbidden");
+    }
+    await ensureAdSchema();
+
+    const idRaw = String(req.body?.id || "").trim();
+    const id = idRaw ? parseInt(idRaw, 10) : null;
+    const isUpdate = Number.isInteger(id) && id > 0;
+
+    const userCity = String(req.user?.city || "Enumclaw");
+    const city = role === "admin"
+      ? String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw"
+      : userCity;
+
+    const name = String(req.body?.name || "").trim();
+    const placement = String(req.body?.placement || "default").trim() || "default";
+    const targetUrl = normalizeHttpUrl(req.body?.targetUrl || "");
+    let imageUrl = String(req.body?.imageUrl || "").trim();
+    const altText = String(req.body?.altText || "").trim();
+    const visibilityRaw = parseFloat(String(req.body?.visibilityPercent || "100"));
+    const visibilityPercent = Number.isFinite(visibilityRaw)
+      ? Math.max(0, Math.min(100, visibilityRaw))
+      : 100;
+    const statusRaw = String(req.body?.status || "active").trim().toLowerCase();
+    const status = ["active", "paused"].includes(statusRaw) ? statusRaw : "active";
+    const startsAtRaw = String(req.body?.startsAt || "").trim();
+    const endsAtRaw = String(req.body?.endsAt || "").trim();
+    const startsAt = startsAtRaw ? `${startsAtRaw}T00:00:00` : null;
+    const endsAt = endsAtRaw ? `${endsAtRaw}T23:59:59` : null;
+    const notes = String(req.body?.notes || "").trim();
+
+    if (!name) return res.status(400).send("Ad name is required.");
+    if (!targetUrl) return res.status(400).send("Target URL is required.");
+
+    const imageFile = req.file || null;
+    if (imageFile) {
+      if (useR2) {
+        const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
+        const key = imageFile.key || imageFile.filename || "";
+        if (base && key) imageUrl = `${base}/${key}`;
+      } else if (imageFile.filename) {
+        const proto = req.headers["x-forwarded-proto"] || req.protocol;
+        const host = req.headers["x-forwarded-host"] || req.get("host");
+        imageUrl = `${proto}://${host}/uploads/${imageFile.filename}`;
+      }
+    }
+
+    const baseSlug = slugify(`${name}-${placement}`);
+    const slug = await ensureUniqueAdSlug(baseSlug, isUpdate ? id : null);
+
+    if (isUpdate) {
+      await run(
+        `UPDATE ads
+            SET city = ?, slug = ?, name = ?, placement = ?, imageUrl = ?, targetUrl = ?, altText = ?, visibilityPercent = ?, status = ?, startsAt = ?, endsAt = ?, notes = ?, updatedAt = datetime('now')
+          WHERE id = ?`,
+        [city, slug, name, placement, imageUrl || null, targetUrl || null, altText || null, visibilityPercent, status, startsAt, endsAt, notes || null, id]
+      );
+    } else {
+      await run(
+        `INSERT INTO ads (city, slug, name, placement, imageUrl, targetUrl, altText, visibilityPercent, status, startsAt, endsAt, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, name, placement, imageUrl || null, targetUrl || null, altText || null, visibilityPercent, status, startsAt, endsAt, notes || null]
+      );
+    }
+
+    const pg = req.query.pg ? String(req.query.pg) : "1";
+    const limit = req.query.limit ? String(req.query.limit) : "20";
+    const q = req.query.q ? String(req.query.q) : "";
+    const sp = new URLSearchParams({ pg, limit });
+    if (q) sp.set("q", q);
+    return res.redirect(`/admin/ads?${sp.toString()}`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Server error.");
+  }
+});
+
+router.post("/ads/:id/delete", async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor" || role === "creator")) {
+      return res.status(403).send("Forbidden");
+    }
+    await ensureAdSchema();
+
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
+
+    await run("DELETE FROM ads WHERE id = ?", [id]);
+
+    const pg = req.query.pg ? String(req.query.pg) : "1";
+    const limit = req.query.limit ? String(req.query.limit) : "20";
+    const q = req.query.q ? String(req.query.q) : "";
+    const sp = new URLSearchParams({ pg, limit });
+    if (q) sp.set("q", q);
+    return res.redirect(`/admin/ads?${sp.toString()}`);
   } catch (err) {
     console.error(err);
     return res.status(500).send("Server error.");
