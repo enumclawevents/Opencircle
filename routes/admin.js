@@ -1707,6 +1707,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         }
       }
     } catch (_) {}
+    const venueChartDataJson = JSON.stringify({
+      views: {
+        labels: venueMonthlyHistory.map((row) => row.label),
+        values: venueMonthlyHistory.map((row) => Number(row.views || 0)),
+      },
+      clicks: {
+        labels: venueMonthlyHistory.map((row) => row.label),
+        values: venueMonthlyHistory.map((row) => Number(row.totalClicks || 0)),
+      },
+    });
 
     // Top events by views (today / week / month / year)
     const hasViews = cols.has("viewCount");
@@ -4371,6 +4381,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               </div>
             </div>
             <div class="chart-wrap" id="eventsChartWrap">
+              <div id="eventsChartData" data-chart="${esc(chartDataJson)}" hidden></div>
               <canvas id="eventsChart" style="width:100%; height:260px; display:block;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
@@ -5221,41 +5232,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               </div>
             </div>
 
-            <div class="venue-analytics-grid2" style="margin-top:14px;">
-              <div class="card">
-                <div class="sectionTitle">
-                  <div>
-                    <h2>Data completeness</h2>
-                    <p class="sub">Coverage for key venue fields</p>
-                  </div>
-                </div>
-                <div class="mini">
-                  <div class="kv"><span class="k">With Website</span><strong class="v">${esc(venueStats.withWebsite)} (${esc(venueStats.withWebsitePct)})</strong></div>
-                  <div class="kv"><span class="k">With Image</span><strong class="v">${esc(venueStats.withImage)} (${esc(venueStats.withImagePct)})</strong></div>
-                  <div class="kv"><span class="k">With Gallery</span><strong class="v">${esc(venueStats.withGallery)} (${esc(venueStats.withGalleryPct)})</strong></div>
-                  <div class="kv"><span class="k">With Social</span><strong class="v">${esc(venueStats.withSocial)} (${esc(venueStats.withSocialPct)})</strong></div>
-                  <div class="kv"><span class="k">With Hours</span><strong class="v">${esc(venueStats.withHours)} (${esc(venueStats.withHoursPct)})</strong></div>
-                </div>
-              </div>
-
-              <div class="card">
-                <div class="sectionTitle">
-                  <div>
-                    <h2>City breakdown</h2>
-                    <p class="sub">Venue count by city</p>
-                  </div>
-                </div>
-                <div class="mini">
-                  ${venueByCity.length ? venueByCity.map((r) => `
-                    <div class="kv">
-                      <span class="k">${esc(r.city || "Unknown")}</span>
-                      <strong class="v">${Number(r.n || 0).toLocaleString("en-US")}</strong>
-                    </div>
-                  `).join("") : `<div class="muted">No venue analytics yet.</div>`}
-                </div>
-              </div>
-            </div>
-
 	            <div class="card" style="margin-top:14px;">
 	              <div class="sectionTitle">
 	                <div>
@@ -5281,39 +5257,29 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 	              </form>
 	              <div class="note">Monthly venue interaction history starts from this update forward.</div>
 
-	              ${selectedVenue ? `
-	                <div class="venue-monthly-grid">
-	                  <div class="mini">
-	                    <div style="font-weight:700; margin-bottom:10px;">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)} monthly interaction history</div>
-	                    <table class="venue-monthly-table">
-	                      <thead>
-	                        <tr>
-	                          <th>Month</th>
-	                          <th>Views</th>
-	                          <th>Phone</th>
-	                          <th>Website</th>
-	                          <th>Social</th>
-	                          <th>Total Clicks</th>
-	                        </tr>
-	                      </thead>
-	                      <tbody>
-	                        ${venueMonthlyHistory.length
-	                          ? venueMonthlyHistory.map((row) => `
-	                            <tr>
-	                              <td>${esc(row.label)}</td>
-	                              <td>${Number(row.views || 0).toLocaleString("en-US")}</td>
-	                              <td>${Number(row.phoneClicks || 0).toLocaleString("en-US")}</td>
-	                              <td>${Number(row.websiteClicks || 0).toLocaleString("en-US")}</td>
-	                              <td>${Number(row.socialClicks || 0).toLocaleString("en-US")}</td>
-	                              <td>${Number(row.totalClicks || 0).toLocaleString("en-US")}</td>
-	                            </tr>
-	                          `).join("")
-	                          : `<tr><td colspan="6" class="muted" style="text-align:left;">No monthly history yet for this venue.</td></tr>`}
-	                      </tbody>
-	                    </table>
-	                  </div>
-	                </div>
-	              ` : `<div class="muted" style="margin-top:12px;">Add a venue first to see monthly performance.</div>`}
+		              ${selectedVenue ? `
+		                <div class="venue-monthly-grid">
+		                  <div class="mini">
+		                    <div class="sectionTitle sectionTitle--chart" style="margin-bottom:10px;">
+		                      <div class="left">
+		                        <div style="font-weight:700;">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)} monthly performance</div>
+		                        <p class="sub">Last 12 months</p>
+		                      </div>
+		                      <div class="right">
+		                        <div class="metricToggle" id="venueChartMetricSeg" aria-label="Venue metric toggle">
+		                          <button type="button" data-metric="views" class="on">Views</button>
+		                          <button type="button" data-metric="clicks">Total Clicks</button>
+		                        </div>
+		                      </div>
+		                    </div>
+		                    <div class="chart-wrap" id="venueChartWrap" style="min-height:320px;">
+		                      <div id="venueChartData" data-chart="${esc(venueChartDataJson)}" hidden></div>
+		                      <canvas id="venueChart" style="width:100%; height:260px; display:block;"></canvas>
+		                      <div id="venueChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
+		                    </div>
+		                  </div>
+		                </div>
+		              ` : `<div class="muted" style="margin-top:12px;">Add a venue first to see monthly performance.</div>`}
 	            </div>
 	          </div>
 	          ` : ``}
@@ -6042,7 +6008,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       // Simple bar chart (no libraries) + hover tooltip + view toggles
 (function(){
   function initEventsChart(){
-    const chartSets = ${chartDataJson};
+    const $data   = document.getElementById("eventsChartData");
     const $canvas = document.getElementById("eventsChart");
     const $wrap   = document.getElementById("eventsChartWrap");
     const $tip    = document.getElementById("eventsChartTip");
@@ -6054,6 +6020,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
     if (!$canvas || !$wrap) return;
     const ctx = $canvas.getContext("2d");
     if (!ctx) return;
+
+    let chartSets = { events: {}, views: {} };
+    try {
+      if ($data) {
+        const parsed = JSON.parse($data.getAttribute("data-chart") || "{}");
+        if (parsed && typeof parsed === "object") {
+          chartSets = parsed;
+        }
+      }
+    } catch (_) {}
 
     let mode = "daily";
     let metric = "events";
@@ -6321,7 +6297,221 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
   window.addEventListener("resize", () => window.requestAnimationFrame(draw));
 }
 
+  function initVenueChart(){
+    const $data = document.getElementById("venueChartData");
+    const $canvas = document.getElementById("venueChart");
+    const $wrap = document.getElementById("venueChartWrap");
+    const $tip = document.getElementById("venueChartTip");
+    const $metricSeg = document.getElementById("venueChartMetricSeg");
+    if (!$canvas || !$wrap || !$metricSeg) return;
+
+    const ctx = $canvas.getContext("2d");
+    if (!ctx) return;
+
+    let chartSets = {
+      views: { labels: [], values: [] },
+      clicks: { labels: [], values: [] },
+    };
+    try {
+      if ($data) {
+        const parsed = JSON.parse($data.getAttribute("data-chart") || "{}");
+        if (parsed && typeof parsed === "object") {
+          chartSets = {
+            views: {
+              labels: Array.isArray(parsed.views?.labels) ? parsed.views.labels : [],
+              values: Array.isArray(parsed.views?.values) ? parsed.views.values : [],
+            },
+            clicks: {
+              labels: Array.isArray(parsed.clicks?.labels) ? parsed.clicks.labels : [],
+              values: Array.isArray(parsed.clicks?.values) ? parsed.clicks.values : [],
+            },
+          };
+        }
+      }
+    } catch (_) {}
+
+    let metric = "views";
+    let hoverIndex = -1;
+
+    function getSet(){
+      return chartSets[metric] || { labels: [], values: [] };
+    }
+
+    function setActiveBtn(){
+      $metricSeg.querySelectorAll("[data-metric]").forEach((btn) => {
+        const on = btn.getAttribute("data-metric") === metric;
+        btn.classList.toggle("on", on);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+    }
+
+    function sizeCanvas(){
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      let w = $wrap.clientWidth;
+      if (!w || w < 10) w = Math.floor($wrap.getBoundingClientRect().width || 0);
+      w = Math.max(320, w);
+      let h = $wrap.clientHeight;
+      if (!h || h < 10) h = Math.floor($wrap.getBoundingClientRect().height || 0);
+      h = Math.max(260, h || 320);
+      $canvas.style.width = w + "px";
+      $canvas.style.height = h + "px";
+      $canvas.width = Math.floor(w * dpr);
+      $canvas.height = Math.floor(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { w, h };
+    }
+
+    function draw(){
+      const set = getSet();
+      const labels = set.labels || [];
+      const values = set.values || [];
+      const { w, h } = sizeCanvas();
+      ctx.clearRect(0, 0, w, h);
+
+      if (!labels.length || !values.length) {
+        ctx.fillStyle = "rgba(15,23,42,.75)";
+        ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+        ctx.fillText("No monthly venue history yet", 18, 90);
+        return;
+      }
+
+      const padL = 56, padR = 18, padT = 18, padB = 46;
+      const gw = w - padL - padR;
+      const gh = h - padT - padB;
+      const maxV = Math.max(1, ...values);
+      const yTicks = Math.min(6, maxV);
+      const tickStep = Math.max(1, Math.ceil(maxV / yTicks));
+      const yMax = tickStep * yTicks;
+
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(15,23,42,.12)";
+      ctx.fillStyle = "rgba(15,23,42,.92)";
+      ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+
+      for (let i = 0; i <= yTicks; i++) {
+        const v = i * tickStep;
+        const y = padT + gh - (v / yMax) * gh;
+        ctx.beginPath();
+        ctx.moveTo(padL, y);
+        ctx.lineTo(padL + gw, y);
+        ctx.stroke();
+        ctx.fillText(String(v), 18, y + 4);
+      }
+
+      const n = values.length;
+      const gap = 16;
+      const barW = Math.max(10, Math.floor((gw - gap * (n - 1)) / n));
+      const totalW = barW * n + gap * (n - 1);
+      const x0 = padL + Math.max(0, (gw - totalW) / 2);
+
+      for (let i = 0; i < n; i++) {
+        const v = values[i];
+        const bh = (v / yMax) * gh;
+        const x = x0 + i * (barW + gap);
+        const y = padT + gh - bh;
+
+        ctx.fillStyle = metric === "clicks" ? "rgba(59,130,246,.45)" : "rgba(16,185,129,.45)";
+        ctx.fillRect(x, y, barW, bh);
+
+        if (i === hoverIndex) {
+          ctx.strokeStyle = metric === "clicks" ? "rgba(59,130,246,.95)" : "rgba(16,185,129,.95)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 0.5, y + 0.5, barW - 1, bh - 1);
+          ctx.lineWidth = 1;
+        }
+
+        const lab = labels[i] || "";
+        ctx.save();
+        ctx.translate(x + barW / 2, padT + gh + 22);
+        ctx.rotate(-0.35);
+        ctx.textAlign = "center";
+        ctx.fillStyle = "rgba(15,23,42,.92)";
+        ctx.fillText(lab, 0, 0);
+        ctx.restore();
+      }
+    }
+
+    function getBarIndexFromEvent(ev){
+      const set = getSet();
+      const values = set.values || [];
+      if (!values.length) return -1;
+      const rect = $canvas.getBoundingClientRect();
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      const padL = 56, padR = 18, padT = 18, padB = 46;
+      const gw = rect.width - padL - padR;
+      const gh = rect.height - padT - padB;
+      if (mx < padL || mx > padL + gw || my < padT || my > padT + gh) return -1;
+      const n = values.length;
+      const gap = 16;
+      const barW = Math.max(10, Math.floor((gw - gap * (n - 1)) / n));
+      const totalW = barW * n + gap * (n - 1);
+      const x0 = padL + Math.max(0, (gw - totalW) / 2);
+      for (let i = 0; i < n; i++) {
+        const x = x0 + i * (barW + gap);
+        if (mx >= x && mx <= x + barW) return i;
+      }
+      return -1;
+    }
+
+    function showTip(ev, idx){
+      if (!$tip) return;
+      const set = getSet();
+      const labels = set.labels || [];
+      const values = set.values || [];
+      const value = Number(values[idx] || 0);
+      $tip.textContent =
+        String(labels[idx] || "") +
+        ": " +
+        value.toLocaleString("en-US") +
+        " " +
+        (metric === "clicks" ? "clicks" : "views");
+      $tip.style.display = "block";
+      const rect = $canvas.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+      const tipRect = $tip.getBoundingClientRect();
+      const left = Math.min(rect.width - tipRect.width - 10, x + 12);
+      const top = Math.max(10, y - 32);
+      $tip.style.left = left + "px";
+      $tip.style.top = top + "px";
+    }
+
+    function hideTip(){
+      if ($tip) $tip.style.display = "none";
+    }
+
+    $metricSeg.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-metric]");
+      if (!btn) return;
+      metric = btn.getAttribute("data-metric") || "views";
+      hoverIndex = -1;
+      hideTip();
+      setActiveBtn();
+      draw();
+    });
+
+    $canvas.addEventListener("mousemove", (e) => {
+      const idx = getBarIndexFromEvent(e);
+      if (idx !== hoverIndex) {
+        hoverIndex = idx;
+        draw();
+      }
+      if (idx >= 0) showTip(e, idx); else hideTip();
+    });
+    $canvas.addEventListener("mouseleave", () => {
+      hoverIndex = -1;
+      hideTip();
+      draw();
+    });
+
+    setActiveBtn();
+    draw();
+    window.addEventListener("resize", () => window.requestAnimationFrame(draw));
+  }
+
   initEventsChart();
+  initVenueChart();
 })();</script>
   </body>
 </html>`);
