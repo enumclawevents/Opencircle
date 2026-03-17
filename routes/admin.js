@@ -639,6 +639,20 @@ async function ensureVenueSchema() {
     await run(`ALTER TABLE venues ADD COLUMN socialClickCount INTEGER NOT NULL DEFAULT 0`);
   }
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS venue_metric_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      venueId INTEGER NOT NULL,
+      metric TEXT NOT NULL,
+      createdAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  try {
+    await run(`CREATE INDEX IF NOT EXISTS idx_venue_metric_events_venueId ON venue_metric_events(venueId)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_venue_metric_events_metric ON venue_metric_events(metric)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_venue_metric_events_createdAt ON venue_metric_events(createdAt)`);
+  } catch (_) {}
+
   _venueColsCache = null;
   _venueSchemaEnsured = true;
 }
@@ -1612,6 +1626,87 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         clicks: Number(r.totalClicks || 0),
       })),
     };
+
+    const selectedVenueIdRaw = parseInt(String(req.query.venue || ""), 10);
+    const requestedVenueId = Number.isInteger(selectedVenueIdRaw) && selectedVenueIdRaw > 0
+      ? selectedVenueIdRaw
+      : null;
+    const venueAnalyticsOptions = await all(
+      `SELECT id, name, slug, city,
+              COALESCE(viewCount, 0) AS viewCount,
+              COALESCE(phoneClickCount, 0) AS phoneClickCount,
+              COALESCE(websiteClickCount, 0) AS websiteClickCount,
+              COALESCE(socialClickCount, 0) AS socialClickCount
+       FROM venues
+       ${venueDashWhereSql}
+       ORDER BY name COLLATE NOCASE ASC, id ASC`,
+      venueDashParams
+    );
+    const selectedVenue =
+      (requestedVenueId
+        ? venueAnalyticsOptions.find((v) => Number(v.id || 0) === requestedVenueId)
+        : null) ||
+      venueAnalyticsOptions[0] ||
+      null;
+    const selectedVenueActualId = selectedVenue ? Number(selectedVenue.id || 0) : null;
+
+    let venueMonthlyHistory = [];
+    let hasVenueMetricHistory = false;
+    try {
+      const metricTableRow = await get(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='venue_metric_events' LIMIT 1"
+      );
+      hasVenueMetricHistory = !!metricTableRow;
+      if (selectedVenueActualId && hasVenueMetricHistory) {
+        const monthlyRows = await all(
+          `SELECT strftime('%Y-%m', createdAt) AS ym,
+                  COALESCE(SUM(CASE WHEN metric = 'view' THEN 1 ELSE 0 END), 0) AS views,
+                  COALESCE(SUM(CASE WHEN metric = 'phone_click' THEN 1 ELSE 0 END), 0) AS phoneClicks,
+                  COALESCE(SUM(CASE WHEN metric = 'website_click' THEN 1 ELSE 0 END), 0) AS websiteClicks,
+                  COALESCE(SUM(CASE WHEN metric = 'social_click' THEN 1 ELSE 0 END), 0) AS socialClicks
+           FROM venue_metric_events
+           WHERE venueId = ?
+             AND date(createdAt) >= date('now', 'start of month', '-11 month')
+           GROUP BY ym
+           ORDER BY ym ASC`,
+          [selectedVenueActualId]
+        );
+        const monthlyMap = new Map(
+          (monthlyRows || []).map((row) => [
+            String(row.ym || ""),
+            {
+              views: Number(row.views || 0),
+              phoneClicks: Number(row.phoneClicks || 0),
+              websiteClicks: Number(row.websiteClicks || 0),
+              socialClicks: Number(row.socialClicks || 0),
+            },
+          ])
+        );
+        const monthCursor = new Date();
+        monthCursor.setDate(1);
+        venueMonthlyHistory = [];
+        for (let i = 11; i >= 0; i--) {
+          const dt = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - i, 1);
+          const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+          const base = monthlyMap.get(ym) || {
+            views: 0,
+            phoneClicks: 0,
+            websiteClicks: 0,
+            socialClicks: 0,
+          };
+          const totalClicks = base.phoneClicks + base.websiteClicks + base.socialClicks;
+          venueMonthlyHistory.push({
+            ym,
+            label: dt.toLocaleString("en-US", { month: "short", year: "numeric" }),
+            views: base.views,
+            phoneClicks: base.phoneClicks,
+            websiteClicks: base.websiteClicks,
+            socialClicks: base.socialClicks,
+            totalClicks,
+          });
+        }
+      }
+    } catch (_) {}
 
     // Top events by views (today / week / month / year)
     const hasViews = cols.has("viewCount");
@@ -3417,6 +3512,78 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 	      .filterActions .btn{
 	        min-width: 112px;
 	      }
+	      .analytics-toolbar{
+	        display:flex;
+	        gap:12px;
+	        align-items:end;
+	        flex-wrap:wrap;
+	        margin-top:14px;
+	      }
+	      .analytics-toolbar .ctrl{
+	        min-width: 280px;
+	      }
+	      .venue-monthly-grid{
+	        display:grid;
+	        grid-template-columns: 320px 1fr;
+	        gap:14px;
+	        margin-top:14px;
+	      }
+	      .venue-monthly-kpis{
+	        display:grid;
+	        gap:10px;
+	      }
+	      .venue-mini-kpi{
+	        border:1px solid var(--line);
+	        border-radius: var(--radius-inner);
+	        background: var(--panel2);
+	        padding:12px 14px;
+	      }
+	      .venue-mini-kpi .k{
+	        font-size:12px;
+	        color: var(--muted);
+	        font-weight:650;
+	        margin-bottom:6px;
+	      }
+	      .venue-mini-kpi .v{
+	        font-size:24px;
+	        font-weight:750;
+	        color: var(--text);
+	        line-height:1.1;
+	      }
+	      .venue-monthly-table{
+	        width:100%;
+	        border-collapse: collapse;
+	        font-size:14px;
+	      }
+	      .venue-monthly-table th,
+	      .venue-monthly-table td{
+	        padding:10px 12px;
+	        border-bottom:1px solid var(--line);
+	        text-align:right;
+	        white-space:nowrap;
+	      }
+	      .venue-monthly-table th:first-child,
+	      .venue-monthly-table td:first-child{
+	        text-align:left;
+	      }
+	      .venue-monthly-table th{
+	        font-size:12px;
+	        color: var(--muted);
+	        font-weight:700;
+	        letter-spacing:.02em;
+	      }
+	      .venue-monthly-table tbody tr:last-child td{
+	        border-bottom:0;
+	      }
+	      @media (max-width: 980px){
+	        .venue-monthly-grid{
+	          grid-template-columns: 1fr;
+	        }
+	        .analytics-toolbar .ctrl{
+	          min-width: 0;
+	          width: 100%;
+	        }
+	      }
 	      @media (max-width: 1100px){
 	        .listSearchRow{
 	          grid-template-columns: 1fr 1fr;
@@ -5036,11 +5203,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
           ` : ``}
 
           ${showVenueAnalytics ? `
-          <div class="card" id="venue-analytics">
-            <div class="sectionTitle">
-              <div>
-                <h2>Venue analytics</h2>
-                <p class="sub">Performance and data quality for venues</p>
+	          <div class="card" id="venue-analytics">
+	            <div class="sectionTitle">
+	              <div>
+	                <h2>Venue analytics</h2>
+	                <p class="sub">Performance and data quality for venues</p>
               </div>
             </div>
             <div class="kpis">
@@ -5123,14 +5290,96 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
               </div>
             </div>
 
-            <div class="grid4" style="margin-top:14px;">
-              <div class="metric"><div><div class="k">Phone clicks</div><div class="v">${esc(venueStats.phoneClicks)}</div></div></div>
-              <div class="metric"><div><div class="k">Website clicks</div><div class="v">${esc(venueStats.websiteClicks)}</div></div></div>
-              <div class="metric"><div><div class="k">Social clicks</div><div class="v">${esc(venueStats.socialClicks)}</div></div></div>
-              <div class="metric"><div><div class="k">Total clicks</div><div class="v">${esc(venueStats.totalClicks)}</div></div></div>
-            </div>
-          </div>
-          ` : ``}
+	            <div class="grid4" style="margin-top:14px;">
+	              <div class="metric"><div><div class="k">Phone clicks</div><div class="v">${esc(venueStats.phoneClicks)}</div></div></div>
+	              <div class="metric"><div><div class="k">Website clicks</div><div class="v">${esc(venueStats.websiteClicks)}</div></div></div>
+	              <div class="metric"><div><div class="k">Social clicks</div><div class="v">${esc(venueStats.socialClicks)}</div></div></div>
+	              <div class="metric"><div><div class="k">Total clicks</div><div class="v">${esc(venueStats.totalClicks)}</div></div></div>
+	            </div>
+
+	            <div class="card" style="margin-top:14px;">
+	              <div class="sectionTitle">
+	                <div>
+	                  <h2>Venue monthly performance</h2>
+	                  <p class="sub">Choose one venue to review monthly views and click activity</p>
+	                </div>
+	              </div>
+	              <form class="analytics-toolbar" method="GET" action="/admin/venues/analytics">
+	                ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
+	                <div style="min-width:0; flex:1 1 360px;">
+	                  <label for="venueAnalyticsSelect" style="margin-top:0;">Venue</label>
+	                  <select id="venueAnalyticsSelect" name="venue" class="ctrl">
+	                    ${venueAnalyticsOptions.length
+	                      ? venueAnalyticsOptions.map((venue) => `
+	                        <option value="${Number(venue.id || 0)}" ${selectedVenueActualId === Number(venue.id || 0) ? "selected" : ""}>
+	                          ${esc(venue.name || `Venue #${venue.id}`)}
+	                        </option>
+	                      `).join("")
+	                      : `<option value="">No venues available</option>`}
+	                  </select>
+	                </div>
+	                <button class="btn btn-primary" type="submit" ${venueAnalyticsOptions.length ? "" : "disabled"}>View venue</button>
+	              </form>
+	              <div class="note">Monthly venue interaction history starts from this update forward. Existing lifetime totals below are preserved.</div>
+
+	              ${selectedVenue ? `
+	                <div class="venue-monthly-grid">
+	                  <div class="venue-monthly-kpis">
+	                    <div class="venue-mini-kpi">
+	                      <div class="k">Selected venue</div>
+	                      <div class="v" style="font-size:20px;">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)}</div>
+	                    </div>
+	                    <div class="venue-mini-kpi">
+	                      <div class="k">Lifetime views</div>
+	                      <div class="v">${Number(selectedVenue.viewCount || 0).toLocaleString("en-US")}</div>
+	                    </div>
+	                    <div class="venue-mini-kpi">
+	                      <div class="k">Lifetime phone clicks</div>
+	                      <div class="v">${Number(selectedVenue.phoneClickCount || 0).toLocaleString("en-US")}</div>
+	                    </div>
+	                    <div class="venue-mini-kpi">
+	                      <div class="k">Lifetime website clicks</div>
+	                      <div class="v">${Number(selectedVenue.websiteClickCount || 0).toLocaleString("en-US")}</div>
+	                    </div>
+	                    <div class="venue-mini-kpi">
+	                      <div class="k">Lifetime social clicks</div>
+	                      <div class="v">${Number(selectedVenue.socialClickCount || 0).toLocaleString("en-US")}</div>
+	                    </div>
+	                  </div>
+	                  <div class="mini">
+	                    <div style="font-weight:700; margin-bottom:10px;">Monthly interaction history</div>
+	                    <table class="venue-monthly-table">
+	                      <thead>
+	                        <tr>
+	                          <th>Month</th>
+	                          <th>Views</th>
+	                          <th>Phone</th>
+	                          <th>Website</th>
+	                          <th>Social</th>
+	                          <th>Total Clicks</th>
+	                        </tr>
+	                      </thead>
+	                      <tbody>
+	                        ${venueMonthlyHistory.length
+	                          ? venueMonthlyHistory.map((row) => `
+	                            <tr>
+	                              <td>${esc(row.label)}</td>
+	                              <td>${Number(row.views || 0).toLocaleString("en-US")}</td>
+	                              <td>${Number(row.phoneClicks || 0).toLocaleString("en-US")}</td>
+	                              <td>${Number(row.websiteClicks || 0).toLocaleString("en-US")}</td>
+	                              <td>${Number(row.socialClicks || 0).toLocaleString("en-US")}</td>
+	                              <td>${Number(row.totalClicks || 0).toLocaleString("en-US")}</td>
+	                            </tr>
+	                          `).join("")
+	                          : `<tr><td colspan="6" class="muted" style="text-align:left;">No monthly history yet for this venue.</td></tr>`}
+	                      </tbody>
+	                    </table>
+	                  </div>
+	                </div>
+	              ` : `<div class="muted" style="margin-top:12px;">Add a venue first to see monthly performance.</div>`}
+	            </div>
+	          </div>
+	          ` : ``}
         </section>
         ` : ``}
 

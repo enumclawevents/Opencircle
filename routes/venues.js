@@ -138,6 +138,20 @@ async function ensureVenueSchema() {
     }
   }
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS venue_metric_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      venueId INTEGER NOT NULL,
+      metric TEXT NOT NULL,
+      createdAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  try {
+    await run(`CREATE INDEX IF NOT EXISTS idx_venue_metric_events_venueId ON venue_metric_events(venueId)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_venue_metric_events_metric ON venue_metric_events(metric)`);
+    await run(`CREATE INDEX IF NOT EXISTS idx_venue_metric_events_createdAt ON venue_metric_events(createdAt)`);
+  } catch (_) {}
+
   _colsCache = null;
   _schemaEnsured = true;
 }
@@ -180,6 +194,12 @@ async function incrementVenueCounter(venueId, field) {
 
   const allowed = new Set(["viewCount", "phoneClickCount", "websiteClickCount", "socialClickCount"]);
   if (!allowed.has(String(field || ""))) return;
+  const metricMap = {
+    viewCount: "view",
+    phoneClickCount: "phone_click",
+    websiteClickCount: "website_click",
+    socialClickCount: "social_click",
+  };
 
   try {
     await run(
@@ -188,6 +208,10 @@ async function incrementVenueCounter(venueId, field) {
               updatedAt = datetime('now')
         WHERE id = ?`,
       [id]
+    );
+    await run(
+      `INSERT INTO venue_metric_events (venueId, metric) VALUES (?, ?)`,
+      [id, metricMap[field] || String(field || "")]
     );
   } catch (_) {}
 }
