@@ -4,6 +4,7 @@ const express = require("express");
 const router = express.Router();
 const { all, get, run } = require("../db");
 const crypto = require("crypto");
+const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const PAST_EVENTS_LIMIT = 24;
 const PAST_EVENTS_CACHE_MS = 5 * 60 * 1000;
 const pastEventsCache = new Map();
@@ -62,25 +63,6 @@ function addHoursIso(iso, hours) {
   }
 }
 
-function normalizeTextForDupe(v) {
-  return String(v || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function sameCalendarDay(aTs, bTs) {
-  if (!Number.isFinite(aTs) || !Number.isFinite(bTs)) return false;
-  const a = new Date(aTs);
-  const b = new Date(bTs);
-  return (
-    a.getUTCFullYear() === b.getUTCFullYear() &&
-    a.getUTCMonth() === b.getUTCMonth() &&
-    a.getUTCDate() === b.getUTCDate()
-  );
-}
-
 // Public submission endpoint (frontend form -> pending approvals)
 router.post("/submit", async (req, res) => {
   try {
@@ -118,85 +100,41 @@ router.post("/submit", async (req, res) => {
       endDateTime = addHoursIso(startDateTime, 1);
     }
 
-    // Duplicate detection: same city + very similar title and date/time.
-    // This is intentionally conservative so we only block likely duplicates.
-    const submittedStartTs = Date.parse(startDateTime);
-    const submittedTitleNorm = normalizeTextForDupe(title);
-    const submittedLocNorm = normalizeTextForDupe(location);
-
     const activeEvents = await all(
-      `SELECT id, title, startDateTime, location, slug
+      `SELECT id, title, startDateTime, endDateTime, location, organizer, ticketUrl, slug
          FROM events
         WHERE LOWER(city) = LOWER(?)
           AND COALESCE(archived, 0) = 0
         ORDER BY datetime(startDateTime) DESC
-        LIMIT 500`,
+        LIMIT 800`,
       [city]
     );
 
     const pendingEvents = await all(
-      `SELECT id, title, startDateTime, location
+      `SELECT id, title, startDateTime, endDateTime, location, organizer, ticketUrl, eventLink
          FROM pending_events
         WHERE LOWER(city) = LOWER(?)
         ORDER BY datetime(startDateTime) DESC
-        LIMIT 500`,
+        LIMIT 800`,
       [city]
     );
-
-    const matches = [];
-
-    for (const row of activeEvents || []) {
-      const candTitleNorm = normalizeTextForDupe(row.title);
-      if (!candTitleNorm || candTitleNorm !== submittedTitleNorm) continue;
-
-      const candStartTs = Date.parse(String(row.startDateTime || ""));
-      const closeInTime =
-        Number.isFinite(submittedStartTs) &&
-        Number.isFinite(candStartTs) &&
-        Math.abs(submittedStartTs - candStartTs) <= 12 * 60 * 60 * 1000;
-
-      const sameDayAndPlace =
-        sameCalendarDay(submittedStartTs, candStartTs) &&
-        submittedLocNorm !== "" &&
-        normalizeTextForDupe(row.location) === submittedLocNorm;
-
-      if (!closeInTime && !sameDayAndPlace) continue;
-
-      matches.push({
-        source: "events",
-        id: row.id,
-        title: row.title,
-        startDateTime: row.startDateTime,
-        location: row.location || "",
-        slug: row.slug || "",
-      });
-    }
-
-    for (const row of pendingEvents || []) {
-      const candTitleNorm = normalizeTextForDupe(row.title);
-      if (!candTitleNorm || candTitleNorm !== submittedTitleNorm) continue;
-
-      const candStartTs = Date.parse(String(row.startDateTime || ""));
-      const closeInTime =
-        Number.isFinite(submittedStartTs) &&
-        Number.isFinite(candStartTs) &&
-        Math.abs(submittedStartTs - candStartTs) <= 12 * 60 * 60 * 1000;
-
-      const sameDayAndPlace =
-        sameCalendarDay(submittedStartTs, candStartTs) &&
-        submittedLocNorm !== "" &&
-        normalizeTextForDupe(row.location) === submittedLocNorm;
-
-      if (!closeInTime && !sameDayAndPlace) continue;
-
-      matches.push({
-        source: "pending_events",
-        id: row.id,
-        title: row.title,
-        startDateTime: row.startDateTime,
-        location: row.location || "",
-      });
-    }
+    const ticketUrl = String(body.ticketUrl || "").trim() || null;
+    const eventLink = String(body.eventLink || "").trim() || null;
+    const matches = findLikelyEventDuplicates(
+      {
+        title,
+        startDateTime,
+        endDateTime,
+        location,
+        organizer,
+        ticketUrl,
+        eventLink,
+      },
+      [
+        ...(activeEvents || []).map((row) => ({ ...row, source: "events" })),
+        ...(pendingEvents || []).map((row) => ({ ...row, source: "pending_events" })),
+      ]
+    );
 
     if (matches.length > 0) {
       const first = matches[0];
@@ -204,7 +142,18 @@ router.post("/submit", async (req, res) => {
         ok: false,
         duplicate: true,
         error: `Possible duplicate detected: "${first.title}" on ${first.startDateTime}.`,
-        matches: matches.slice(0, 10),
+        matches: matches.slice(0, 10).map((row) => ({
+          id: row.id,
+          source: row.source,
+          title: row.title,
+          startDateTime: row.startDateTime,
+          endDateTime: row.endDateTime || null,
+          location: row.location || "",
+          organizer: row.organizer || "",
+          slug: row.slug || "",
+          score: row.score,
+          reasons: row.reasons,
+        })),
       });
     }
 
@@ -212,8 +161,6 @@ router.post("/submit", async (req, res) => {
     const categories = JSON.stringify(cats);
 
     const imageUrl = String(body.imageUrl || "").trim() || null;
-    const eventLink = String(body.eventLink || "").trim() || null;
-    const ticketUrl = String(body.ticketUrl || "").trim() || null;
     const ticketLabel = String(body.ticketLabel || "").trim() || "Tickets";
     const eventDetails = String(body.eventDetails || "").trim() || "";
     const goodToKnow = String(body.goodToKnow || "").trim() || "";

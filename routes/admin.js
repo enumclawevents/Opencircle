@@ -10,6 +10,7 @@ const multer = require("multer");
 const { S3Client } = require("@aws-sdk/client-s3");
 const multerS3 = require("multer-s3");
 const { sendEmail } = require("../mailer");
+const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const crypto = require("crypto");
 const PASSWORD_ITER = 120000;
 
@@ -446,6 +447,59 @@ function esc(s) {
     .replaceAll('"', "&quot;");
 }
 
+function buildAdminDuplicateResponse(submitted, matches) {
+  const first = matches[0] || {};
+  const items = (matches || []).slice(0, 8).map((match) => {
+    const href = match.source === "events" && match.id
+      ? `/admin/create-events?edit=${encodeURIComponent(String(match.id))}`
+      : "";
+    const reasons = Array.isArray(match.reasons) ? match.reasons.join(" · ") : "";
+    return `
+      <div style="border:1px solid rgba(15,23,42,.10); border-radius:12px; background:#fff; padding:14px;">
+        <div style="font-weight:700; font-size:16px; color:#0f172a;">${esc(match.title || "Potential duplicate")}</div>
+        <div style="margin-top:6px; color:#526377;">${esc(match.startDateTime || "")}${match.location ? ` · ${esc(match.location)}` : ""}</div>
+        <div style="margin-top:6px; color:#526377;">Score: ${esc(String(match.score || 0))}</div>
+        ${reasons ? `<div style="margin-top:6px; color:#526377;">${esc(reasons)}</div>` : ""}
+        ${href ? `<div style="margin-top:10px;"><a href="${href}" style="color:#0ea5e9; text-decoration:none; font-weight:700;">Open existing event</a></div>` : ""}
+      </div>
+    `;
+  }).join("");
+
+  return `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Possible Duplicate Event</title>
+      <style>
+        body{margin:0;background:#edf2f7;color:#0f172a;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
+        .wrap{max-width:920px;margin:0 auto;padding:24px;}
+        .card{background:#fff;border:1px solid rgba(15,23,42,.10);border-radius:16px;padding:22px;}
+        .matches{display:grid;gap:12px;margin-top:18px;}
+        .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;}
+        .btn{display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 16px;border-radius:12px;border:1px solid rgba(15,23,42,.10);background:#fff;color:#0f172a;text-decoration:none;font-weight:700;}
+        .btn-primary{background:#00c08b;color:#fff;border-color:#00c08b;}
+        .note{margin-top:10px;color:#526377;}
+      </style>
+    </head>
+    <body>
+      <div class="wrap">
+        <div class="card">
+          <h1 style="margin:0;font-size:30px;line-height:1.1;">Possible duplicate event detected</h1>
+          <p style="margin:12px 0 0;color:#526377;">"${esc(submitted.title || "")}" looks close to an existing event. This save was paused to protect current content.</p>
+          ${first.title ? `<p class="note">Top match: ${esc(first.title)} on ${esc(first.startDateTime || "")}.</p>` : ``}
+          <div class="matches">${items || `<div style="color:#526377;">No detailed matches available.</div>`}</div>
+          <div class="actions">
+            <a class="btn" href="javascript:history.back()">Go Back</a>
+            <a class="btn btn-primary" href="javascript:history.back()">Review And Save Again</a>
+          </div>
+          <div class="note">If this is genuinely a different event, go back, check “Save anyway if a possible duplicate is found,” and submit again.</div>
+        </div>
+      </div>
+    </body>
+  </html>`;
+}
+
 function bytesToHuman(bytes) {
   const n = Number(bytes || 0);
   if (!Number.isFinite(n) || n <= 0) return "0 B";
@@ -505,6 +559,37 @@ async function getEventsColumns() {
     _eventsColsCache = new Set();
     return _eventsColsCache;
   }
+}
+
+async function findAdminEventDuplicateMatches({ city, title, startDateTime, endDateTime, location, organizer, ticketUrl, eventLink, excludeEventId = null, excludePendingId = null }) {
+  const activeEvents = await all(
+    `SELECT id, title, startDateTime, endDateTime, location, organizer, ticketUrl, slug
+       FROM events
+      WHERE LOWER(city) = LOWER(?)
+        AND COALESCE(archived, 0) = 0
+        ${excludeEventId ? "AND id <> ?" : ""}
+      ORDER BY datetime(startDateTime) DESC
+      LIMIT 800`,
+    excludeEventId ? [city, excludeEventId] : [city]
+  );
+
+  const pendingEvents = await all(
+    `SELECT id, title, startDateTime, endDateTime, location, organizer, ticketUrl, eventLink
+       FROM pending_events
+      WHERE LOWER(city) = LOWER(?)
+        ${excludePendingId ? "AND id <> ?" : ""}
+      ORDER BY datetime(startDateTime) DESC
+      LIMIT 800`,
+    excludePendingId ? [city, excludePendingId] : [city]
+  );
+
+  return findLikelyEventDuplicates(
+    { city, title, startDateTime, endDateTime, location, organizer, ticketUrl, eventLink },
+    [
+      ...(activeEvents || []).map((row) => ({ ...row, source: "events" })),
+      ...(pendingEvents || []).map((row) => ({ ...row, source: "pending_events" })),
+    ]
+  );
 }
 
 // --- Archive schema (soft-delete best practice) ---
@@ -3128,6 +3213,35 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         display:flex; align-items:center; justify-content:space-between; gap:14px;
         margin-bottom:18px;
       }
+      .h-left{
+        display:flex;
+        align-items:flex-start;
+        gap:12px;
+        min-width:0;
+      }
+      .h-left-copy{
+        min-width:0;
+      }
+      .mobile-sidebar-toggle{
+        display:none;
+        width:40px;
+        height:40px;
+        border-radius:999px;
+        border:1px solid var(--line);
+        background:#fff;
+        color:var(--text);
+        align-items:center;
+        justify-content:center;
+        flex:0 0 40px;
+      }
+      .mobile-sidebar-toggle i{ font-size:15px; }
+      .sidebar-backdrop{
+        display:none;
+        position:fixed;
+        inset:0;
+        background:rgba(15,23,42,.42);
+        z-index:70;
+      }
       .h-left h1{ margin:0; font-size:30px; letter-spacing:-.02em; font-weight:700; line-height:1.1; }
       .h-left p{ margin:10px 0 0; color:var(--muted); font-size:15px; line-height:1.45; max-width:68ch; }
       .h-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
@@ -3340,7 +3454,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
         .venue-analytics-grid2{ grid-template-columns: 1fr; }
         .gridMain{ grid-template-columns: 1fr; }
         .rail{ display:none; }
-        .sidebar{ display:none; }
+        .mobile-sidebar-toggle{ display:inline-flex; }
+        .sidebar{
+          display:flex;
+          position:fixed;
+          top:0;
+          left:0;
+          bottom:0;
+          height:100vh;
+          width:min(280px, 82vw);
+          max-width:280px;
+          transform:translateX(-100%);
+          transition:transform .2s ease;
+          box-shadow:0 20px 50px rgba(15,23,42,.22);
+        }
+        body.sidebar-open .sidebar{ transform:translateX(0); }
+        body.sidebar-open .sidebar-backdrop{ display:block; }
+        body.sidebar-open{ overflow:hidden; }
         .main{ padding:16px; }
         .search input{ min-width: 160px; }
       }
@@ -4238,9 +4368,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
   </head>
   <body>
     <div class="app">
+      <button type="button" class="sidebar-backdrop" id="sidebarBackdrop" aria-label="Close sidebar"></button>
 
       <!-- Sidebar -->
-      <aside class="sidebar">
+      <aside class="sidebar" id="adminSidebar">
         <div class="sb-brand">
           <div class="sb-top">
           <div class="sb-icon">
@@ -4339,6 +4470,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
       <main class="main">
         <div class="header">
           <div class="h-left">
+            <button type="button" class="mobile-sidebar-toggle" id="mobileSidebarToggle" aria-label="Open sidebar" aria-expanded="false" aria-controls="adminSidebar">
+              <i class="fa-solid fa-bars" aria-hidden="true"></i>
+            </button>
+            <div class="h-left-copy">
             <h1>${
               showCreate
                 ? "Create Events"
@@ -4407,6 +4542,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
                 ? "Manage your account details, profile photo, and password"
                 : "Combined events/venues overview with quick actions"
             }</p>
+            </div>
           </div>
 
           <div class="h-right">
@@ -5165,6 +5301,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
               <label>Organizer</label>
               <input class="ctrl" name="organizer" value="${esc(editEvent?.organizer || "")}" required />
+
+              <div class="rec-box" style="margin-top:14px;">
+                <div class="checkbox">
+                  <input type="checkbox" id="forceDuplicateSave" name="forceDuplicateSave" value="1" />
+                  <label for="forceDuplicateSave" style="margin:0;font-size:12px;font-weight:650;">Save anyway if a possible duplicate is found</label>
+                </div>
+                <div class="note">Use this only when you are sure it is a separate event and not an accidental duplicate.</div>
+              </div>
 
               <div class="actions">
                 <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
@@ -6177,6 +6321,37 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.4");
 
     <script>
       // ---- helpers ----
+      (function(){
+        var body = document.body;
+        var toggle = document.getElementById("mobileSidebarToggle");
+        var backdrop = document.getElementById("sidebarBackdrop");
+        var sidebar = document.getElementById("adminSidebar");
+        if (!body || !toggle || !backdrop || !sidebar) return;
+
+        function sync(open){
+          body.classList.toggle("sidebar-open", !!open);
+          toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        }
+
+        toggle.addEventListener("click", function(){
+          sync(!body.classList.contains("sidebar-open"));
+        });
+        backdrop.addEventListener("click", function(){
+          sync(false);
+        });
+        sidebar.addEventListener("click", function(e){
+          if (window.innerWidth > 1100) return;
+          var link = e.target.closest("a");
+          if (link) sync(false);
+        });
+        window.addEventListener("resize", function(){
+          if (window.innerWidth > 1100) sync(false);
+        });
+        document.addEventListener("keydown", function(e){
+          if (e.key === "Escape") sync(false);
+        });
+      })();
+
       (function(){
         var groups = document.querySelectorAll("[data-nav-group]");
         if (!groups || !groups.length) return;
@@ -8019,6 +8194,29 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     }
     if (endMs <= startMs) {
       return res.status(400).send("End time must be after start time.");
+    }
+
+    const forceDuplicateSave = String(req.body?.forceDuplicateSave || "") === "1";
+    if (!forceDuplicateSave) {
+      const duplicateMatches = await findAdminEventDuplicateMatches({
+        city,
+        title,
+        startDateTime,
+        endDateTime,
+        location,
+        organizer,
+        ticketUrl,
+        eventLink: req.body?.eventLink || "",
+        excludeEventId: id ? Number(id) : null,
+        excludePendingId: pendingId ? parseInt(String(pendingId), 10) : null,
+      });
+      if (duplicateMatches.length) {
+        return res.status(409).send(buildAdminDuplicateResponse({
+          title,
+          startDateTime,
+          location,
+        }, duplicateMatches));
+      }
     }
 
     const featuredFlag = role === "creator" ? 0 : (String(featured || "") === "1" ? 1 : 0);
