@@ -1625,7 +1625,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.5");
+const appVersion = String(process.env.APP_VERSION || "v0.0.6");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1639,6 +1639,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.5");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("Public jobs JSON feed");
+    releaseItems.push("Jobs JSON link");
     releaseItems.push("Ads module");
     releaseItems.push("Mobile sidebar");
     releaseItems.push("Duplicate event detection");
@@ -5835,6 +5837,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.5");
               <div>
                 <h2>All jobs</h2>
                 <p class="sub">Search, edit, and manage local job listings</p>
+              </div>
+              <div class="right">
+                <a class="btn" href="/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" target="_blank" rel="noopener">View JSON</a>
               </div>
             </div>
 

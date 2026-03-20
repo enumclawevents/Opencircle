@@ -13,6 +13,7 @@ const eventsRouter = require("./routes/events");
 const adminRouter = require("./routes/admin");
 const venuesRouter = require("./routes/venues");
 const adsRouter = require("./routes/ads");
+const jobsRouter = require("./routes/jobs");
 
 const app = express();
 app.locals.reqTimes = [];
@@ -177,6 +178,7 @@ function requireLogin(req, res, next) {
     req.path.startsWith("/events") ||
     req.path.startsWith("/venues") ||
     req.path.startsWith("/ads") ||
+    req.path.startsWith("/jobs") ||
 
     req.path.startsWith("/uploads") ||
     req.path.startsWith("/assets")
@@ -613,6 +615,7 @@ app.use(requireLogin);
 app.use("/events", eventsRouter);
 app.use("/venues", venuesRouter);
 app.use("/ads", adsRouter);
+app.use("/jobs", jobsRouter);
 app.use("/admin", adminRouter);
 
 // Global error handler (so 500s are logged)
