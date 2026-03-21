@@ -141,6 +141,42 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
 });
 
+const JOB_APPLICATION_FIELDS = [
+  { key: "firstName", label: "First name" },
+  { key: "lastName", label: "Last name" },
+  { key: "email", label: "Email" },
+  { key: "phone", label: "Phone" },
+  { key: "coverLetter", label: "Cover letter" },
+  { key: "resume", label: "Resume upload" },
+];
+
+function defaultJobApplicationFields() {
+  return {
+    firstName: "required",
+    lastName: "required",
+    email: "required",
+    phone: "optional",
+    coverLetter: "optional",
+    resume: "optional",
+  };
+}
+
+function normalizeJobApplicationMode(input) {
+  const mode = String(input || "external").trim().toLowerCase();
+  return ["external", "website", "both"].includes(mode) ? mode : "external";
+}
+
+function normalizeJobApplicationFields(input) {
+  const defaults = defaultJobApplicationFields();
+  const raw = (input && typeof input === "object") ? input : {};
+  const out = {};
+  for (const field of JOB_APPLICATION_FIELDS) {
+    const value = String(raw[field.key] || defaults[field.key] || "optional").trim().toLowerCase();
+    out[field.key] = ["off", "optional", "required"].includes(value) ? value : defaults[field.key];
+  }
+  return out;
+}
+
 function normalizeCategories(input) {
   let arr = [];
   if (Array.isArray(input)) arr = input;
@@ -809,6 +845,8 @@ async function ensureJobSchema() {
   if (!cols.has("imageUrl")) await run(`ALTER TABLE jobs ADD COLUMN imageUrl TEXT`);
   if (!cols.has("description")) await run(`ALTER TABLE jobs ADD COLUMN description TEXT`);
   if (!cols.has("status")) await run(`ALTER TABLE jobs ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
+  if (!cols.has("applicationMode")) await run(`ALTER TABLE jobs ADD COLUMN applicationMode TEXT NOT NULL DEFAULT 'external'`);
+  if (!cols.has("applicationFieldsJson")) await run(`ALTER TABLE jobs ADD COLUMN applicationFieldsJson TEXT`);
   if (!cols.has("viewCount")) await run(`ALTER TABLE jobs ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0`);
   if (!cols.has("createdAt")) await run(`ALTER TABLE jobs ADD COLUMN createdAt TEXT DEFAULT (datetime('now'))`);
   if (!cols.has("updatedAt")) await run(`ALTER TABLE jobs ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'))`);
@@ -942,6 +980,7 @@ async function ensureJobApplicantSchema() {
       phone TEXT,
       resumeUrl TEXT,
       coverLetter TEXT,
+      fieldsJson TEXT,
       status TEXT NOT NULL DEFAULT 'new',
       source TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
@@ -954,6 +993,10 @@ async function ensureJobApplicantSchema() {
     await run(`CREATE INDEX IF NOT EXISTS idx_job_applicants_status ON job_applicants(status)`);
     await run(`CREATE INDEX IF NOT EXISTS idx_job_applicants_createdAt ON job_applicants(createdAt)`);
   } catch (_) {}
+
+  const applicantCols = await all("PRAGMA table_info(job_applicants)");
+  const applicantNames = new Set((applicantCols || []).map((r) => String(r.name)));
+  if (!applicantNames.has("fieldsJson")) await run(`ALTER TABLE job_applicants ADD COLUMN fieldsJson TEXT`);
 
   _jobApplicantSchemaEnsured = true;
 }
@@ -1625,7 +1668,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.6");
+const appVersion = String(process.env.APP_VERSION || "v0.0.7");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1639,6 +1682,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.6");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("Website job applications");
+    releaseItems.push("Configurable job application fields");
     releaseItems.push("Public jobs JSON feed");
     releaseItems.push("Jobs JSON link");
     releaseItems.push("Ads module");
@@ -2320,6 +2365,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.6");
         editJob = await get("SELECT * FROM jobs WHERE id = ?", [jobId]);
       }
     }
+    const editJobApplicationMode = normalizeJobApplicationMode(editJob?.applicationMode || "external");
+    const editJobApplicationFields = normalizeJobApplicationFields(safeParseJson(editJob?.applicationFieldsJson, null));
 
     let editVenue = null;
     if (showVenueCreate && req.query.edit) {
@@ -2450,7 +2497,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.6");
       jobShowingTo = Math.min(offset + limit, jobTotal);
 
       jobRows = await all(
-        "SELECT id, city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status, viewCount, createdAt " +
+        "SELECT id, city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt " +
         "FROM jobs " + jobWhereSql + " ORDER BY datetime(createdAt) DESC, id DESC LIMIT ? OFFSET ?",
         [...jobParams, limit, offset]
       );
@@ -2479,7 +2526,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.6");
       jobApplicantsShowingTo = Math.min(offset + limit, jobApplicantsTotal);
 
       jobApplicantsRows = await all(
-        "SELECT a.id, a.jobId, a.firstName, a.lastName, a.email, a.phone, a.resumeUrl, a.coverLetter, a.status, a.source, a.createdAt, " +
+        "SELECT a.id, a.jobId, a.firstName, a.lastName, a.email, a.phone, a.resumeUrl, a.coverLetter, a.fieldsJson, a.status, a.source, a.createdAt, " +
         "j.title AS jobTitle, j.company AS jobCompany, j.city AS jobCity " +
         "FROM job_applicants a LEFT JOIN jobs j ON j.id = a.jobId " +
         applicantWhereSql + " ORDER BY datetime(a.createdAt) DESC, a.id DESC LIMIT ? OFFSET ?",
@@ -5789,13 +5836,26 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.6");
                   </select>
                 </div>
                 <div>
+                  <label style="margin-top:0;">Application Method</label>
+                  <select class="ctrl" name="applicationMode">
+                    <option value="external" ${editJobApplicationMode === "external" ? "selected" : ""}>External URL only</option>
+                    <option value="website" ${editJobApplicationMode === "website" ? "selected" : ""}>Website form only</option>
+                    <option value="both" ${editJobApplicationMode === "both" ? "selected" : ""}>Both website form and external URL</option>
+                  </select>
+                  <div class="note">Choose whether applications happen on your website, off-site, or both.</div>
+                </div>
+              </div>
+
+              <div class="rec-grid" style="margin-top:10px;">
+                <div>
                   <label style="margin-top:0;">Salary / Pay Range</label>
                   <input class="ctrl" name="salaryRange" value="${esc(editJob?.salaryRange || "")}" placeholder="$20/hr · $45k-$60k" />
                 </div>
               </div>
 
               <label>Apply URL</label>
-              <input class="ctrl" name="applyUrl" value="${esc(editJob?.applyUrl || "")}" placeholder="https://..." required />
+              <input class="ctrl" name="applyUrl" value="${esc(editJob?.applyUrl || "")}" placeholder="https://..." />
+              <div class="note">Only required when the job uses an external apply link.</div>
 
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
@@ -5811,6 +5871,27 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.6");
 
               <label>Description</label>
               <textarea class="ctrl" name="description" rows="5">${esc(editJob?.description || "")}</textarea>
+
+              <div class="card" style="margin-top:14px; padding:16px;">
+                <div class="sectionTitle" style="margin-bottom:8px;">
+                  <div>
+                    <h2 style="font-size:18px;">Website application fields</h2>
+                    <p class="sub">Choose which fields are shown if this job accepts applications on your website.</p>
+                  </div>
+                </div>
+                <div class="rec-grid">
+                  ${JOB_APPLICATION_FIELDS.map((field) => `
+                    <div>
+                      <label style="margin-top:0;">${esc(field.label)}</label>
+                      <select class="ctrl" name="applicationField_${esc(field.key)}">
+                        <option value="off" ${editJobApplicationFields[field.key] === "off" ? "selected" : ""}>Off</option>
+                        <option value="optional" ${editJobApplicationFields[field.key] === "optional" ? "selected" : ""}>Optional</option>
+                        <option value="required" ${editJobApplicationFields[field.key] === "required" ? "selected" : ""}>Required</option>
+                      </select>
+                    </div>
+                  `).join("")}
+                </div>
+              </div>
 
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
@@ -5870,6 +5951,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.6");
                         <div><strong>Company:</strong> ${esc(j.company || "")}</div>
                         <div><strong>Location:</strong> ${esc(j.location || "")}</div>
                         <div><strong>Type:</strong> ${esc(j.employmentType || "")}</div>
+                        <div><strong>Apply method:</strong> ${esc(j.applicationMode || "external")}</div>
                         <div><strong>Pay:</strong> ${esc(j.salaryRange || "")}</div>
                         ${j.applyUrl ? `<div><strong>Apply:</strong> <a href="${esc(j.applyUrl)}" target="_blank" rel="noopener">${esc(j.applyUrl)}</a></div>` : ``}
                         <div><strong>Status:</strong> ${esc(j.status || "active")}</div>
@@ -5929,6 +6011,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.6");
 
             <div id="jobApplicantsList" style="display:grid; gap:var(--gap);">
               ${jobApplicantsRows.length ? jobApplicantsRows.map((a) => `
+                ${(() => {
+                  const submitted = safeParseJson(a.fieldsJson, null);
+                  const submittedSummary = submitted && typeof submitted === "object"
+                    ? Object.entries(submitted)
+                        .filter(([, value]) => value !== "" && value !== false && value !== null && value !== undefined)
+                        .map(([key]) => JOB_APPLICATION_FIELDS.find((field) => field.key === key)?.label || key)
+                        .join(", ")
+                    : "";
+                  return `
                 <div class="event-card venue-card">
                   <div class="event-thumb">
                     <div class="thumb-empty">${esc(String(a.firstName || "").slice(0,1) + String(a.lastName || "").slice(0,1) || "AP")}</div>
@@ -5944,11 +6035,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.6");
                         <div><strong>Status:</strong> ${esc(a.status || "new")}</div>
                         <div><strong>Source:</strong> ${esc(a.source || "direct")}</div>
                         <div><strong>Applied:</strong> ${esc(fmtPendingDate(a.createdAt))}</div>
+                        ${submittedSummary ? `<div><strong>Submitted fields:</strong> ${esc(submittedSummary)}</div>` : ``}
+                        ${a.coverLetter ? `<div><strong>Cover letter:</strong> ${esc(String(a.coverLetter).slice(0, 180))}${String(a.coverLetter).length > 180 ? "..." : ""}</div>` : ``}
                         ${a.resumeUrl ? `<div><strong>Resume:</strong> <a href="${esc(a.resumeUrl)}" target="_blank" rel="noopener">View</a></div>` : ``}
                       </div>
                     </div>
                   </div>
                 </div>
+              `;
+                })()}
               `).join("") : `<div class="muted">No applicants yet.</div>`}
             </div>
 
@@ -7920,14 +8015,21 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
     const location = String(req.body?.location || "").trim();
     const employmentType = String(req.body?.employmentType || "").trim();
     const salaryRange = String(req.body?.salaryRange || "").trim();
+    const applicationMode = normalizeJobApplicationMode(req.body?.applicationMode || "external");
     const applyUrl = normalizeHttpUrl(req.body?.applyUrl || "");
     const description = String(req.body?.description || "").trim();
     const statusRaw = String(req.body?.status || "active").trim().toLowerCase();
     const status = ["active", "paused", "filled"].includes(statusRaw) ? statusRaw : "active";
+    const applicationFields = normalizeJobApplicationFields(
+      Object.fromEntries(JOB_APPLICATION_FIELDS.map((field) => [field.key, req.body?.[`applicationField_${field.key}`]]))
+    );
+    const applicationFieldsJson = JSON.stringify(applicationFields);
     let imageUrl = String(req.body?.imageUrl || "").trim();
 
     if (!title) return res.status(400).send("Job title is required.");
-    if (!applyUrl) return res.status(400).send("Apply URL is required.");
+    if ((applicationMode === "external" || applicationMode === "both") && !applyUrl) {
+      return res.status(400).send("Apply URL is required for jobs with an external application link.");
+    }
 
     const imageFile = req.file || null;
     if (imageFile) {
@@ -7948,15 +8050,15 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
     if (isUpdate) {
       await run(
         `UPDATE jobs
-            SET city = ?, slug = ?, title = ?, company = ?, location = ?, employmentType = ?, salaryRange = ?, applyUrl = ?, imageUrl = ?, description = ?, status = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, title = ?, company = ?, location = ?, employmentType = ?, salaryRange = ?, applyUrl = ?, imageUrl = ?, description = ?, status = ?, applicationMode = ?, applicationFieldsJson = ?, updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, title, company || null, location || null, employmentType || null, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, id]
+        [city, slug, title, company || null, location || null, employmentType || null, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson, id]
       );
     } else {
       await run(
-        `INSERT INTO jobs (city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, title, company || null, location || null, employmentType || null, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status]
+        `INSERT INTO jobs (city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, title, company || null, location || null, employmentType || null, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson]
       );
     }
 
