@@ -160,8 +160,29 @@ function normalizeEmploymentTypeLabel(input) {
   return "";
 }
 
+function collectEmploymentTypeCandidates(input) {
+  if (Array.isArray(input)) {
+    return input.flatMap((item) => collectEmploymentTypeCandidates(item));
+  }
+  if (input && typeof input === "object") {
+    const out = [];
+    if (input.partTime === true || String(input.partTime || "").trim() === "1" || String(input.partTime || "").trim().toLowerCase() === "true") {
+      out.push("Part-Time");
+    }
+    if (input.fullTime === true || String(input.fullTime || "").trim() === "1" || String(input.fullTime || "").trim().toLowerCase() === "true") {
+      out.push("Full-Time");
+    }
+    if (Array.isArray(input.employmentTypes)) out.push(...collectEmploymentTypeCandidates(input.employmentTypes));
+    if (input.employmentType) out.push(...collectEmploymentTypeCandidates(input.employmentType));
+    return out;
+  }
+  const raw = String(input || "").trim();
+  if (!raw) return [];
+  return raw.split(/[\/,|&]+/g).map((part) => part.trim()).filter(Boolean);
+}
+
 function normalizeJobEmploymentTypes(input) {
-  const arr = Array.isArray(input) ? input : [input];
+  const arr = collectEmploymentTypeCandidates(input);
   const out = [];
   for (const item of arr) {
     const label = normalizeEmploymentTypeLabel(item);
@@ -173,7 +194,12 @@ function normalizeJobEmploymentTypes(input) {
 
 function getJobEmploymentTypesForEdit(job) {
   const parsed = safeParseJson(job?.employmentTypesJson, null);
-  const normalized = normalizeJobEmploymentTypes(parsed || job?.employmentType || "");
+  const normalized = normalizeJobEmploymentTypes({
+    employmentTypes: parsed,
+    employmentType: job?.employmentType || "",
+    partTime: job?.partTime,
+    fullTime: job?.fullTime,
+  });
   return normalized.length ? normalized : ["Full-Time"];
 }
 
@@ -1704,7 +1730,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.8");
+const appVersion = String(process.env.APP_VERSION || "v0.0.9");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1718,6 +1744,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.8");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("Canonical job employment types");
     releaseItems.push("Multi-type job postings");
     releaseItems.push("Website job applications");
     releaseItems.push("Configurable job application fields");

@@ -27,8 +27,29 @@ function normalizeEmploymentTypeLabel(input) {
   return "";
 }
 
+function collectEmploymentTypeCandidates(input) {
+  if (Array.isArray(input)) {
+    return input.flatMap((item) => collectEmploymentTypeCandidates(item));
+  }
+  if (input && typeof input === "object") {
+    const out = [];
+    if (input.partTime === true || String(input.partTime || "").trim() === "1" || String(input.partTime || "").trim().toLowerCase() === "true") {
+      out.push("Part-Time");
+    }
+    if (input.fullTime === true || String(input.fullTime || "").trim() === "1" || String(input.fullTime || "").trim().toLowerCase() === "true") {
+      out.push("Full-Time");
+    }
+    if (Array.isArray(input.employmentTypes)) out.push(...collectEmploymentTypeCandidates(input.employmentTypes));
+    if (input.employmentType) out.push(...collectEmploymentTypeCandidates(input.employmentType));
+    return out;
+  }
+  const raw = String(input || "").trim();
+  if (!raw) return [];
+  return raw.split(/[\/,|&]+/g).map((part) => part.trim()).filter(Boolean);
+}
+
 function normalizeJobEmploymentTypes(input) {
-  const arr = Array.isArray(input) ? input : [input];
+  const arr = collectEmploymentTypeCandidates(input);
   const out = [];
   for (const item of arr) {
     const label = normalizeEmploymentTypeLabel(item);
@@ -38,11 +59,21 @@ function normalizeJobEmploymentTypes(input) {
   return out;
 }
 
-function formatEmploymentTypeDisplay(employmentTypes, fallback = "") {
+function formatEmploymentTypeDisplay(employmentTypes) {
   const normalized = normalizeJobEmploymentTypes(employmentTypes);
   if (normalized.length === 2) return "Part-Time / Full-Time";
   if (normalized.length === 1) return normalized[0];
-  return String(fallback || "").trim();
+  return "";
+}
+
+function getCanonicalEmploymentTypes(row) {
+  const parsed = safeParseJson(row?.employmentTypesJson, null);
+  return normalizeJobEmploymentTypes({
+    employmentTypes: parsed,
+    employmentType: row?.employmentType || "",
+    partTime: row?.partTime,
+    fullTime: row?.fullTime,
+  });
 }
 
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || "";
@@ -174,7 +205,7 @@ function buildJobPayload(row, req) {
   const baseUrl = getBaseUrl(req);
   const applicationMode = normalizeJobApplicationMode(row.applicationMode || "external");
   const applicationFields = normalizeJobApplicationFields(safeParseJson(row.applicationFieldsJson, null));
-  const employmentTypes = normalizeJobEmploymentTypes(safeParseJson(row.employmentTypesJson, null) || row.employmentType || "");
+  const employmentTypes = getCanonicalEmploymentTypes(row);
   const jobKey = encodeURIComponent(row.slug || row.id);
 
   return {
@@ -217,11 +248,13 @@ async function ensureJobSchema() {
       city TEXT NOT NULL DEFAULT 'Enumclaw',
       slug TEXT,
       title TEXT NOT NULL,
-      company TEXT,
-      location TEXT,
-      employmentType TEXT,
-      employmentTypesJson TEXT,
-      salaryRange TEXT,
+    company TEXT,
+    location TEXT,
+    employmentType TEXT,
+    employmentTypesJson TEXT,
+    partTime INTEGER,
+    fullTime INTEGER,
+    salaryRange TEXT,
       applyUrl TEXT,
       imageUrl TEXT,
       description TEXT,
@@ -238,6 +271,8 @@ async function ensureJobSchema() {
   await ensureTableColumn("jobs", "location", `ALTER TABLE jobs ADD COLUMN location TEXT`);
   await ensureTableColumn("jobs", "employmentType", `ALTER TABLE jobs ADD COLUMN employmentType TEXT`);
   await ensureTableColumn("jobs", "employmentTypesJson", `ALTER TABLE jobs ADD COLUMN employmentTypesJson TEXT`);
+  await ensureTableColumn("jobs", "partTime", `ALTER TABLE jobs ADD COLUMN partTime INTEGER`);
+  await ensureTableColumn("jobs", "fullTime", `ALTER TABLE jobs ADD COLUMN fullTime INTEGER`);
   await ensureTableColumn("jobs", "salaryRange", `ALTER TABLE jobs ADD COLUMN salaryRange TEXT`);
   await ensureTableColumn("jobs", "applyUrl", `ALTER TABLE jobs ADD COLUMN applyUrl TEXT`);
   await ensureTableColumn("jobs", "imageUrl", `ALTER TABLE jobs ADD COLUMN imageUrl TEXT`);
@@ -295,12 +330,12 @@ async function loadActiveJob(idOrSlug) {
   const isNumericId = /^\d+$/.test(raw);
   return isNumericId
     ? get(
-        `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+        `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, partTime, fullTime, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
          FROM jobs WHERE id = ? AND LOWER(COALESCE(status, 'active')) = 'active' LIMIT 1`,
         [Number(raw)]
       )
     : get(
-        `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+        `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, partTime, fullTime, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
          FROM jobs WHERE slug = ? AND LOWER(COALESCE(status, 'active')) = 'active' LIMIT 1`,
         [raw]
       );
@@ -355,7 +390,7 @@ router.get("/", async (req, res) => {
     const countRow = await get(`SELECT COUNT(*) AS n FROM jobs ${whereSql}`, params);
     const total = Number(countRow?.n || 0);
     const rows = await all(
-      `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+      `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, partTime, fullTime, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
        FROM jobs ${whereSql}
        ORDER BY datetime(createdAt) DESC, id DESC
        LIMIT ? OFFSET ?`,
