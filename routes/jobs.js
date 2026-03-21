@@ -19,6 +19,32 @@ const JOB_APPLICATION_FIELDS = [
   { key: "resume", label: "Resume upload" },
 ];
 
+function normalizeEmploymentTypeLabel(input) {
+  const value = String(input || "").trim().toLowerCase();
+  if (!value) return "";
+  if (value === "part-time" || value === "part time" || value === "parttime") return "Part-Time";
+  if (value === "full-time" || value === "full time" || value === "fulltime") return "Full-Time";
+  return "";
+}
+
+function normalizeJobEmploymentTypes(input) {
+  const arr = Array.isArray(input) ? input : [input];
+  const out = [];
+  for (const item of arr) {
+    const label = normalizeEmploymentTypeLabel(item);
+    if (!label || out.includes(label)) continue;
+    out.push(label);
+  }
+  return out;
+}
+
+function formatEmploymentTypeDisplay(employmentTypes, fallback = "") {
+  const normalized = normalizeJobEmploymentTypes(employmentTypes);
+  if (normalized.length === 2) return "Part-Time / Full-Time";
+  if (normalized.length === 1) return normalized[0];
+  return String(fallback || "").trim();
+}
+
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || "";
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || "";
 const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || "";
@@ -148,6 +174,7 @@ function buildJobPayload(row, req) {
   const baseUrl = getBaseUrl(req);
   const applicationMode = normalizeJobApplicationMode(row.applicationMode || "external");
   const applicationFields = normalizeJobApplicationFields(safeParseJson(row.applicationFieldsJson, null));
+  const employmentTypes = normalizeJobEmploymentTypes(safeParseJson(row.employmentTypesJson, null) || row.employmentType || "");
   const jobKey = encodeURIComponent(row.slug || row.id);
 
   return {
@@ -157,7 +184,8 @@ function buildJobPayload(row, req) {
     title: String(row.title || ""),
     company: String(row.company || ""),
     location: String(row.location || ""),
-    employmentType: String(row.employmentType || ""),
+    employmentTypes,
+    employmentType: formatEmploymentTypeDisplay(employmentTypes, row.employmentType || ""),
     salaryRange: String(row.salaryRange || ""),
     applyUrl: normalizeHttpUrl(row.applyUrl || ""),
     imageUrl: normalizeHttpUrl(row.imageUrl || ""),
@@ -192,6 +220,7 @@ async function ensureJobSchema() {
       company TEXT,
       location TEXT,
       employmentType TEXT,
+      employmentTypesJson TEXT,
       salaryRange TEXT,
       applyUrl TEXT,
       imageUrl TEXT,
@@ -208,6 +237,7 @@ async function ensureJobSchema() {
   await ensureTableColumn("jobs", "company", `ALTER TABLE jobs ADD COLUMN company TEXT`);
   await ensureTableColumn("jobs", "location", `ALTER TABLE jobs ADD COLUMN location TEXT`);
   await ensureTableColumn("jobs", "employmentType", `ALTER TABLE jobs ADD COLUMN employmentType TEXT`);
+  await ensureTableColumn("jobs", "employmentTypesJson", `ALTER TABLE jobs ADD COLUMN employmentTypesJson TEXT`);
   await ensureTableColumn("jobs", "salaryRange", `ALTER TABLE jobs ADD COLUMN salaryRange TEXT`);
   await ensureTableColumn("jobs", "applyUrl", `ALTER TABLE jobs ADD COLUMN applyUrl TEXT`);
   await ensureTableColumn("jobs", "imageUrl", `ALTER TABLE jobs ADD COLUMN imageUrl TEXT`);
@@ -265,12 +295,12 @@ async function loadActiveJob(idOrSlug) {
   const isNumericId = /^\d+$/.test(raw);
   return isNumericId
     ? get(
-        `SELECT id, city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+        `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
          FROM jobs WHERE id = ? AND LOWER(COALESCE(status, 'active')) = 'active' LIMIT 1`,
         [Number(raw)]
       )
     : get(
-        `SELECT id, city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+        `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
          FROM jobs WHERE slug = ? AND LOWER(COALESCE(status, 'active')) = 'active' LIMIT 1`,
         [raw]
       );
@@ -317,15 +347,15 @@ router.get("/", async (req, res) => {
     }
     if (q) {
       const like = `%${q}%`;
-      where.push("(title LIKE ? OR company LIKE ? OR location LIKE ? OR employmentType LIKE ? OR slug LIKE ?)");
-      params.push(like, like, like, like, like);
+      where.push("(title LIKE ? OR company LIKE ? OR location LIKE ? OR employmentType LIKE ? OR employmentTypesJson LIKE ? OR slug LIKE ?)");
+      params.push(like, like, like, like, like, like);
     }
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const countRow = await get(`SELECT COUNT(*) AS n FROM jobs ${whereSql}`, params);
     const total = Number(countRow?.n || 0);
     const rows = await all(
-      `SELECT id, city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+      `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
        FROM jobs ${whereSql}
        ORDER BY datetime(createdAt) DESC, id DESC
        LIMIT ? OFFSET ?`,

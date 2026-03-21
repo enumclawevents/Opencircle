@@ -150,6 +150,40 @@ const JOB_APPLICATION_FIELDS = [
   { key: "resume", label: "Resume upload" },
 ];
 
+const JOB_EMPLOYMENT_TYPE_OPTIONS = ["Part-Time", "Full-Time"];
+
+function normalizeEmploymentTypeLabel(input) {
+  const value = String(input || "").trim().toLowerCase();
+  if (!value) return "";
+  if (value === "part-time" || value === "part time" || value === "parttime") return "Part-Time";
+  if (value === "full-time" || value === "full time" || value === "fulltime") return "Full-Time";
+  return "";
+}
+
+function normalizeJobEmploymentTypes(input) {
+  const arr = Array.isArray(input) ? input : [input];
+  const out = [];
+  for (const item of arr) {
+    const label = normalizeEmploymentTypeLabel(item);
+    if (!label || out.includes(label)) continue;
+    out.push(label);
+  }
+  return out;
+}
+
+function getJobEmploymentTypesForEdit(job) {
+  const parsed = safeParseJson(job?.employmentTypesJson, null);
+  const normalized = normalizeJobEmploymentTypes(parsed || job?.employmentType || "");
+  return normalized.length ? normalized : ["Full-Time"];
+}
+
+function formatEmploymentTypeDisplay(employmentTypes, fallback = "") {
+  const normalized = normalizeJobEmploymentTypes(employmentTypes);
+  if (normalized.length === 2) return "Part-Time / Full-Time";
+  if (normalized.length === 1) return normalized[0];
+  return String(fallback || "").trim();
+}
+
 function defaultJobApplicationFields() {
   return {
     firstName: "required",
@@ -819,6 +853,7 @@ async function ensureJobSchema() {
       company TEXT,
       location TEXT,
       employmentType TEXT,
+      employmentTypesJson TEXT,
       salaryRange TEXT,
       applyUrl TEXT,
       imageUrl TEXT,
@@ -840,6 +875,7 @@ async function ensureJobSchema() {
   if (!cols.has("company")) await run(`ALTER TABLE jobs ADD COLUMN company TEXT`);
   if (!cols.has("location")) await run(`ALTER TABLE jobs ADD COLUMN location TEXT`);
   if (!cols.has("employmentType")) await run(`ALTER TABLE jobs ADD COLUMN employmentType TEXT`);
+  if (!cols.has("employmentTypesJson")) await run(`ALTER TABLE jobs ADD COLUMN employmentTypesJson TEXT`);
   if (!cols.has("salaryRange")) await run(`ALTER TABLE jobs ADD COLUMN salaryRange TEXT`);
   if (!cols.has("applyUrl")) await run(`ALTER TABLE jobs ADD COLUMN applyUrl TEXT`);
   if (!cols.has("imageUrl")) await run(`ALTER TABLE jobs ADD COLUMN imageUrl TEXT`);
@@ -1668,7 +1704,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.7");
+const appVersion = String(process.env.APP_VERSION || "v0.0.8");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1682,6 +1718,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.7");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("Multi-type job postings");
     releaseItems.push("Website job applications");
     releaseItems.push("Configurable job application fields");
     releaseItems.push("Public jobs JSON feed");
@@ -2365,6 +2402,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.7");
         editJob = await get("SELECT * FROM jobs WHERE id = ?", [jobId]);
       }
     }
+    const editJobEmploymentTypes = getJobEmploymentTypesForEdit(editJob);
     const editJobApplicationMode = normalizeJobApplicationMode(editJob?.applicationMode || "external");
     const editJobApplicationFields = normalizeJobApplicationFields(safeParseJson(editJob?.applicationFieldsJson, null));
 
@@ -2497,7 +2535,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.7");
       jobShowingTo = Math.min(offset + limit, jobTotal);
 
       jobRows = await all(
-        "SELECT id, city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt " +
+        "SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt " +
         "FROM jobs " + jobWhereSql + " ORDER BY datetime(createdAt) DESC, id DESC LIMIT ? OFFSET ?",
         [...jobParams, limit, offset]
       );
@@ -5824,16 +5862,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.7");
 
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
-                  <label style="margin-top:0;">Employment Type</label>
-                  <select class="ctrl" name="employmentType">
-                    <option value="" ${!String(editJob?.employmentType || "") ? "selected" : ""}>Select type</option>
-                    <option value="Full-time" ${String(editJob?.employmentType || "") === "Full-time" ? "selected" : ""}>Full-time</option>
-                    <option value="Part-time" ${String(editJob?.employmentType || "") === "Part-time" ? "selected" : ""}>Part-time</option>
-                    <option value="Contract" ${String(editJob?.employmentType || "") === "Contract" ? "selected" : ""}>Contract</option>
-                    <option value="Temporary" ${String(editJob?.employmentType || "") === "Temporary" ? "selected" : ""}>Temporary</option>
-                    <option value="Seasonal" ${String(editJob?.employmentType || "") === "Seasonal" ? "selected" : ""}>Seasonal</option>
-                    <option value="Internship" ${String(editJob?.employmentType || "") === "Internship" ? "selected" : ""}>Internship</option>
-                  </select>
+                  <label style="margin-top:0;">Hiring Type</label>
+                  <div class="card" style="padding:14px;">
+                    <div class="note" style="margin-bottom:8px;">Select one or both if the same posting covers multiple schedules.</div>
+                    ${JOB_EMPLOYMENT_TYPE_OPTIONS.map((type) => `
+                      <label style="display:flex; align-items:center; gap:8px; margin:8px 0 0; font-weight:600; color:var(--text);">
+                        <input type="checkbox" name="employmentTypes" value="${esc(type)}" ${editJobEmploymentTypes.includes(type) ? "checked" : ""} />
+                        <span>${esc(type)}</span>
+                      </label>
+                    `).join("")}
+                  </div>
                 </div>
                 <div>
                   <label style="margin-top:0;">Application Method</label>
@@ -5950,7 +5988,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.7");
                         <div><strong>Slug:</strong> ${esc(j.slug || "")}</div>
                         <div><strong>Company:</strong> ${esc(j.company || "")}</div>
                         <div><strong>Location:</strong> ${esc(j.location || "")}</div>
-                        <div><strong>Type:</strong> ${esc(j.employmentType || "")}</div>
+                        <div><strong>Type:</strong> ${esc(formatEmploymentTypeDisplay(safeParseJson(j.employmentTypesJson, null), j.employmentType || ""))}</div>
                         <div><strong>Apply method:</strong> ${esc(j.applicationMode || "external")}</div>
                         <div><strong>Pay:</strong> ${esc(j.salaryRange || "")}</div>
                         ${j.applyUrl ? `<div><strong>Apply:</strong> <a href="${esc(j.applyUrl)}" target="_blank" rel="noopener">${esc(j.applyUrl)}</a></div>` : ``}
@@ -8013,7 +8051,12 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
     const title = String(req.body?.title || "").trim();
     const company = String(req.body?.company || "").trim();
     const location = String(req.body?.location || "").trim();
-    const employmentType = String(req.body?.employmentType || "").trim();
+    const employmentTypesRaw = Array.isArray(req.body?.employmentTypes)
+      ? req.body.employmentTypes
+      : (req.body?.employmentTypes ? [req.body.employmentTypes] : []);
+    const employmentTypes = normalizeJobEmploymentTypes(employmentTypesRaw);
+    const employmentType = formatEmploymentTypeDisplay(employmentTypes);
+    const employmentTypesJson = JSON.stringify(employmentTypes);
     const salaryRange = String(req.body?.salaryRange || "").trim();
     const applicationMode = normalizeJobApplicationMode(req.body?.applicationMode || "external");
     const applyUrl = normalizeHttpUrl(req.body?.applyUrl || "");
@@ -8027,6 +8070,7 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
     let imageUrl = String(req.body?.imageUrl || "").trim();
 
     if (!title) return res.status(400).send("Job title is required.");
+    if (!employmentTypes.length) return res.status(400).send("Select at least one hiring type.");
     if ((applicationMode === "external" || applicationMode === "both") && !applyUrl) {
       return res.status(400).send("Apply URL is required for jobs with an external application link.");
     }
@@ -8050,15 +8094,15 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
     if (isUpdate) {
       await run(
         `UPDATE jobs
-            SET city = ?, slug = ?, title = ?, company = ?, location = ?, employmentType = ?, salaryRange = ?, applyUrl = ?, imageUrl = ?, description = ?, status = ?, applicationMode = ?, applicationFieldsJson = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, title = ?, company = ?, location = ?, employmentType = ?, employmentTypesJson = ?, salaryRange = ?, applyUrl = ?, imageUrl = ?, description = ?, status = ?, applicationMode = ?, applicationFieldsJson = ?, updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, title, company || null, location || null, employmentType || null, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson, id]
+        [city, slug, title, company || null, location || null, employmentType || null, employmentTypesJson, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson, id]
       );
     } else {
       await run(
-        `INSERT INTO jobs (city, slug, title, company, location, employmentType, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, title, company || null, location || null, employmentType || null, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson]
+        `INSERT INTO jobs (city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, title, company || null, location || null, employmentType || null, employmentTypesJson, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson]
       );
     }
 
