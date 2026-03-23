@@ -1906,7 +1906,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.11");
+const appVersion = String(process.env.APP_VERSION || "v0.0.12");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1920,6 +1920,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("Dedicated upload events page");
     releaseItems.push("CSV + ZIP event image import");
     releaseItems.push("CSV event bulk import");
     releaseItems.push("Canonical job employment types");
@@ -2376,6 +2377,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
     const showAnalytics = view === "events-analytics" || view === "analytics";
     const showCreate = view === "create";
     const showApprove = view === "approve";
+    const showUpload = view === "upload-events";
     const showExisting = view === "existing";
     const showVenueCreate = view === "venues-create";
     const showVenueExisting = view === "venues-existing";
@@ -2395,6 +2397,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
     if (showInvites && !isAdminUser) return res.status(403).send("Forbidden");
     if (showApprove && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     if (showCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showUpload && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     if (showVenueCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showVenueExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showVenueAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
@@ -2406,7 +2409,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
     if (showAdsExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showAdsAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     const showSearch = showAnalytics || showExisting || showVenueExisting || showJobsExisting || showJobsApplicants || showAdsExisting;
-    const isSingleManage = (showCreate ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showAdsCreate ^ showAdsExisting ^ showAdsAnalytics ^ showPreferences);
+    const isSingleManage = (showCreate ^ showUpload ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showAdsCreate ^ showAdsExisting ^ showAdsAnalytics ^ showPreferences);
 
     const currentUser = await resolveSessionUser(req);
     const prefNotice = String(req.query.notice || "").trim().toLowerCase();
@@ -3044,6 +3047,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
 
     const pageTitleBase = showCreate
       ? "Create Events"
+      : showUpload
+      ? "Upload Events"
       : showApprove
       ? "Approve Events"
       : showExisting
@@ -3075,7 +3080,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
       : showInvites
       ? "Invites"
       : "Dashboard";
-    const eventsMenuOpen = showExisting || showCreate || showApprove || showAnalytics;
+    const eventsMenuOpen = showExisting || showCreate || showApprove || showUpload || showAnalytics;
     const venuesMenuOpen = showVenueExisting || showVenueCreate || showVenueAnalytics;
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants || showJobsAnalytics;
     const adsMenuOpen = showAdsExisting || showAdsCreate || showAdsAnalytics;
@@ -4706,6 +4711,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
                 <span>Approve Events</span>
                 ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
               </a>` : ``}
+              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showUpload ? "active" : ""}" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
               ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
             </div>
           </div>
@@ -4771,6 +4777,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
             <h1>${
               showCreate
                 ? "Create Events"
+                : showUpload
+                ? "Upload Events"
                 : showApprove
                 ? "Approve Events"
                 : showExisting
@@ -4806,6 +4814,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
             <p>${
               showCreate
                 ? "Add or edit events"
+                : showUpload
+                ? "Bulk upload events from CSV"
                 : showApprove
                 ? "Review pending submissions"
                 : showExisting
@@ -4933,6 +4943,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
                     <div class="quick-links-group-title">Events</div>
                     <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
                     <a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
+                    ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
                     <a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>
                   </div>
                   <div class="quick-links-group">
@@ -5328,7 +5339,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
         ` : ``}
 
         <!-- Manage -->
-        ${(showCreate || showExisting) ? `
+        ${(showCreate || showUpload || showExisting) ? `
         <section class="gridMain ${isSingleManage ? "single" : ""}" id="manage">
           ${showCreate ? `
           <div class="card" id="create">
@@ -5341,39 +5352,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
                 <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
               </div>
             </div>
-
-            ${!editEvent ? `
-            <div class="card" style="margin-bottom:14px; padding:16px;">
-              <div class="sectionTitle" style="margin-bottom:8px;">
-                <div>
-                  <h2 style="font-size:18px;">Bulk import from CSV</h2>
-                  <p class="sub">Upload multiple events at once. Duplicate matches are skipped automatically.</p>
-                </div>
-              </div>
-              ${(req.query.bulkImported || req.query.bulkSkipped || req.query.bulkErrors) ? `
-                <div class="mini" style="margin-bottom:12px;">
-                  <div><strong>Imported:</strong> ${esc(req.query.bulkImported || "0")}</div>
-                  <div><strong>Skipped:</strong> ${esc(req.query.bulkSkipped || "0")}</div>
-                  <div><strong>Errors:</strong> ${esc(req.query.bulkErrors || "0")}</div>
-                  ${req.query.bulkNotice ? `<div class="note" style="margin-top:8px;">${esc(req.query.bulkNotice)}</div>` : ``}
-                </div>
-              ` : ``}
-              <form method="POST" action="/admin/events/bulk-import" enctype="multipart/form-data">
-                <input type="hidden" name="city" value="${esc(formCity)}" />
-                <label>CSV File</label>
-                <input class="ctrl" type="file" name="eventsCsv" accept=".csv,text/csv" required />
-                <label style="margin-top:10px;">Image ZIP (optional)</label>
-                <input class="ctrl" type="file" name="imageZip" accept=".zip,application/zip" />
-                <div class="note">If you upload a ZIP, add an <strong style="color:var(--text);">imageFile</strong>, <strong style="color:var(--text);">imageFilename</strong>, or <strong style="color:var(--text);">image</strong> column in the CSV that matches each image filename inside the ZIP.</div>
-                <div class="note">Supported columns: title, description, startDateTime, endDateTime, location, organizer, categories, imageUrl, imageFile, imageFilename, ticketUrl, ticketLabel, eventDetails, goodToKnow, seoTitle, metaDescription, focusKeyphrase, imageAlt, featured, eddiesPick, city, hasRecurrence, recurrenceType, recurrenceInterval, weeklyByDay, monthlyMode, byMonthday, setPos, monthlyByDay, recurrenceStartDate, recurrenceUntilDate, recurrenceDates.</div>
-                <div class="note">Date/time values should be full date-times like <strong style="color:var(--text);">2026-04-15 18:00</strong> or ISO timestamps.</div>
-                <div class="note">For recurring imports: use <strong style="color:var(--text);">recurrenceType</strong> as <strong style="color:var(--text);">weekly</strong>, <strong style="color:var(--text);">monthly</strong>, or <strong style="color:var(--text);">custom</strong>. Use pipe-separated values like <strong style="color:var(--text);">MO|WE|FR</strong> for weekly days or <strong style="color:var(--text);">2026-05-01|2026-05-08</strong> for custom dates.</div>
-                <div class="actions" style="margin-top:12px;">
-                  <button type="submit" class="btn btn-primary">Import CSV</button>
-                </div>
-              </form>
-            </div>
-            ` : ``}
 
             <form method="POST" action="/admin/events" enctype="multipart/form-data">
               ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
@@ -5641,6 +5619,42 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
                 <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
 	                ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
                 <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
+              </div>
+            </form>
+          </div>
+          ` : ``}
+
+          ${showUpload ? `
+          <div class="card" id="upload-events">
+            <div class="sectionTitle">
+              <div>
+                <h2>Upload events</h2>
+                <p class="sub">Bulk import events from CSV with optional ZIP image matching.</p>
+              </div>
+              <div class="right">
+                <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
+              </div>
+            </div>
+            ${(req.query.bulkImported || req.query.bulkSkipped || req.query.bulkErrors) ? `
+              <div class="mini" style="margin-bottom:12px;">
+                <div><strong>Imported:</strong> ${esc(req.query.bulkImported || "0")}</div>
+                <div><strong>Skipped:</strong> ${esc(req.query.bulkSkipped || "0")}</div>
+                <div><strong>Errors:</strong> ${esc(req.query.bulkErrors || "0")}</div>
+                ${req.query.bulkNotice ? `<div class="note" style="margin-top:8px;">${esc(req.query.bulkNotice)}</div>` : ``}
+              </div>
+            ` : ``}
+            <form method="POST" action="/admin/events/bulk-import" enctype="multipart/form-data">
+              <input type="hidden" name="city" value="${esc(formCity)}" />
+              <label>CSV File</label>
+              <input class="ctrl" type="file" name="eventsCsv" accept=".csv,text/csv" required />
+              <label style="margin-top:10px;">Image ZIP (optional)</label>
+              <input class="ctrl" type="file" name="imageZip" accept=".zip,application/zip" />
+              <div class="note">If you upload a ZIP, add an <strong style="color:var(--text);">imageFile</strong>, <strong style="color:var(--text);">imageFilename</strong>, or <strong style="color:var(--text);">image</strong> column in the CSV that matches each image filename inside the ZIP.</div>
+              <div class="note">Supported columns: title, description, startDateTime, endDateTime, location, organizer, categories, imageUrl, imageFile, imageFilename, ticketUrl, ticketLabel, eventDetails, goodToKnow, seoTitle, metaDescription, focusKeyphrase, imageAlt, featured, eddiesPick, city, hasRecurrence, recurrenceType, recurrenceInterval, weeklyByDay, monthlyMode, byMonthday, setPos, monthlyByDay, recurrenceStartDate, recurrenceUntilDate, recurrenceDates.</div>
+              <div class="note">Date/time values should be full date-times like <strong style="color:var(--text);">2026-04-15 18:00</strong> or ISO timestamps.</div>
+              <div class="note">For recurring imports: use <strong style="color:var(--text);">recurrenceType</strong> as <strong style="color:var(--text);">weekly</strong>, <strong style="color:var(--text);">monthly</strong>, or <strong style="color:var(--text);">custom</strong>. Use pipe-separated values like <strong style="color:var(--text);">MO|WE|FR</strong> for weekly days or <strong style="color:var(--text);">2026-05-01|2026-05-08</strong> for custom dates.</div>
+              <div class="actions" style="margin-top:12px;">
+                <button type="submit" class="btn btn-primary">Import CSV</button>
               </div>
             </form>
           </div>
@@ -7891,6 +7905,7 @@ router.get("/", async (req, res) => renderAdmin(req, res, "dashboard"));
 router.get("/events-analytics", async (req, res) => renderAdmin(req, res, "events-analytics"));
 router.get("/create-events", async (req, res) => renderAdmin(req, res, "create"));
 router.get("/approve-events", async (req, res) => renderAdmin(req, res, "approve"));
+router.get("/upload-events", async (req, res) => renderAdmin(req, res, "upload-events"));
 router.get("/existing-events", async (req, res) => renderAdmin(req, res, "existing"));
 router.get("/venues", async (req, res) => renderAdmin(req, res, "venues-existing"));
 router.get("/venues/create", async (req, res) => renderAdmin(req, res, "venues-create"));
