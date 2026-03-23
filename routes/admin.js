@@ -1906,7 +1906,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.13");
+const appVersion = String(process.env.APP_VERSION || "v0.0.14");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1920,6 +1920,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.13");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("Event import template download");
     releaseItems.push("CSV fields aligned to event form");
     releaseItems.push("Dedicated upload events page");
     releaseItems.push("CSV + ZIP event image import");
@@ -5633,6 +5634,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.13");
                 <p class="sub">Bulk import events from CSV with optional ZIP image matching.</p>
               </div>
               <div class="right">
+                <a class="btn" href="/assets/templates/event-import-template.csv" download>Download Template</a>
                 <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
               </div>
             </div>
