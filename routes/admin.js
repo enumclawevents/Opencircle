@@ -1906,7 +1906,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.14");
+const appVersion = String(process.env.APP_VERSION || "v0.0.15");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1920,6 +1920,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.14");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("Upload review panel");
     releaseItems.push("Event import template download");
     releaseItems.push("CSV fields aligned to event form");
     releaseItems.push("Dedicated upload events page");
@@ -2724,6 +2725,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.14");
     let adMonthlyHistory = [];
     let selectedAd = null;
     let selectedAdActualId = null;
+    let bulkImportedRows = [];
+    let bulkSkippedItems = [];
+    let bulkErrorItems = [];
 
     if (showJobsExisting) {
       const jobWhere = [];
@@ -2749,6 +2753,32 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.14");
         "FROM jobs " + jobWhereSql + " ORDER BY datetime(createdAt) DESC, id DESC LIMIT ? OFFSET ?",
         [...jobParams, limit, offset]
       );
+    }
+
+    if (showUpload) {
+      const importedIds = String(req.query.importedIds || "")
+        .split(",")
+        .map((id) => parseInt(String(id || "").trim(), 10))
+        .filter((id) => Number.isInteger(id) && id > 0)
+        .slice(0, 20);
+      if (importedIds.length) {
+        const placeholders = importedIds.map(() => "?").join(",");
+        const rows = await all(
+          `SELECT id, title, startDateTime, endDateTime, location, organizer, slug
+             FROM events
+            WHERE id IN (${placeholders})
+            ORDER BY id DESC`,
+          importedIds
+        );
+        const rowMap = new Map((rows || []).map((row) => [Number(row.id || 0), row]));
+        bulkImportedRows = importedIds.map((id) => rowMap.get(id)).filter(Boolean);
+      }
+      bulkSkippedItems = safeParseJson(req.query.bulkSkippedItems || "[]", []);
+      if (!Array.isArray(bulkSkippedItems)) bulkSkippedItems = [];
+      bulkSkippedItems = bulkSkippedItems.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 10);
+      bulkErrorItems = safeParseJson(req.query.bulkErrorItems || "[]", []);
+      if (!Array.isArray(bulkErrorItems)) bulkErrorItems = [];
+      bulkErrorItems = bulkErrorItems.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 10);
     }
 
     if (showJobsApplicants) {
@@ -5660,6 +5690,40 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.14");
                 <button type="submit" class="btn btn-primary">Import CSV</button>
               </div>
             </form>
+            ${(bulkImportedRows.length || bulkSkippedItems.length || bulkErrorItems.length) ? `
+            <div class="card" style="margin-top:14px; padding:16px;">
+              <div class="sectionTitle" style="margin-bottom:8px;">
+                <div>
+                  <h2 style="font-size:18px;">Upload review</h2>
+                  <p class="sub">What was added or skipped in the most recent upload.</p>
+                </div>
+              </div>
+              ${bulkImportedRows.length ? `
+                <div class="mini" style="margin-bottom:12px;">
+                  <div style="font-weight:700; color:var(--text); margin-bottom:8px;">Imported events</div>
+                  ${bulkImportedRows.map((event) => `
+                    <div class="kv">
+                      <span class="k">#${Number(event.id || 0)} - ${esc(event.title || "Event")}</span>
+                      <strong class="v">${esc(fmtPendingDate(event.startDateTime))}</strong>
+                    </div>
+                    <div class="note" style="margin:-4px 0 8px 0;">${esc(event.location || "")}${event.organizer ? ` · ${esc(event.organizer)}` : ""}</div>
+                  `).join("")}
+                </div>
+              ` : ``}
+              ${bulkSkippedItems.length ? `
+                <div class="mini" style="margin-bottom:12px;">
+                  <div style="font-weight:700; color:var(--text); margin-bottom:8px;">Skipped rows</div>
+                  ${bulkSkippedItems.map((item) => `<div class="note" style="margin-bottom:6px;">${esc(item)}</div>`).join("")}
+                </div>
+              ` : ``}
+              ${bulkErrorItems.length ? `
+                <div class="mini">
+                  <div style="font-weight:700; color:var(--text); margin-bottom:8px;">Errors</div>
+                  ${bulkErrorItems.map((item) => `<div class="note" style="margin-bottom:6px;">${esc(item)}</div>`).join("")}
+                </div>
+              ` : ``}
+            </div>
+            ` : ``}
           </div>
           ` : ``}
 
@@ -8947,7 +9011,7 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
 
     const rows = parseCsvRows(String(file.buffer.toString("utf8") || "").replace(/^\uFEFF/, ""));
     if (!rows.length) {
-      return res.redirect(`/admin/create-events?city=${encodeURIComponent(importCity)}&bulkImported=0&bulkSkipped=0&bulkErrors=1&bulkNotice=${encodeURIComponent("No CSV rows were found.")}`);
+      return res.redirect(`/admin/upload-events?city=${encodeURIComponent(importCity)}&bulkImported=0&bulkSkipped=0&bulkErrors=1&bulkNotice=${encodeURIComponent("No CSV rows were found.")}`);
     }
 
     const cols = await getEventsColumns();
@@ -9167,11 +9231,11 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
           }
         }
 
-        await run(
+        const insertResult = await run(
           `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
           insertVals
         );
-        imported.push(title);
+        imported.push({ id: Number(insertResult?.lastID || 0), title });
       }
     } finally {
       if (zipAssets?.cleanup) zipAssets.cleanup();
@@ -9189,8 +9253,12 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
       bulkSkipped: String(skipped.length),
       bulkErrors: String(errors.length),
     });
+    const importedIds = imported.map((item) => Number(item.id || 0)).filter((id) => id > 0).slice(0, 20);
+    if (importedIds.length) sp.set("importedIds", importedIds.join(","));
+    if (skipped.length) sp.set("bulkSkippedItems", JSON.stringify(skipped.slice(0, 10)));
+    if (errors.length) sp.set("bulkErrorItems", JSON.stringify(errors.slice(0, 10)));
     if (noticeParts.length) sp.set("bulkNotice", noticeParts.join(" "));
-    return res.redirect(`/admin/create-events?${sp.toString()}`);
+    return res.redirect(`/admin/upload-events?${sp.toString()}`);
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to import CSV.");
