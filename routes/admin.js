@@ -141,6 +141,17 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
 });
 
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (_req, file, cb) => {
+    const name = String(file.originalname || "").toLowerCase();
+    const mime = String(file.mimetype || "").toLowerCase();
+    const ok = name.endsWith(".csv") || mime === "text/csv" || mime === "application/vnd.ms-excel";
+    cb(ok ? null : new Error("Only CSV files are allowed."), ok);
+  },
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
 const JOB_APPLICATION_FIELDS = [
   { key: "firstName", label: "First name" },
   { key: "lastName", label: "Last name" },
@@ -251,6 +262,76 @@ function normalizeCategories(input) {
     if (uniq.length >= 3) break;
   }
   return uniq;
+}
+
+function parseCsvBoolean(input) {
+  const value = String(input || "").trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "y";
+}
+
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (ch === '"') {
+      if (inQuotes && next === '"') {
+        field += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (ch === "," && !inQuotes) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && next === "\n") i += 1;
+      row.push(field);
+      if (row.some((cell) => String(cell || "").trim() !== "")) rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
+
+    field += ch;
+  }
+
+  if (field !== "" || row.length) {
+    row.push(field);
+    if (row.some((cell) => String(cell || "").trim() !== "")) rows.push(row);
+  }
+
+  if (!rows.length) return [];
+
+  const headers = rows[0].map((cell) => String(cell || "").trim());
+  return rows.slice(1).map((cells, index) => {
+    const out = { __rowNumber: index + 2 };
+    headers.forEach((header, cellIndex) => {
+      if (!header) return;
+      out[header] = String(cells[cellIndex] || "").trim();
+    });
+    return out;
+  });
+}
+
+function getCsvValue(row, keys) {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== "") {
+      return String(row[key]).trim();
+    }
+  }
+  return "";
 }
 
 function normalizeVenueCategories(input) {
@@ -1730,7 +1811,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.9");
+const appVersion = String(process.env.APP_VERSION || "v0.0.10");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1744,6 +1825,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.9");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("CSV event bulk import");
     releaseItems.push("Canonical job employment types");
     releaseItems.push("Multi-type job postings");
     releaseItems.push("Website job applications");
@@ -5163,6 +5245,35 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.9");
                 <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
               </div>
             </div>
+
+            ${!editEvent ? `
+            <div class="card" style="margin-bottom:14px; padding:16px;">
+              <div class="sectionTitle" style="margin-bottom:8px;">
+                <div>
+                  <h2 style="font-size:18px;">Bulk import from CSV</h2>
+                  <p class="sub">Upload multiple non-recurring events at once. Duplicate matches are skipped automatically.</p>
+                </div>
+              </div>
+              ${(req.query.bulkImported || req.query.bulkSkipped || req.query.bulkErrors) ? `
+                <div class="mini" style="margin-bottom:12px;">
+                  <div><strong>Imported:</strong> ${esc(req.query.bulkImported || "0")}</div>
+                  <div><strong>Skipped:</strong> ${esc(req.query.bulkSkipped || "0")}</div>
+                  <div><strong>Errors:</strong> ${esc(req.query.bulkErrors || "0")}</div>
+                  ${req.query.bulkNotice ? `<div class="note" style="margin-top:8px;">${esc(req.query.bulkNotice)}</div>` : ``}
+                </div>
+              ` : ``}
+              <form method="POST" action="/admin/events/bulk-import" enctype="multipart/form-data">
+                <input type="hidden" name="city" value="${esc(formCity)}" />
+                <label>CSV File</label>
+                <input class="ctrl" type="file" name="eventsCsv" accept=".csv,text/csv" required />
+                <div class="note">Supported columns: title, description, startDateTime, endDateTime, location, organizer, categories, imageUrl, ticketUrl, ticketLabel, eventDetails, goodToKnow, seoTitle, metaDescription, focusKeyphrase, imageAlt, featured, eddiesPick, city.</div>
+                <div class="note">Date/time values should be full date-times like <strong style="color:var(--text);">2026-04-15 18:00</strong> or ISO timestamps.</div>
+                <div class="actions" style="margin-top:12px;">
+                  <button type="submit" class="btn btn-primary">Import CSV</button>
+                </div>
+              </form>
+            </div>
+            ` : ``}
 
             <form method="POST" action="/admin/events" enctype="multipart/form-data">
               ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
@@ -8698,6 +8809,161 @@ return res.redirect(`/admin/create-events?${sp.toString()}`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error.");
+  }
+});
+
+router.post("/events/bulk-import", csvUpload.single("eventsCsv"), async (req, res) => {
+  try {
+    const role = req.user?.role || "creator";
+    if (!(role === "admin" || role === "editor")) {
+      return res.status(403).send("Forbidden");
+    }
+    await ensurePickSchema();
+
+    const userCity = String(req.user?.city || "Enumclaw");
+    const cityFromBody = String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw";
+    const importCity = role === "admin" ? cityFromBody : userCity;
+    const file = req.file;
+    if (!file?.buffer) return res.status(400).send("CSV file is required.");
+
+    const rows = parseCsvRows(String(file.buffer.toString("utf8") || "").replace(/^\uFEFF/, ""));
+    if (!rows.length) {
+      return res.redirect(`/admin/create-events?city=${encodeURIComponent(importCity)}&bulkImported=0&bulkSkipped=0&bulkErrors=1&bulkNotice=${encodeURIComponent("No CSV rows were found.")}`);
+    }
+
+    const cols = await getEventsColumns();
+    const imported = [];
+    const skipped = [];
+    const errors = [];
+
+    for (const row of rows) {
+      const rowNumber = Number(row.__rowNumber || 0);
+      const city = role === "admin"
+        ? (getCsvValue(row, ["city"]) || importCity)
+        : importCity;
+      const title = getCsvValue(row, ["title", "name"]);
+      const description = getCsvValue(row, ["description"]);
+      const eventDetails = getCsvValue(row, ["eventDetails", "details"]);
+      const goodToKnow = getCsvValue(row, ["goodToKnow"]);
+      const startRaw = getCsvValue(row, ["startDateTime", "start", "startsAt"]);
+      const endRaw = getCsvValue(row, ["endDateTime", "end", "endsAt"]);
+      const location = getCsvValue(row, ["location", "venue"]);
+      const organizer = getCsvValue(row, ["organizer", "host"]);
+      const imageUrl = normalizeHttpUrl(getCsvValue(row, ["imageUrl", "image"]));
+      const ticketUrl = normalizeHttpUrl(getCsvValue(row, ["ticketUrl", "eventLink", "ticketLink"]));
+      const ticketLabel = getCsvValue(row, ["ticketLabel"]) || "Tickets";
+      const seoTitle = getCsvValue(row, ["seoTitle"]);
+      const metaDescription = getCsvValue(row, ["metaDescription"]);
+      const focusKeyphrase = getCsvValue(row, ["focusKeyphrase"]);
+      const imageAlt = getCsvValue(row, ["imageAlt"]);
+      const categoriesRaw = getCsvValue(row, ["categories", "category"]);
+      const categories = normalizeCategories(
+        categoriesRaw
+          ? categoriesRaw.split(/[|,;]/g).map((part) => String(part || "").trim()).filter(Boolean)
+          : []
+      );
+      const featuredFlag = parseCsvBoolean(getCsvValue(row, ["featured"])) ? 1 : 0;
+      const eddiesPickFlag = parseCsvBoolean(getCsvValue(row, ["eddiesPick"])) ? 1 : 0;
+
+      if (!title || !description || !startRaw || !location || !organizer) {
+        errors.push(`Row ${rowNumber}: missing required fields.`);
+        continue;
+      }
+
+      const startDateTime = toLocalISOWithOffset(startRaw);
+      let endDateTime = endRaw ? toLocalISOWithOffset(endRaw) : "";
+      if (!startDateTime) {
+        errors.push(`Row ${rowNumber}: invalid startDateTime.`);
+        continue;
+      }
+      if (!endDateTime) endDateTime = addHoursIso(startDateTime, 1);
+      if (!endDateTime) {
+        errors.push(`Row ${rowNumber}: invalid endDateTime.`);
+        continue;
+      }
+
+      const startMs = Date.parse(startDateTime);
+      const endMs = Date.parse(endDateTime);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        errors.push(`Row ${rowNumber}: end time must be after start time.`);
+        continue;
+      }
+
+      const duplicateMatches = await findAdminEventDuplicateMatches({
+        city,
+        title,
+        startDateTime,
+        endDateTime,
+        location,
+        organizer,
+        ticketUrl,
+        eventLink: ticketUrl,
+      });
+      if (duplicateMatches.length) {
+        skipped.push(`Row ${rowNumber}: skipped possible duplicate "${title}".`);
+        continue;
+      }
+
+      const slug = await ensureUniqueSlug(slugify(title), null);
+      const catsJson = JSON.stringify(categories);
+      const fields = [
+        ["city", city],
+        ["slug", slug],
+        ["title", title],
+        ["description", description],
+        ["eventDetails", eventDetails || ""],
+        ["goodToKnow", goodToKnow || ""],
+        ["seoTitle", seoTitle || ""],
+        ["metaDescription", metaDescription || ""],
+        ["focusKeyphrase", focusKeyphrase || ""],
+        ["imageAlt", imageAlt || ""],
+        ["startDateTime", startDateTime],
+        ["endDateTime", endDateTime],
+        ["location", location],
+        ["organizer", organizer],
+        ["imageUrl", imageUrl || null],
+        ["ticketUrl", ticketUrl || null],
+        ["ticketLabel", ticketLabel],
+        ["categories", catsJson],
+        ["featured", featuredFlag],
+        ["eddiesPick", eddiesPickFlag],
+      ];
+
+      const insertCols = [];
+      const placeholders = [];
+      const insertVals = [];
+      for (const [key, value] of fields) {
+        if (!cols.size || cols.has(key)) {
+          insertCols.push(key);
+          placeholders.push("?");
+          insertVals.push(value);
+        }
+      }
+
+      await run(
+        `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
+        insertVals
+      );
+      imported.push(title);
+    }
+
+    const noticeParts = [];
+    if (skipped.length) noticeParts.push(skipped.slice(0, 3).join(" "));
+    if (errors.length) noticeParts.push(errors.slice(0, 3).join(" "));
+    if (skipped.length > 3) noticeParts.push(`${skipped.length - 3} more skipped row(s).`);
+    if (errors.length > 3) noticeParts.push(`${errors.length - 3} more error row(s).`);
+
+    const sp = new URLSearchParams({
+      city: importCity,
+      bulkImported: String(imported.length),
+      bulkSkipped: String(skipped.length),
+      bulkErrors: String(errors.length),
+    });
+    if (noticeParts.length) sp.set("bulkNotice", noticeParts.join(" "));
+    return res.redirect(`/admin/create-events?${sp.toString()}`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to import CSV.");
   }
 });
 
