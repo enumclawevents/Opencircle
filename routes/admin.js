@@ -340,6 +340,13 @@ function getCsvValue(row, keys) {
   return "";
 }
 
+function parseCsvListValues(input) {
+  return String(input || "")
+    .split(/[|,;]/g)
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+}
+
 function normalizeAssetKey(input) {
   return String(input || "")
     .trim()
@@ -5340,7 +5347,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
               <div class="sectionTitle" style="margin-bottom:8px;">
                 <div>
                   <h2 style="font-size:18px;">Bulk import from CSV</h2>
-                  <p class="sub">Upload multiple non-recurring events at once. Duplicate matches are skipped automatically.</p>
+                  <p class="sub">Upload multiple events at once. Duplicate matches are skipped automatically.</p>
                 </div>
               </div>
               ${(req.query.bulkImported || req.query.bulkSkipped || req.query.bulkErrors) ? `
@@ -5358,8 +5365,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.11");
                 <label style="margin-top:10px;">Image ZIP (optional)</label>
                 <input class="ctrl" type="file" name="imageZip" accept=".zip,application/zip" />
                 <div class="note">If you upload a ZIP, add an <strong style="color:var(--text);">imageFile</strong>, <strong style="color:var(--text);">imageFilename</strong>, or <strong style="color:var(--text);">image</strong> column in the CSV that matches each image filename inside the ZIP.</div>
-                <div class="note">Supported columns: title, description, startDateTime, endDateTime, location, organizer, categories, imageUrl, imageFile, imageFilename, ticketUrl, ticketLabel, eventDetails, goodToKnow, seoTitle, metaDescription, focusKeyphrase, imageAlt, featured, eddiesPick, city.</div>
+                <div class="note">Supported columns: title, description, startDateTime, endDateTime, location, organizer, categories, imageUrl, imageFile, imageFilename, ticketUrl, ticketLabel, eventDetails, goodToKnow, seoTitle, metaDescription, focusKeyphrase, imageAlt, featured, eddiesPick, city, hasRecurrence, recurrenceType, recurrenceInterval, weeklyByDay, monthlyMode, byMonthday, setPos, monthlyByDay, recurrenceStartDate, recurrenceUntilDate, recurrenceDates.</div>
                 <div class="note">Date/time values should be full date-times like <strong style="color:var(--text);">2026-04-15 18:00</strong> or ISO timestamps.</div>
+                <div class="note">For recurring imports: use <strong style="color:var(--text);">recurrenceType</strong> as <strong style="color:var(--text);">weekly</strong>, <strong style="color:var(--text);">monthly</strong>, or <strong style="color:var(--text);">custom</strong>. Use pipe-separated values like <strong style="color:var(--text);">MO|WE|FR</strong> for weekly days or <strong style="color:var(--text);">2026-05-01|2026-05-08</strong> for custom dates.</div>
                 <div class="actions" style="margin-top:12px;">
                   <button type="submit" class="btn btn-primary">Import CSV</button>
                 </div>
@@ -8964,6 +8972,17 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         );
         const featuredFlag = parseCsvBoolean(getCsvValue(row, ["featured"])) ? 1 : 0;
         const eddiesPickFlag = parseCsvBoolean(getCsvValue(row, ["eddiesPick"])) ? 1 : 0;
+        const hasRec = parseCsvBoolean(getCsvValue(row, ["hasRecurrence", "recurring"])) ? 1 : 0;
+        const recurrenceType = String(getCsvValue(row, ["recurrenceType"]) || "none").trim().toLowerCase();
+        const recurrenceInterval = Math.max(1, parseInt(getCsvValue(row, ["recurrenceInterval"]) || "1", 10) || 1);
+        const weeklyByDay = parseCsvListValues(getCsvValue(row, ["weeklyByDay", "byDay"])).map((item) => String(item || "").toUpperCase());
+        const monthlyMode = String(getCsvValue(row, ["monthlyMode"]) || "monthday").trim().toLowerCase();
+        const byMonthday = Math.max(1, Math.min(31, parseInt(getCsvValue(row, ["byMonthday"]) || "0", 10) || 0));
+        const setPos = parseInt(getCsvValue(row, ["setPos"]) || "1", 10) || 1;
+        const monthlyByDay = parseCsvListValues(getCsvValue(row, ["monthlyByDay"])).map((item) => String(item || "").toUpperCase());
+        const recurrenceStartDate = getCsvValue(row, ["recurrenceStartDate"]);
+        const recurrenceUntilDate = getCsvValue(row, ["recurrenceUntilDate"]);
+        const recurrenceDates = parseCsvListValues(getCsvValue(row, ["recurrenceDates", "customDates"]));
 
         if (!title || !description || !startRaw || !location || !organizer) {
           errors.push(`Row ${rowNumber}: missing required fields.`);
@@ -9014,6 +9033,59 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
           continue;
         }
 
+        let recurrenceRule = null;
+        let recurrenceDatesJson = null;
+        if (hasRec && recurrenceType !== "none") {
+          if (recurrenceType === "custom") {
+            const items = [];
+            const uniqDates = [];
+            const baseStartTime = String(startDateTime || "").slice(11, 16) || "00:00";
+            const baseEndTime = String(endDateTime || "").slice(11, 16) || baseStartTime;
+            for (const date of recurrenceDates) {
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+              if (!uniqDates.includes(date)) uniqDates.push(date);
+              items.push({
+                date,
+                start: toLocalISOWithOffset(`${date}T${baseStartTime}`),
+                end: toLocalISOWithOffset(`${date}T${baseEndTime}`),
+              });
+            }
+            if (!uniqDates.length) {
+              errors.push(`Row ${rowNumber}: custom recurrence needs recurrenceDates.`);
+              continue;
+            }
+            recurrenceRule = { type: "custom", items };
+            recurrenceDatesJson = JSON.stringify(uniqDates);
+          } else if (recurrenceType === "weekly") {
+            const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
+            const uniq = weeklyByDay.filter((day, index) => allowed.has(day) && weeklyByDay.indexOf(day) === index);
+            if (!uniq.length) {
+              errors.push(`Row ${rowNumber}: weekly recurrence needs weeklyByDay.`);
+              continue;
+            }
+            recurrenceRule = { type: "weekly", interval: recurrenceInterval, byDay: uniq };
+          } else if (recurrenceType === "monthly") {
+            if (monthlyMode === "nthweekday") {
+              const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
+              const uniq = monthlyByDay.filter((day, index) => allowed.has(day) && monthlyByDay.indexOf(day) === index);
+              if (!uniq.length) {
+                errors.push(`Row ${rowNumber}: monthly nth weekday recurrence needs monthlyByDay.`);
+                continue;
+              }
+              recurrenceRule = { type: "monthly", interval: recurrenceInterval, mode: "nthweekday", setPos, byDay: uniq };
+            } else {
+              if (!byMonthday) {
+                errors.push(`Row ${rowNumber}: monthly recurrence needs byMonthday.`);
+                continue;
+              }
+              recurrenceRule = { type: "monthly", interval: recurrenceInterval, mode: "monthday", byMonthday };
+            }
+          } else {
+            errors.push(`Row ${rowNumber}: unsupported recurrenceType "${recurrenceType}".`);
+            continue;
+          }
+        }
+
         const slug = await ensureUniqueSlug(slugify(title), null);
         const catsJson = JSON.stringify(categories);
         const fields = [
@@ -9038,6 +9110,25 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
           ["featured", featuredFlag],
           ["eddiesPick", eddiesPickFlag],
         ];
+
+        const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
+        const recurrenceStartDateClean = /^\d{4}-\d{2}-\d{2}$/.test(recurrenceStartDate) ? recurrenceStartDate : null;
+        const recurrenceUntilDateClean = /^\d{4}-\d{2}-\d{2}$/.test(recurrenceUntilDate) ? recurrenceUntilDate : null;
+        const hasRecCols =
+          cols.has("hasRecurrence") &&
+          cols.has("recurrenceRule") &&
+          cols.has("recurrenceDates") &&
+          cols.has("recurrenceStartDate") &&
+          cols.has("recurrenceUntilDate");
+        if (hasRecCols) {
+          fields.push(
+            ["hasRecurrence", hasRec],
+            ["recurrenceRule", recurrenceRuleJson],
+            ["recurrenceDates", recurrenceDatesJson],
+            ["recurrenceStartDate", recurrenceStartDateClean],
+            ["recurrenceUntilDate", recurrenceUntilDateClean]
+          );
+        }
 
         const insertCols = [];
         const placeholders = [];
