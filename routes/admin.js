@@ -1906,7 +1906,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.12");
+const appVersion = String(process.env.APP_VERSION || "v0.0.13");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1920,6 +1920,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.12");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("CSV fields aligned to event form");
     releaseItems.push("Dedicated upload events page");
     releaseItems.push("CSV + ZIP event image import");
     releaseItems.push("CSV event bulk import");
@@ -5650,9 +5651,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.12");
               <label style="margin-top:10px;">Image ZIP (optional)</label>
               <input class="ctrl" type="file" name="imageZip" accept=".zip,application/zip" />
               <div class="note">If you upload a ZIP, add an <strong style="color:var(--text);">imageFile</strong>, <strong style="color:var(--text);">imageFilename</strong>, or <strong style="color:var(--text);">image</strong> column in the CSV that matches each image filename inside the ZIP.</div>
-              <div class="note">Supported columns: title, description, startDateTime, endDateTime, location, organizer, categories, imageUrl, imageFile, imageFilename, ticketUrl, ticketLabel, eventDetails, goodToKnow, seoTitle, metaDescription, focusKeyphrase, imageAlt, featured, eddiesPick, city, hasRecurrence, recurrenceType, recurrenceInterval, weeklyByDay, monthlyMode, byMonthday, setPos, monthlyByDay, recurrenceStartDate, recurrenceUntilDate, recurrenceDates.</div>
+              <div class="note">Supported columns matching the form: featured, eddiesPick, category1, category2, category3, title, description, eventDetails, goodToKnow, seoTitle, metaDescription, focusKeyphrase, imageAlt, startDateTime, endDateTime, hasRecurrence, recurrenceStartDate, recurrenceUntilDate, recurrenceType, recurrenceInterval, weeklyByDay, monthlyMode, byMonthday, setPos, monthlyByDay, customDate, customStart, customEnd, imageUrl, imageFile, imageFilename, ticketLabel, ticketUrl, location, organizer, city.</div>
               <div class="note">Date/time values should be full date-times like <strong style="color:var(--text);">2026-04-15 18:00</strong> or ISO timestamps.</div>
-              <div class="note">For recurring imports: use <strong style="color:var(--text);">recurrenceType</strong> as <strong style="color:var(--text);">weekly</strong>, <strong style="color:var(--text);">monthly</strong>, or <strong style="color:var(--text);">custom</strong>. Use pipe-separated values like <strong style="color:var(--text);">MO|WE|FR</strong> for weekly days or <strong style="color:var(--text);">2026-05-01|2026-05-08</strong> for custom dates.</div>
+              <div class="note">For recurring imports: use <strong style="color:var(--text);">recurrenceType</strong> as <strong style="color:var(--text);">weekly</strong>, <strong style="color:var(--text);">monthly</strong>, or <strong style="color:var(--text);">custom</strong>. Use pipe-separated values like <strong style="color:var(--text);">MO|WE|FR</strong> for weekly days, and for custom dates use matching pipe-separated <strong style="color:var(--text);">customDate</strong>, <strong style="color:var(--text);">customStart</strong>, and <strong style="color:var(--text);">customEnd</strong> values.</div>
               <div class="actions" style="margin-top:12px;">
                 <button type="submit" class="btn btn-primary">Import CSV</button>
               </div>
@@ -8967,8 +8968,8 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         const description = getCsvValue(row, ["description"]);
         const eventDetails = getCsvValue(row, ["eventDetails", "details"]);
         const goodToKnow = getCsvValue(row, ["goodToKnow"]);
-        const startRaw = getCsvValue(row, ["startDateTime", "start", "startsAt"]);
-        const endRaw = getCsvValue(row, ["endDateTime", "end", "endsAt"]);
+        const startRaw = getCsvValue(row, ["startDateTime", "startDateTimeISO", "start", "startsAt"]);
+        const endRaw = getCsvValue(row, ["endDateTime", "endDateTimeISO", "end", "endsAt"]);
         const location = getCsvValue(row, ["location", "venue"]);
         const organizer = getCsvValue(row, ["organizer", "host"]);
         let imageUrl = normalizeHttpUrl(getCsvValue(row, ["imageUrl"]));
@@ -8978,13 +8979,14 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         const metaDescription = getCsvValue(row, ["metaDescription"]);
         const focusKeyphrase = getCsvValue(row, ["focusKeyphrase"]);
         const imageAlt = getCsvValue(row, ["imageAlt"]);
-        const categoriesRaw = getCsvValue(row, ["categories", "category"]);
+        const categoriesRaw = [
+          getCsvValue(row, ["category1"]),
+          getCsvValue(row, ["category2"]),
+          getCsvValue(row, ["category3"]),
+          ...parseCsvListValues(getCsvValue(row, ["categories", "category"]))
+        ].filter(Boolean);
         const imageAssetName = normalizeAssetKey(getCsvValue(row, ["imageFile", "imageFilename", "image"]));
-        const categories = normalizeCategories(
-          categoriesRaw
-            ? categoriesRaw.split(/[|,;]/g).map((part) => String(part || "").trim()).filter(Boolean)
-            : []
-        );
+        const categories = normalizeCategories(categoriesRaw);
         const featuredFlag = parseCsvBoolean(getCsvValue(row, ["featured"])) ? 1 : 0;
         const eddiesPickFlag = parseCsvBoolean(getCsvValue(row, ["eddiesPick"])) ? 1 : 0;
         const hasRec = parseCsvBoolean(getCsvValue(row, ["hasRecurrence", "recurring"])) ? 1 : 0;
@@ -8998,6 +9000,9 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         const recurrenceStartDate = getCsvValue(row, ["recurrenceStartDate"]);
         const recurrenceUntilDate = getCsvValue(row, ["recurrenceUntilDate"]);
         const recurrenceDates = parseCsvListValues(getCsvValue(row, ["recurrenceDates", "customDates"]));
+        const customDates = parseCsvListValues(getCsvValue(row, ["customDate"]));
+        const customStarts = parseCsvListValues(getCsvValue(row, ["customStart"]));
+        const customEnds = parseCsvListValues(getCsvValue(row, ["customEnd"]));
 
         if (!title || !description || !startRaw || !location || !organizer) {
           errors.push(`Row ${rowNumber}: missing required fields.`);
@@ -9056,17 +9061,21 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
             const uniqDates = [];
             const baseStartTime = String(startDateTime || "").slice(11, 16) || "00:00";
             const baseEndTime = String(endDateTime || "").slice(11, 16) || baseStartTime;
-            for (const date of recurrenceDates) {
+            const sourceDates = customDates.length ? customDates : recurrenceDates;
+            for (let i = 0; i < sourceDates.length; i++) {
+              const date = sourceDates[i];
               if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
               if (!uniqDates.includes(date)) uniqDates.push(date);
+              const startTime = customStarts[i] || baseStartTime;
+              const endTime = customEnds[i] || baseEndTime;
               items.push({
                 date,
-                start: toLocalISOWithOffset(`${date}T${baseStartTime}`),
-                end: toLocalISOWithOffset(`${date}T${baseEndTime}`),
+                start: toLocalISOWithOffset(`${date}T${startTime}`),
+                end: toLocalISOWithOffset(`${date}T${endTime}`),
               });
             }
             if (!uniqDates.length) {
-              errors.push(`Row ${rowNumber}: custom recurrence needs recurrenceDates.`);
+              errors.push(`Row ${rowNumber}: custom recurrence needs customDate or recurrenceDates.`);
               continue;
             }
             recurrenceRule = { type: "custom", items };
