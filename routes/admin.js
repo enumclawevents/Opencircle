@@ -4,8 +4,9 @@ const express = require("express");
 const router = express.Router();
 const { run, all, get, slugify, ensureUniqueSlug, DB_PATH } = require("../db");
 const path = require("path");
+const os = require("os");
 const fs = require("fs");
-const { execSync } = require("child_process");
+const { execSync, execFileSync } = require("child_process");
 const multer = require("multer");
 const { S3Client } = require("@aws-sdk/client-s3");
 const multerS3 = require("multer-s3");
@@ -141,15 +142,20 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
 });
 
-const csvUpload = multer({
+const bulkImportUpload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (_req, file, cb) => {
     const name = String(file.originalname || "").toLowerCase();
     const mime = String(file.mimetype || "").toLowerCase();
-    const ok = name.endsWith(".csv") || mime === "text/csv" || mime === "application/vnd.ms-excel";
+    let ok = false;
+    if (file.fieldname === "eventsCsv") {
+      ok = name.endsWith(".csv") || mime === "text/csv" || mime === "application/vnd.ms-excel";
+    } else if (file.fieldname === "imageZip") {
+      ok = name.endsWith(".zip") || mime === "application/zip" || mime === "application/x-zip-compressed" || mime === "multipart/x-zip";
+    }
     cb(ok ? null : new Error("Only CSV files are allowed."), ok);
   },
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 const JOB_APPLICATION_FIELDS = [
@@ -332,6 +338,88 @@ function getCsvValue(row, keys) {
     }
   }
   return "";
+}
+
+function normalizeAssetKey(input) {
+  return String(input || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function buildZipImageMap(zipBuffer) {
+  if (!zipBuffer || !zipBuffer.length) return new Map();
+
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-bulk-images-"));
+  const zipPath = path.join(baseDir, "images.zip");
+  const extractDir = path.join(baseDir, "unzipped");
+  fs.mkdirSync(extractDir, { recursive: true });
+  fs.writeFileSync(zipPath, zipBuffer);
+
+  try {
+    execFileSync("unzip", ["-o", zipPath, "-d", extractDir], { stdio: "ignore" });
+  } catch (err) {
+    try { fs.rmSync(baseDir, { recursive: true, force: true }); } catch (_) {}
+    throw new Error("Failed to extract image ZIP. Make sure it is a valid .zip archive.");
+  }
+
+  const imageMap = new Map();
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      const key = normalizeAssetKey(entry.name);
+      if (!key) continue;
+      imageMap.set(key, full);
+    }
+  };
+
+  walk(extractDir);
+  return { imageMap, cleanup: () => { try { fs.rmSync(baseDir, { recursive: true, force: true }); } catch (_) {} } };
+}
+
+async function persistImportedImage(localPath, req) {
+  if (!localPath || !fs.existsSync(localPath)) return "";
+
+  const ext = path.extname(localPath || "").toLowerCase() || ".jpg";
+  const destName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+
+  if (useR2) {
+    const tmpFile = {
+      originalname: path.basename(localPath),
+      mimetype: ({
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+        ".gif": "image/gif"
+      })[ext] || "application/octet-stream"
+    };
+    const key = buildUploadKey(tmpFile);
+    const putScript = [
+      "const fs=require('fs');",
+      "const {S3Client,PutObjectCommand}=require('@aws-sdk/client-s3');",
+      `const client=new S3Client({region:'auto',endpoint:${JSON.stringify(`https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`)},credentials:{accessKeyId:${JSON.stringify(R2_ACCESS_KEY_ID)},secretAccessKey:${JSON.stringify(R2_SECRET_ACCESS_KEY)}},forcePathStyle:true});`,
+      `const body=fs.readFileSync(${JSON.stringify(localPath)});`,
+      `client.send(new PutObjectCommand({Bucket:${JSON.stringify(R2_BUCKET)},Key:${JSON.stringify(key)},Body:body,ContentType:${JSON.stringify(tmpFile.mimetype)}})).then(()=>process.stdout.write(${JSON.stringify(key)})).catch((err)=>{console.error(err);process.exit(1);});`
+    ].join("");
+    execFileSync(process.execPath, ["-e", putScript], { stdio: ["ignore", "pipe", "pipe"] });
+    const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
+    return `${base}/${key}`;
+  }
+
+  const destPath = path.join(UPLOAD_DIR, destName);
+  fs.copyFileSync(localPath, destPath);
+  const proto = req.headers["x-forwarded-proto"] || req.protocol;
+  const host = req.headers["x-forwarded-host"] || req.get("host");
+  return `${proto}://${host}/uploads/${destName}`;
 }
 
 function normalizeVenueCategories(input) {
@@ -1811,7 +1899,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.10");
+const appVersion = String(process.env.APP_VERSION || "v0.0.11");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1825,6 +1913,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.10");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("CSV + ZIP event image import");
     releaseItems.push("CSV event bulk import");
     releaseItems.push("Canonical job employment types");
     releaseItems.push("Multi-type job postings");
@@ -5266,7 +5355,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.10");
                 <input type="hidden" name="city" value="${esc(formCity)}" />
                 <label>CSV File</label>
                 <input class="ctrl" type="file" name="eventsCsv" accept=".csv,text/csv" required />
-                <div class="note">Supported columns: title, description, startDateTime, endDateTime, location, organizer, categories, imageUrl, ticketUrl, ticketLabel, eventDetails, goodToKnow, seoTitle, metaDescription, focusKeyphrase, imageAlt, featured, eddiesPick, city.</div>
+                <label style="margin-top:10px;">Image ZIP (optional)</label>
+                <input class="ctrl" type="file" name="imageZip" accept=".zip,application/zip" />
+                <div class="note">If you upload a ZIP, add an <strong style="color:var(--text);">imageFile</strong>, <strong style="color:var(--text);">imageFilename</strong>, or <strong style="color:var(--text);">image</strong> column in the CSV that matches each image filename inside the ZIP.</div>
+                <div class="note">Supported columns: title, description, startDateTime, endDateTime, location, organizer, categories, imageUrl, imageFile, imageFilename, ticketUrl, ticketLabel, eventDetails, goodToKnow, seoTitle, metaDescription, focusKeyphrase, imageAlt, featured, eddiesPick, city.</div>
                 <div class="note">Date/time values should be full date-times like <strong style="color:var(--text);">2026-04-15 18:00</strong> or ISO timestamps.</div>
                 <div class="actions" style="margin-top:12px;">
                   <button type="submit" class="btn btn-primary">Import CSV</button>
@@ -8812,7 +8904,7 @@ return res.redirect(`/admin/create-events?${sp.toString()}`);
   }
 });
 
-router.post("/events/bulk-import", csvUpload.single("eventsCsv"), async (req, res) => {
+router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv", maxCount: 1 }, { name: "imageZip", maxCount: 1 }]), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
     if (!(role === "admin" || role === "editor")) {
@@ -8823,7 +8915,8 @@ router.post("/events/bulk-import", csvUpload.single("eventsCsv"), async (req, re
     const userCity = String(req.user?.city || "Enumclaw");
     const cityFromBody = String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw";
     const importCity = role === "admin" ? cityFromBody : userCity;
-    const file = req.file;
+    const file = req.files?.eventsCsv?.[0] || null;
+    const imageZipFile = req.files?.imageZip?.[0] || null;
     if (!file?.buffer) return res.status(400).send("CSV file is required.");
 
     const rows = parseCsvRows(String(file.buffer.toString("utf8") || "").replace(/^\uFEFF/, ""));
@@ -8835,116 +8928,136 @@ router.post("/events/bulk-import", csvUpload.single("eventsCsv"), async (req, re
     const imported = [];
     const skipped = [];
     const errors = [];
+    let zipAssets = null;
 
-    for (const row of rows) {
-      const rowNumber = Number(row.__rowNumber || 0);
-      const city = role === "admin"
-        ? (getCsvValue(row, ["city"]) || importCity)
-        : importCity;
-      const title = getCsvValue(row, ["title", "name"]);
-      const description = getCsvValue(row, ["description"]);
-      const eventDetails = getCsvValue(row, ["eventDetails", "details"]);
-      const goodToKnow = getCsvValue(row, ["goodToKnow"]);
-      const startRaw = getCsvValue(row, ["startDateTime", "start", "startsAt"]);
-      const endRaw = getCsvValue(row, ["endDateTime", "end", "endsAt"]);
-      const location = getCsvValue(row, ["location", "venue"]);
-      const organizer = getCsvValue(row, ["organizer", "host"]);
-      const imageUrl = normalizeHttpUrl(getCsvValue(row, ["imageUrl", "image"]));
-      const ticketUrl = normalizeHttpUrl(getCsvValue(row, ["ticketUrl", "eventLink", "ticketLink"]));
-      const ticketLabel = getCsvValue(row, ["ticketLabel"]) || "Tickets";
-      const seoTitle = getCsvValue(row, ["seoTitle"]);
-      const metaDescription = getCsvValue(row, ["metaDescription"]);
-      const focusKeyphrase = getCsvValue(row, ["focusKeyphrase"]);
-      const imageAlt = getCsvValue(row, ["imageAlt"]);
-      const categoriesRaw = getCsvValue(row, ["categories", "category"]);
-      const categories = normalizeCategories(
-        categoriesRaw
-          ? categoriesRaw.split(/[|,;]/g).map((part) => String(part || "").trim()).filter(Boolean)
-          : []
-      );
-      const featuredFlag = parseCsvBoolean(getCsvValue(row, ["featured"])) ? 1 : 0;
-      const eddiesPickFlag = parseCsvBoolean(getCsvValue(row, ["eddiesPick"])) ? 1 : 0;
+    if (imageZipFile?.buffer) {
+      zipAssets = buildZipImageMap(imageZipFile.buffer);
+    }
 
-      if (!title || !description || !startRaw || !location || !organizer) {
-        errors.push(`Row ${rowNumber}: missing required fields.`);
-        continue;
-      }
+    try {
+      for (const row of rows) {
+        const rowNumber = Number(row.__rowNumber || 0);
+        const city = role === "admin"
+          ? (getCsvValue(row, ["city"]) || importCity)
+          : importCity;
+        const title = getCsvValue(row, ["title", "name"]);
+        const description = getCsvValue(row, ["description"]);
+        const eventDetails = getCsvValue(row, ["eventDetails", "details"]);
+        const goodToKnow = getCsvValue(row, ["goodToKnow"]);
+        const startRaw = getCsvValue(row, ["startDateTime", "start", "startsAt"]);
+        const endRaw = getCsvValue(row, ["endDateTime", "end", "endsAt"]);
+        const location = getCsvValue(row, ["location", "venue"]);
+        const organizer = getCsvValue(row, ["organizer", "host"]);
+        let imageUrl = normalizeHttpUrl(getCsvValue(row, ["imageUrl"]));
+        const ticketUrl = normalizeHttpUrl(getCsvValue(row, ["ticketUrl", "eventLink", "ticketLink"]));
+        const ticketLabel = getCsvValue(row, ["ticketLabel"]) || "Tickets";
+        const seoTitle = getCsvValue(row, ["seoTitle"]);
+        const metaDescription = getCsvValue(row, ["metaDescription"]);
+        const focusKeyphrase = getCsvValue(row, ["focusKeyphrase"]);
+        const imageAlt = getCsvValue(row, ["imageAlt"]);
+        const categoriesRaw = getCsvValue(row, ["categories", "category"]);
+        const imageAssetName = normalizeAssetKey(getCsvValue(row, ["imageFile", "imageFilename", "image"]));
+        const categories = normalizeCategories(
+          categoriesRaw
+            ? categoriesRaw.split(/[|,;]/g).map((part) => String(part || "").trim()).filter(Boolean)
+            : []
+        );
+        const featuredFlag = parseCsvBoolean(getCsvValue(row, ["featured"])) ? 1 : 0;
+        const eddiesPickFlag = parseCsvBoolean(getCsvValue(row, ["eddiesPick"])) ? 1 : 0;
 
-      const startDateTime = toLocalISOWithOffset(startRaw);
-      let endDateTime = endRaw ? toLocalISOWithOffset(endRaw) : "";
-      if (!startDateTime) {
-        errors.push(`Row ${rowNumber}: invalid startDateTime.`);
-        continue;
-      }
-      if (!endDateTime) endDateTime = addHoursIso(startDateTime, 1);
-      if (!endDateTime) {
-        errors.push(`Row ${rowNumber}: invalid endDateTime.`);
-        continue;
-      }
-
-      const startMs = Date.parse(startDateTime);
-      const endMs = Date.parse(endDateTime);
-      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-        errors.push(`Row ${rowNumber}: end time must be after start time.`);
-        continue;
-      }
-
-      const duplicateMatches = await findAdminEventDuplicateMatches({
-        city,
-        title,
-        startDateTime,
-        endDateTime,
-        location,
-        organizer,
-        ticketUrl,
-        eventLink: ticketUrl,
-      });
-      if (duplicateMatches.length) {
-        skipped.push(`Row ${rowNumber}: skipped possible duplicate "${title}".`);
-        continue;
-      }
-
-      const slug = await ensureUniqueSlug(slugify(title), null);
-      const catsJson = JSON.stringify(categories);
-      const fields = [
-        ["city", city],
-        ["slug", slug],
-        ["title", title],
-        ["description", description],
-        ["eventDetails", eventDetails || ""],
-        ["goodToKnow", goodToKnow || ""],
-        ["seoTitle", seoTitle || ""],
-        ["metaDescription", metaDescription || ""],
-        ["focusKeyphrase", focusKeyphrase || ""],
-        ["imageAlt", imageAlt || ""],
-        ["startDateTime", startDateTime],
-        ["endDateTime", endDateTime],
-        ["location", location],
-        ["organizer", organizer],
-        ["imageUrl", imageUrl || null],
-        ["ticketUrl", ticketUrl || null],
-        ["ticketLabel", ticketLabel],
-        ["categories", catsJson],
-        ["featured", featuredFlag],
-        ["eddiesPick", eddiesPickFlag],
-      ];
-
-      const insertCols = [];
-      const placeholders = [];
-      const insertVals = [];
-      for (const [key, value] of fields) {
-        if (!cols.size || cols.has(key)) {
-          insertCols.push(key);
-          placeholders.push("?");
-          insertVals.push(value);
+        if (!title || !description || !startRaw || !location || !organizer) {
+          errors.push(`Row ${rowNumber}: missing required fields.`);
+          continue;
         }
-      }
 
-      await run(
-        `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
-        insertVals
-      );
-      imported.push(title);
+        if (!imageUrl && zipAssets?.imageMap && imageAssetName) {
+          const imagePath = zipAssets.imageMap.get(imageAssetName);
+          if (imagePath) {
+            imageUrl = await persistImportedImage(imagePath, req);
+          } else {
+            errors.push(`Row ${rowNumber}: image "${imageAssetName}" was not found in the ZIP.`);
+            continue;
+          }
+        }
+
+        const startDateTime = toLocalISOWithOffset(startRaw);
+        let endDateTime = endRaw ? toLocalISOWithOffset(endRaw) : "";
+        if (!startDateTime) {
+          errors.push(`Row ${rowNumber}: invalid startDateTime.`);
+          continue;
+        }
+        if (!endDateTime) endDateTime = addHoursIso(startDateTime, 1);
+        if (!endDateTime) {
+          errors.push(`Row ${rowNumber}: invalid endDateTime.`);
+          continue;
+        }
+
+        const startMs = Date.parse(startDateTime);
+        const endMs = Date.parse(endDateTime);
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+          errors.push(`Row ${rowNumber}: end time must be after start time.`);
+          continue;
+        }
+
+        const duplicateMatches = await findAdminEventDuplicateMatches({
+          city,
+          title,
+          startDateTime,
+          endDateTime,
+          location,
+          organizer,
+          ticketUrl,
+          eventLink: ticketUrl,
+        });
+        if (duplicateMatches.length) {
+          skipped.push(`Row ${rowNumber}: skipped possible duplicate "${title}".`);
+          continue;
+        }
+
+        const slug = await ensureUniqueSlug(slugify(title), null);
+        const catsJson = JSON.stringify(categories);
+        const fields = [
+          ["city", city],
+          ["slug", slug],
+          ["title", title],
+          ["description", description],
+          ["eventDetails", eventDetails || ""],
+          ["goodToKnow", goodToKnow || ""],
+          ["seoTitle", seoTitle || ""],
+          ["metaDescription", metaDescription || ""],
+          ["focusKeyphrase", focusKeyphrase || ""],
+          ["imageAlt", imageAlt || ""],
+          ["startDateTime", startDateTime],
+          ["endDateTime", endDateTime],
+          ["location", location],
+          ["organizer", organizer],
+          ["imageUrl", imageUrl || null],
+          ["ticketUrl", ticketUrl || null],
+          ["ticketLabel", ticketLabel],
+          ["categories", catsJson],
+          ["featured", featuredFlag],
+          ["eddiesPick", eddiesPickFlag],
+        ];
+
+        const insertCols = [];
+        const placeholders = [];
+        const insertVals = [];
+        for (const [key, value] of fields) {
+          if (!cols.size || cols.has(key)) {
+            insertCols.push(key);
+            placeholders.push("?");
+            insertVals.push(value);
+          }
+        }
+
+        await run(
+          `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
+          insertVals
+        );
+        imported.push(title);
+      }
+    } finally {
+      if (zipAssets?.cleanup) zipAssets.cleanup();
     }
 
     const noticeParts = [];
