@@ -1906,7 +1906,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.23");
+const appVersion = String(process.env.APP_VERSION || "v0.0.24");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1920,6 +1920,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.23");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-03-25", text: "Ads placement dropdown with standard placement options" });
     releaseLogItems.push({ date: "2026-03-25", text: "Global nested corner radius system across admin pages" });
     releaseLogItems.push({ date: "2026-03-25", text: "Three-layer quick-link corner radius math fix" });
     releaseLogItems.push({ date: "2026-03-25", text: "Release Notes menu and dated release history" });
@@ -2381,6 +2382,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.23");
       },
     };
     const chartDataJson = JSON.stringify(chartSets);
+    const adPlacementOptions = [
+      "homepage-top",
+      "homepage-bottom",
+      "events-top",
+      "events-bottom",
+      "venues-top",
+      "single-event-main",
+      "single-event-side",
+    ];
 
     const showDashboard = view === "dashboard";
     const showAnalytics = view === "events-analytics" || view === "analytics";
@@ -6718,8 +6728,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.23");
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
                   <label style="margin-top:0;">Placement</label>
-                  <input class="ctrl" name="placement" value="${esc(editAd?.placement || "default")}" placeholder="homepage-sidebar" required />
-                  <div class="note">Use the same placement key anywhere this ad slot appears.</div>
+                  <select class="ctrl" name="placement" required>
+                    ${(() => {
+                      const selectedPlacement = String(editAd?.placement || "homepage-top").trim() || "homepage-top";
+                      const options = adPlacementOptions.includes(selectedPlacement)
+                        ? adPlacementOptions
+                        : [selectedPlacement, ...adPlacementOptions];
+                      return options.map((placement) => {
+                        const isLegacy = !adPlacementOptions.includes(placement);
+                        const label = isLegacy ? `${placement} (existing custom)` : placement;
+                        return `<option value="${esc(placement)}" ${placement === selectedPlacement ? "selected" : ""}>${esc(label)}</option>`;
+                      }).join("");
+                    })()}
+                  </select>
+                  <div class="note">These are the approved placement keys used by the website and plugin.</div>
                 </div>
                 <div>
                   <label style="margin-top:0;">Visibility %</label>
