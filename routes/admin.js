@@ -1906,7 +1906,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.17");
+const appVersion = String(process.env.APP_VERSION || "v0.0.19");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1919,37 +1919,40 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.17");
     const hasJobsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'"));
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
-    const releaseItems = [];
-    releaseItems.push("Mobile admin list layout cleanup");
-    releaseItems.push("Upload review panel");
-    releaseItems.push("Event import template download");
-    releaseItems.push("CSV fields aligned to event form");
-    releaseItems.push("Dedicated upload events page");
-    releaseItems.push("CSV + ZIP event image import");
-    releaseItems.push("CSV event bulk import");
-    releaseItems.push("Canonical job employment types");
-    releaseItems.push("Multi-type job postings");
-    releaseItems.push("Website job applications");
-    releaseItems.push("Configurable job application fields");
-    releaseItems.push("Public jobs JSON feed");
-    releaseItems.push("Jobs JSON link");
-    releaseItems.push("Ads module");
-    releaseItems.push("Mobile sidebar");
-    releaseItems.push("Duplicate event detection");
-    releaseItems.push("Venue analytics graph");
+    const releaseLogItems = [];
+    releaseLogItems.push("Updates log page");
+    releaseLogItems.push("Dashboard release notes trimmed to recent updates");
+    releaseLogItems.push("Mobile admin list layout cleanup");
+    releaseLogItems.push("Upload review panel");
+    releaseLogItems.push("Event import template download");
+    releaseLogItems.push("CSV fields aligned to event form");
+    releaseLogItems.push("Dedicated upload events page");
+    releaseLogItems.push("CSV + ZIP event image import");
+    releaseLogItems.push("CSV event bulk import");
+    releaseLogItems.push("Canonical job employment types");
+    releaseLogItems.push("Multi-type job postings");
+    releaseLogItems.push("Website job applications");
+    releaseLogItems.push("Configurable job application fields");
+    releaseLogItems.push("Public jobs JSON feed");
+    releaseLogItems.push("Jobs JSON link");
+    releaseLogItems.push("Ads module");
+    releaseLogItems.push("Mobile sidebar");
+    releaseLogItems.push("Duplicate event detection");
+    releaseLogItems.push("Venue analytics graph");
     if (hasVenueTable) {
-      releaseItems.push("Venues module");
+      releaseLogItems.push("Venues module");
     }
     if (hasJobsTable) {
-      releaseItems.push("Jobs module");
+      releaseLogItems.push("Jobs module");
     }
     if (hasApplicantsTable) {
-      releaseItems.push("Applicants");
+      releaseLogItems.push("Applicants");
     }
     if (hasSourceTrackingTable) {
-      releaseItems.push("Source tracking");
+      releaseLogItems.push("Source tracking");
     }
-    releaseItems.push("Dashboard release notes");
+    releaseLogItems.push("Dashboard release notes");
+    const releaseItems = releaseLogItems.slice(0, 4);
     const releaseSummary = String(process.env.RELEASE_NOTES || releaseItems.join(", "));
 
     const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
@@ -2394,11 +2397,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.17");
     const showAdsExisting = view === "ads-existing";
     const showAdsAnalytics = view === "ads-analytics";
     const showPreferences = view === "preferences";
+    const showUpdatesLog = view === "updates-log";
     const showUsers = view === "users";
     const showInvites = view === "invites";
 
     if (showUsers && !isAdminUser) return res.status(403).send("Forbidden");
     if (showInvites && !isAdminUser) return res.status(403).send("Forbidden");
+    if (showUpdatesLog && !isAdminUser) return res.status(403).send("Forbidden");
     if (showApprove && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     if (showCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showUpload && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
@@ -3110,6 +3115,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.17");
       ? "Preferences"
       : showUsers
       ? "Users"
+      : showUpdatesLog
+      ? "Updates Log"
       : showInvites
       ? "Invites"
       : "Dashboard";
@@ -3117,7 +3124,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.17");
     const venuesMenuOpen = showVenueExisting || showVenueCreate || showVenueAnalytics;
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants || showJobsAnalytics;
     const adsMenuOpen = showAdsExisting || showAdsCreate || showAdsAnalytics;
-    const adminMenuOpen = showUsers || showInvites || showPreferences;
+    const adminMenuOpen = showUsers || showInvites || showPreferences || showUpdatesLog;
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
     res.send(`<!doctype html>
@@ -4935,6 +4942,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.17");
             <a class="nav-title-btn" href="/admin/users${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="/admin/preferences">Preferences</a>
+              <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="/admin/updates-log">Updates Log</a>
               <a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>
               <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
             </div>
@@ -4990,6 +4998,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.17");
                 ? "Ads Analytics"
                 : showPreferences
                 ? "Preferences"
+                : showUpdatesLog
+                ? "Updates Log"
                 : showInvites
                 ? "Invites"
                 : "Dashboard"
@@ -5027,6 +5037,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.17");
                 ? "Views, clicks, and monthly ad performance"
                 : showPreferences
                 ? "Manage your account details, profile photo, and password"
+                : showUpdatesLog
+                ? "Full log of API updates and feature changes"
                 : "Combined events/venues overview with quick actions"
             }</p>
             </div>
@@ -5162,8 +5174,19 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.17");
                   <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
                   <div class="release-meta">
                     <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
-                    <div class="release-row"><div class="label">Latest updates</div><div class="value">${esc(stats.releaseSummary)}</div></div>
+                    <div class="release-row"><div class="label">Latest updates</div><div class="value">${esc(String(releaseItems.length))} most recent</div></div>
                     <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.releaseUpdatedAt)}</div></div>
+                  </div>
+                  <div style="margin-top:12px; display:grid; gap:8px;">
+                    ${releaseItems.map((item, index) => `
+                      <div class="insight-row">
+                        <div class="label">Recent ${esc(String(index + 1))}</div>
+                        <div class="value">${esc(item)}</div>
+                      </div>
+                    `).join("")}
+                  </div>
+                  <div style="margin-top:12px;">
+                    <a class="btn" href="/admin/updates-log">View full updates log</a>
                   </div>
                 </div>
               </div>
@@ -5516,6 +5539,32 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.17");
               </form>
             </div>
             ` : `<div class="mini">User record not found for this session.</div>`}
+          </div>
+        </section>
+        ` : ``}
+
+        ${showUpdatesLog ? `
+        <section class="gridMain single" id="updates-log">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Updates log</h2>
+                <p class="sub">Full running log of dashboard and API updates, newest first.</p>
+              </div>
+            </div>
+            <div class="mini">
+              <div class="release-meta" style="margin-bottom:14px;">
+                <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
+                <div class="release-row"><div class="label">Most recent update</div><div class="value">${esc(releaseLogItems[0] || "N/A")}</div></div>
+                <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.releaseUpdatedAt)}</div></div>
+              </div>
+              ${releaseLogItems.map((item, index) => `
+                <div class="insight-row" style="padding:12px 0;">
+                  <div class="label">Entry ${esc(String(index + 1))}</div>
+                  <div class="value">${esc(item)}</div>
+                </div>
+              `).join("")}
+            </div>
           </div>
         </section>
         ` : ``}
@@ -8135,6 +8184,7 @@ router.get("/ads", async (req, res) => renderAdmin(req, res, "ads-existing"));
 router.get("/ads/create", async (req, res) => renderAdmin(req, res, "ads-create"));
 router.get("/ads/analytics", async (req, res) => renderAdmin(req, res, "ads-analytics"));
 router.get("/preferences", async (req, res) => renderAdmin(req, res, "preferences"));
+router.get("/updates-log", async (req, res) => renderAdmin(req, res, "updates-log"));
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 router.get("/pending-count", async (req, res) => {
