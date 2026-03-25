@@ -26,6 +26,44 @@ function normalizeHttpUrl(input) {
   }
 }
 
+function safeParseJson(val, fallback) {
+  if (val === null || val === undefined || val === "") return fallback;
+  if (typeof val === "object") return val;
+  try {
+    return JSON.parse(val);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function normalizeAdPlacements(input, fallbackPlacement = "") {
+  const allowed = new Set([
+    "homepage-top",
+    "homepage-bottom",
+    "events-top",
+    "events-bottom",
+    "venues-top",
+    "single-event-main",
+    "single-event-side",
+  ]);
+  const rawItems = Array.isArray(input) ? input : [input];
+  const parsedJson = !Array.isArray(input) && typeof input === "string" ? safeParseJson(input, null) : null;
+  const source = Array.isArray(parsedJson) ? [...rawItems, ...parsedJson] : rawItems;
+  if (fallbackPlacement) source.push(fallbackPlacement);
+
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    const v = String(item || "").trim();
+    if (!v || seen.has(v)) continue;
+    if (allowed.has(v) || v === fallbackPlacement) {
+      out.push(v);
+      seen.add(v);
+    }
+  }
+  return out;
+}
+
 async function getAdColumns() {
   if (_colsCache) return _colsCache;
   try {
@@ -48,6 +86,7 @@ async function ensureAdSchema() {
       slug TEXT,
       name TEXT NOT NULL,
       placement TEXT NOT NULL DEFAULT 'default',
+      placementsJson TEXT,
       imageUrl TEXT,
       targetUrl TEXT,
       altText TEXT,
@@ -68,6 +107,7 @@ async function ensureAdSchema() {
     ["city", "ALTER TABLE ads ADD COLUMN city TEXT NOT NULL DEFAULT 'Enumclaw'"],
     ["slug", "ALTER TABLE ads ADD COLUMN slug TEXT"],
     ["placement", "ALTER TABLE ads ADD COLUMN placement TEXT NOT NULL DEFAULT 'default'"],
+    ["placementsJson", "ALTER TABLE ads ADD COLUMN placementsJson TEXT"],
     ["imageUrl", "ALTER TABLE ads ADD COLUMN imageUrl TEXT"],
     ["targetUrl", "ALTER TABLE ads ADD COLUMN targetUrl TEXT"],
     ["altText", "ALTER TABLE ads ADD COLUMN altText TEXT"],
@@ -129,12 +169,14 @@ function buildAdPayload(req, row) {
   const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
   const host = req.headers["x-forwarded-host"] || req.get("host");
   const baseUrl = `${proto}://${host}`;
+  const placements = normalizeAdPlacements(row.placementsJson, row.placement || "");
   return {
     id: Number(row.id || 0),
     city: String(row.city || ""),
     slug: String(row.slug || ""),
     name: String(row.name || ""),
-    placement: String(row.placement || "default"),
+    placement: String(placements[0] || row.placement || "default"),
+    placements,
     imageUrl: String(row.imageUrl || ""),
     altText: String(row.altText || row.name || ""),
     targetUrl: normalizeHttpUrl(row.targetUrl || ""),
@@ -153,26 +195,26 @@ router.get("/serve", async (req, res) => {
     const placement = String(req.query.placement || "default").trim() || "default";
     const where = [
       "lower(COALESCE(status, 'active')) = 'active'",
-      "COALESCE(NULLIF(trim(placement), ''), 'default') = ?",
       "(startsAt IS NULL OR trim(startsAt) = '' OR datetime(startsAt) <= datetime('now'))",
       "(endsAt IS NULL OR trim(endsAt) = '' OR datetime(endsAt) >= datetime('now'))",
       "COALESCE(visibilityPercent, 0) > 0",
     ];
-    const params = [placement];
+    const params = [];
     if (city) {
       where.push("city = ?");
       params.push(city);
     }
 
     const rows = await all(
-      "SELECT id, city, slug, name, placement, imageUrl, targetUrl, altText, visibilityPercent, viewCount, clickCount " +
+      "SELECT id, city, slug, name, placement, placementsJson, imageUrl, targetUrl, altText, visibilityPercent, viewCount, clickCount " +
       "FROM ads WHERE " + where.join(" AND ") + " ORDER BY id ASC",
       params
     );
     const ads = (rows || []).map((row) => ({
       ...row,
+      placements: normalizeAdPlacements(row.placementsJson, row.placement || ""),
       visibilityPercent: Math.max(0, Math.min(100, Number(row.visibilityPercent || 0))),
-    }));
+    })).filter((row) => row.placements.includes(placement));
 
     if (!ads.length) {
       return res.json({ ok: true, data: null });

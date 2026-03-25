@@ -488,6 +488,34 @@ function safeParseJson(val, fallback) {
   }
 }
 
+function normalizeAdPlacements(input, fallbackPlacement = "") {
+  const allowed = new Set([
+    "homepage-top",
+    "homepage-bottom",
+    "events-top",
+    "events-bottom",
+    "venues-top",
+    "single-event-main",
+    "single-event-side",
+  ]);
+  const rawItems = Array.isArray(input) ? input : [input];
+  const extras = [];
+  const parsedJson = !Array.isArray(input) && typeof input === "string" ? safeParseJson(input, null) : null;
+  const source = Array.isArray(parsedJson) ? [...rawItems, ...parsedJson] : rawItems;
+  if (fallbackPlacement) source.push(fallbackPlacement);
+
+  const seen = new Set();
+  for (const item of source) {
+    const v = String(item || "").trim();
+    if (!v || seen.has(v)) continue;
+    if (allowed.has(v) || v === fallbackPlacement) {
+      extras.push(v);
+      seen.add(v);
+    }
+  }
+  return extras;
+}
+
 function extractPlainUrl(str) {
   const s = String(str || "").trim();
   if (!s) return "";
@@ -1132,6 +1160,7 @@ async function ensureAdSchema() {
       slug TEXT,
       name TEXT NOT NULL,
       placement TEXT NOT NULL DEFAULT 'default',
+      placementsJson TEXT,
       imageUrl TEXT,
       targetUrl TEXT,
       altText TEXT,
@@ -1158,6 +1187,7 @@ async function ensureAdSchema() {
   if (!cols.has("city")) await run(`ALTER TABLE ads ADD COLUMN city TEXT NOT NULL DEFAULT 'Enumclaw'`);
   if (!cols.has("slug")) await run(`ALTER TABLE ads ADD COLUMN slug TEXT`);
   if (!cols.has("placement")) await run(`ALTER TABLE ads ADD COLUMN placement TEXT NOT NULL DEFAULT 'default'`);
+  if (!cols.has("placementsJson")) await run(`ALTER TABLE ads ADD COLUMN placementsJson TEXT`);
   if (!cols.has("imageUrl")) await run(`ALTER TABLE ads ADD COLUMN imageUrl TEXT`);
   if (!cols.has("targetUrl")) await run(`ALTER TABLE ads ADD COLUMN targetUrl TEXT`);
   if (!cols.has("altText")) await run(`ALTER TABLE ads ADD COLUMN altText TEXT`);
@@ -1906,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.24");
+const appVersion = String(process.env.APP_VERSION || "v0.0.25");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1920,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.24");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-03-25", text: "Ads support multiple placement selections" });
     releaseLogItems.push({ date: "2026-03-25", text: "Ads placement dropdown with standard placement options" });
     releaseLogItems.push({ date: "2026-03-25", text: "Global nested corner radius system across admin pages" });
     releaseLogItems.push({ date: "2026-03-25", text: "Three-layer quick-link corner radius math fix" });
@@ -2651,6 +2682,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.24");
       const adId = parseInt(String(req.query.edit), 10);
       if (!Number.isNaN(adId)) {
         editAd = await get("SELECT * FROM ads WHERE id = ?", [adId]);
+        if (editAd) {
+          editAd.placements = normalizeAdPlacements(editAd.placementsJson, editAd.placement || "");
+        }
       }
     }
     const venueDays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -2925,8 +2959,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.24");
       }
       if (q) {
         const like = "%" + q + "%";
-        adWhere.push("(name LIKE ? OR slug LIKE ? OR placement LIKE ? OR targetUrl LIKE ? OR CAST(id AS TEXT) LIKE ?)");
-        adParams.push(like, like, like, like, like);
+        adWhere.push("(name LIKE ? OR slug LIKE ? OR placement LIKE ? OR COALESCE(placementsJson, '') LIKE ? OR targetUrl LIKE ? OR CAST(id AS TEXT) LIKE ?)");
+        adParams.push(like, like, like, like, like, like);
       }
       const adWhereSql = adWhere.length ? ("WHERE " + adWhere.join(" AND ")) : "";
       const adTotalRow = await get("SELECT COUNT(*) AS n FROM ads " + adWhereSql, adParams);
@@ -2937,10 +2971,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.24");
 
       if (showAdsExisting) {
         adRows = await all(
-          "SELECT id, city, slug, name, placement, imageUrl, targetUrl, altText, visibilityPercent, status, startsAt, endsAt, notes, viewCount, clickCount, createdAt " +
+          "SELECT id, city, slug, name, placement, placementsJson, imageUrl, targetUrl, altText, visibilityPercent, status, startsAt, endsAt, notes, viewCount, clickCount, createdAt " +
           "FROM ads " + adWhereSql + " ORDER BY datetime(createdAt) DESC, id DESC LIMIT ? OFFSET ?",
           [...adParams, limit, offset]
         );
+        adRows = adRows.map((ad) => ({ ...ad, placements: normalizeAdPlacements(ad.placementsJson, ad.placement || "") }));
       }
 
       if (showAdsAnalytics) {
@@ -2976,25 +3011,34 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.24");
         };
 
         adTopViewsRows = await all(
-          "SELECT id, name, slug, placement, COALESCE(viewCount, 0) AS viewCount FROM ads " +
+          "SELECT id, name, slug, placement, placementsJson, COALESCE(viewCount, 0) AS viewCount FROM ads " +
           adDashWhereSql + " ORDER BY COALESCE(viewCount,0) DESC, id DESC LIMIT 8",
           adDashParams
         );
         adTopClicksRows = await all(
-          "SELECT id, name, slug, placement, COALESCE(clickCount, 0) AS clickCount FROM ads " +
+          "SELECT id, name, slug, placement, placementsJson, COALESCE(clickCount, 0) AS clickCount FROM ads " +
           adDashWhereSql + " ORDER BY COALESCE(clickCount,0) DESC, id DESC LIMIT 8",
           adDashParams
         );
-        adPlacementRows = await all(
-          "SELECT COALESCE(NULLIF(trim(placement), ''), 'default') AS placement, COUNT(*) AS n FROM ads " +
-          adDashWhereSql + " GROUP BY placement ORDER BY n DESC, placement ASC",
-          adDashParams
-        );
         adAnalyticsOptions = await all(
-          "SELECT id, name, slug, placement, COALESCE(viewCount,0) AS viewCount, COALESCE(clickCount,0) AS clickCount FROM ads " +
+          "SELECT id, name, slug, placement, placementsJson, COALESCE(viewCount,0) AS viewCount, COALESCE(clickCount,0) AS clickCount FROM ads " +
           adDashWhereSql + " ORDER BY name COLLATE NOCASE ASC, id ASC",
           adDashParams
         );
+        adTopViewsRows = adTopViewsRows.map((ad) => ({ ...ad, placements: normalizeAdPlacements(ad.placementsJson, ad.placement || "") }));
+        adTopClicksRows = adTopClicksRows.map((ad) => ({ ...ad, placements: normalizeAdPlacements(ad.placementsJson, ad.placement || "") }));
+        adAnalyticsOptions = adAnalyticsOptions.map((ad) => ({ ...ad, placements: normalizeAdPlacements(ad.placementsJson, ad.placement || "") }));
+        {
+          const placementCounts = new Map();
+          for (const ad of adAnalyticsOptions) {
+            for (const placement of ad.placements || []) {
+              placementCounts.set(placement, Number(placementCounts.get(placement) || 0) + 1);
+            }
+          }
+          adPlacementRows = [...placementCounts.entries()]
+            .map(([placement, n]) => ({ placement, n }))
+            .sort((a, b) => Number(b.n || 0) - Number(a.n || 0) || String(a.placement).localeCompare(String(b.placement)));
+        }
 
         const selectedAdIdRaw = parseInt(String(req.query.ad || ""), 10);
         const requestedAdId = Number.isInteger(selectedAdIdRaw) && selectedAdIdRaw > 0 ? selectedAdIdRaw : null;
@@ -6728,20 +6772,19 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.24");
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
                   <label style="margin-top:0;">Placement</label>
-                  <select class="ctrl" name="placement" required>
+                  <div class="mini" style="display:grid; gap:10px;">
                     ${(() => {
-                      const selectedPlacement = String(editAd?.placement || "homepage-top").trim() || "homepage-top";
-                      const options = adPlacementOptions.includes(selectedPlacement)
-                        ? adPlacementOptions
-                        : [selectedPlacement, ...adPlacementOptions];
-                      return options.map((placement) => {
-                        const isLegacy = !adPlacementOptions.includes(placement);
-                        const label = isLegacy ? `${placement} (existing custom)` : placement;
-                        return `<option value="${esc(placement)}" ${placement === selectedPlacement ? "selected" : ""}>${esc(label)}</option>`;
-                      }).join("");
+                      const selectedPlacements = normalizeAdPlacements(editAd?.placements || editAd?.placementsJson, editAd?.placement || "homepage-top");
+                      const options = [...selectedPlacements.filter((placement) => !adPlacementOptions.includes(placement)), ...adPlacementOptions];
+                      return options.map((placement) => `
+                        <label class="checkbox" style="padding:0;">
+                          <input type="checkbox" name="placements" value="${esc(placement)}" ${selectedPlacements.includes(placement) ? "checked" : ""} />
+                          <span>${esc(adPlacementOptions.includes(placement) ? placement : `${placement} (existing custom)`)}</span>
+                        </label>
+                      `).join("");
                     })()}
-                  </select>
-                  <div class="note">These are the approved placement keys used by the website and plugin.</div>
+                  </div>
+                  <div class="note">Select one or more placement keys used by the website and plugin.</div>
                 </div>
                 <div>
                   <label style="margin-top:0;">Visibility %</label>
@@ -6834,7 +6877,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.24");
                       <div class="event-title">#${ad.id} — ${esc(ad.name || "")}</div>
                       <div class="event-meta">
                         <div><strong>Slug:</strong> ${esc(ad.slug || "")}</div>
-                        <div><strong>Placement:</strong> ${esc(ad.placement || "default")}</div>
+                        <div><strong>Placements:</strong> ${esc((ad.placements || []).join(", ") || ad.placement || "default")}</div>
                         <div><strong>Visibility:</strong> ${Number(ad.visibilityPercent || 0).toLocaleString("en-US")}%</div>
                         <div><strong>Status:</strong> ${esc(ad.status || "active")}</div>
                         <div><strong>Target:</strong> ${ad.targetUrl ? `<a href="${esc(ad.targetUrl)}" target="_blank" rel="noopener">${esc(ad.targetUrl)}</a>` : "—"}</div>
@@ -6940,7 +6983,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.24");
                     ${adAnalyticsOptions.length
                       ? adAnalyticsOptions.map((ad) => `
                         <option value="${Number(ad.id || 0)}" ${selectedAdActualId === Number(ad.id || 0) ? "selected" : ""}>
-                          ${esc(ad.name || `Ad #${ad.id}`)} · ${esc(ad.placement || "default")}
+                          ${esc(ad.name || `Ad #${ad.id}`)} · ${esc((ad.placements || []).join(", ") || ad.placement || "default")}
                         </option>
                       `).join("")
                       : `<option value="">No ads available</option>`}
@@ -6967,7 +7010,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.24");
                 <div class="card">
                   ${selectedAd ? `
                   <div class="mini">
-                    <div class="kv"><span class="k">Placement</span><strong class="v">${esc(selectedAd.placement || "default")}</strong></div>
+                    <div class="kv"><span class="k">Placements</span><strong class="v">${esc((selectedAd.placements || []).join(", ") || selectedAd.placement || "default")}</strong></div>
                     <div class="kv"><span class="k">Lifetime views</span><strong class="v">${Number(selectedAd.viewCount || 0).toLocaleString("en-US")}</strong></div>
                     <div class="kv"><span class="k">Lifetime clicks</span><strong class="v">${Number(selectedAd.clickCount || 0).toLocaleString("en-US")}</strong></div>
                   </div>
@@ -8711,7 +8754,9 @@ router.post("/ads", upload.single("adImageFile"), async (req, res) => {
       : userCity;
 
     const name = String(req.body?.name || "").trim();
-    const placement = String(req.body?.placement || "default").trim() || "default";
+    const placements = normalizeAdPlacements(req.body?.placements, String(req.body?.placement || "").trim());
+    const placement = placements[0] || "homepage-top";
+    const placementsJson = JSON.stringify(placements);
     const targetUrl = normalizeHttpUrl(req.body?.targetUrl || "");
     let imageUrl = String(req.body?.imageUrl || "").trim();
     const altText = String(req.body?.altText || "").trim();
@@ -8749,15 +8794,15 @@ router.post("/ads", upload.single("adImageFile"), async (req, res) => {
     if (isUpdate) {
       await run(
         `UPDATE ads
-            SET city = ?, slug = ?, name = ?, placement = ?, imageUrl = ?, targetUrl = ?, altText = ?, visibilityPercent = ?, status = ?, startsAt = ?, endsAt = ?, notes = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, name = ?, placement = ?, placementsJson = ?, imageUrl = ?, targetUrl = ?, altText = ?, visibilityPercent = ?, status = ?, startsAt = ?, endsAt = ?, notes = ?, updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, name, placement, imageUrl || null, targetUrl || null, altText || null, visibilityPercent, status, startsAt, endsAt, notes || null, id]
+        [city, slug, name, placement, placementsJson, imageUrl || null, targetUrl || null, altText || null, visibilityPercent, status, startsAt, endsAt, notes || null, id]
       );
     } else {
       await run(
-        `INSERT INTO ads (city, slug, name, placement, imageUrl, targetUrl, altText, visibilityPercent, status, startsAt, endsAt, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, name, placement, imageUrl || null, targetUrl || null, altText || null, visibilityPercent, status, startsAt, endsAt, notes || null]
+        `INSERT INTO ads (city, slug, name, placement, placementsJson, imageUrl, targetUrl, altText, visibilityPercent, status, startsAt, endsAt, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, name, placement, placementsJson, imageUrl || null, targetUrl || null, altText || null, visibilityPercent, status, startsAt, endsAt, notes || null]
       );
     }
 
