@@ -1906,7 +1906,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.16");
+const appVersion = String(process.env.APP_VERSION || "v0.0.17");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1920,6 +1920,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.16");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseItems = [];
+    releaseItems.push("Mobile admin list layout cleanup");
     releaseItems.push("Upload review panel");
     releaseItems.push("Event import template download");
     releaseItems.push("CSV fields aligned to event form");
@@ -4303,42 +4304,192 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.16");
 	      .venue-monthly-table tbody tr:last-child td{
 	        border-bottom:0;
 	      }
-	      @media (max-width: 980px){
-	        .analytics-toolbar .ctrl{
-	          min-width: 0;
-	          width: 100%;
-	        }
-	      }
-	      @media (max-width: 1100px){
-	        .listSearchRow{
-	          grid-template-columns: 1fr 1fr;
-	          align-items:stretch;
-	        }
-	        .filterActions{
-	          justify-content:flex-start;
-	        }
-	      }
-	      @media (max-width: 700px){
-	        .eventsFilters{
-	          padding: 12px;
-	        }
-	        .listSearchRow{
-	          grid-template-columns: 1fr;
-	        }
-	        .dateRange{
-	          grid-template-columns: 1fr;
-	        }
-	        .dateRangeSep{
-	          display:none;
-	        }
-	        .filterActions{
-	          flex-wrap:wrap;
-	        }
-	        .filterActions .btn{
-	          flex:1 1 0;
-	          min-width: 0;
-	        }
-	      }
+      @media (max-width: 980px){
+        .analytics-toolbar .ctrl{
+          min-width: 0;
+          width: 100%;
+        }
+        .pager{
+          grid-template-columns: 1fr;
+        }
+        .pager-left,
+        .pager-right{
+          justify-self: stretch;
+          justify-content: flex-start;
+        }
+      }
+      @media (max-width: 1100px){
+        .listSearchRow{
+          grid-template-columns: 1fr 1fr;
+          align-items:stretch;
+        }
+        .filterActions{
+          justify-content:flex-start;
+        }
+        .event-card{
+          align-items:flex-start;
+        }
+        .event-left{
+          height:auto;
+          min-height: var(--event-side-h);
+        }
+      }
+      @media (max-width: 860px){
+        .event-card{
+          display:grid;
+          grid-template-columns: 96px minmax(0, 1fr);
+          gap:12px;
+        }
+        .event-thumb,
+        .event-thumb-img,
+        .thumb-empty,
+        .thumb-fallback{
+          width:96px;
+          height:96px;
+        }
+        .event-stats{
+          grid-column: 1 / -1;
+          width:100%;
+          flex: 0 0 auto;
+          height:auto;
+          min-height:0;
+          display:grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap:8px 12px;
+        }
+        .event-card:not(.venue-card) .event-stats{
+          width:100%;
+          flex: 0 0 auto;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .event-card.venue-card .event-stats{
+          width:100%;
+          flex: 0 0 auto;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .event-card .event-stats .stat{
+          margin:0;
+        }
+      }
+      @media (max-width: 700px){
+        .eventsFilters{
+          padding: 12px;
+        }
+        .eventsFilterTabs{
+          display:grid;
+          grid-template-columns: 1fr 1fr;
+          gap:8px;
+        }
+        .eventsFilterTabs .btn,
+        .eventsFilterTabs .btn-wide{
+          width:100%;
+          min-width:0;
+        }
+        .listSearchRow{
+          grid-template-columns: 1fr;
+        }
+        .dateRange{
+          grid-template-columns: 1fr;
+        }
+        .dateRangeSep{
+          display:none;
+        }
+        .filterActions{
+          flex-wrap:wrap;
+          display:grid;
+          grid-template-columns: 1fr 1fr;
+          width:100%;
+        }
+        .filterActions .btn{
+          width:100%;
+          min-width: 0;
+        }
+        .event-card{
+          grid-template-columns: 1fr;
+          padding:12px;
+        }
+        .event-thumb,
+        .event-thumb-img,
+        .thumb-empty,
+        .thumb-fallback{
+          width:100%;
+          max-width:none;
+          height:180px;
+        }
+        .event-left{
+          min-height:0;
+        }
+        .event-title{
+          font-size:16px;
+        }
+        .event-meta{
+          font-size:13px;
+          gap:6px;
+        }
+        .event-actions{
+          display:grid;
+          grid-template-columns: 1fr 1fr;
+          gap:8px;
+          width:100%;
+        }
+        .event-actions .inline{
+          display:block;
+        }
+        .event-actions .btn{
+          width:100%;
+          min-width:0;
+        }
+        .event-actions a:not(.btn){
+          grid-column: 1 / -1;
+          padding-top:2px;
+        }
+        .event-stats,
+        .event-card:not(.venue-card) .event-stats,
+        .event-card.venue-card .event-stats{
+          grid-template-columns: 1fr 1fr;
+          padding:12px;
+        }
+        .stat{
+          font-size:12px;
+        }
+        .stat strong{
+          font-size:15px;
+        }
+      }
+      @media (max-width: 520px){
+        .sectionTitle .right{
+          width:100%;
+          justify-content:flex-start;
+        }
+        .eventsFilterTabs{
+          grid-template-columns: 1fr;
+        }
+        .filterActions{
+          grid-template-columns: 1fr;
+        }
+        .event-actions{
+          grid-template-columns: 1fr;
+        }
+        .event-stats,
+        .event-card:not(.venue-card) .event-stats,
+        .event-card.venue-card .event-stats{
+          grid-template-columns: 1fr;
+        }
+        .pager-right{
+          display:grid;
+          grid-template-columns: 1fr 1fr;
+          gap:8px;
+          width:100%;
+        }
+        .pager-right .btn{
+          width:100%;
+          min-width:0;
+        }
+        .pager-right .muted{
+          grid-column: 1 / -1;
+          padding: 4px 0;
+        }
+      }
 
       /* Category selection */
       .cat-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
