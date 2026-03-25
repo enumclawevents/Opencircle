@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.25");
+const appVersion = String(process.env.APP_VERSION || "v0.0.26");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.25");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-03-25", text: "Dashboard job insights replaced with ad insights" });
     releaseLogItems.push({ date: "2026-03-25", text: "Ads support multiple placement selections" });
     releaseLogItems.push({ date: "2026-03-25", text: "Ads placement dropdown with standard placement options" });
     releaseLogItems.push({ date: "2026-03-25", text: "Global nested corner radius system across admin pages" });
@@ -5292,17 +5293,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.25");
 
             <div class="card dashboard-card" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-job-insights-body">
-                  <h2>Job Insights</h2>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-ad-insights-body">
+                  <h2>Ad Insights</h2>
                   <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
                 </button>
               </div>
-              <div class="card-body" id="dashboard-job-insights-body">
+              <div class="card-body" id="dashboard-ad-insights-body">
                 <div class="insight-list">
-                  <div class="insight-row"><div class="label">Jobs</div><div class="value">${esc(jobAnalyticsStats.total)}</div></div>
-                  <div class="insight-row"><div class="label">Active</div><div class="value">${esc(jobAnalyticsStats.active)}</div></div>
-                  <div class="insight-row"><div class="label">Applicants</div><div class="value">${esc(jobApplicantStats.total)}</div></div>
-                  <div class="insight-row"><div class="label">Views</div><div class="value">${esc(jobAnalyticsStats.views)}</div></div>
+                  <div class="insight-row"><div class="label">Ads</div><div class="value">${esc(adAnalyticsStats.total)}</div></div>
+                  <div class="insight-row"><div class="label">Active</div><div class="value">${esc(adAnalyticsStats.active)}</div></div>
+                  <div class="insight-row"><div class="label">Clicks</div><div class="value">${esc(adAnalyticsStats.clicks)}</div></div>
+                  <div class="insight-row"><div class="label">Views</div><div class="value">${esc(adAnalyticsStats.views)}</div></div>
                 </div>
               </div>
             </div>
