@@ -1906,7 +1906,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.21");
+const appVersion = String(process.env.APP_VERSION || "v0.0.22");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1920,7 +1920,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.21");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
-    releaseLogItems.push({ date: "2026-03-25", text: "Nested quick-link corner radius math fix" });
+    releaseLogItems.push({ date: "2026-03-25", text: "Three-layer quick-link corner radius math fix" });
     releaseLogItems.push({ date: "2026-03-25", text: "Release Notes menu and dated release history" });
     releaseLogItems.push({ date: "2026-03-25", text: "Dashboard release notes now show only the latest update" });
     releaseLogItems.push({ date: "2026-03-24", text: "Mobile admin list layout cleanup" });
@@ -4749,11 +4749,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.21");
         gap:12px;
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+      #dashboard-quick-links{
+        --quick-links-outer-radius: 10px;
+        --quick-links-radius-step: 2px;
+        --quick-links-group-radius: max(0px, calc(var(--quick-links-outer-radius) - var(--quick-links-radius-step)));
+        --quick-links-button-radius: max(0px, calc(var(--quick-links-group-radius) - var(--quick-links-radius-step)));
+        border-radius: var(--quick-links-outer-radius);
+      }
       .quick-links-group{
-        --nested-gap: 10px;
-        --nested-radius: max(0px, calc(var(--radius-inner) - var(--nested-gap)));
         border:1px solid var(--line);
-        border-radius: var(--radius-inner);
+        border-radius: var(--quick-links-group-radius, var(--radius-inner));
         background: var(--panel2);
         padding:10px;
         display:grid;
@@ -4773,7 +4778,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.21");
         padding: 12px 14px;
         font-weight:650;
         width:100%;
-        border-radius: var(--nested-radius);
+        border-radius: var(--quick-links-button-radius, var(--radius-inner));
       }
       @media (max-width: 1100px){
         .dashboard-shell{
