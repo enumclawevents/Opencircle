@@ -1906,7 +1906,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.19");
+const appVersion = String(process.env.APP_VERSION || "v0.0.20");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1920,40 +1920,40 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.19");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
-    releaseLogItems.push("Updates log page");
-    releaseLogItems.push("Dashboard release notes trimmed to recent updates");
-    releaseLogItems.push("Mobile admin list layout cleanup");
-    releaseLogItems.push("Upload review panel");
-    releaseLogItems.push("Event import template download");
-    releaseLogItems.push("CSV fields aligned to event form");
-    releaseLogItems.push("Dedicated upload events page");
-    releaseLogItems.push("CSV + ZIP event image import");
-    releaseLogItems.push("CSV event bulk import");
-    releaseLogItems.push("Canonical job employment types");
-    releaseLogItems.push("Multi-type job postings");
-    releaseLogItems.push("Website job applications");
-    releaseLogItems.push("Configurable job application fields");
-    releaseLogItems.push("Public jobs JSON feed");
-    releaseLogItems.push("Jobs JSON link");
-    releaseLogItems.push("Ads module");
-    releaseLogItems.push("Mobile sidebar");
-    releaseLogItems.push("Duplicate event detection");
-    releaseLogItems.push("Venue analytics graph");
+    releaseLogItems.push({ date: "2026-03-25", text: "Release Notes menu and dated release history" });
+    releaseLogItems.push({ date: "2026-03-25", text: "Dashboard release notes now show only the latest update" });
+    releaseLogItems.push({ date: "2026-03-24", text: "Mobile admin list layout cleanup" });
+    releaseLogItems.push({ date: "2026-03-24", text: "Upload review panel" });
+    releaseLogItems.push({ date: "2026-03-24", text: "Event import template download" });
+    releaseLogItems.push({ date: "2026-03-24", text: "CSV fields aligned to event form" });
+    releaseLogItems.push({ date: "2026-03-24", text: "Dedicated upload events page" });
+    releaseLogItems.push({ date: "2026-03-24", text: "CSV + ZIP event image import" });
+    releaseLogItems.push({ date: "2026-03-24", text: "CSV event bulk import" });
+    releaseLogItems.push({ date: "2026-03-24", text: "Canonical job employment types" });
+    releaseLogItems.push({ date: "2026-03-24", text: "Multi-type job postings" });
+    releaseLogItems.push({ date: "2026-03-24", text: "Website job applications" });
+    releaseLogItems.push({ date: "2026-03-24", text: "Configurable job application fields" });
+    releaseLogItems.push({ date: "2026-03-24", text: "Public jobs JSON feed" });
+    releaseLogItems.push({ date: "2026-03-24", text: "Jobs JSON link" });
+    releaseLogItems.push({ date: "2026-03-23", text: "Ads module" });
+    releaseLogItems.push({ date: "2026-03-23", text: "Mobile sidebar" });
+    releaseLogItems.push({ date: "2026-03-23", text: "Duplicate event detection" });
+    releaseLogItems.push({ date: "2026-03-23", text: "Venue analytics graph" });
     if (hasVenueTable) {
-      releaseLogItems.push("Venues module");
+      releaseLogItems.push({ date: "2026-03-18", text: "Venues module" });
     }
     if (hasJobsTable) {
-      releaseLogItems.push("Jobs module");
+      releaseLogItems.push({ date: "2026-03-18", text: "Jobs module" });
     }
     if (hasApplicantsTable) {
-      releaseLogItems.push("Applicants");
+      releaseLogItems.push({ date: "2026-03-18", text: "Applicants" });
     }
     if (hasSourceTrackingTable) {
-      releaseLogItems.push("Source tracking");
+      releaseLogItems.push({ date: "2026-03-18", text: "Source tracking" });
     }
-    releaseLogItems.push("Dashboard release notes");
-    const releaseItems = releaseLogItems.slice(0, 4);
-    const releaseSummary = String(process.env.RELEASE_NOTES || releaseItems.join(", "));
+    releaseLogItems.push({ date: "2026-03-18", text: "Dashboard release notes" });
+    const latestRelease = releaseLogItems[0] || { date: releaseUpdatedAt.slice(0, 10), text: "Dashboard release notes" };
+    const releaseSummary = String(process.env.RELEASE_NOTES || latestRelease.text);
 
     const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
       ? req.app.locals.reqTimes.length
@@ -4942,7 +4942,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.19");
             <a class="nav-title-btn" href="/admin/users${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="/admin/preferences">Preferences</a>
-              <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="/admin/updates-log">Updates Log</a>
+              <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="/admin/updates-log">Release Notes</a>
               <a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>
               <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
             </div>
@@ -5174,19 +5174,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.19");
                   <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
                   <div class="release-meta">
                     <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
-                    <div class="release-row"><div class="label">Latest updates</div><div class="value">${esc(String(releaseItems.length))} most recent</div></div>
+                    <div class="release-row"><div class="label">Latest update</div><div class="value">${esc(latestRelease.date)}</div></div>
                     <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.releaseUpdatedAt)}</div></div>
                   </div>
                   <div style="margin-top:12px; display:grid; gap:8px;">
-                    ${releaseItems.map((item, index) => `
-                      <div class="insight-row">
-                        <div class="label">Recent ${esc(String(index + 1))}</div>
-                        <div class="value">${esc(item)}</div>
-                      </div>
-                    `).join("")}
+                    <div class="insight-row">
+                      <div class="label">${esc(latestRelease.date)}</div>
+                      <div class="value">${esc(latestRelease.text)}</div>
+                    </div>
                   </div>
                   <div style="margin-top:12px;">
-                    <a class="btn" href="/admin/updates-log">View full updates log</a>
+                    <a class="btn" href="/admin/updates-log">View full release notes</a>
                   </div>
                 </div>
               </div>
@@ -5548,20 +5546,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.19");
           <div class="card">
             <div class="sectionTitle">
               <div>
-                <h2>Updates log</h2>
+                <h2>Release notes</h2>
                 <p class="sub">Full running log of dashboard and API updates, newest first.</p>
               </div>
             </div>
             <div class="mini">
               <div class="release-meta" style="margin-bottom:14px;">
                 <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
-                <div class="release-row"><div class="label">Most recent update</div><div class="value">${esc(releaseLogItems[0] || "N/A")}</div></div>
+                <div class="release-row"><div class="label">Most recent update</div><div class="value">${esc(latestRelease.text)}</div></div>
                 <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.releaseUpdatedAt)}</div></div>
               </div>
-              ${releaseLogItems.map((item, index) => `
+              ${releaseLogItems.map((item) => `
                 <div class="insight-row" style="padding:12px 0;">
-                  <div class="label">Entry ${esc(String(index + 1))}</div>
-                  <div class="value">${esc(item)}</div>
+                  <div class="label">${esc(item.date)}</div>
+                  <div class="value">${esc(item.text)}</div>
                 </div>
               `).join("")}
             </div>
