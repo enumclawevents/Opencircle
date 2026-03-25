@@ -1906,7 +1906,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.22");
+const appVersion = String(process.env.APP_VERSION || "v0.0.23");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1920,6 +1920,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-03-25", text: "Global nested corner radius system across admin pages" });
     releaseLogItems.push({ date: "2026-03-25", text: "Three-layer quick-link corner radius math fix" });
     releaseLogItems.push({ date: "2026-03-25", text: "Release Notes menu and dated release history" });
     releaseLogItems.push({ date: "2026-03-25", text: "Dashboard release notes now show only the latest update" });
@@ -3149,9 +3150,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
         --brand2:#0ea5e9;
         --danger:#ef4444;
         --shadow:none;
-        --radius:12px;
-        --radius-inner:10px;
-        --radius2:12px;
+        --radius:10px;
+        --radius-mid:8px;
+        --radius-inner:6px;
+        --radius2:10px;
         --event-side-h: 140px;
         --ctrl-h: 44px;
         --gap:20px;
@@ -3675,7 +3677,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
         border:1px solid #e5e7eb;
         outline:none;
         background:#ffffff;
-        border-radius:10px;
+        border-radius:var(--radius-inner);
         width:auto;
         min-width:0;
         flex:1 1 auto;
@@ -3687,7 +3689,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
         color:#9ca3af;
       }
       .search .btn{
-        border-radius:10px;
+        border-radius:var(--radius-inner);
         height:var(--ctrl-h);
       }
 
@@ -3734,7 +3736,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
       .metric .v{ font-size:22px; font-weight:650; letter-spacing:.2px; margin-top:6px; color: var(--text); }
       .metric .tag{
         font-size:12px; font-weight:650;
-        padding:6px 10px; border-radius: var(--radius);
+        padding:6px 10px; border-radius: var(--radius-inner);
         background: rgba(0,192,139,.12);
         border: 1px solid rgba(0,192,139,.22);
         color: #065f46;
@@ -4022,7 +4024,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
       .mini{
         border: 1px solid var(--line);
         background: var(--panel2);
-        border-radius: var(--radius-inner);
+        border-radius: var(--radius-mid);
         padding: 14px;
       }
       .mini + .mini{ margin-top:var(--gap); }
@@ -4139,14 +4141,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
       .event-thumb-img{
         width: 120px; height: var(--event-side-h);
         object-fit: cover;
-        border-radius: var(--radius-inner);
+        border-radius: var(--radius-mid);
         border: 1px solid var(--line);
         display:block;
       }
       .thumb-empty,
       .thumb-fallback{
         width: 120px; height: var(--event-side-h);
-        border-radius: var(--radius-inner);
+        border-radius: var(--radius-mid);
         border: 1px solid var(--line);
         display:flex; align-items:center; justify-content:center;
         font-size: 12px; color: var(--muted);
@@ -4161,7 +4163,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
         width: 150px; flex: 0 0 150px;
         height: var(--event-side-h);
         border: 1px solid var(--line);
-        border-radius: var(--radius-inner);
+        border-radius: var(--radius-mid);
         padding: 10px;
         background: var(--panel2);
         display:flex;
@@ -4504,13 +4506,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
       @media (max-width: 900px){ .cat-grid{ grid-template-columns: 1fr; } }
 
       /* Recurrence UI polish (keep your functionality, just match the new look) */
-      .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: var(--radius-inner); padding: 14px; }
+      .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: var(--radius-mid); padding: 14px; }
       .rec-grid{ display:grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
       @media (max-width: 900px){ .rec-grid{ grid-template-columns: 1fr; } }
       .rec-label{ font-weight:650; font-size: 12px; margin-bottom: 8px; color: var(--text); letter-spacing: .2px; }
       .rec-help{ margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.4; }
 
-      .rec-box{ border:1px solid var(--line); border-radius: var(--radius-inner); padding: 14px; background: var(--panel2); margin-top: 10px; }
+      .rec-box{ border:1px solid var(--line); border-radius: var(--radius-mid); padding: 14px; background: var(--panel2); margin-top: 10px; }
       .checkbox{ display:flex; gap:10px; align-items:center; margin:0; font-weight:650; padding:8px 0; }
       input[type=checkbox]{ width:18px; height:18px; border-radius:0px !important; accent-color: var(--brand); }
       .checkbox input{ width:18px !important; height:18px !important; border-radius:0px !important; }
@@ -4527,7 +4529,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
         justify-content:center;
         gap: 8px;
         padding: 10px 12px;
-        border-radius: var(--radius);
+        border-radius: var(--radius-inner);
         border: 1px solid var(--line);
         background: var(--panel);
         color: var(--text);
@@ -4750,10 +4752,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       #dashboard-quick-links{
-        --quick-links-outer-radius: 10px;
-        --quick-links-radius-step: 2px;
-        --quick-links-group-radius: max(0px, calc(var(--quick-links-outer-radius) - var(--quick-links-radius-step)));
-        --quick-links-button-radius: max(0px, calc(var(--quick-links-group-radius) - var(--quick-links-radius-step)));
+        --quick-links-outer-radius: var(--radius);
+        --quick-links-group-radius: var(--radius-mid);
+        --quick-links-button-radius: var(--radius-inner);
         border-radius: var(--quick-links-outer-radius);
       }
       .quick-links-group{
@@ -5345,7 +5346,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
             <div class="chart-wrap" id="eventsChartWrap">
               <div id="eventsChartData" data-chart="${esc(chartDataJson)}" hidden></div>
               <canvas id="eventsChart" style="width:100%; height:260px; display:block;"></canvas>
-                <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
+                <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
           </div>
 
@@ -6342,7 +6343,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
 		                    <div class="chart-wrap" id="venueChartWrap" style="min-height:320px;">
 		                      <div id="venueChartData" data-chart="${esc(venueChartDataJson)}" hidden></div>
 		                      <canvas id="venueChart" style="width:100%; height:260px; display:block;"></canvas>
-		                      <div id="venueChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
+		                      <div id="venueChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
 		                    </div>
 		                  </div>
 		                </div>
@@ -6970,7 +6971,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.22");
                   <div class="chart-wrap" id="adChartWrap" style="min-height:320px;">
                     <div id="adChartData" data-chart="${esc(adChartDataJson)}" hidden></div>
                     <canvas id="adChart" style="width:100%; height:260px; display:block;"></canvas>
-                    <div id="adChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:10px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
+                    <div id="adChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
                   </div>
                 </div>
               </div>
