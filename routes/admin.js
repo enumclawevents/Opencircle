@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.26");
+const appVersion = String(process.env.APP_VERSION || "v0.0.27");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.26");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-03-25", text: "Dashboard ad insights now load live ad metrics" });
     releaseLogItems.push({ date: "2026-03-25", text: "Dashboard job insights replaced with ad insights" });
     releaseLogItems.push({ date: "2026-03-25", text: "Ads support multiple placement selections" });
     releaseLogItems.push({ date: "2026-03-25", text: "Ads placement dropdown with standard placement options" });
@@ -2950,7 +2951,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.26");
       }
     }
 
-    if (showAdsExisting || showAdsAnalytics) {
+    if (showAdsExisting || showAdsAnalytics || showDashboard) {
       await ensureAdSchema();
       const adWhere = [];
       const adParams = [];
@@ -2979,7 +2980,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.26");
         adRows = adRows.map((ad) => ({ ...ad, placements: normalizeAdPlacements(ad.placementsJson, ad.placement || "") }));
       }
 
-      if (showAdsAnalytics) {
+      if (showAdsAnalytics || showDashboard) {
         const adDashWhere = [];
         const adDashParams = [];
         if (selectedCity) {
