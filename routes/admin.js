@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.28");
+const appVersion = String(process.env.APP_VERSION || "v0.0.29");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.28");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note text left aligned" });
     releaseLogItems.push({ date: "2026-04-04", text: "Login password field now shows placeholder text" });
     releaseLogItems.push({ date: "2026-03-25", text: "Dashboard ad insights now load live ad metrics" });
     releaseLogItems.push({ date: "2026-03-25", text: "Dashboard job insights replaced with ad insights" });
@@ -4788,6 +4789,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.28");
         display:grid;
         gap:10px;
       }
+      .release-latest{
+        display:grid;
+        gap:6px;
+        text-align:left;
+      }
+      .release-latest .label{
+        color: var(--muted);
+        font-weight:600;
+      }
+      .release-latest .value{
+        color: var(--text);
+        font-weight:700;
+        text-align:left;
+      }
       .release-row{
         display:grid;
         grid-template-columns: 120px minmax(0,1fr);
@@ -5245,7 +5260,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.28");
                     <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.releaseUpdatedAt)}</div></div>
                   </div>
                   <div style="margin-top:12px; display:grid; gap:8px;">
-                    <div class="insight-row">
+                    <div class="release-latest">
                       <div class="label">${esc(latestRelease.date)}</div>
                       <div class="value">${esc(latestRelease.text)}</div>
                     </div>
