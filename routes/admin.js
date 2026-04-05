@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.30");
+const appVersion = String(process.env.APP_VERSION || "v0.0.31");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.30");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard cards now shrink to content height" });
     releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note removed duplicate date label" });
     releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note text left aligned" });
     releaseLogItems.push({ date: "2026-04-04", text: "Login password field now shows placeholder text" });
@@ -4706,14 +4707,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.30");
         width:100%;
       }
       .dashboard-col-fill{
-        display:flex;
-        flex-direction:column;
-        height:100%;
-        min-width:0;
-        width:100%;
-      }
-      .dashboard-col-fill > .card{
-        flex:1 1 auto;
+        display:grid;
+        gap:var(--gap);
+        align-content:start;
         min-width:0;
         width:100%;
       }
