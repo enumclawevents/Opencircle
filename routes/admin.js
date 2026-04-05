@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.29");
+const appVersion = String(process.env.APP_VERSION || "v0.0.30");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.29");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note removed duplicate date label" });
     releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note text left aligned" });
     releaseLogItems.push({ date: "2026-04-04", text: "Login password field now shows placeholder text" });
     releaseLogItems.push({ date: "2026-03-25", text: "Dashboard ad insights now load live ad metrics" });
@@ -4791,12 +4792,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.29");
       }
       .release-latest{
         display:grid;
-        gap:6px;
+        gap:0;
         text-align:left;
-      }
-      .release-latest .label{
-        color: var(--muted);
-        font-weight:600;
       }
       .release-latest .value{
         color: var(--text);
@@ -5261,7 +5258,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.29");
                   </div>
                   <div style="margin-top:12px; display:grid; gap:8px;">
                     <div class="release-latest">
-                      <div class="label">${esc(latestRelease.date)}</div>
                       <div class="value">${esc(latestRelease.text)}</div>
                     </div>
                   </div>
