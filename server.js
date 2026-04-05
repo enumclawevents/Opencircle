@@ -230,7 +230,7 @@ app.get("/login", (req, res) => {
         <label>Email</label>
         <input name="username" type="email" placeholder="Enter your email" required />
         <label>Password</label>
-        <input name="password" type="password" required />
+        <input name="password" type="password" placeholder="Enter your password" required />
         <div class="row-between">
           <label class="remember">
             <input type="checkbox" id="rememberUser" />
