@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.31");
+const appVersion = String(process.env.APP_VERSION || "v0.0.32");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.31");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard headers now use even vertical padding" });
     releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard cards now shrink to content height" });
     releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note removed duplicate date label" });
     releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note text left aligned" });
@@ -4714,12 +4715,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.31");
         width:100%;
       }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
+      .dashboard-card[data-collapsed="true"] .sectionTitle{ margin-bottom: 0; }
       .dashboard-card .sectionTitle h2{ margin:0; }
       .dashboard-card .card-toggle{
         width:100%;
         border:0;
         background:transparent;
-        padding:0;
+        padding:6px 0;
         margin:0;
         display:flex;
         align-items:center;
