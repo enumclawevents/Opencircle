@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.40");
+const appVersion = String(process.env.APP_VERSION || "v0.0.41");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.40");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Main events analytics chart height reduced further" });
     releaseLogItems.push({ date: "2026-04-06", text: "Main events analytics chart height reduced" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics tooltip now labels the highlighted time period" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows events and views together with solid and dashed lines" });
@@ -5486,9 +5487,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.40");
                 </div>
               </div>
             </div>
-            <div class="chart-wrap" id="eventsChartWrap" style="min-height:180px;">
+            <div class="chart-wrap" id="eventsChartWrap" style="min-height:120px;">
               <div id="eventsChartData" data-chart="${esc(chartDataJson)}" hidden></div>
-              <canvas id="eventsChart" style="width:100%; height:140px; display:block;"></canvas>
+              <canvas id="eventsChart" style="width:100%; height:96px; display:block;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
           </div>
@@ -8004,7 +8005,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.40");
 
     let h = $wrap.clientHeight;
     if (!h || h < 10) h = Math.floor($wrap.getBoundingClientRect().height || 0);
-    h = Math.max(140, h || 180);
+    h = Math.max(96, h || 120);
 
     $canvas.style.width  = w + "px";
     $canvas.style.height = h + "px";
