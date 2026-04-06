@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.35");
+const appVersion = String(process.env.APP_VERSION || "v0.0.36");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.35");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Analytics line charts now show point dots only on highlight" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics charts now use a cleaner line-chart style" });
     releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections now include up and down reorder controls" });
     releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections can now be rearranged with drag and drop" });
@@ -7856,16 +7857,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.35");
       drawSmoothLine(ctx, points);
       ctx.lineWidth = 1;
 
-      points.forEach((point, index) => {
-        const isHover = index === options.hoverIndex;
+      if (Number.isInteger(options.hoverIndex) && options.hoverIndex >= 0 && points[options.hoverIndex]) {
+        const point = points[options.hoverIndex];
         ctx.beginPath();
-        ctx.arc(point.x, point.y, isHover ? 7 : 4, 0, Math.PI * 2);
-        ctx.fillStyle = isHover ? hoverColor : "#ffffff";
+        ctx.arc(point.x, point.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = hoverColor;
         ctx.fill();
-        ctx.lineWidth = isHover ? 4 : 2;
-        ctx.strokeStyle = isHover ? "rgba(37,99,235,.25)" : lineColor;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "rgba(37,99,235,.25)";
         ctx.stroke();
-      });
+      }
     }
 
     return { frame, points };
