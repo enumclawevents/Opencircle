@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.36");
+const appVersion = String(process.env.APP_VERSION || "v0.0.37");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.36");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Analytics highlight dots now sit directly on the chart line" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics line charts now show point dots only on highlight" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics charts now use a cleaner line-chart style" });
     releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections now include up and down reorder controls" });
@@ -7782,13 +7783,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.36");
       ctx.lineTo(points[0].x, points[0].y);
     } else {
       for (let i = 0; i < points.length - 1; i++) {
-        const current = points[i];
-        const next = points[i + 1];
-        const midX = (current.x + next.x) / 2;
-        ctx.quadraticCurveTo(current.x, current.y, midX, (current.y + next.y) / 2);
+        const p0 = points[i - 1] || points[i];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = points[i + 2] || p2;
+        const cp1x = p1.x + (p2.x - p0.x) / 6;
+        const cp1y = p1.y + (p2.y - p0.y) / 6;
+        const cp2x = p2.x - (p3.x - p1.x) / 6;
+        const cp2y = p2.y - (p3.y - p1.y) / 6;
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
       }
-      const last = points[points.length - 1];
-      ctx.quadraticCurveTo(last.x, last.y, last.x, last.y);
     }
     ctx.stroke();
   }
@@ -7836,11 +7840,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.36");
       ctx.beginPath();
       ctx.moveTo(points[0].x, frame.padT + frame.gh);
       ctx.lineTo(points[0].x, points[0].y);
-      for (let i = 0; i < points.length - 1; i++) {
-        const current = points[i];
-        const next = points[i + 1];
-        const midX = (current.x + next.x) / 2;
-        ctx.quadraticCurveTo(current.x, current.y, midX, (current.y + next.y) / 2);
+      if (points.length === 1) {
+        ctx.lineTo(points[0].x, points[0].y);
+      } else {
+        for (let i = 0; i < points.length - 1; i++) {
+          const p0 = points[i - 1] || points[i];
+          const p1 = points[i];
+          const p2 = points[i + 1];
+          const p3 = points[i + 2] || p2;
+          const cp1x = p1.x + (p2.x - p0.x) / 6;
+          const cp1y = p1.y + (p2.y - p0.y) / 6;
+          const cp2x = p2.x - (p3.x - p1.x) / 6;
+          const cp2y = p2.y - (p3.y - p1.y) / 6;
+          ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+        }
       }
       const last = points[points.length - 1];
       ctx.lineTo(last.x, last.y);
