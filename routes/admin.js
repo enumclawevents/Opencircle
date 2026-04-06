@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.33");
+const appVersion = String(process.env.APP_VERSION || "v0.0.34");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections now include up and down reorder controls" });
     releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections can now be rearranged with drag and drop" });
     releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard headers now use even vertical padding" });
     releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard cards now shrink to content height" });
@@ -4731,7 +4732,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
       .dashboard-card[data-collapsed="true"] .sectionTitle{ margin-bottom: 0; }
       .dashboard-card .sectionTitle h2{ margin:0; }
       .dashboard-card .card-toggle{
-        width:100%;
+        flex:1 1 auto;
+        min-width:0;
         border:0;
         background:transparent;
         padding:6px 0;
@@ -4746,6 +4748,34 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
         font-size:14px;
         color: var(--muted);
         transition: transform .16s ease;
+      }
+      .dashboard-card .card-controls{
+        display:flex;
+        align-items:center;
+        gap:6px;
+        width:100%;
+      }
+      .dashboard-card .card-move{
+        width:32px;
+        height:32px;
+        border:1px solid var(--line);
+        border-radius:var(--radius-inner);
+        background:var(--panel);
+        color:var(--muted);
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        cursor:pointer;
+        flex:0 0 32px;
+      }
+      .dashboard-card .card-move:hover{
+        background:#f8fafc;
+        color:var(--text);
+        border-color:rgba(15,23,42,.18);
+      }
+      .dashboard-card .card-move:disabled{
+        opacity:.4;
+        cursor:not-allowed;
       }
       .dashboard-card[data-collapsed="true"] .card-toggle .card-caret{
         transform: rotate(-90deg);
@@ -5225,10 +5255,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
           <div class="dashboard-col dashboard-col-fill" data-dashboard-column="left">
             <section class="card dashboard-card" id="dashboard-quick-links" data-dashboard-card="quick-links" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
-                  <h2>Quick links</h2>
-                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
+                <div class="card-controls">
+                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
+                    <h2>Quick links</h2>
+                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
+                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
+                </div>
               </div>
               <div class="card-body" id="dashboard-quick-links-body">
                 <div class="quick-links-grid">
@@ -5262,10 +5296,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
 
             <div class="card dashboard-card" id="dashboard-release-notes-card" data-dashboard-card="release-notes" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
-                  <h2>Release notes</h2>
-                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
+                <div class="card-controls">
+                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
+                    <h2>Release notes</h2>
+                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
+                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
+                </div>
               </div>
               <div class="card-body" id="dashboard-release-notes-body">
                 <div class="mini">
@@ -5291,10 +5329,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
           <div class="dashboard-col dashboard-col-fill dashboard-insights" data-dashboard-column="right">
             <div class="card dashboard-card" id="dashboard-event-insights-card" data-dashboard-card="event-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-event-insights-body">
-                  <h2>Event insights</h2>
-                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
+                <div class="card-controls">
+                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-event-insights-body">
+                    <h2>Event insights</h2>
+                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
+                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
+                </div>
               </div>
               <div class="card-body" id="dashboard-event-insights-body">
                 <div class="insight-list">
@@ -5308,10 +5350,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
 
             <div class="card dashboard-card" id="dashboard-venue-insights-card" data-dashboard-card="venue-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-venue-insights-body">
-                  <h2>Venue insights</h2>
-                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
+                <div class="card-controls">
+                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-venue-insights-body">
+                    <h2>Venue insights</h2>
+                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
+                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
+                </div>
               </div>
               <div class="card-body" id="dashboard-venue-insights-body">
                 <div class="insight-list">
@@ -5325,10 +5371,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
 
             <div class="card dashboard-card" id="dashboard-ad-insights-card" data-dashboard-card="ad-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-ad-insights-body">
-                  <h2>Ad Insights</h2>
-                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
+                <div class="card-controls">
+                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-ad-insights-body">
+                    <h2>Ad Insights</h2>
+                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
+                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
+                </div>
               </div>
               <div class="card-body" id="dashboard-ad-insights-body">
                 <div class="insight-list">
@@ -7177,6 +7227,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
           card.setAttribute('draggable', 'true');
         });
 
+        function refreshMoveButtons(){
+          columns.forEach(function(column){
+            var ordered = Array.prototype.slice.call(column.querySelectorAll('[data-dashboard-card]'));
+            ordered.forEach(function(card, index){
+              var up = card.querySelector('[data-card-move="up"]');
+              var down = card.querySelector('[data-card-move="down"]');
+              if (up) up.disabled = index === 0;
+              if (down) down.disabled = index === ordered.length - 1;
+            });
+          });
+        }
+
         function saveLayout(){
           try {
             var layout = {};
@@ -7196,16 +7258,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
           cards.forEach(function(card){
             byId[card.getAttribute('data-dashboard-card')] = card;
           });
-          columns.forEach(function(column){
-            var key = column.getAttribute('data-dashboard-column') || '';
-            var ids = Array.isArray(layout[key]) ? layout[key] : [];
-            ids.forEach(function(id){
-              if (byId[id]) column.appendChild(byId[id]);
+            columns.forEach(function(column){
+              var key = column.getAttribute('data-dashboard-column') || '';
+              var ids = Array.isArray(layout[key]) ? layout[key] : [];
+              ids.forEach(function(id){
+                if (byId[id]) column.appendChild(byId[id]);
             });
           });
           columns[0] && cards.forEach(function(card){
             if (!board.contains(card)) columns[0].appendChild(card);
           });
+          refreshMoveButtons();
         }
 
         function getAfterElement(container, y){
@@ -7227,7 +7290,38 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
           applyLayout(JSON.parse(localStorage.getItem(storageKey) || 'null'));
         } catch (_) {}
 
+        refreshMoveButtons();
+
         cards.forEach(function(card){
+          var upBtn = card.querySelector('[data-card-move="up"]');
+          var downBtn = card.querySelector('[data-card-move="down"]');
+          function moveCard(direction){
+            var parent = card.parentElement;
+            if (!parent) return;
+            if (direction === 'up') {
+              var prev = card.previousElementSibling;
+              if (prev) parent.insertBefore(card, prev);
+            } else {
+              var next = card.nextElementSibling;
+              if (next) parent.insertBefore(next, card);
+            }
+            refreshMoveButtons();
+            saveLayout();
+          }
+          if (upBtn) {
+            upBtn.addEventListener('click', function(e){
+              e.preventDefault();
+              e.stopPropagation();
+              moveCard('up');
+            });
+          }
+          if (downBtn) {
+            downBtn.addEventListener('click', function(e){
+              e.preventDefault();
+              e.stopPropagation();
+              moveCard('down');
+            });
+          }
           card.addEventListener('dragstart', function(){
             dragging = card;
             card.classList.add('dragging');
@@ -7236,6 +7330,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
             card.classList.remove('dragging');
             columns.forEach(function(column){ column.classList.remove('dashboard-drop-target'); });
             dragging = null;
+            refreshMoveButtons();
             saveLayout();
           });
         });
@@ -7256,6 +7351,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.33");
             if (!dragging) return;
             e.preventDefault();
             column.classList.remove('dashboard-drop-target');
+            refreshMoveButtons();
             saveLayout();
           });
           column.addEventListener('dragleave', function(e){
