@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.43");
+const appVersion = String(process.env.APP_VERSION || "v0.0.44");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.43");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Main analytics row height reduced again" });
     releaseLogItems.push({ date: "2026-04-06", text: "Top organizers card now matches analytics chart height" });
     releaseLogItems.push({ date: "2026-04-06", text: "Main events analytics section set closer to 500px tall" });
     releaseLogItems.push({ date: "2026-04-06", text: "Main events analytics chart height reduced further" });
@@ -3840,10 +3841,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.43");
         height:auto;
       }
       .analytics-main-grid > .card:first-child{
-        min-height:500px;
+        min-height:380px;
       }
       .analytics-main-grid > .card:last-child{
-        min-height:500px;
+        min-height:380px;
       }
 
       .grid4{
