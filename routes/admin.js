@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.34");
+const appVersion = String(process.env.APP_VERSION || "v0.0.35");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.34");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Analytics charts now use a cleaner line-chart style" });
     releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections now include up and down reorder controls" });
     releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections can now be rearranged with drag and drop" });
     releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard headers now use even vertical padding" });
@@ -7741,8 +7742,150 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.34");
         setInterval(tick, 4000);
       })();
 
-      // Simple bar chart (no libraries) + hover tooltip + view toggles
+      // Simple line charts (no libraries) + hover tooltip + view toggles
 (function(){
+  function getChartFrame(width, height){
+    const padL = 56, padR = 18, padT = 18, padB = 46;
+    return {
+      padL, padR, padT, padB,
+      gw: width - padL - padR,
+      gh: height - padT - padB,
+    };
+  }
+
+  function getYScale(values){
+    const maxV = Math.max(1, ...(values || [0]));
+    const yTicks = Math.min(6, maxV);
+    const tickStep = Math.max(1, Math.ceil(maxV / yTicks));
+    return { yTicks, tickStep, yMax: tickStep * yTicks };
+  }
+
+  function getLinePoints(frame, values){
+    const n = values.length;
+    if (!n) return [];
+    const step = n === 1 ? 0 : frame.gw / (n - 1);
+    const scale = getYScale(values);
+    return values.map((value, index) => ({
+      x: frame.padL + step * index,
+      y: frame.padT + frame.gh - ((Number(value || 0) / scale.yMax) * frame.gh),
+      value: Number(value || 0),
+      index,
+    }));
+  }
+
+  function drawSmoothLine(ctx, points){
+    if (!points.length) return;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    if (points.length === 1) {
+      ctx.lineTo(points[0].x, points[0].y);
+    } else {
+      for (let i = 0; i < points.length - 1; i++) {
+        const current = points[i];
+        const next = points[i + 1];
+        const midX = (current.x + next.x) / 2;
+        ctx.quadraticCurveTo(current.x, current.y, midX, (current.y + next.y) / 2);
+      }
+      const last = points[points.length - 1];
+      ctx.quadraticCurveTo(last.x, last.y, last.x, last.y);
+    }
+    ctx.stroke();
+  }
+
+  function drawLineChart(ctx, width, height, labels, values, options){
+    const frame = getChartFrame(width, height);
+    const scale = getYScale(values);
+    const points = getLinePoints(frame, values);
+    const lineColor = options.lineColor || "rgba(37,99,235,.72)";
+    const fillColor = options.fillColor || "rgba(37,99,235,.08)";
+    const hoverColor = options.hoverColor || "rgba(37,99,235,.95)";
+
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(15,23,42,.08)";
+    ctx.fillStyle = "rgba(71,85,105,.9)";
+    ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+
+    for (let i = 0; i <= scale.yTicks; i++) {
+      const v = i * scale.tickStep;
+      const y = frame.padT + frame.gh - (v / scale.yMax) * frame.gh;
+      ctx.beginPath();
+      ctx.moveTo(frame.padL, y);
+      ctx.lineTo(frame.padL + frame.gw, y);
+      ctx.stroke();
+      ctx.fillText(String(v), 18, y + 4);
+    }
+
+    if (points.length > 1) {
+      const labelStep = points.length <= 4 ? 1 : Math.ceil(points.length / 4);
+      labels.forEach((label, index) => {
+        if (index !== points.length - 1 && index % labelStep !== 0) return;
+        const point = points[index];
+        ctx.textAlign = index === points.length - 1 ? "right" : (index === 0 ? "left" : "center");
+        ctx.fillStyle = "rgba(71,85,105,.95)";
+        ctx.fillText(String(label || ""), point.x, frame.padT + frame.gh + 30);
+      });
+    } else if (points.length === 1) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(71,85,105,.95)";
+      ctx.fillText(String(labels[0] || ""), points[0].x, frame.padT + frame.gh + 30);
+    }
+
+    if (points.length) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, frame.padT + frame.gh);
+      ctx.lineTo(points[0].x, points[0].y);
+      for (let i = 0; i < points.length - 1; i++) {
+        const current = points[i];
+        const next = points[i + 1];
+        const midX = (current.x + next.x) / 2;
+        ctx.quadraticCurveTo(current.x, current.y, midX, (current.y + next.y) / 2);
+      }
+      const last = points[points.length - 1];
+      ctx.lineTo(last.x, last.y);
+      ctx.lineTo(last.x, frame.padT + frame.gh);
+      ctx.closePath();
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.restore();
+
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      drawSmoothLine(ctx, points);
+      ctx.lineWidth = 1;
+
+      points.forEach((point, index) => {
+        const isHover = index === options.hoverIndex;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, isHover ? 7 : 4, 0, Math.PI * 2);
+        ctx.fillStyle = isHover ? hoverColor : "#ffffff";
+        ctx.fill();
+        ctx.lineWidth = isHover ? 4 : 2;
+        ctx.strokeStyle = isHover ? "rgba(37,99,235,.25)" : lineColor;
+        ctx.stroke();
+      });
+    }
+
+    return { frame, points };
+  }
+
+  function getNearestPointIndex(points, mx, my, frame){
+    if (!points.length) return -1;
+    if (mx < frame.padL || mx > frame.padL + frame.gw || my < frame.padT || my > frame.padT + frame.gh) return -1;
+    let closest = -1;
+    let min = Infinity;
+    points.forEach((point, index) => {
+      const dist = Math.abs(point.x - mx);
+      if (dist < min) {
+        min = dist;
+        closest = index;
+      }
+    });
+    return min <= 24 ? closest : -1;
+  }
+
   function initEventsChart(){
     const $data   = document.getElementById("eventsChartData");
     const $canvas = document.getElementById("eventsChart");
@@ -7850,70 +7993,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.34");
       return;
     }
 
-    const padL = 56, padR = 18, padT = 18, padB = 46;
-    const gw = w - padL - padR;
-    const gh = h - padT - padB;
-
-    const maxV = Math.max(1, ...values);
-    const yTicks = Math.min(6, maxV);
-    const tickStep = Math.max(1, Math.ceil(maxV / yTicks));
-    const yMax = tickStep * yTicks;
-
-    // grid + y labels
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(15,23,42,.12)";
-    ctx.fillStyle = "rgba(15,23,42,.92)";
-    ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-
-    for (let i=0;i<=yTicks;i++){
-      const v = i * tickStep;
-      const y = padT + gh - (v / yMax) * gh;
-      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL+gw, y); ctx.stroke();
-      ctx.fillText(String(v), 18, y+4);
-    }
-
-    // x labels + bars
-    const n = values.length;
-    const gap = 16;
-    const barW = Math.max(10, Math.floor((gw - gap*(n-1)) / n));
-    const totalW = barW*n + gap*(n-1);
-    const x0 = padL + Math.max(0, (gw-totalW)/2);
-
-    // x label style
-    ctx.fillStyle = "rgba(15,23,42,.92)";
-    ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-
-    for (let i=0;i<n;i++){
-      const v = values[i];
-      const bh = (v / yMax) * gh;
-      const x = x0 + i*(barW+gap);
-      const y = padT + gh - bh;
-
-      // bar
-      ctx.fillStyle = "rgba(16,185,129,.45)";
-      ctx.fillRect(x, y, barW, bh);
-
-      // hover outline
-      if (i === hoverIndex){
-        ctx.strokeStyle = "rgba(16,185,129,.95)";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x+0.5, y+0.5, barW-1, bh-1);
-        ctx.lineWidth = 1;
-      }
-
-      // label
-      const lab = labels[i] || "";
-      ctx.save();
-      ctx.translate(x + barW/2, padT + gh + 22);
-      ctx.rotate(-0.35);
-      ctx.textAlign = "center";
-      ctx.fillStyle = "rgba(15,23,42,.92)";
-      ctx.fillText(lab, 0, 0);
-      ctx.restore();
-    }
+    drawLineChart(ctx, w, h, labels, values, {
+      hoverIndex,
+      lineColor: metric === "views" ? "rgba(37,99,235,.72)" : "rgba(16,185,129,.82)",
+      fillColor: metric === "views" ? "rgba(37,99,235,.08)" : "rgba(16,185,129,.10)",
+      hoverColor: metric === "views" ? "rgba(37,99,235,.95)" : "rgba(16,185,129,.95)",
+    });
   }
 
-  function getBarIndexFromEvent(ev){
+  function getPointIndexFromEvent(ev){
     const set = (chartSets[metric] && chartSets[metric][mode]) ? chartSets[metric][mode] : chartSets.events.daily;
     const values = (set && set.values) ? set.values : [];
     if (!values.length) return -1;
@@ -7921,24 +8009,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.34");
     const rect = $canvas.getBoundingClientRect();
     const mx = ev.clientX - rect.left;
     const my = ev.clientY - rect.top;
-
-    const padL = 56, padR = 18, padT = 18, padB = 46;
-    const gw = rect.width - padL - padR;
-    const gh = rect.height - padT - padB;
-
-    if (mx < padL || mx > padL+gw || my < padT || my > padT+gh) return -1;
-
-    const n = values.length;
-    const gap = 16;
-    const barW = Math.max(10, Math.floor((gw - gap*(n-1)) / n));
-    const totalW = barW*n + gap*(n-1);
-    const x0 = padL + Math.max(0, (gw-totalW)/2);
-
-    for (let i=0;i<n;i++){
-      const x = x0 + i*(barW+gap);
-      if (mx >= x && mx <= x+barW) return i;
-    }
-    return -1;
+    const frame = getChartFrame(rect.width, rect.height);
+    const points = getLinePoints(frame, values);
+    return getNearestPointIndex(points, mx, my, frame);
   }
 
   function showTip(ev, idx){
@@ -8003,7 +8076,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.34");
 
   // Hover tooltip
   $canvas.addEventListener("mousemove", (e) => {
-    const idx = getBarIndexFromEvent(e);
+    const idx = getPointIndexFromEvent(e);
     if (idx !== hoverIndex){
       hoverIndex = idx;
       draw();
@@ -8111,83 +8184,24 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.34");
         return;
       }
 
-      const padL = 56, padR = 18, padT = 18, padB = 46;
-      const gw = w - padL - padR;
-      const gh = h - padT - padB;
-      const maxV = Math.max(1, ...values);
-      const yTicks = Math.min(6, maxV);
-      const tickStep = Math.max(1, Math.ceil(maxV / yTicks));
-      const yMax = tickStep * yTicks;
-
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(15,23,42,.12)";
-      ctx.fillStyle = "rgba(15,23,42,.92)";
-      ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-
-      for (let i = 0; i <= yTicks; i++) {
-        const v = i * tickStep;
-        const y = padT + gh - (v / yMax) * gh;
-        ctx.beginPath();
-        ctx.moveTo(padL, y);
-        ctx.lineTo(padL + gw, y);
-        ctx.stroke();
-        ctx.fillText(String(v), 18, y + 4);
-      }
-
-      const n = values.length;
-      const gap = 16;
-      const barW = Math.max(10, Math.floor((gw - gap * (n - 1)) / n));
-      const totalW = barW * n + gap * (n - 1);
-      const x0 = padL + Math.max(0, (gw - totalW) / 2);
-
-      for (let i = 0; i < n; i++) {
-        const v = values[i];
-        const bh = (v / yMax) * gh;
-        const x = x0 + i * (barW + gap);
-        const y = padT + gh - bh;
-
-        ctx.fillStyle = metric === "clicks" ? "rgba(59,130,246,.45)" : "rgba(16,185,129,.45)";
-        ctx.fillRect(x, y, barW, bh);
-
-        if (i === hoverIndex) {
-          ctx.strokeStyle = metric === "clicks" ? "rgba(59,130,246,.95)" : "rgba(16,185,129,.95)";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x + 0.5, y + 0.5, barW - 1, bh - 1);
-          ctx.lineWidth = 1;
-        }
-
-        const lab = labels[i] || "";
-        ctx.save();
-        ctx.translate(x + barW / 2, padT + gh + 22);
-        ctx.rotate(-0.35);
-        ctx.textAlign = "center";
-        ctx.fillStyle = "rgba(15,23,42,.92)";
-        ctx.fillText(lab, 0, 0);
-        ctx.restore();
-      }
+      drawLineChart(ctx, w, h, labels, values, {
+        hoverIndex,
+        lineColor: metric === "clicks" ? "rgba(59,130,246,.78)" : "rgba(16,185,129,.82)",
+        fillColor: metric === "clicks" ? "rgba(59,130,246,.08)" : "rgba(16,185,129,.10)",
+        hoverColor: metric === "clicks" ? "rgba(59,130,246,.95)" : "rgba(16,185,129,.95)",
+      });
     }
 
-    function getBarIndexFromEvent(ev){
+    function getPointIndexFromEvent(ev){
       const set = getSet();
       const values = set.values || [];
       if (!values.length) return -1;
       const rect = $canvas.getBoundingClientRect();
       const mx = ev.clientX - rect.left;
       const my = ev.clientY - rect.top;
-      const padL = 56, padR = 18, padT = 18, padB = 46;
-      const gw = rect.width - padL - padR;
-      const gh = rect.height - padT - padB;
-      if (mx < padL || mx > padL + gw || my < padT || my > padT + gh) return -1;
-      const n = values.length;
-      const gap = 16;
-      const barW = Math.max(10, Math.floor((gw - gap * (n - 1)) / n));
-      const totalW = barW * n + gap * (n - 1);
-      const x0 = padL + Math.max(0, (gw - totalW) / 2);
-      for (let i = 0; i < n; i++) {
-        const x = x0 + i * (barW + gap);
-        if (mx >= x && mx <= x + barW) return i;
-      }
-      return -1;
+      const frame = getChartFrame(rect.width, rect.height);
+      const points = getLinePoints(frame, values);
+      return getNearestPointIndex(points, mx, my, frame);
     }
 
     function showTip(ev, idx){
@@ -8228,7 +8242,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.34");
     });
 
     $canvas.addEventListener("mousemove", (e) => {
-      const idx = getBarIndexFromEvent(e);
+      const idx = getPointIndexFromEvent(e);
       if (idx !== hoverIndex) {
         hoverIndex = idx;
         draw();
@@ -8326,83 +8340,24 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.34");
         return;
       }
 
-      const padL = 56, padR = 18, padT = 18, padB = 46;
-      const gw = w - padL - padR;
-      const gh = h - padT - padB;
-      const maxV = Math.max(1, ...values);
-      const yTicks = Math.min(6, maxV);
-      const tickStep = Math.max(1, Math.ceil(maxV / yTicks));
-      const yMax = tickStep * yTicks;
-
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(15,23,42,.12)";
-      ctx.fillStyle = "rgba(15,23,42,.92)";
-      ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-
-      for (let i = 0; i <= yTicks; i++) {
-        const v = i * tickStep;
-        const y = padT + gh - (v / yMax) * gh;
-        ctx.beginPath();
-        ctx.moveTo(padL, y);
-        ctx.lineTo(padL + gw, y);
-        ctx.stroke();
-        ctx.fillText(String(v), 18, y + 4);
-      }
-
-      const n = values.length;
-      const gap = 16;
-      const barW = Math.max(10, Math.floor((gw - gap * (n - 1)) / n));
-      const totalW = barW * n + gap * (n - 1);
-      const x0 = padL + Math.max(0, (gw - totalW) / 2);
-
-      for (let i = 0; i < n; i++) {
-        const v = values[i];
-        const bh = (v / yMax) * gh;
-        const x = x0 + i * (barW + gap);
-        const y = padT + gh - bh;
-
-        ctx.fillStyle = metric === "clicks" ? "rgba(59,130,246,.45)" : "rgba(16,185,129,.45)";
-        ctx.fillRect(x, y, barW, bh);
-
-        if (i === hoverIndex) {
-          ctx.strokeStyle = metric === "clicks" ? "rgba(59,130,246,.95)" : "rgba(16,185,129,.95)";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x + 0.5, y + 0.5, barW - 1, bh - 1);
-          ctx.lineWidth = 1;
-        }
-
-        const lab = labels[i] || "";
-        ctx.save();
-        ctx.translate(x + barW / 2, padT + gh + 22);
-        ctx.rotate(-0.35);
-        ctx.textAlign = "center";
-        ctx.fillStyle = "rgba(15,23,42,.92)";
-        ctx.fillText(lab, 0, 0);
-        ctx.restore();
-      }
+      drawLineChart(ctx, w, h, labels, values, {
+        hoverIndex,
+        lineColor: metric === "clicks" ? "rgba(59,130,246,.78)" : "rgba(16,185,129,.82)",
+        fillColor: metric === "clicks" ? "rgba(59,130,246,.08)" : "rgba(16,185,129,.10)",
+        hoverColor: metric === "clicks" ? "rgba(59,130,246,.95)" : "rgba(16,185,129,.95)",
+      });
     }
 
-    function getBarIndexFromEvent(ev){
+    function getPointIndexFromEvent(ev){
       const set = getSet();
       const values = set.values || [];
       if (!values.length) return -1;
       const rect = $canvas.getBoundingClientRect();
       const mx = ev.clientX - rect.left;
       const my = ev.clientY - rect.top;
-      const padL = 56, padR = 18, padT = 18, padB = 46;
-      const gw = rect.width - padL - padR;
-      const gh = rect.height - padT - padB;
-      if (mx < padL || mx > padL + gw || my < padT || my > padT + gh) return -1;
-      const n = values.length;
-      const gap = 16;
-      const barW = Math.max(10, Math.floor((gw - gap * (n - 1)) / n));
-      const totalW = barW * n + gap * (n - 1);
-      const x0 = padL + Math.max(0, (gw - totalW) / 2);
-      for (let i = 0; i < n; i++) {
-        const x = x0 + i * (barW + gap);
-        if (mx >= x && mx <= x + barW) return i;
-      }
-      return -1;
+      const frame = getChartFrame(rect.width, rect.height);
+      const points = getLinePoints(frame, values);
+      return getNearestPointIndex(points, mx, my, frame);
     }
 
     function showTip(ev, idx){
@@ -8443,7 +8398,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.34");
     });
 
     $canvas.addEventListener("mousemove", (e) => {
-      const idx = getBarIndexFromEvent(e);
+      const idx = getPointIndexFromEvent(e);
       if (idx !== hoverIndex) {
         hoverIndex = idx;
         draw();
