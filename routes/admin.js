@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.37");
+const appVersion = String(process.env.APP_VERSION || "v0.0.39");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.37");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics tooltip now labels the highlighted time period" });
+    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows events and views together with solid and dashed lines" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics highlight dots now sit directly on the chart line" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics line charts now show point dots only on highlight" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics charts now use a cleaner line-chart style" });
@@ -7762,14 +7764,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.37");
     return { yTicks, tickStep, yMax: tickStep * yTicks };
   }
 
+  function clamp(value, min, max){
+    return Math.min(max, Math.max(min, value));
+  }
+
   function getLinePoints(frame, values){
     const n = values.length;
     if (!n) return [];
     const step = n === 1 ? 0 : frame.gw / (n - 1);
     const scale = getYScale(values);
+    const yMin = frame.padT;
+    const yMax = frame.padT + frame.gh;
     return values.map((value, index) => ({
       x: frame.padL + step * index,
-      y: frame.padT + frame.gh - ((Number(value || 0) / scale.yMax) * frame.gh),
+      y: clamp(frame.padT + frame.gh - ((Number(value || 0) / scale.yMax) * frame.gh), yMin, yMax),
       value: Number(value || 0),
       index,
     }));
@@ -7777,6 +7785,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.37");
 
   function drawSmoothLine(ctx, points){
     if (!points.length) return;
+    const yMin = Math.min.apply(null, points.map((p) => p.chartMinY ?? p.y));
+    const yMax = Math.max.apply(null, points.map((p) => p.chartMaxY ?? p.y));
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
     if (points.length === 1) {
@@ -7788,9 +7798,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.37");
         const p2 = points[i + 1];
         const p3 = points[i + 2] || p2;
         const cp1x = p1.x + (p2.x - p0.x) / 6;
-        const cp1y = p1.y + (p2.y - p0.y) / 6;
+        const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, yMin, yMax);
         const cp2x = p2.x - (p3.x - p1.x) / 6;
-        const cp2y = p2.y - (p3.y - p1.y) / 6;
+        const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, yMin, yMax);
         ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
       }
     }
@@ -7800,7 +7810,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.37");
   function drawLineChart(ctx, width, height, labels, values, options){
     const frame = getChartFrame(width, height);
     const scale = getYScale(values);
-    const points = getLinePoints(frame, values);
+    const points = getLinePoints(frame, values).map((point) => ({
+      ...point,
+      chartMinY: frame.padT,
+      chartMaxY: frame.padT + frame.gh,
+    }));
     const lineColor = options.lineColor || "rgba(37,99,235,.72)";
     const fillColor = options.fillColor || "rgba(37,99,235,.08)";
     const hoverColor = options.hoverColor || "rgba(37,99,235,.95)";
@@ -7849,9 +7863,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.37");
           const p2 = points[i + 1];
           const p3 = points[i + 2] || p2;
           const cp1x = p1.x + (p2.x - p0.x) / 6;
-          const cp1y = p1.y + (p2.y - p0.y) / 6;
+          const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, frame.padT, frame.padT + frame.gh);
           const cp2x = p2.x - (p3.x - p1.x) / 6;
-          const cp2y = p2.y - (p3.y - p1.y) / 6;
+          const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, frame.padT, frame.padT + frame.gh);
           ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
         }
       }
@@ -7958,6 +7972,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.37");
     $range.textContent = map[mode] || map.daily;
   }
 
+  function getPeriodLabel(rawLabel){
+    const label = String(rawLabel || "").trim();
+    if (!label) return "";
+    const prefixMap = {
+      daily: "Day",
+      weekly: "Week",
+      monthly: "Month",
+      yearly: "Year",
+    };
+    return (prefixMap[mode] || "Period") + ": " + label;
+  }
+
   function setSubcounts(){
     if (!$pastEl || !$upEl) return;
     const key = (metric === "views") ? "views" : "events";
@@ -7989,9 +8015,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.37");
   }
 
   function draw(){
-    const set = (chartSets[metric] && chartSets[metric][mode]) ? chartSets[metric][mode] : chartSets.events.daily;
-    const labels = (set && set.labels) ? set.labels : [];
-    const values = (set && set.values) ? set.values : [];
+    const primarySet = (chartSets[metric] && chartSets[metric][mode]) ? chartSets[metric][mode] : chartSets.events.daily;
+    const secondaryMetric = metric === "events" ? "views" : "events";
+    const secondarySet = (chartSets[secondaryMetric] && chartSets[secondaryMetric][mode]) ? chartSets[secondaryMetric][mode] : chartSets[secondaryMetric]?.daily;
+    const labels = (primarySet && primarySet.labels) ? primarySet.labels : [];
+    const primaryValues = (primarySet && primarySet.values) ? primarySet.values : [];
+    const secondaryValues = (secondarySet && secondarySet.values) ? secondarySet.values : [];
+    const combinedValues = [...primaryValues, ...secondaryValues];
 
     const { w, h, ready } = sizeCanvas();
     if (!ready) {
@@ -8000,19 +8030,130 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.37");
     }
     ctx.clearRect(0,0,w,h);
 
-    if (!labels.length || !values.length){
+    if (!labels.length || !combinedValues.length){
       ctx.fillStyle = "rgba(15,23,42,.75)";
       ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
       ctx.fillText("No recent events", 18, 90);
       return;
     }
 
-    drawLineChart(ctx, w, h, labels, values, {
-      hoverIndex,
-      lineColor: metric === "views" ? "rgba(37,99,235,.72)" : "rgba(16,185,129,.82)",
-      fillColor: metric === "views" ? "rgba(37,99,235,.08)" : "rgba(16,185,129,.10)",
-      hoverColor: metric === "views" ? "rgba(37,99,235,.95)" : "rgba(16,185,129,.95)",
-    });
+    const frame = getChartFrame(w, h);
+    const scale = getYScale(combinedValues);
+    const primaryPoints = getLinePoints(frame, primaryValues.map((value) => Number(value || 0) * (scale.yMax / getYScale(combinedValues).yMax))).map((point, index) => ({
+      ...point,
+      y: clamp(frame.padT + frame.gh - ((Number(primaryValues[index] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
+      chartMinY: frame.padT,
+      chartMaxY: frame.padT + frame.gh,
+    }));
+    const secondaryPoints = labels.length === secondaryValues.length
+      ? secondaryValues.map((value, index) => ({
+          x: primaryPoints[index] ? primaryPoints[index].x : (frame.padL + (labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1)) * index)),
+          y: clamp(frame.padT + frame.gh - ((Number(value || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
+          value: Number(value || 0),
+          index,
+          chartMinY: frame.padT,
+          chartMaxY: frame.padT + frame.gh,
+        }))
+      : [];
+
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(15,23,42,.08)";
+    ctx.fillStyle = "rgba(71,85,105,.9)";
+    ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+    for (let i = 0; i <= scale.yTicks; i++) {
+      const v = i * scale.tickStep;
+      const y = frame.padT + frame.gh - (v / scale.yMax) * frame.gh;
+      ctx.beginPath();
+      ctx.moveTo(frame.padL, y);
+      ctx.lineTo(frame.padL + frame.gw, y);
+      ctx.stroke();
+      ctx.fillText(String(v), 18, y + 4);
+    }
+    if (primaryPoints.length > 1) {
+      const labelStep = primaryPoints.length <= 4 ? 1 : Math.ceil(primaryPoints.length / 4);
+      labels.forEach((label, index) => {
+        if (index !== primaryPoints.length - 1 && index % labelStep !== 0) return;
+        const point = primaryPoints[index];
+        ctx.textAlign = index === primaryPoints.length - 1 ? "right" : (index === 0 ? "left" : "center");
+        ctx.fillStyle = "rgba(71,85,105,.95)";
+        ctx.fillText(String(label || ""), point.x, frame.padT + frame.gh + 30);
+      });
+    }
+
+    const eventColor = "rgba(16,185,129,.82)";
+    const viewColor = "rgba(37,99,235,.72)";
+    const primaryColor = metric === "events" ? eventColor : viewColor;
+    const secondaryColor = metric === "events" ? viewColor : eventColor;
+
+    if (primaryPoints.length) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(primaryPoints[0].x, frame.padT + frame.gh);
+      ctx.lineTo(primaryPoints[0].x, primaryPoints[0].y);
+      if (primaryPoints.length === 1) {
+        ctx.lineTo(primaryPoints[0].x, primaryPoints[0].y);
+      } else {
+        for (let i = 0; i < primaryPoints.length - 1; i++) {
+          const p0 = primaryPoints[i - 1] || primaryPoints[i];
+          const p1 = primaryPoints[i];
+          const p2 = primaryPoints[i + 1];
+          const p3 = primaryPoints[i + 2] || p2;
+          const cp1x = p1.x + (p2.x - p0.x) / 6;
+          const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, frame.padT, frame.padT + frame.gh);
+          const cp2x = p2.x - (p3.x - p1.x) / 6;
+          const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, frame.padT, frame.padT + frame.gh);
+          ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+        }
+      }
+      const last = primaryPoints[primaryPoints.length - 1];
+      ctx.lineTo(last.x, frame.padT + frame.gh);
+      ctx.closePath();
+      ctx.fillStyle = metric === "events" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)";
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (secondaryPoints.length) {
+      ctx.save();
+      ctx.strokeStyle = secondaryColor;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 6]);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      drawSmoothLine(ctx, secondaryPoints);
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.strokeStyle = primaryColor;
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    drawSmoothLine(ctx, primaryPoints);
+    ctx.restore();
+
+    if (Number.isInteger(hoverIndex) && hoverIndex >= 0) {
+      const hoverPrimary = primaryPoints[hoverIndex];
+      const hoverSecondary = secondaryPoints[hoverIndex];
+      if (hoverSecondary) {
+        ctx.beginPath();
+        ctx.arc(hoverSecondary.x, hoverSecondary.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = secondaryColor;
+        ctx.stroke();
+      }
+      if (hoverPrimary) {
+        ctx.beginPath();
+        ctx.arc(hoverPrimary.x, hoverPrimary.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = primaryColor;
+        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "rgba(37,99,235,.25)";
+        ctx.stroke();
+      }
+    }
   }
 
   function getPointIndexFromEvent(ev){
@@ -8030,21 +8171,22 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.37");
 
   function showTip(ev, idx){
     if (!$tip) return;
-    const set = (chartSets[metric] && chartSets[metric][mode]) ? chartSets[metric][mode] : chartSets.events.daily;
-    const labels = (set && set.labels) ? set.labels : [];
-    const values = (set && set.values) ? set.values : [];
+    const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
+    const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : chartSets.views.daily;
+    const labels = (eventSet && eventSet.labels) ? eventSet.labels : [];
+    const eventValues = (eventSet && eventSet.values) ? eventSet.values : [];
+    const viewValues = (viewSet && viewSet.values) ? viewSet.values : [];
 
     const rect = $canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
-
-    const value = values[idx] ?? 0;
-
-    if (metric === "views") {
-      $tip.textContent = String(value) + " view" + (value === 1 ? "" : "s");
-    } else {
-      $tip.textContent = String(value) + " event" + (value === 1 ? "" : "s");
-    }
+    const eventValue = Number(eventValues[idx] ?? 0);
+    const viewValue = Number(viewValues[idx] ?? 0);
+    const periodLabel = getPeriodLabel(labels[idx] || "");
+    $tip.innerHTML =
+      '<div style="font-weight:700; margin-bottom:4px;">' + periodLabel + '</div>' +
+      '<div><span style="color:rgba(16,185,129,.9); font-weight:700;">Events:</span> ' + eventValue.toLocaleString("en-US") + '</div>' +
+      '<div><span style="color:rgba(37,99,235,.85); font-weight:700;">Views:</span> ' + viewValue.toLocaleString("en-US") + '</div>';
     $tip.style.display = "block";
 
     const tipRect = $tip.getBoundingClientRect();
