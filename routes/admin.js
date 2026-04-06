@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.32");
+const appVersion = String(process.env.APP_VERSION || "v0.0.33");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.32");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections can now be rearranged with drag and drop" });
     releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard headers now use even vertical padding" });
     releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard cards now shrink to content height" });
     releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note removed duplicate date label" });
@@ -4707,12 +4708,24 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.32");
         min-width:0;
         width:100%;
       }
+      .dashboard-col[data-dashboard-column]{
+        min-height:120px;
+      }
       .dashboard-col-fill{
         display:grid;
         gap:var(--gap);
         align-content:start;
         min-width:0;
         width:100%;
+      }
+      .dashboard-card{
+        position:relative;
+      }
+      .dashboard-card[draggable="true"]{
+        cursor:grab;
+      }
+      .dashboard-card[draggable="true"]:active{
+        cursor:grabbing;
       }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
       .dashboard-card[data-collapsed="true"] .sectionTitle{ margin-bottom: 0; }
@@ -4742,6 +4755,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.32");
       }
       .dashboard-card[data-collapsed="true"] .card-body{
         display:none;
+      }
+      .dashboard-card.dragging{
+        opacity:.58;
+      }
+      .dashboard-col.dashboard-drop-target{
+        outline:2px dashed rgba(0,192,139,.22);
+        outline-offset:6px;
+        border-radius:var(--radius);
       }
       .dashboard-insights{
         gap: var(--gap);
@@ -5201,8 +5222,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.32");
         <!-- Dashboard Overview -->
         ${showDashboard ? `
         <section class="dashboard-shell" id="dashboard-overview">
-          <div class="dashboard-col dashboard-col-fill">
-            <section class="card dashboard-card" id="dashboard-quick-links" data-collapsible-card data-collapsed="false">
+          <div class="dashboard-col dashboard-col-fill" data-dashboard-column="left">
+            <section class="card dashboard-card" id="dashboard-quick-links" data-dashboard-card="quick-links" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
                   <h2>Quick links</h2>
@@ -5239,7 +5260,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.32");
               </div>
             </section>
 
-            <div class="card dashboard-card" data-collapsible-card data-collapsed="false">
+            <div class="card dashboard-card" id="dashboard-release-notes-card" data-dashboard-card="release-notes" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
                   <h2>Release notes</h2>
@@ -5267,8 +5288,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.32");
             </div>
           </div>
 
-          <div class="dashboard-col dashboard-col-fill dashboard-insights">
-            <div class="card dashboard-card" data-collapsible-card data-collapsed="false">
+          <div class="dashboard-col dashboard-col-fill dashboard-insights" data-dashboard-column="right">
+            <div class="card dashboard-card" id="dashboard-event-insights-card" data-dashboard-card="event-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-event-insights-body">
                   <h2>Event insights</h2>
@@ -5285,7 +5306,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.32");
               </div>
             </div>
 
-            <div class="card dashboard-card" data-collapsible-card data-collapsed="false">
+            <div class="card dashboard-card" id="dashboard-venue-insights-card" data-dashboard-card="venue-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-venue-insights-body">
                   <h2>Venue insights</h2>
@@ -5302,7 +5323,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.32");
               </div>
             </div>
 
-            <div class="card dashboard-card" data-collapsible-card data-collapsed="false">
+            <div class="card dashboard-card" id="dashboard-ad-insights-card" data-dashboard-card="ad-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-ad-insights-body">
                   <h2>Ad Insights</h2>
@@ -7137,6 +7158,110 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.32");
             var collapsed = card.getAttribute('data-collapsed') === 'true';
             card.setAttribute('data-collapsed', collapsed ? 'false' : 'true');
             btn.setAttribute('aria-expanded', collapsed ? 'true' : 'false');
+          });
+        });
+      })();
+
+      // ---- dashboard drag + drop layout ----
+      (function(){
+        var board = document.getElementById('dashboard-overview');
+        if (!board) return;
+        var columns = Array.prototype.slice.call(board.querySelectorAll('[data-dashboard-column]'));
+        var cards = Array.prototype.slice.call(board.querySelectorAll('[data-dashboard-card]'));
+        if (!columns.length || !cards.length) return;
+
+        var storageKey = 'oc_dashboard_layout_v1';
+        var dragging = null;
+
+        cards.forEach(function(card){
+          card.setAttribute('draggable', 'true');
+        });
+
+        function saveLayout(){
+          try {
+            var layout = {};
+            columns.forEach(function(column){
+              var key = column.getAttribute('data-dashboard-column') || '';
+              layout[key] = Array.prototype.slice.call(column.querySelectorAll('[data-dashboard-card]')).map(function(card){
+                return card.getAttribute('data-dashboard-card');
+              });
+            });
+            localStorage.setItem(storageKey, JSON.stringify(layout));
+          } catch (_) {}
+        }
+
+        function applyLayout(layout){
+          if (!layout || typeof layout !== 'object') return;
+          var byId = {};
+          cards.forEach(function(card){
+            byId[card.getAttribute('data-dashboard-card')] = card;
+          });
+          columns.forEach(function(column){
+            var key = column.getAttribute('data-dashboard-column') || '';
+            var ids = Array.isArray(layout[key]) ? layout[key] : [];
+            ids.forEach(function(id){
+              if (byId[id]) column.appendChild(byId[id]);
+            });
+          });
+          columns[0] && cards.forEach(function(card){
+            if (!board.contains(card)) columns[0].appendChild(card);
+          });
+        }
+
+        function getAfterElement(container, y){
+          var siblings = Array.prototype.slice.call(container.querySelectorAll('[data-dashboard-card]:not(.dragging)'));
+          var closest = null;
+          var closestOffset = Number.NEGATIVE_INFINITY;
+          siblings.forEach(function(child){
+            var rect = child.getBoundingClientRect();
+            var offset = y - rect.top - (rect.height / 2);
+            if (offset < 0 && offset > closestOffset) {
+              closestOffset = offset;
+              closest = child;
+            }
+          });
+          return closest;
+        }
+
+        try {
+          applyLayout(JSON.parse(localStorage.getItem(storageKey) || 'null'));
+        } catch (_) {}
+
+        cards.forEach(function(card){
+          card.addEventListener('dragstart', function(){
+            dragging = card;
+            card.classList.add('dragging');
+          });
+          card.addEventListener('dragend', function(){
+            card.classList.remove('dragging');
+            columns.forEach(function(column){ column.classList.remove('dashboard-drop-target'); });
+            dragging = null;
+            saveLayout();
+          });
+        });
+
+        columns.forEach(function(column){
+          column.addEventListener('dragenter', function(){
+            if (!dragging) return;
+            column.classList.add('dashboard-drop-target');
+          });
+          column.addEventListener('dragover', function(e){
+            if (!dragging) return;
+            e.preventDefault();
+            var after = getAfterElement(column, e.clientY);
+            if (after) column.insertBefore(dragging, after);
+            else column.appendChild(dragging);
+          });
+          column.addEventListener('drop', function(e){
+            if (!dragging) return;
+            e.preventDefault();
+            column.classList.remove('dashboard-drop-target');
+            saveLayout();
+          });
+          column.addEventListener('dragleave', function(e){
+            if (!column.contains(e.relatedTarget)) {
+              column.classList.remove('dashboard-drop-target');
+            }
           });
         });
       })();
