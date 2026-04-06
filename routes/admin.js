@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.41");
+const appVersion = String(process.env.APP_VERSION || "v0.0.42");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.41");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Main events analytics section set closer to 500px tall" });
     releaseLogItems.push({ date: "2026-04-06", text: "Main events analytics chart height reduced further" });
     releaseLogItems.push({ date: "2026-04-06", text: "Main events analytics chart height reduced" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics tooltip now labels the highlighted time period" });
@@ -3831,6 +3832,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.41");
 
       .grid2 > .card:last-child .sectionTitle{ margin-bottom:12px; }
       .grid2 > .card:last-child .mini + .mini{ margin-top:var(--gap); }
+      .analytics-main-grid{
+        align-items:start;
+      }
+      .analytics-main-grid > .card{
+        height:auto;
+      }
+      .analytics-main-grid > .card:first-child{
+        min-height:500px;
+      }
 
       .grid4{
         display:grid;
@@ -5464,7 +5474,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.41");
 
         <!-- Charts -->
         ${showAnalytics ? `
-        <section class="grid2">
+        <section class="grid2 analytics-main-grid">
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
