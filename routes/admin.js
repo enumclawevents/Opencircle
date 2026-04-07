@@ -2340,7 +2340,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.76");
+const appVersion = String(process.env.APP_VERSION || "v0.0.77");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2354,6 +2354,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Added an organizer analytics tab with top organizer performance and individual organizer insights" });
     releaseLogItems.push({ date: "2026-04-07", text: "Increased the events chart card height again to line up with top organizers" });
     releaseLogItems.push({ date: "2026-04-07", text: "Moved the chart range text inline with the legend and restored the chart card height to match organizers" });
     releaseLogItems.push({ date: "2026-04-07", text: "Fixed total events overcounting by using real recurrence end dates instead of a 10-year fallback" });
@@ -3027,6 +3028,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
 
     const showDashboard = view === "dashboard";
     const showAnalytics = view === "events-analytics" || view === "analytics";
+    const showOrganizers = view === "events-organizers";
     const showCreate = view === "create";
     const showApprove = view === "approve";
     const showUpload = view === "upload-events";
@@ -3052,6 +3054,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
     if (showApprove && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     if (showCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showUpload && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
+    if (showOrganizers && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     if (showVenueCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showVenueExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showVenueAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
@@ -3741,6 +3744,216 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
       },
     });
 
+    // Organizer analytics
+    let organizerLeaderboard = [];
+    let organizerAnalyticsOptions = [];
+    let selectedOrganizer = "";
+    let organizerSummary = {
+      uniqueEvents: 0,
+      totalOccurrences: 0,
+      upcomingOccurrences: 0,
+      views: 0,
+      featured: 0,
+      allViews: 0,
+      directViews: 0,
+      referralViews: 0,
+      internalViews: 0,
+    };
+    let organizerChartDataJson = JSON.stringify({
+      events: { labels: [], values: [] },
+      views: { labels: [], values: [] },
+    });
+    let organizerLeaderboardHtml = `<tr><td colspan="6" class="muted">No organizers found.</td></tr>`;
+    let organizerTopEventsHtml = `<div class="muted">No organizer events yet.</div>`;
+
+    if (showOrganizers) {
+      const organizerWhereParts = [];
+      const organizerWhereParams = [];
+      if (selectedCity) {
+        organizerWhereParts.push("city = ?");
+        organizerWhereParams.push(selectedCity);
+      }
+      if (hasArchiveCols2) {
+        organizerWhereParts.push("(isArchived IS NULL OR isArchived = 0)");
+      }
+      const organizerWhereSql = organizerWhereParts.length ? `WHERE ${organizerWhereParts.join(" AND ")}` : "";
+      let organizerEventRows = await all(
+        `SELECT id, title, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates,
+                recurrenceStartDate, recurrenceUntilDate, featured, viewCount
+         FROM events
+         ${organizerWhereSql}
+         ORDER BY datetime(startDateTime) ASC`,
+        organizerWhereParams
+      );
+      organizerEventRows = (organizerEventRows || []).map((row) => normalizeRowTimes(row));
+
+      const organizerMap = new Map();
+      const nowMs = Date.now();
+      const upcomingEndMs = nowMs + 90 * 86400 * 1000;
+      const monthStartMs = new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1, 0, 0, 0, 0).getTime();
+      const monthEndMs = endOfCurrentMonthUtcMs();
+
+      for (const row of organizerEventRows) {
+        const organizerName = String(row?.organizer || "").trim() || "(unknown)";
+        let entry = organizerMap.get(organizerName);
+        if (!entry) {
+          entry = {
+            organizer: organizerName,
+            uniqueEvents: 0,
+            totalOccurrences: 0,
+            upcomingOccurrences: 0,
+            views: 0,
+            featured: 0,
+            monthlyEvents: new Map(),
+            rows: [],
+          };
+          organizerMap.set(organizerName, entry);
+        }
+
+        entry.uniqueEvents += 1;
+        entry.views += Number(row?.viewCount || 0);
+        entry.featured += Number(row?.featured || 0) === 1 ? 1 : 0;
+        entry.rows.push(row);
+
+        const isRecurring = hasRecurringData(row);
+        if (!isRecurring) {
+          const startUtc = Date.parse(String(row?.startDateTime || ""));
+          if (Number.isFinite(startUtc)) {
+            entry.totalOccurrences += 1;
+            if (startUtc >= nowMs) entry.upcomingOccurrences += 1;
+            if (startUtc >= monthStartMs && startUtc <= monthEndMs) {
+              const parts = parseIsoParts(row?.startDateTime || "");
+              if (parts) {
+                const ym = `${parts.year}-${pad2(parts.month)}`;
+                entry.monthlyEvents.set(ym, Number(entry.monthlyEvents.get(ym) || 0) + 1);
+              }
+            }
+          }
+          continue;
+        }
+
+        const startUtc = Date.parse(String(row?.startDateTime || ""));
+        const totalWindowEndMs = getRecurringSeriesEndUtcMs(row, monthEndMs);
+        const totalOccurrences = generateAdminOccurrences(
+          row,
+          Number.isFinite(startUtc) ? startUtc : monthStartMs,
+          totalWindowEndMs
+        );
+        entry.totalOccurrences += totalOccurrences.length || 1;
+
+        const upcomingOccurrences = generateAdminOccurrences(row, nowMs - 5 * 60 * 1000, upcomingEndMs);
+        entry.upcomingOccurrences += upcomingOccurrences.length;
+
+        const monthlyOccurrences = generateAdminOccurrences(row, monthStartMs, monthEndMs);
+        for (const occ of monthlyOccurrences) {
+          const parts = occ.parts || parseIsoParts(occ.startDateTime || "");
+          if (!parts) continue;
+          const ym = `${parts.year}-${pad2(parts.month)}`;
+          entry.monthlyEvents.set(ym, Number(entry.monthlyEvents.get(ym) || 0) + 1);
+        }
+      }
+
+      organizerLeaderboard = [...organizerMap.values()].sort((a, b) =>
+        Number(b.views || 0) - Number(a.views || 0) ||
+        Number(b.totalOccurrences || 0) - Number(a.totalOccurrences || 0) ||
+        String(a.organizer || "").localeCompare(String(b.organizer || ""))
+      );
+      organizerAnalyticsOptions = organizerLeaderboard.map((row) => row.organizer);
+      const requestedOrganizer = String(req.query.organizer || "").trim();
+      selectedOrganizer = organizerAnalyticsOptions.find((name) => name === requestedOrganizer) || organizerAnalyticsOptions[0] || "";
+
+      organizerLeaderboardHtml = organizerLeaderboard.slice(0, 10).map((row, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${esc(row.organizer)}</td>
+          <td>${Number(row.uniqueEvents || 0).toLocaleString("en-US")}</td>
+          <td>${Number(row.totalOccurrences || 0).toLocaleString("en-US")}</td>
+          <td>${Number(row.upcomingOccurrences || 0).toLocaleString("en-US")}</td>
+          <td>${Number(row.views || 0).toLocaleString("en-US")}</td>
+        </tr>
+      `).join("") || organizerLeaderboardHtml;
+
+      const selectedOrganizerEntry = organizerLeaderboard.find((row) => row.organizer === selectedOrganizer) || null;
+      if (selectedOrganizerEntry) {
+        organizerSummary = {
+          uniqueEvents: Number(selectedOrganizerEntry.uniqueEvents || 0),
+          totalOccurrences: Number(selectedOrganizerEntry.totalOccurrences || 0),
+          upcomingOccurrences: Number(selectedOrganizerEntry.upcomingOccurrences || 0),
+          views: Number(selectedOrganizerEntry.views || 0),
+          featured: Number(selectedOrganizerEntry.featured || 0),
+          allViews: 0,
+          directViews: 0,
+          referralViews: 0,
+          internalViews: 0,
+        };
+
+        if (hasSourceTrackingTable) {
+          try {
+            const sourceRow = await get(
+              `SELECT
+                 COUNT(*) AS tracked,
+                 COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:direct%' OR COALESCE(ev.ref,'') = '__direct__' OR trim(COALESCE(ev.ref,'')) = '' THEN 1 ELSE 0 END), 0) AS directCount,
+                 COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:referral%' THEN 1 ELSE 0 END), 0) AS referralCount,
+                 COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount
+               FROM event_views ev
+               JOIN events e ON e.id = ev.eventId
+               WHERE COALESCE(NULLIF(TRIM(e.organizer), ''), '(unknown)') = ?
+               ${selectedCity ? "AND e.city = ?" : ""}
+               ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}`,
+              selectedCity ? [selectedOrganizer, selectedCity] : [selectedOrganizer]
+            );
+            organizerSummary.allViews = Number(sourceRow?.tracked || 0);
+            organizerSummary.directViews = Number(sourceRow?.directCount || 0);
+            organizerSummary.referralViews = Number(sourceRow?.referralCount || 0);
+            organizerSummary.internalViews = Number(sourceRow?.internalCount || 0);
+          } catch (_) {}
+        }
+
+        organizerTopEventsHtml = [...selectedOrganizerEntry.rows]
+          .sort((a, b) => Number(b.viewCount || 0) - Number(a.viewCount || 0) || Number(b.id || 0) - Number(a.id || 0))
+          .slice(0, 5)
+          .map((row) => `
+            <div class="kv">
+              <div class="k">${esc(String(row.title || "Untitled event"))}</div>
+              <div class="v">${Number(row.viewCount || 0).toLocaleString("en-US")}</div>
+            </div>
+          `)
+          .join("") || organizerTopEventsHtml;
+
+        const monthlyViewRows = hasSourceTrackingTable
+          ? await all(
+              `SELECT strftime('%Y-%m', ev.viewedAt) AS ym, COUNT(*) AS n
+               FROM event_views ev
+               JOIN events e ON e.id = ev.eventId
+               WHERE COALESCE(NULLIF(TRIM(e.organizer), ''), '(unknown)') = ?
+               ${selectedCity ? "AND e.city = ?" : ""}
+               ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}
+               AND date(ev.viewedAt) >= date('now', 'start of month', '-11 month')
+               GROUP BY ym
+               ORDER BY ym ASC`,
+              selectedCity ? [selectedOrganizer, selectedCity] : [selectedOrganizer]
+            )
+          : [];
+        const monthlyViewMap = new Map((monthlyViewRows || []).map((row) => [String(row.ym || ""), Number(row.n || 0)]));
+        const monthCursor = new Date();
+        monthCursor.setDate(1);
+        const labels = [];
+        const eventValues = [];
+        const viewValues = [];
+        for (let i = 11; i >= 0; i--) {
+          const dt = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - i, 1);
+          const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+          labels.push(dt.toLocaleString("en-US", { month: "short", year: "numeric" }));
+          eventValues.push(Number(selectedOrganizerEntry.monthlyEvents.get(ym) || 0));
+          viewValues.push(Number(monthlyViewMap.get(ym) || 0));
+        }
+        organizerChartDataJson = JSON.stringify({
+          events: { labels, values: eventValues },
+          views: { labels, values: viewValues },
+        });
+      }
+    }
+
     const pageTitleBase = showCreate
       ? "Create Events"
       : showUpload
@@ -3749,6 +3962,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
       ? "Approve Events"
       : showExisting
       ? "All Events"
+      : showOrganizers
+      ? "Organizer Analytics"
       : showVenueCreate
       ? "Create Venue"
       : showVenueExisting
@@ -3778,7 +3993,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
       : showInvites
       ? "Invites"
       : "Dashboard";
-    const eventsMenuOpen = showExisting || showCreate || showApprove || showUpload || showAnalytics;
+    const eventsMenuOpen = showExisting || showCreate || showApprove || showUpload || showAnalytics || showOrganizers;
     const venuesMenuOpen = showVenueExisting || showVenueCreate || showVenueAnalytics;
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants || showJobsAnalytics;
     const adsMenuOpen = showAdsExisting || showAdsCreate || showAdsAnalytics;
@@ -4727,6 +4942,32 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
       .mini-list .kv{
         margin: 14px 0;
         padding: 4px 0;
+      }
+      .analytics-table{
+        width:100%;
+        border-collapse:collapse;
+      }
+      .analytics-table th,
+      .analytics-table td{
+        padding:10px 8px;
+        border-bottom:1px solid var(--line);
+        text-align:left;
+        font-size:13px;
+      }
+      .analytics-table th{
+        color:var(--muted);
+        font-weight:700;
+      }
+      .analytics-table td:last-child,
+      .analytics-table th:last-child{
+        text-align:right;
+      }
+      .analytics-table td:nth-child(n+3),
+      .analytics-table th:nth-child(n+3){
+        text-align:right;
+      }
+      .analytics-table tbody tr:last-child td{
+        border-bottom:0;
       }
       .grid4 > .card .mini-spaced{
         height: 100%;
@@ -5706,6 +5947,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
               </a>` : ``}
               ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showUpload ? "active" : ""}" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
               ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
+              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
             </div>
           </div>
           <div class="sb-divider"></div>
@@ -5779,6 +6021,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
                 ? "All Events"
                 : showAnalytics
                 ? "Events Analytics"
+                : showOrganizers
+                ? "Organizers"
                 : showVenueCreate
                 ? "Create Venue"
                 : showVenueExisting
@@ -5818,6 +6062,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
                 ? "Edit, delete, and check stats"
                 : showAnalytics
                 ? "Event metrics, charts, and top performers"
+                : showOrganizers
+                ? "Organizer leaderboards and performance insights"
                 : showVenueCreate
                 ? "Create a venue record for this city"
                 : showVenueExisting
@@ -6176,6 +6422,118 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
             <div class="mini mini-list">
               ${topOrganizersHtml}
             </div>
+          </div>
+        </section>
+        ` : ``}
+
+        ${showOrganizers ? `
+        <section class="metrics" id="organizer-analytics-metrics">
+          <div class="metric"><div><div class="k">Organizers</div><div class="v">${organizerAnalyticsOptions.length.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">Unique events</div><div class="v">${organizerSummary.uniqueEvents.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">Total events</div><div class="v">${organizerSummary.totalOccurrences.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">Upcoming</div><div class="v">${organizerSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">Views</div><div class="v">${organizerSummary.views.toLocaleString("en-US")}</div></div></div>
+        </section>
+
+        <section class="grid2 analytics-main-grid">
+          <div class="card">
+            <div class="sectionTitle sectionTitle--chart">
+              <div class="left">
+                <div class="chartTopRow">
+                  <div class="metricToggle" id="organizerChartMetricSeg" aria-label="Organizer metric toggle">
+                    <button type="button" data-metric="events" class="on">Events</button>
+                    <button type="button" data-metric="views">Views</button>
+                  </div>
+                  <div class="chartLegend" id="organizerChartLegend" aria-label="Organizer chart legend">
+                    <div class="chartLegendItem is-events" data-legend-metric="events">
+                      <span class="chartLegendLine"></span>
+                      <span>Events</span>
+                    </div>
+                    <div class="chartLegendItem is-views" data-legend-metric="views">
+                      <span class="chartLegendLine is-dashed"></span>
+                      <span>Views</span>
+                    </div>
+                  </div>
+                  <p class="sub" id="organizerChartRangeLabel">Last 12 months</p>
+                </div>
+                <div class="chartTitle" style="font-weight:700;">${esc(selectedOrganizer || "Organizer")} performance</div>
+              </div>
+            </div>
+            <div class="chart-wrap" id="organizerChartWrap" style="min-height:220px;">
+              <div id="organizerChartData" data-chart="${esc(organizerChartDataJson)}" hidden></div>
+              <canvas id="organizerChart" style="width:100%; height:260px; display:block;"></canvas>
+              <div id="organizerChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Organizer insights</h2>
+                <p class="sub">Review one organizer at a time</p>
+              </div>
+            </div>
+            ${organizerAnalyticsOptions.length ? `
+            <form method="GET" action="/admin/events-organizers" style="display:grid; gap:12px;">
+              ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
+              <div class="field">
+                <label>Organizer</label>
+                <select name="organizer" class="ctrl" onchange="this.form.submit()">
+                  ${organizerAnalyticsOptions.map((name) => `<option value="${esc(name)}" ${name === selectedOrganizer ? "selected" : ""}>${esc(name)}</option>`).join("")}
+                </select>
+              </div>
+            </form>
+            <div class="mini" style="margin-top:14px;">
+              <div class="kv"><div class="k">Unique events</div><div class="v">${organizerSummary.uniqueEvents.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Total events</div><div class="v">${organizerSummary.totalOccurrences.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Upcoming</div><div class="v">${organizerSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Featured</div><div class="v">${organizerSummary.featured.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">All views</div><div class="v">${organizerSummary.allViews.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Direct views</div><div class="v">${organizerSummary.directViews.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Referral views</div><div class="v">${organizerSummary.referralViews.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Internal views</div><div class="v">${organizerSummary.internalViews.toLocaleString("en-US")}</div></div>
+            </div>
+            ` : `
+            <div class="mini">
+              No organizers found for the current city yet.
+            </div>
+            `}
+          </div>
+        </section>
+
+        <section class="grid2 analytics-main-grid">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Top 10 organizers</h2>
+                <p class="sub">Performance ranked by views</p>
+              </div>
+            </div>
+            <div class="mini">
+              <table class="analytics-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Organizer</th>
+                    <th>Unique</th>
+                    <th>Total</th>
+                    <th>Upcoming</th>
+                    <th>Views</th>
+                  </tr>
+                </thead>
+                <tbody>${organizerLeaderboardHtml}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Top events for ${esc(selectedOrganizer || "this organizer")}</h2>
+                <p class="sub">Top 5 by lifetime views</p>
+              </div>
+            </div>
+            <div class="mini mini-list">${organizerTopEventsHtml}</div>
           </div>
         </section>
         ` : ``}
@@ -8956,6 +9314,265 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
   window.addEventListener("resize", () => window.requestAnimationFrame(draw));
 }
 
+  function initOrganizerChart(){
+    const $data = document.getElementById("organizerChartData");
+    const $canvas = document.getElementById("organizerChart");
+    const $wrap = document.getElementById("organizerChartWrap");
+    const $tip = document.getElementById("organizerChartTip");
+    const $metricSeg = document.getElementById("organizerChartMetricSeg");
+    const $legend = document.getElementById("organizerChartLegend");
+    if (!$canvas || !$wrap || !$metricSeg) return;
+
+    const ctx = $canvas.getContext("2d");
+    if (!ctx) return;
+
+    let chartSets = {
+      events: { labels: [], values: [] },
+      views: { labels: [], values: [] },
+    };
+    try {
+      if ($data) {
+        const parsed = JSON.parse($data.getAttribute("data-chart") || "{}");
+        if (parsed && typeof parsed === "object") {
+          chartSets = {
+            events: {
+              labels: Array.isArray(parsed.events?.labels) ? parsed.events.labels : [],
+              values: Array.isArray(parsed.events?.values) ? parsed.events.values : [],
+            },
+            views: {
+              labels: Array.isArray(parsed.views?.labels) ? parsed.views.labels : [],
+              values: Array.isArray(parsed.views?.values) ? parsed.views.values : [],
+            },
+          };
+        }
+      }
+    } catch (_) {}
+
+    let metric = "events";
+    let hoverIndex = -1;
+
+    function getSet(){ return chartSets[metric] || { labels: [], values: [] }; }
+    function getSecondaryMetric(){ return metric === "events" ? "views" : "events"; }
+    function setActiveBtn(){
+      $metricSeg.querySelectorAll("[data-metric]").forEach((btn) => {
+        const on = btn.getAttribute("data-metric") === metric;
+        btn.classList.toggle("on", on);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+    }
+    function syncLegend(){
+      if (!$legend) return;
+      $legend.querySelectorAll("[data-legend-metric]").forEach((item) => {
+        const itemMetric = item.getAttribute("data-legend-metric") || "";
+        const line = item.querySelector(".chartLegendLine");
+        if (!line) return;
+        line.classList.toggle("is-dashed", itemMetric !== metric);
+      });
+    }
+    function sizeCanvas(){
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      let w = $wrap.clientWidth || Math.floor($wrap.getBoundingClientRect().width || 0);
+      w = Math.max(320, w || 320);
+      let h = $wrap.clientHeight || Math.floor($wrap.getBoundingClientRect().height || 0);
+      h = Math.max(260, h || 320);
+      $canvas.style.width = w + "px";
+      $canvas.style.height = h + "px";
+      $canvas.width = Math.floor(w * dpr);
+      $canvas.height = Math.floor(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { w, h };
+    }
+    function draw(){
+      const primarySet = getSet();
+      const secondarySet = chartSets[getSecondaryMetric()] || { labels: [], values: [] };
+      const labels = primarySet.labels || [];
+      const primaryValues = primarySet.values || [];
+      const secondaryValues = secondarySet.values || [];
+      const combinedValues = [...primaryValues, ...secondaryValues];
+      const { w, h } = sizeCanvas();
+      ctx.clearRect(0, 0, w, h);
+      if (!labels.length || !combinedValues.length) {
+        ctx.fillStyle = "rgba(15,23,42,.75)";
+        ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+        ctx.fillText("No organizer history yet", 18, 90);
+        return;
+      }
+      const frame = getChartFrame(w, h);
+      const scale = getYScale(combinedValues);
+      const primaryPoints = labels.map((label, index) => ({
+        x: frame.padL + (labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1)) * index),
+        y: clamp(frame.padT + frame.gh - ((Number(primaryValues[index] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
+        value: Number(primaryValues[index] || 0),
+        index,
+        chartMinY: frame.padT,
+        chartMaxY: frame.padT + frame.gh,
+      }));
+      const secondaryPoints = labels.length === secondaryValues.length ? labels.map((label, index) => ({
+        x: frame.padL + (labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1)) * index),
+        y: clamp(frame.padT + frame.gh - ((Number(secondaryValues[index] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
+        value: Number(secondaryValues[index] || 0),
+        index,
+        chartMinY: frame.padT,
+        chartMaxY: frame.padT + frame.gh,
+      })) : [];
+
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(15,23,42,.08)";
+      ctx.fillStyle = "rgba(71,85,105,.9)";
+      ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+      for (let i = 0; i <= scale.yTicks; i++) {
+        const v = i * scale.tickStep;
+        const y = frame.padT + frame.gh - (v / scale.yMax) * frame.gh;
+        ctx.beginPath();
+        ctx.moveTo(frame.padL, y);
+        ctx.lineTo(frame.padL + frame.gw, y);
+        ctx.stroke();
+        ctx.fillText(String(v), 18, y + 4);
+      }
+      if (primaryPoints.length > 1) {
+        const labelStep = primaryPoints.length <= 4 ? 1 : Math.ceil(primaryPoints.length / 4);
+        labels.forEach((label, index) => {
+          if (index !== primaryPoints.length - 1 && index % labelStep !== 0) return;
+          const point = primaryPoints[index];
+          ctx.textAlign = index === primaryPoints.length - 1 ? "right" : (index === 0 ? "left" : "center");
+          ctx.fillStyle = "rgba(71,85,105,.95)";
+          ctx.fillText(String(label || ""), point.x, frame.padT + frame.gh + 30);
+        });
+      }
+
+      const eventColor = "rgba(16,185,129,.82)";
+      const viewColor = "rgba(37,99,235,.72)";
+      const primaryColor = metric === "events" ? eventColor : viewColor;
+      const secondaryColor = metric === "events" ? viewColor : eventColor;
+
+      if (primaryPoints.length) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(primaryPoints[0].x, frame.padT + frame.gh);
+        ctx.lineTo(primaryPoints[0].x, primaryPoints[0].y);
+        for (let i = 0; i < primaryPoints.length - 1; i++) {
+          const p0 = primaryPoints[i - 1] || primaryPoints[i];
+          const p1 = primaryPoints[i];
+          const p2 = primaryPoints[i + 1];
+          const p3 = primaryPoints[i + 2] || p2;
+          const cp1x = p1.x + (p2.x - p0.x) / 6;
+          const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, frame.padT, frame.padT + frame.gh);
+          const cp2x = p2.x - (p3.x - p1.x) / 6;
+          const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, frame.padT, frame.padT + frame.gh);
+          ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+        }
+        const last = primaryPoints[primaryPoints.length - 1];
+        ctx.lineTo(last.x, frame.padT + frame.gh);
+        ctx.closePath();
+        ctx.fillStyle = metric === "events" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)";
+        ctx.fill();
+        ctx.restore();
+      }
+      if (secondaryPoints.length) {
+        ctx.save();
+        ctx.strokeStyle = secondaryColor;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 6]);
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        drawSmoothLine(ctx, secondaryPoints);
+        ctx.restore();
+      }
+      ctx.save();
+      ctx.strokeStyle = primaryColor;
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      drawSmoothLine(ctx, primaryPoints);
+      ctx.restore();
+
+      if (Number.isInteger(hoverIndex) && hoverIndex >= 0) {
+        const hoverPrimary = primaryPoints[hoverIndex];
+        const hoverSecondary = secondaryPoints[hoverIndex];
+        if (hoverSecondary) {
+          ctx.beginPath();
+          ctx.arc(hoverSecondary.x, hoverSecondary.y, 6, 0, Math.PI * 2);
+          ctx.fillStyle = "#ffffff";
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = secondaryColor;
+          ctx.stroke();
+        }
+        if (hoverPrimary) {
+          ctx.beginPath();
+          ctx.arc(hoverPrimary.x, hoverPrimary.y, 7, 0, Math.PI * 2);
+          ctx.fillStyle = primaryColor;
+          ctx.fill();
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = "rgba(37,99,235,.25)";
+          ctx.stroke();
+        }
+      }
+    }
+    function getPointIndexFromEvent(ev){
+      const set = getSet();
+      const values = set.values || [];
+      if (!values.length) return -1;
+      const rect = $canvas.getBoundingClientRect();
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      const frame = getChartFrame(rect.width, rect.height);
+      const points = getLinePoints(frame, values);
+      return getNearestPointIndex(points, mx, my, frame);
+    }
+    function showTip(ev, idx){
+      if (!$tip) return;
+      const eventSet = chartSets.events || { labels: [], values: [] };
+      const viewSet = chartSets.views || { labels: [], values: [] };
+      const labels = eventSet.labels || viewSet.labels || [];
+      const eventValue = Number((eventSet.values || [])[idx] || 0);
+      const viewValue = Number((viewSet.values || [])[idx] || 0);
+      $tip.innerHTML =
+        '<div style="font-weight:700; margin-bottom:4px;">Month: ' + String(labels[idx] || "") + '</div>' +
+        '<div><span style="color:rgba(16,185,129,.9); font-weight:700;">Events:</span> ' + eventValue.toLocaleString("en-US") + '</div>' +
+        '<div><span style="color:rgba(37,99,235,.85); font-weight:700;">Views:</span> ' + viewValue.toLocaleString("en-US") + '</div>';
+      $tip.style.display = "block";
+      const rect = $canvas.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+      const tipRect = $tip.getBoundingClientRect();
+      const left = Math.min(rect.width - tipRect.width - 10, x + 12);
+      const top = Math.max(10, y - 32);
+      $tip.style.left = left + "px";
+      $tip.style.top = top + "px";
+    }
+    function hideTip(){ if ($tip) $tip.style.display = "none"; }
+
+    $metricSeg.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-metric]");
+      if (!btn) return;
+      metric = btn.getAttribute("data-metric") || "events";
+      hoverIndex = -1;
+      hideTip();
+      setActiveBtn();
+      syncLegend();
+      draw();
+    });
+    $canvas.addEventListener("mousemove", (e) => {
+      const idx = getPointIndexFromEvent(e);
+      if (idx !== hoverIndex) {
+        hoverIndex = idx;
+        draw();
+      }
+      if (idx >= 0) showTip(e, idx); else hideTip();
+    });
+    $canvas.addEventListener("mouseleave", () => {
+      hoverIndex = -1;
+      hideTip();
+      draw();
+    });
+
+    setActiveBtn();
+    syncLegend();
+    draw();
+    window.addEventListener("resize", () => window.requestAnimationFrame(draw));
+  }
+
   function initVenueChart(){
     const $data = document.getElementById("venueChartData");
     const $canvas = document.getElementById("venueChart");
@@ -9531,6 +10148,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
   }
 
   initEventsChart();
+  initOrganizerChart();
   initVenueChart();
   initAdChart();
 })();</script>
@@ -9544,6 +10162,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.76");
 
 router.get("/", async (req, res) => renderAdmin(req, res, "dashboard"));
 router.get("/events-analytics", async (req, res) => renderAdmin(req, res, "events-analytics"));
+router.get("/events-organizers", async (req, res) => renderAdmin(req, res, "events-organizers"));
 router.get("/create-events", async (req, res) => renderAdmin(req, res, "create"));
 router.get("/approve-events", async (req, res) => renderAdmin(req, res, "approve"));
 router.get("/upload-events", async (req, res) => renderAdmin(req, res, "upload-events"));
