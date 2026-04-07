@@ -2340,7 +2340,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.77");
+const appVersion = String(process.env.APP_VERSION || "v0.0.79");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2354,7 +2354,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
-    releaseLogItems.push({ date: "2026-04-07", text: "Added an organizer analytics tab with top organizer performance and individual organizer insights" });
+    releaseLogItems.push({ date: "2026-04-07", text: "Header search now uses Enter to submit and has more spacing before the account name" });
+    releaseLogItems.push({ date: "2026-04-07", text: "Organizer analytics now defaults to overall performance with linked organizer drill-down insights" });
     releaseLogItems.push({ date: "2026-04-07", text: "Increased the events chart card height again to line up with top organizers" });
     releaseLogItems.push({ date: "2026-04-07", text: "Moved the chart range text inline with the legend and restored the chart card height to match organizers" });
     releaseLogItems.push({ date: "2026-04-07", text: "Fixed total events overcounting by using real recurrence end dates instead of a 10-year fallback" });
@@ -2765,7 +2766,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
 
     const topOrganizersHtml = orgRows
       .map((r) => {
-        const label = esc(r.organizer);
+        const organizerHref = `/admin/events-organizers?organizer=${encodeURIComponent(String(r.organizer || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+        const label = `<a href="${esc(organizerHref)}">${esc(r.organizer)}</a>`;
         const count = Number(r.c || 0);
         return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
       })
@@ -3748,6 +3750,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
     let organizerLeaderboard = [];
     let organizerAnalyticsOptions = [];
     let selectedOrganizer = "";
+    let organizerPageSummary = {
+      uniqueEvents: 0,
+      totalOccurrences: 0,
+      upcomingOccurrences: 0,
+      views: 0,
+      featured: 0,
+      allViews: 0,
+      directViews: 0,
+      referralViews: 0,
+      internalViews: 0,
+    };
     let organizerSummary = {
       uniqueEvents: 0,
       totalOccurrences: 0,
@@ -3763,6 +3776,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
       events: { labels: [], values: [] },
       views: { labels: [], values: [] },
     });
+    let organizerChartTitle = "All organizers performance";
+    let organizerInsightsHeading = "Organizer overview";
+    let organizerInsightsSub = "Click an organizer name to drill into one organizer";
+    let organizerTopEventsTitle = "Top events across organizers";
+    let organizerSelectionHtml = `<div class="mini">Click any organizer name below to view detailed insights.</div>`;
     let organizerLeaderboardHtml = `<tr><td colspan="6" class="muted">No organizers found.</td></tr>`;
     let organizerTopEventsHtml = `<div class="muted">No organizer events yet.</div>`;
 
@@ -3786,6 +3804,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
         organizerWhereParams
       );
       organizerEventRows = (organizerEventRows || []).map((row) => normalizeRowTimes(row));
+      const buildOrganizerInsightsHref = (name) =>
+        `/admin/events-organizers?organizer=${encodeURIComponent(String(name || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
 
       const organizerMap = new Map();
       const nowMs = Date.now();
@@ -3860,12 +3880,53 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
       );
       organizerAnalyticsOptions = organizerLeaderboard.map((row) => row.organizer);
       const requestedOrganizer = String(req.query.organizer || "").trim();
-      selectedOrganizer = organizerAnalyticsOptions.find((name) => name === requestedOrganizer) || organizerAnalyticsOptions[0] || "";
+      selectedOrganizer = organizerAnalyticsOptions.find((name) => name === requestedOrganizer) || "";
+
+      organizerPageSummary = organizerLeaderboard.reduce((acc, row) => {
+        acc.uniqueEvents += Number(row.uniqueEvents || 0);
+        acc.totalOccurrences += Number(row.totalOccurrences || 0);
+        acc.upcomingOccurrences += Number(row.upcomingOccurrences || 0);
+        acc.views += Number(row.views || 0);
+        acc.featured += Number(row.featured || 0);
+        return acc;
+      }, {
+        uniqueEvents: 0,
+        totalOccurrences: 0,
+        upcomingOccurrences: 0,
+        views: 0,
+        featured: 0,
+        allViews: 0,
+        directViews: 0,
+        referralViews: 0,
+        internalViews: 0,
+      });
+
+      if (hasSourceTrackingTable) {
+        try {
+          const overallSourceRow = await get(
+            `SELECT
+               COUNT(*) AS tracked,
+               COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:direct%' OR COALESCE(ev.ref,'') = '__direct__' OR trim(COALESCE(ev.ref,'')) = '' THEN 1 ELSE 0 END), 0) AS directCount,
+               COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:referral%' THEN 1 ELSE 0 END), 0) AS referralCount,
+               COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount
+             FROM event_views ev
+             JOIN events e ON e.id = ev.eventId
+             WHERE 1=1
+             ${selectedCity ? "AND e.city = ?" : ""}
+             ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}`,
+            selectedCity ? [selectedCity] : []
+          );
+          organizerPageSummary.allViews = Number(overallSourceRow?.tracked || 0);
+          organizerPageSummary.directViews = Number(overallSourceRow?.directCount || 0);
+          organizerPageSummary.referralViews = Number(overallSourceRow?.referralCount || 0);
+          organizerPageSummary.internalViews = Number(overallSourceRow?.internalCount || 0);
+        } catch (_) {}
+      }
 
       organizerLeaderboardHtml = organizerLeaderboard.slice(0, 10).map((row, index) => `
         <tr>
           <td>${index + 1}</td>
-          <td>${esc(row.organizer)}</td>
+          <td><a href="${esc(buildOrganizerInsightsHref(row.organizer))}">${esc(row.organizer)}</a></td>
           <td>${Number(row.uniqueEvents || 0).toLocaleString("en-US")}</td>
           <td>${Number(row.totalOccurrences || 0).toLocaleString("en-US")}</td>
           <td>${Number(row.upcomingOccurrences || 0).toLocaleString("en-US")}</td>
@@ -3873,8 +3934,65 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
         </tr>
       `).join("") || organizerLeaderboardHtml;
 
+      organizerTopEventsHtml = [...organizerEventRows]
+        .sort((a, b) => Number(b.viewCount || 0) - Number(a.viewCount || 0) || Number(b.id || 0) - Number(a.id || 0))
+        .slice(0, 5)
+        .map((row) => `
+          <div class="kv">
+            <div class="k">${esc(String(row.title || "Untitled event"))}</div>
+            <div class="v">${Number(row.viewCount || 0).toLocaleString("en-US")}</div>
+          </div>
+        `)
+        .join("") || `<div class="muted">No organizer events yet.</div>`;
+
+      const overallMonthlyViewRows = hasSourceTrackingTable
+        ? await all(
+            `SELECT strftime('%Y-%m', ev.viewedAt) AS ym, COUNT(*) AS n
+             FROM event_views ev
+             JOIN events e ON e.id = ev.eventId
+             WHERE 1=1
+             ${selectedCity ? "AND e.city = ?" : ""}
+             ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}
+             AND date(ev.viewedAt) >= date('now', 'start of month', '-11 month')
+             GROUP BY ym
+             ORDER BY ym ASC`,
+            selectedCity ? [selectedCity] : []
+          )
+        : [];
+      const overallMonthlyViewMap = new Map((overallMonthlyViewRows || []).map((row) => [String(row.ym || ""), Number(row.n || 0)]));
+      const overallMonthlyEventMap = new Map();
+      for (const row of organizerLeaderboard) {
+        for (const [ym, count] of row.monthlyEvents.entries()) {
+          overallMonthlyEventMap.set(ym, Number(overallMonthlyEventMap.get(ym) || 0) + Number(count || 0));
+        }
+      }
+      {
+        const monthCursor = new Date();
+        monthCursor.setDate(1);
+        const labels = [];
+        const eventValues = [];
+        const viewValues = [];
+        for (let i = 11; i >= 0; i--) {
+          const dt = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - i, 1);
+          const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+          labels.push(dt.toLocaleString("en-US", { month: "short", year: "numeric" }));
+          eventValues.push(Number(overallMonthlyEventMap.get(ym) || 0));
+          viewValues.push(Number(overallMonthlyViewMap.get(ym) || 0));
+        }
+        organizerChartDataJson = JSON.stringify({
+          events: { labels, values: eventValues },
+          views: { labels, values: viewValues },
+        });
+      }
+
+      organizerSummary = { ...organizerPageSummary };
+
       const selectedOrganizerEntry = organizerLeaderboard.find((row) => row.organizer === selectedOrganizer) || null;
       if (selectedOrganizerEntry) {
+        organizerChartTitle = `${selectedOrganizer} performance`;
+        organizerInsightsHeading = selectedOrganizer;
+        organizerInsightsSub = `Detailed organizer insights`;
+        organizerTopEventsTitle = `Top events for ${selectedOrganizer}`;
         organizerSummary = {
           uniqueEvents: Number(selectedOrganizerEntry.uniqueEvents || 0),
           totalOccurrences: Number(selectedOrganizerEntry.totalOccurrences || 0),
@@ -3908,6 +4026,22 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
             organizerSummary.internalViews = Number(sourceRow?.internalCount || 0);
           } catch (_) {}
         }
+
+        organizerPageSummary = { ...organizerSummary };
+        organizerSelectionHtml = `
+          <div class="mini" style="margin-bottom:12px;">
+            <a class="btn" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Back to all organizers</a>
+          </div>
+          <form method="GET" action="/admin/events-organizers" style="display:grid; gap:12px;">
+            ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
+            <div class="field">
+              <label>Organizer</label>
+              <select name="organizer" class="ctrl" onchange="this.form.submit()">
+                ${organizerAnalyticsOptions.map((name) => `<option value="${esc(name)}" ${name === selectedOrganizer ? "selected" : ""}>${esc(name)}</option>`).join("")}
+              </select>
+            </div>
+          </form>
+        `;
 
         organizerTopEventsHtml = [...selectedOrganizerEntry.rows]
           .sort((a, b) => Number(b.viewCount || 0) - Number(a.viewCount || 0) || Number(b.id || 0) - Number(a.id || 0))
@@ -3951,6 +4085,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
           events: { labels, values: eventValues },
           views: { labels, values: viewValues },
         });
+      } else if (organizerAnalyticsOptions.length) {
+        organizerSelectionHtml = `
+          <div class="mini">
+            Click any organizer name in the table below to open detailed insights for that organizer.
+          </div>
+        `;
       }
     }
 
@@ -4462,7 +4602,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
       .header-tools{
         display:flex;
         align-items:center;
-        gap:10px;
+        gap:18px;
       }
       .header-icon-btn{
         position:relative;
@@ -4530,6 +4670,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
         width:100%;
         max-width:700px;
         position:relative;
+        margin-right:10px;
       }
       .search::before{
         content:"\f002";
@@ -6101,7 +6242,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
               <input type="hidden" name="limit" value="${esc(String(limit))}" />
               ${(showVenueExisting || showJobsExisting || showJobsApplicants || showAdsExisting) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
               ${(showVenueExisting || showJobsExisting || showJobsApplicants || showAdsExisting) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="${esc(String(1))}" />` : ``)}
-              <button class="btn btn-primary" type="submit">Search</button>
               ${q ? (showVenueExisting
                 ? `<a class="btn" href="/admin/venues?pg=1&limit=${esc(String(limit))}">Reset</a>`
                 : (showJobsExisting
@@ -6429,10 +6569,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
         ${showOrganizers ? `
         <section class="metrics" id="organizer-analytics-metrics">
           <div class="metric"><div><div class="k">Organizers</div><div class="v">${organizerAnalyticsOptions.length.toLocaleString("en-US")}</div></div></div>
-          <div class="metric"><div><div class="k">Unique events</div><div class="v">${organizerSummary.uniqueEvents.toLocaleString("en-US")}</div></div></div>
-          <div class="metric"><div><div class="k">Total events</div><div class="v">${organizerSummary.totalOccurrences.toLocaleString("en-US")}</div></div></div>
-          <div class="metric"><div><div class="k">Upcoming</div><div class="v">${organizerSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div></div>
-          <div class="metric"><div><div class="k">Views</div><div class="v">${organizerSummary.views.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">Unique events</div><div class="v">${organizerPageSummary.uniqueEvents.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">Total events</div><div class="v">${organizerPageSummary.totalOccurrences.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">Upcoming</div><div class="v">${organizerPageSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">Views</div><div class="v">${organizerPageSummary.views.toLocaleString("en-US")}</div></div></div>
         </section>
 
         <section class="grid2 analytics-main-grid">
@@ -6456,7 +6596,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
                   </div>
                   <p class="sub" id="organizerChartRangeLabel">Last 12 months</p>
                 </div>
-                <div class="chartTitle" style="font-weight:700;">${esc(selectedOrganizer || "Organizer")} performance</div>
+                <div class="chartTitle" style="font-weight:700;">${esc(organizerChartTitle)}</div>
               </div>
             </div>
             <div class="chart-wrap" id="organizerChartWrap" style="min-height:220px;">
@@ -6469,20 +6609,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
           <div class="card">
             <div class="sectionTitle">
               <div>
-                <h2>Organizer insights</h2>
-                <p class="sub">Review one organizer at a time</p>
+                <h2>${esc(organizerInsightsHeading)}</h2>
+                <p class="sub">${esc(organizerInsightsSub)}</p>
               </div>
             </div>
             ${organizerAnalyticsOptions.length ? `
-            <form method="GET" action="/admin/events-organizers" style="display:grid; gap:12px;">
-              ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
-              <div class="field">
-                <label>Organizer</label>
-                <select name="organizer" class="ctrl" onchange="this.form.submit()">
-                  ${organizerAnalyticsOptions.map((name) => `<option value="${esc(name)}" ${name === selectedOrganizer ? "selected" : ""}>${esc(name)}</option>`).join("")}
-                </select>
-              </div>
-            </form>
+            ${organizerSelectionHtml}
             <div class="mini" style="margin-top:14px;">
               <div class="kv"><div class="k">Unique events</div><div class="v">${organizerSummary.uniqueEvents.toLocaleString("en-US")}</div></div>
               <div class="kv"><div class="k">Total events</div><div class="v">${organizerSummary.totalOccurrences.toLocaleString("en-US")}</div></div>
@@ -6529,7 +6661,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.77");
           <div class="card">
             <div class="sectionTitle">
               <div>
-                <h2>Top events for ${esc(selectedOrganizer || "this organizer")}</h2>
+                <h2>${esc(organizerTopEventsTitle)}</h2>
                 <p class="sub">Top 5 by lifetime views</p>
               </div>
             </div>
