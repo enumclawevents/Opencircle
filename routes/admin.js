@@ -608,6 +608,12 @@ function parseStoredRule(stored) {
   return null;
 }
 
+function hasRecurringData(row) {
+  if (parseStoredRule(row?.recurrenceRule)) return true;
+  const dates = parseStoredDates(row?.recurrenceDates);
+  return Array.isArray(dates) && dates.length > 0;
+}
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -741,7 +747,7 @@ function generateAdminOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
 
   const rule = parseStoredRule(eventRow.recurrenceRule);
-  if (!rule || Number(eventRow.hasRecurrence || 0) !== 1) return [];
+  if (!rule || !hasRecurringData(eventRow)) return [];
 
   const durationMs = Math.max(0, endUtc - startUtc);
   const offset = startParts.offset;
@@ -2152,7 +2158,7 @@ return `
       const currentYearEndMs = new Date(new Date().getFullYear(), 11, 31, 23, 59, 59, 999).getTime();
 
       totalOccurrences = (occRows || []).reduce((sum, row) => {
-        const hasRec = Number(row?.hasRecurrence || 0) === 1 && !!parseStoredRule(row?.recurrenceRule);
+        const hasRec = hasRecurringData(row);
         if (!hasRec) return sum + 1;
 
         const hasExplicitCustom =
@@ -2175,7 +2181,7 @@ return `
       }, 0);
 
       upcoming = (occRows || []).reduce((sum, row) => {
-        const hasRec = Number(row?.hasRecurrence || 0) === 1 && !!parseStoredRule(row?.recurrenceRule);
+        const hasRec = hasRecurringData(row);
         if (!hasRec) {
           const startUtc = Date.parse(String(row?.startDateTime || ""));
           return sum + (Number.isFinite(startUtc) && startUtc >= nowMs ? 1 : 0);
@@ -2256,7 +2262,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.69");
+const appVersion = String(process.env.APP_VERSION || "v0.0.70");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2270,6 +2276,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.69");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now counts recurring rows from actual recurrence data even when flags are inconsistent" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now counts recurring events even when legacy rows are missing end times" });
     releaseLogItems.push({ date: "2026-04-07", text: "Reduced the main analytics card and chart height to match the organizer card" });
     releaseLogItems.push({ date: "2026-04-07", text: "Matched top organizers card height and spacing to the top events cards" });
@@ -2825,7 +2832,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.69");
       }
 
       for (const row of eventChartRows || []) {
-        const isRecurring = Number(row?.hasRecurrence || 0) === 1 && !!parseStoredRule(row?.recurrenceRule);
+        const isRecurring = hasRecurringData(row);
         const occurrences = isRecurring
           ? generateAdminOccurrences(row, windowStartUtcMs, windowEndUtcMs)
           : (() => {
