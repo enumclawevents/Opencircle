@@ -2187,7 +2187,7 @@ return `
   <div class="stat"><span>Referral</span><strong>${referralViews}</strong></div>
   <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
   <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
-  <div style="margin-top:10px;">
+  <div class="event-stats-action">
     <a class="btn" href="/admin/events-analytics?event=${encodeURIComponent(String(e.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">See Analytics</a>
   </div>
 </div>
@@ -2343,7 +2343,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.84");
+const appVersion = String(process.env.APP_VERSION || "v0.0.86");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2357,6 +2357,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.84");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Single-event analytics now shows only event-specific source stats in the top metric row" });
+    releaseLogItems.push({ date: "2026-04-07", text: "Event card analytics button now stays contained inside the stats panel" });
     releaseLogItems.push({ date: "2026-04-07", text: "Event list cards now include a See Analytics button under the stats panel" });
     releaseLogItems.push({ date: "2026-04-07", text: "Top event cards now link into individual event analytics insights" });
     releaseLogItems.push({ date: "2026-04-07", text: "Header spacing now only increases between the search bar and account name, not between account icons" });
@@ -3226,16 +3228,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.84");
             </div>
             ${selectedEventAnalytics.location ? `<div class="muted" style="margin-bottom:6px;">${esc(selectedEventAnalytics.location)}</div>` : ``}
             ${selectedEventAnalytics.organizer ? `<div class="muted" style="margin-bottom:12px;">Organizer: ${esc(selectedEventAnalytics.organizer)}</div>` : ``}
-            <div class="kv"><div class="k">Total events</div><div class="v">${selectedEventAnalytics.totalOccurrences.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Upcoming</div><div class="v">${selectedEventAnalytics.upcomingOccurrences.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Featured</div><div class="v">${selectedEventAnalytics.featured.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Lifetime views</div><div class="v">${selectedEventAnalytics.lifetimeViews.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Unique views</div><div class="v">${selectedEventAnalytics.uniqueViews.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Direct views</div><div class="v">${selectedEventAnalytics.directViews.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Referral views</div><div class="v">${selectedEventAnalytics.referralViews.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Internal views</div><div class="v">${selectedEventAnalytics.internalViews.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Going</div><div class="v">${selectedEventAnalytics.going.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Interested</div><div class="v">${selectedEventAnalytics.interested.toLocaleString("en-US")}</div></div>
+            <div class="note">The metric cards above now reflect this event only.</div>
           </div>
         `;
       }
@@ -5494,6 +5487,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.84");
         gap: 6px 12px;
         align-content: start;
       }
+      .event-card:not(.venue-card) .event-stats .event-stats-action{
+        grid-column: 1 / -1;
+        margin-top: 4px;
+      }
+      .event-card:not(.venue-card) .event-stats .event-stats-action .btn{
+        width: 100%;
+      }
       .stat{ display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--muted); margin: 6px 0; }
       .event-card:not(.venue-card) .event-stats .stat{ margin: 0; }
       .stat strong{ color: var(--text); font-size: 16px; }
@@ -6703,6 +6703,35 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.84");
         <!-- Metrics -->
         ${showAnalytics ? `
         <section class="metrics" id="analytics">
+          ${selectedEventAnalytics ? `
+          <div class="metric">
+            <div>
+              <div class="k">All views</div>
+              <div class="v">${esc(selectedEventAnalytics.allViews.toLocaleString("en-US"))}</div>
+            </div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">Direct views</div>
+              <div class="v">${esc(selectedEventAnalytics.directViews.toLocaleString("en-US"))}</div>
+            </div>
+            <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.directViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">Referral views</div>
+              <div class="v">${esc(selectedEventAnalytics.referralViews.toLocaleString("en-US"))}</div>
+            </div>
+            <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.referralViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">Internal views</div>
+              <div class="v">${esc(selectedEventAnalytics.internalViews.toLocaleString("en-US"))}</div>
+            </div>
+            <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.internalViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
+          </div>
+          ` : `
           <div class="metric">
             <div>
               <div class="k">Total events</div>
@@ -6754,6 +6783,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.84");
             </div>
             <div class="tag">${esc(stats.sourceInternalPct)}</div>
           </div>
+          `}
         </section>
         ` : ``}
 
