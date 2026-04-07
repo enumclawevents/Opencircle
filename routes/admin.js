@@ -2253,7 +2253,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.56");
+const appVersion = String(process.env.APP_VERSION || "v0.0.57");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2267,6 +2267,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.56");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Events source cards now start with all views instead of campaign views" });
     releaseLogItems.push({ date: "2026-04-06", text: "Headline event totals now include recurring instances" });
     releaseLogItems.push({ date: "2026-04-06", text: "Source view cards now include archived and past events in lifetime totals" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now counts recurring event instances by occurrence date" });
@@ -5908,6 +5909,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.56");
         <section class="metrics" id="analytics">
           <div class="metric">
             <div>
+              <div class="k">All views</div>
+              <div class="v">${esc(stats.sourceTracked)}</div>
+            </div>
+            <div class="tag">Tracked</div>
+          </div>
+          <div class="metric">
+            <div>
               <div class="k">Total events</div>
               <div class="v">${esc(stats.total)}</div>
             </div>
@@ -5947,13 +5955,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.56");
               <div class="v">${esc(stats.sourceReferral)}</div>
             </div>
             <div class="tag">${esc(stats.sourceReferralPct)}</div>
-          </div>
-          <div class="metric">
-            <div>
-              <div class="k">Campaign views</div>
-              <div class="v">${esc(stats.sourceCampaign)}</div>
-            </div>
-            <div class="tag">${esc(stats.sourceCampaignPct)}</div>
           </div>
           <div class="metric">
             <div>
