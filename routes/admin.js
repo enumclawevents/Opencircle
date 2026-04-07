@@ -2253,7 +2253,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.60");
+const appVersion = String(process.env.APP_VERSION || "v0.0.62");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2267,6 +2267,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.60");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows total events before unique events" });
+    releaseLogItems.push({ date: "2026-04-06", text: "Removed label badges from events analytics summary cards" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows unique events in the first row and all views in the second row" });
     releaseLogItems.push({ date: "2026-04-06", text: "Removed duplicate total views card from events analytics" });
     releaseLogItems.push({ date: "2026-04-06", text: "Total events card now uses recurrence-aware occurrence totals" });
@@ -5913,38 +5915,33 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.60");
         <section class="metrics" id="analytics">
           <div class="metric">
             <div>
-              <div class="k">Unique events</div>
-              <div class="v">${esc(stats.uniqueTotal)}</div>
-            </div>
-            <div class="tag">Base rows</div>
-          </div>
-          <div class="metric">
-            <div>
               <div class="k">Total events</div>
               <div class="v">${esc(stats.total)}</div>
             </div>
-            <div class="tag">All time</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">Unique events</div>
+              <div class="v">${esc(stats.uniqueTotal)}</div>
+            </div>
           </div>
           <div class="metric">
             <div>
               <div class="k">Upcoming</div>
               <div class="v">${esc(stats.upcoming)}</div>
             </div>
-            <div class="tag blue">Next</div>
           </div>
           <div class="metric">
             <div>
               <div class="k">Featured</div>
               <div class="v">${esc(stats.featured)}</div>
             </div>
-            <div class="tag">Pinned</div>
           </div>
           <div class="metric">
             <div>
               <div class="k">All views</div>
               <div class="v">${esc(stats.sourceTracked)}</div>
             </div>
-            <div class="tag">Tracked</div>
           </div>
           <div class="metric">
             <div>
