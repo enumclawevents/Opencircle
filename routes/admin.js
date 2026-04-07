@@ -14,6 +14,7 @@ const { sendEmail } = require("../mailer");
 const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const crypto = require("crypto");
 const PASSWORD_ITER = 120000;
+const DEFAULT_TZ = "America/Los_Angeles";
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -606,6 +607,44 @@ function parseStoredRule(stored) {
   const parsed = safeParseJson(stored, null);
   if (parsed && typeof parsed === "object") return parsed;
   return null;
+}
+
+function normalizeIsoToTzKeepClock(iso, tz = DEFAULT_TZ) {
+  const s = String(iso || "").trim();
+  if (!s) return s;
+  if (/[+-]\d{2}:\d{2}$/.test(s) && !s.endsWith("+00:00")) return s;
+  if (!s.endsWith("+00:00")) return s;
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return s;
+  const local = new Date(dt.getTime());
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(local).filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
+  const wall = `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
+  const guess = new Date(`${wall}Z`);
+  const offsetMinutes = Math.round((guess.getTime() - dt.getTime()) / 60000);
+  const sign = offsetMinutes <= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMinutes);
+  const offH = String(Math.floor(abs / 60)).padStart(2, "0");
+  const offM = String(abs % 60).padStart(2, "0");
+  return `${wall}${sign}${offH}:${offM}`;
+}
+
+function normalizeRowTimes(row, tz = DEFAULT_TZ) {
+  if (!row) return row;
+  return {
+    ...row,
+    startDateTime: normalizeIsoToTzKeepClock(row.startDateTime, tz),
+    endDateTime: normalizeIsoToTzKeepClock(row.endDateTime, tz),
+  };
 }
 
 function hasRecurringData(row) {
@@ -2157,7 +2196,7 @@ return `
       const upcomingWindowEndMs = nowMs + 90 * 86400 * 1000;
       const currentYearEndMs = new Date(new Date().getFullYear(), 11, 31, 23, 59, 59, 999).getTime();
 
-      totalOccurrences = (occRows || []).reduce((sum, row) => {
+      totalOccurrences = (occRows || []).map((row) => normalizeRowTimes(row)).reduce((sum, row) => {
         const hasRec = hasRecurringData(row);
         if (!hasRec) return sum + 1;
 
@@ -2180,7 +2219,7 @@ return `
         return sum + Math.max(1, occ.length);
       }, 0);
 
-      upcoming = (occRows || []).reduce((sum, row) => {
+      upcoming = (occRows || []).map((row) => normalizeRowTimes(row)).reduce((sum, row) => {
         const hasRec = hasRecurringData(row);
         if (!hasRec) {
           const startUtc = Date.parse(String(row?.startDateTime || ""));
@@ -2262,7 +2301,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.70");
+const appVersion = String(process.env.APP_VERSION || "v0.0.71");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2276,6 +2315,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.70");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now uses the same legacy timezone normalization as the public event feed" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now counts recurring rows from actual recurrence data even when flags are inconsistent" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now counts recurring events even when legacy rows are missing end times" });
     releaseLogItems.push({ date: "2026-04-07", text: "Reduced the main analytics card and chart height to match the organizer card" });
@@ -2831,7 +2871,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.70");
         windowEndUtcMs = endOfCurrentYearUtcMs();
       }
 
-      for (const row of eventChartRows || []) {
+      for (const row of (eventChartRows || []).map((item) => normalizeRowTimes(item))) {
         const isRecurring = hasRecurringData(row);
         const occurrences = isRecurring
           ? generateAdminOccurrences(row, windowStartUtcMs, windowEndUtcMs)
