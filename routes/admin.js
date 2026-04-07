@@ -790,9 +790,8 @@ function generateAdminOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
 
   const durationMs = Math.max(0, endUtc - startUtc);
   const offset = startParts.offset;
-  const bounded = buildRecurrenceBounds(eventRow, offset, windowStartUtcMs, windowEndUtcMs);
-  const boundedStart = bounded.startMs;
-  const boundedEnd = bounded.endMs;
+  const boundedStart = windowStartUtcMs;
+  const boundedEnd = windowEndUtcMs;
   if (boundedStart > boundedEnd) return [];
 
   const type = String(rule.type || "").toLowerCase();
@@ -2301,7 +2300,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.71");
+const appVersion = String(process.env.APP_VERSION || "v0.0.72");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2315,6 +2314,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.71");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now uses the same recurrence window rules as the public event feed" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now uses the same legacy timezone normalization as the public event feed" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now counts recurring rows from actual recurrence data even when flags are inconsistent" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now counts recurring events even when legacy rows are missing end times" });
