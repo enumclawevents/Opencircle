@@ -2146,6 +2146,7 @@ return `
       );
       const nowMs = Date.now();
       const upcomingWindowEndMs = nowMs + 90 * 86400 * 1000;
+      const currentYearEndMs = new Date(new Date().getFullYear(), 11, 31, 23, 59, 59, 999).getTime();
 
       totalOccurrences = (occRows || []).reduce((sum, row) => {
         const hasRec = Number(row?.hasRecurrence || 0) === 1 && !!parseStoredRule(row?.recurrenceRule);
@@ -2159,14 +2160,13 @@ return `
           })();
 
         const hasUntil = /^\d{4}-\d{2}-\d{2}$/.test(String(row?.recurrenceUntilDate || "").trim());
-        if (!hasExplicitCustom && !hasUntil) return sum + 1;
-
         const startUtc = Date.parse(String(row?.startDateTime || ""));
-        const fallbackEnd = Number.isFinite(startUtc) ? (startUtc + 3650 * 86400 * 1000) : Date.now();
+        const fallbackEnd = Number.isFinite(startUtc) ? (startUtc + 3650 * 86400 * 1000) : currentYearEndMs;
+        const totalWindowEndMs = hasExplicitCustom || hasUntil ? fallbackEnd : currentYearEndMs;
         const occ = generateAdminOccurrences(
           row,
           Number.isFinite(startUtc) ? startUtc : 0,
-          hasUntil ? fallbackEnd : upcomingWindowEndMs
+          totalWindowEndMs
         );
         return sum + Math.max(1, occ.length);
       }, 0);
@@ -2253,7 +2253,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.57");
+const appVersion = String(process.env.APP_VERSION || "v0.0.59");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2267,6 +2267,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.57");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Removed duplicate total views card from events analytics" });
+    releaseLogItems.push({ date: "2026-04-06", text: "Total events card now uses recurrence-aware occurrence totals" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events source cards now start with all views instead of campaign views" });
     releaseLogItems.push({ date: "2026-04-06", text: "Headline event totals now include recurring instances" });
     releaseLogItems.push({ date: "2026-04-06", text: "Source view cards now include archived and past events in lifetime totals" });
@@ -5934,13 +5936,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.57");
               <div class="v">${esc(stats.featured)}</div>
             </div>
             <div class="tag">Pinned</div>
-          </div>
-          <div class="metric">
-            <div>
-              <div class="k">Total views</div>
-              <div class="v">${esc(stats.views)}</div>
-            </div>
-            <div class="tag blue">Tracked</div>
           </div>
           <div class="metric">
             <div>
