@@ -2253,7 +2253,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.64");
+const appVersion = String(process.env.APP_VERSION || "v0.0.65");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2267,6 +2267,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.64");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Fixed admin login crash caused by dashboard event view timestamp query" });
     releaseLogItems.push({ date: "2026-04-07", text: "Top events today now ranks all events by today's view activity" });
     releaseLogItems.push({ date: "2026-04-07", text: "Top event cards now use the same vertical spacing as top organizers" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows total events before unique events" });
@@ -2623,7 +2624,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.64");
         `SELECT e.id, e.title, COUNT(*) AS todayViews
          FROM event_views ev
          JOIN events e ON e.id = ev.eventId
-         WHERE date(ev.createdAt) = date('now')${todayWhereSql}
+         WHERE date(ev.viewedAt) = date('now')${todayWhereSql}
          GROUP BY e.id, e.title
          ORDER BY todayViews DESC, e.id DESC
          LIMIT 5`,
