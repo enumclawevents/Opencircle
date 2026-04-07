@@ -729,12 +729,15 @@ function buildRecurrenceBounds(row, offset, windowStartUtcMs, windowEndUtcMs) {
 }
 
 function generateAdminOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
-  const startParts = parseIsoParts(eventRow.startDateTime);
-  const endParts = parseIsoParts(eventRow.endDateTime);
+  const startIso = String(eventRow?.startDateTime || "").trim();
+  const fallbackEndIso = startIso ? addHoursIso(startIso, 1) : "";
+  const endIso = String(eventRow?.endDateTime || "").trim() || fallbackEndIso;
+  const startParts = parseIsoParts(startIso);
+  const endParts = parseIsoParts(endIso);
   if (!startParts || !endParts) return [];
 
-  const startUtc = Date.parse(eventRow.startDateTime);
-  const endUtc = Date.parse(eventRow.endDateTime);
+  const startUtc = Date.parse(startIso);
+  const endUtc = Date.parse(endIso);
   if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
 
   const rule = parseStoredRule(eventRow.recurrenceRule);
@@ -2253,7 +2256,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.68");
+const appVersion = String(process.env.APP_VERSION || "v0.0.69");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2267,6 +2270,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.68");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now counts recurring events even when legacy rows are missing end times" });
     releaseLogItems.push({ date: "2026-04-07", text: "Reduced the main analytics card and chart height to match the organizer card" });
     releaseLogItems.push({ date: "2026-04-07", text: "Matched top organizers card height and spacing to the top events cards" });
     releaseLogItems.push({ date: "2026-04-07", text: "Fixed top events cards so short lists stack normally instead of stretching" });
