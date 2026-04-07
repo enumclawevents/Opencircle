@@ -653,6 +653,55 @@ function hasRecurringData(row) {
   return Array.isArray(dates) && dates.length > 0;
 }
 
+function getRecurringSeriesEndUtcMs(row, fallbackUtcMs) {
+  const rule = parseStoredRule(row?.recurrenceRule);
+  const dates = parseStoredDates(row?.recurrenceDates);
+  const candidates = [];
+
+  if (rule && Array.isArray(rule.items)) {
+    for (const item of rule.items) {
+      const ts = Date.parse(String(item?.start || "").trim());
+      if (Number.isFinite(ts)) candidates.push(ts);
+    }
+  }
+
+  if (Array.isArray(dates)) {
+    for (const item of dates) {
+      if (item && typeof item === "object") {
+        const ts = Date.parse(String(item.start || "").trim());
+        if (Number.isFinite(ts)) candidates.push(ts);
+        continue;
+      }
+      const raw = String(item || "").trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        const startIso = String(row?.startDateTime || "").trim();
+        const timePart = startIso.length >= 19 ? startIso.slice(10) : "T00:00:00+00:00";
+        const ts = Date.parse(`${raw}${timePart}`);
+        if (Number.isFinite(ts)) candidates.push(ts);
+      }
+    }
+  }
+
+  const untilDate = String(row?.recurrenceUntilDate || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(untilDate)) {
+    const startParts = parseIsoParts(String(row?.startDateTime || "").trim());
+    if (startParts) {
+      const [year, month, day] = untilDate.split("-").map(Number);
+      candidates.push(partsToUtcMs({
+        year,
+        month,
+        day,
+        hour: startParts.hour,
+        minute: startParts.minute,
+        second: startParts.second,
+        offset: startParts.offset,
+      }));
+    }
+  }
+
+  return candidates.length ? Math.max(...candidates) : fallbackUtcMs;
+}
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -2199,17 +2248,8 @@ return `
         const hasRec = hasRecurringData(row);
         if (!hasRec) return sum + 1;
 
-        const hasExplicitCustom =
-          (() => {
-            const rr = parseStoredRule(row?.recurrenceRule);
-            const rd = parseStoredDates(row?.recurrenceDates);
-            return (rr && Array.isArray(rr.items) && rr.items.length) || (Array.isArray(rd) && rd.length);
-          })();
-
-        const hasUntil = /^\d{4}-\d{2}-\d{2}$/.test(String(row?.recurrenceUntilDate || "").trim());
         const startUtc = Date.parse(String(row?.startDateTime || ""));
-        const fallbackEnd = Number.isFinite(startUtc) ? (startUtc + 3650 * 86400 * 1000) : currentYearEndMs;
-        const totalWindowEndMs = hasExplicitCustom || hasUntil ? fallbackEnd : currentYearEndMs;
+        const totalWindowEndMs = getRecurringSeriesEndUtcMs(row, currentYearEndMs);
         const occ = generateAdminOccurrences(
           row,
           Number.isFinite(startUtc) ? startUtc : 0,
@@ -2300,7 +2340,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.73");
+const appVersion = String(process.env.APP_VERSION || "v0.0.74");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2314,6 +2354,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.73");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Fixed total events overcounting by using real recurrence end dates instead of a 10-year fallback" });
     releaseLogItems.push({ date: "2026-04-07", text: "Moved the events chart legend inline with the metric toggle to free up chart height" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now uses the same recurrence window rules as the public event feed" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now uses the same legacy timezone normalization as the public event feed" });
