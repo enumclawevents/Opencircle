@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.50");
+const appVersion = String(process.env.APP_VERSION || "v0.0.51");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.50");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics range label now stays on one line" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now uses a line legend instead of past and upcoming counts" });
     releaseLogItems.push({ date: "2026-04-06", text: "Dashboard cards now show a move cursor on hover instead of a visible drag icon" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics row height increased so top organizers fits without scrolling" });
@@ -4689,6 +4690,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.50");
         display:flex;
         flex-direction:column;
         gap:6px;
+      }
+      #chartRangeLabel{
+        white-space:nowrap;
       }
       .metricToggle{
         display:inline-flex;
