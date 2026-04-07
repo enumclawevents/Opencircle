@@ -2453,7 +2453,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.96");
+const appVersion = String(process.env.APP_VERSION || "v0.0.97");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2467,6 +2467,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.96");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Content tabs now default cleanly to their main pages so analytics no longer shows a double-active sidebar state" });
     releaseLogItems.push({ date: "2026-04-07", text: "Analytics menu now uses simpler labels, a better icon, and the order Events, Organizers, Venues, Jobs, Ads" });
     releaseLogItems.push({ date: "2026-04-07", text: "Moved analytics into a dedicated Analytics tab and tailored dashboard sections by role" });
     releaseLogItems.push({ date: "2026-04-07", text: "Renamed Admin to Developer and added Area Manager role with a five-invite cap" });
@@ -4525,9 +4526,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.96");
       ? "Invites"
       : "Dashboard";
     const eventsMenuOpen = showExisting || showCreate || showApprove || showUpload;
-    const venuesMenuOpen = showVenueExisting || showVenueCreate || showVenueAnalytics;
-    const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants || showJobsAnalytics;
-    const adsMenuOpen = showAdsExisting || showAdsCreate || showAdsAnalytics;
+    const venuesMenuOpen = showVenueExisting || showVenueCreate;
+    const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants;
+    const adsMenuOpen = showAdsExisting || showAdsCreate;
     const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showOrganizers;
     const adminMenuOpen = showUsers || showInvites || showPreferences || showUpdatesLog;
     const canManageEvents = hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser;
