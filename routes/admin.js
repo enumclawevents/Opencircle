@@ -2343,7 +2343,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.86");
+const appVersion = String(process.env.APP_VERSION || "v0.0.87");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2357,6 +2357,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.86");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Event card analytics button height reduced to fit cleanly inside the stats panel" });
     releaseLogItems.push({ date: "2026-04-07", text: "Single-event analytics now shows only event-specific source stats in the top metric row" });
     releaseLogItems.push({ date: "2026-04-07", text: "Event card analytics button now stays contained inside the stats panel" });
     releaseLogItems.push({ date: "2026-04-07", text: "Event list cards now include a See Analytics button under the stats panel" });
@@ -5493,6 +5494,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.86");
       }
       .event-card:not(.venue-card) .event-stats .event-stats-action .btn{
         width: 100%;
+        height: 34px;
+        min-height: 34px;
+        padding: 0 10px;
+        border-radius: 10px;
+        font-size: 13px;
+        line-height: 1;
       }
       .stat{ display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--muted); margin: 6px 0; }
       .event-card:not(.venue-card) .event-stats .stat{ margin: 0; }
