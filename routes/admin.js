@@ -608,6 +608,285 @@ function parseStoredRule(stored) {
   return null;
 }
 
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function toYmd(parts) {
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
+}
+
+function parseIsoParts(iso) {
+  const s = String(iso || "").trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?([+-]\d{2}:\d{2})$/);
+  if (!m) return null;
+  return {
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: Number(m[4]),
+    minute: Number(m[5]),
+    second: Number(m[6] || "00"),
+    offset: m[7],
+  };
+}
+
+function offsetToMinutes(offset) {
+  const m = String(offset || "").match(/^([+-])(\d{2}):(\d{2})$/);
+  if (!m) return 0;
+  const sign = m[1] === "-" ? -1 : 1;
+  return sign * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+function partsToUtcMs(parts) {
+  const offMin = offsetToMinutes(parts.offset);
+  const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0);
+  return localAsUtc - offMin * 60 * 1000;
+}
+
+function utcMsToLocalParts(utcMs, offset) {
+  const offMin = offsetToMinutes(offset);
+  const localMs = utcMs + offMin * 60 * 1000;
+  const d = new Date(localMs);
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    hour: d.getUTCHours(),
+    minute: d.getUTCMinutes(),
+    second: d.getUTCSeconds(),
+    offset,
+  };
+}
+
+function partsToIso(parts) {
+  return (
+    `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}` +
+    `T${pad2(parts.hour)}:${pad2(parts.minute)}:${pad2(parts.second || 0)}` +
+    `${parts.offset}`
+  );
+}
+
+function daysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function weekdayKeyFromLocalParts(parts) {
+  const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0);
+  const d = new Date(localAsUtc);
+  return ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][d.getUTCDay()];
+}
+
+function startOfWeekLocalDate(parts) {
+  const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 0, 0, 0);
+  const d = new Date(localAsUtc);
+  const dow = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - ((dow + 6) % 7));
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
+function monthsDiff(y1, m1, y2, m2) {
+  return (y2 - y1) * 12 + (m2 - m1);
+}
+
+function nthWeekdayOfMonth(year, month, weekdayKey, setPos) {
+  const map = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+  const target = map[weekdayKey];
+  if (target === undefined) return null;
+  const dim = daysInMonth(year, month);
+  if (setPos === -1) {
+    for (let day = dim; day >= 1; day--) {
+      const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      if (d.getUTCDay() === target) return day;
+    }
+    return null;
+  }
+  let count = 0;
+  for (let day = 1; day <= dim; day++) {
+    const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    if (d.getUTCDay() === target) {
+      count++;
+      if (count === setPos) return day;
+    }
+  }
+  return null;
+}
+
+function buildRecurrenceBounds(row, offset, windowStartUtcMs, windowEndUtcMs) {
+  let startMs = windowStartUtcMs;
+  let endMs = windowEndUtcMs;
+  const startDate = String(row?.recurrenceStartDate || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+    const [year, month, day] = startDate.split("-").map(Number);
+    startMs = Math.max(startMs, partsToUtcMs({ year, month, day, hour: 0, minute: 0, second: 0, offset }));
+  }
+  const untilDate = String(row?.recurrenceUntilDate || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(untilDate)) {
+    const [year, month, day] = untilDate.split("-").map(Number);
+    endMs = Math.min(endMs, partsToUtcMs({ year, month, day, hour: 23, minute: 59, second: 59, offset }));
+  }
+  return { startMs, endMs };
+}
+
+function generateAdminOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
+  const startParts = parseIsoParts(eventRow.startDateTime);
+  const endParts = parseIsoParts(eventRow.endDateTime);
+  if (!startParts || !endParts) return [];
+
+  const startUtc = Date.parse(eventRow.startDateTime);
+  const endUtc = Date.parse(eventRow.endDateTime);
+  if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
+
+  const rule = parseStoredRule(eventRow.recurrenceRule);
+  if (!rule || Number(eventRow.hasRecurrence || 0) !== 1) return [];
+
+  const durationMs = Math.max(0, endUtc - startUtc);
+  const offset = startParts.offset;
+  const bounded = buildRecurrenceBounds(eventRow, offset, windowStartUtcMs, windowEndUtcMs);
+  const boundedStart = bounded.startMs;
+  const boundedEnd = bounded.endMs;
+  if (boundedStart > boundedEnd) return [];
+
+  const type = String(rule.type || "").toLowerCase();
+  const interval = Math.max(1, Number(rule.interval || 1) || 1);
+  const out = [];
+
+  if (type === "custom") {
+    if (Array.isArray(rule.items) && rule.items.length) {
+      for (const item of rule.items) {
+        const startIso = String(item?.start || "").trim();
+        const endIso = String(item?.end || "").trim();
+        const occStartUtc = Date.parse(startIso);
+        if (!Number.isFinite(occStartUtc)) continue;
+        if (occStartUtc < boundedStart || occStartUtc > boundedEnd || occStartUtc < startUtc) continue;
+        const startIsoParts = parseIsoParts(startIso);
+        out.push({
+          occurrenceDate: startIso.slice(0, 10),
+          startDateTime: startIso,
+          endDateTime: endIso || "",
+          parts: startIsoParts,
+        });
+      }
+      return out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+    }
+
+    const dates = parseStoredDates(eventRow.recurrenceDates);
+    for (const dateStr of dates) {
+      const s = String(dateStr || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) continue;
+      const [year, month, day] = s.split("-").map(Number);
+      const occLocal = { year, month, day, hour: startParts.hour, minute: startParts.minute, second: startParts.second, offset };
+      const occStartUtc = partsToUtcMs(occLocal);
+      if (occStartUtc < boundedStart || occStartUtc > boundedEnd || occStartUtc < startUtc) continue;
+      const occEnd = utcMsToLocalParts(occStartUtc + durationMs, offset);
+      out.push({
+        occurrenceDate: toYmd(occLocal),
+        startDateTime: partsToIso(occLocal),
+        endDateTime: partsToIso(occEnd),
+        parts: occLocal,
+      });
+    }
+    return out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+  }
+
+  const anchorLocal = {
+    year: startParts.year,
+    month: startParts.month,
+    day: startParts.day,
+    hour: startParts.hour,
+    minute: startParts.minute,
+    second: startParts.second,
+    offset,
+  };
+  const anchorWeekStart = startOfWeekLocalDate(anchorLocal);
+
+  if (type === "weekly") {
+    const byDay = Array.isArray(rule.byDay) ? rule.byDay : [];
+    const allowedDays = new Set(byDay.map((d) => String(d || "").trim().toUpperCase()).filter(Boolean));
+    const dayMs = 86400 * 1000;
+    for (let t = boundedStart; t <= boundedEnd; t += dayMs) {
+      const lp = utcMsToLocalParts(t, offset);
+      const weekday = weekdayKeyFromLocalParts(lp);
+      if (!allowedDays.has(weekday)) continue;
+      const candWeekStart = startOfWeekLocalDate(lp);
+      const anchorWsUtc = Date.UTC(anchorWeekStart.year, anchorWeekStart.month - 1, anchorWeekStart.day, 0, 0, 0);
+      const candWsUtc = Date.UTC(candWeekStart.year, candWeekStart.month - 1, candWeekStart.day, 0, 0, 0);
+      const weekIndex = Math.floor((candWsUtc - anchorWsUtc) / (7 * dayMs));
+      if (weekIndex < 0 || weekIndex % interval !== 0) continue;
+      const occLocal = {
+        year: lp.year,
+        month: lp.month,
+        day: lp.day,
+        hour: startParts.hour,
+        minute: startParts.minute,
+        second: startParts.second,
+        offset,
+      };
+      const occStartUtc = partsToUtcMs(occLocal);
+      if (occStartUtc < boundedStart || occStartUtc > boundedEnd || occStartUtc < startUtc) continue;
+      const occEnd = utcMsToLocalParts(occStartUtc + durationMs, offset);
+      out.push({
+        occurrenceDate: toYmd(occLocal),
+        startDateTime: partsToIso(occLocal),
+        endDateTime: partsToIso(occEnd),
+        parts: occLocal,
+      });
+    }
+    return out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+  }
+
+  if (type === "monthly") {
+    const mode = rule.mode === "nthweekday" ? "nthweekday" : "monthday";
+    const windowStartLocal = utcMsToLocalParts(boundedStart, offset);
+    const windowEndLocal = utcMsToLocalParts(boundedEnd, offset);
+    const startMonthIndex = Math.max(0, monthsDiff(anchorLocal.year, anchorLocal.month, windowStartLocal.year, windowStartLocal.month));
+    const endMonthIndex = Math.max(0, monthsDiff(anchorLocal.year, anchorLocal.month, windowEndLocal.year, windowEndLocal.month));
+
+    for (let mi = startMonthIndex; mi <= endMonthIndex; mi++) {
+      if (mi % interval !== 0) continue;
+      const base = new Date(Date.UTC(anchorLocal.year, anchorLocal.month - 1, 1, 12, 0, 0));
+      base.setUTCMonth(base.getUTCMonth() + mi);
+      const year = base.getUTCFullYear();
+      const month = base.getUTCMonth() + 1;
+      let days = [];
+
+      if (mode === "monthday") {
+        const md = Number(rule.byMonthday || 0);
+        if (!md) continue;
+        days = [Math.min(md, daysInMonth(year, month))];
+      } else {
+        const setPos = Number(rule.setPos || 1);
+        const byDayRaw = Array.isArray(rule.byDay) ? rule.byDay : [rule.byDay];
+        const byDays = byDayRaw.map((d) => String(d || "").trim().toUpperCase()).filter(Boolean);
+        const fallbackDay = weekdayKeyFromLocalParts(startParts);
+        if (!byDays.length) byDays.push(fallbackDay);
+        const uniq = [];
+        for (const wd of byDays) {
+          const day = nthWeekdayOfMonth(year, month, wd, setPos);
+          if (day && !uniq.includes(day)) uniq.push(day);
+        }
+        days = uniq;
+      }
+
+      for (const day of days) {
+        const occLocal = { year, month, day, hour: startParts.hour, minute: startParts.minute, second: startParts.second, offset };
+        const occStartUtc = partsToUtcMs(occLocal);
+        if (occStartUtc < boundedStart || occStartUtc > boundedEnd || occStartUtc < startUtc) continue;
+        const occEnd = utcMsToLocalParts(occStartUtc + durationMs, offset);
+        out.push({
+          occurrenceDate: toYmd(occLocal),
+          startDateTime: partsToIso(occLocal),
+          endDateTime: partsToIso(occEnd),
+          parts: occLocal,
+        });
+      }
+    }
+    return out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+  }
+
+  return [];
+}
+
 // Convert datetime-local (no timezone) into ISO with local timezone offset
 function toLocalISOWithOffset(dtLocal) {
   const d = new Date(dtLocal);
@@ -1907,6 +2186,13 @@ return `
     let sourceCampaign = 0;
     let sourceUnknown = 0;
     try {
+      const sourceWhereParts = [];
+      const sourceWhereParams = [];
+      if (selectedCity) {
+        sourceWhereParts.push("city = ?");
+        sourceWhereParams.push(selectedCity);
+      }
+      const sourceEventWhereSql = sourceWhereParts.length ? `WHERE ${sourceWhereParts.join(" AND ")}` : "";
       const srcRow = await get(
         `SELECT
            COUNT(*) AS tracked,
@@ -1916,8 +2202,8 @@ return `
            COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:campaign%' THEN 1 ELSE 0 END), 0) AS campaignCount,
            COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:%' THEN 0 WHEN COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 0 ELSE 1 END), 0) AS unknownCount
          FROM event_views
-         WHERE eventId IN (SELECT id FROM events ${whereSql})`,
-        whereParams
+         WHERE eventId IN (SELECT id FROM events ${sourceEventWhereSql})`,
+        sourceWhereParams
       );
       sourceTracked = Number(srcRow?.tracked || 0);
       sourceDirect = Number(srcRow?.directCount || 0);
@@ -1936,7 +2222,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.53");
+const appVersion = String(process.env.APP_VERSION || "v0.0.55");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +2236,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.53");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Source view cards now include archived and past events in lifetime totals" });
+    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now counts recurring event instances by occurrence date" });
     releaseLogItems.push({ date: "2026-04-06", text: "All chart headlines now stay on one line" });
     releaseLogItems.push({ date: "2026-04-06", text: "Venue and ad charts now match the main events chart style" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics range label now stays on one line" });
@@ -2319,110 +2607,230 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.53");
     // Chart: Daily / Weekly / Monthly / Yearly
     // ------------------------------
     const hasViewsCol = cols.has("viewCount");
-    const countExpr = "COUNT(*)";
     const viewsExpr = hasViewsCol ? "SUM(COALESCE(viewCount,0))" : "0";
 
-    const buildDaily = async (metric) => {
-      const agg = metric === "views" ? viewsExpr : countExpr;
-      const rows = await all(
-        `SELECT date(startDateTime) AS d, ${agg} AS n
-         FROM events
-         ${dashAnd}date(startDateTime) >= date('now','-13 day')
-         GROUP BY d
-         ORDER BY d`
-      , dashParams);
-      const byDay = new Map((rows || []).map((r) => [String(r.d), Number(r.n || 0)]));
+    function makeDailyBuckets() {
       const labels = [];
-      const values = [];
+      const keys = [];
       for (let i = 13; i >= 0; i--) {
         const dt = new Date();
+        dt.setHours(12, 0, 0, 0);
         dt.setDate(dt.getDate() - i);
-        const key = dt.toISOString().slice(0, 10); // YYYY-MM-DD
-        labels.push(key.slice(5)); // MM-DD
-        values.push(byDay.get(key) || 0);
+        const key = dt.toISOString().slice(0, 10);
+        labels.push(key.slice(5));
+        keys.push(key);
       }
-      return { labels, values };
-    };
+      return { labels, keys };
+    }
 
-    const buildWeekly = async (metric) => {
-      const agg = metric === "views" ? viewsExpr : countExpr;
-      // Group by Monday week-start. Keep last 12 weeks.
-      const rows = await all(
-        `SELECT date(startDateTime, 'weekday 1', '-7 day') AS wk, ${agg} AS n
-         FROM events
-         ${dashAnd}date(startDateTime) >= date('now','-83 day')
-         GROUP BY wk
-         ORDER BY wk`
-      , dashParams);
-      const byWk = new Map((rows || []).map((r) => [String(r.wk), Number(r.n || 0)]));
+    function makeWeeklyBuckets() {
       const labels = [];
-      const values = [];
-      // Walk back 11 weeks to current week
+      const keys = [];
       const now = new Date();
-      const day = now.getDay(); // 0 Sun..6 Sat
-      // Monday start
+      now.setHours(12, 0, 0, 0);
       const monday = new Date(now);
-      const diffToMon = (day + 6) % 7;
-      monday.setDate(monday.getDate() - diffToMon);
+      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
       for (let i = 11; i >= 0; i--) {
         const dt = new Date(monday);
         dt.setDate(dt.getDate() - i * 7);
         const key = dt.toISOString().slice(0, 10);
-        // Label as MM-DD of week start
         labels.push(key.slice(5));
-        values.push(byWk.get(key) || 0);
+        keys.push(key);
       }
-      return { labels, values };
-    };
+      return { labels, keys };
+    }
 
-    const buildMonthly = async (metric) => {
-      const agg = metric === "views" ? viewsExpr : countExpr;
-      // Last 12 months, group by YYYY-MM.
-      const rows = await all(
-        `SELECT strftime('%Y-%m', startDateTime) AS ym, ${agg} AS n
-         FROM events
-         ${dashAnd}date(startDateTime) >= date('now','start of month','-11 month')
-         GROUP BY ym
-         ORDER BY ym`
-      , dashParams);
-      const byYm = new Map((rows || []).map((r) => [String(r.ym), Number(r.n || 0)]));
+    function makeMonthlyBuckets() {
       const labels = [];
-      const values = [];
+      const keys = [];
       const d = new Date();
       d.setDate(1);
+      d.setHours(12, 0, 0, 0);
+      const curYr = new Date().getFullYear();
       for (let i = 11; i >= 0; i--) {
         const dt = new Date(d);
         dt.setMonth(dt.getMonth() - i);
         const ym = dt.toISOString().slice(0, 7);
-        // Label as Mon (and year if different from current year)
-        const mon = dt.toLocaleString('en-US', { month: 'short' });
+        const mon = dt.toLocaleString("en-US", { month: "short" });
         const yr = dt.getFullYear();
-        const curYr = new Date().getFullYear();
         labels.push(yr === curYr ? mon : `${mon} ${String(yr).slice(-2)}`);
-        values.push(byYm.get(ym) || 0);
+        keys.push(ym);
       }
-      return { labels, values };
-    };
+      return { labels, keys };
+    }
 
-    const buildYearly = async (metric) => {
-      const agg = metric === "views" ? viewsExpr : countExpr;
-      // Last 5 years, group by YYYY.
-      const rows = await all(
-        `SELECT strftime('%Y', startDateTime) AS y, ${agg} AS n
-         FROM events
-         ${dashAnd}date(startDateTime) >= date('now','start of year','-4 year')
-         GROUP BY y
-         ORDER BY y`
-      , dashParams);
-      const byY = new Map((rows || []).map((r) => [String(r.y), Number(r.n || 0)]));
+    function makeYearlyBuckets() {
       const labels = [];
-      const values = [];
+      const keys = [];
       const curY = new Date().getFullYear();
       for (let y = curY - 4; y <= curY; y++) {
         labels.push(String(y));
-        values.push(byY.get(String(y)) || 0);
+        keys.push(String(y));
       }
-      return { labels, values };
+      return { labels, keys };
+    }
+
+    function keyForOccurrence(occ, mode) {
+      const parts = occ.parts || parseIsoParts(occ.startDateTime || "");
+      if (!parts) return "";
+      if (mode === "daily") return toYmd(parts);
+      if (mode === "weekly") {
+        const wk = startOfWeekLocalDate(parts);
+        return toYmd({ ...wk, hour: 0, minute: 0, second: 0, offset: parts.offset });
+      }
+      if (mode === "monthly") return `${parts.year}-${pad2(parts.month)}`;
+      if (mode === "yearly") return String(parts.year);
+      return "";
+    }
+
+    function endOfCurrentDayUtcMs() {
+      const now = new Date();
+      now.setHours(23, 59, 59, 999);
+      return now.getTime();
+    }
+
+    function endOfCurrentWeekUtcMs() {
+      const now = new Date();
+      now.setHours(23, 59, 59, 999);
+      const weekEnd = new Date(now);
+      weekEnd.setDate(weekEnd.getDate() + (7 - ((weekEnd.getDay() + 6) % 7) - 1));
+      return weekEnd.getTime();
+    }
+
+    function endOfCurrentMonthUtcMs() {
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).getTime();
+    }
+
+    function endOfCurrentYearUtcMs() {
+      const now = new Date();
+      return new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999).getTime();
+    }
+
+    const eventChartRows = await all(
+      `SELECT id, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
+       FROM events
+       ${dashWhereSql}`,
+      dashParams
+    );
+
+    function buildOccurrenceCounts(mode) {
+      const bucketFactory =
+        mode === "daily" ? makeDailyBuckets :
+        mode === "weekly" ? makeWeeklyBuckets :
+        mode === "monthly" ? makeMonthlyBuckets :
+        makeYearlyBuckets;
+      const { labels, keys } = bucketFactory();
+      const counts = new Map(keys.map((key) => [key, 0]));
+
+      let windowStartUtcMs = 0;
+      let windowEndUtcMs = 0;
+      if (mode === "daily") {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() - 13);
+        windowStartUtcMs = d.getTime();
+        windowEndUtcMs = endOfCurrentDayUtcMs();
+      } else if (mode === "weekly") {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        now.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+        now.setDate(now.getDate() - 11 * 7);
+        windowStartUtcMs = now.getTime();
+        windowEndUtcMs = endOfCurrentWeekUtcMs();
+      } else if (mode === "monthly") {
+        const now = new Date();
+        windowStartUtcMs = new Date(now.getFullYear(), now.getMonth() - 11, 1, 0, 0, 0, 0).getTime();
+        windowEndUtcMs = endOfCurrentMonthUtcMs();
+      } else {
+        const now = new Date();
+        windowStartUtcMs = new Date(now.getFullYear() - 4, 0, 1, 0, 0, 0, 0).getTime();
+        windowEndUtcMs = endOfCurrentYearUtcMs();
+      }
+
+      for (const row of eventChartRows || []) {
+        const isRecurring = Number(row?.hasRecurrence || 0) === 1 && !!parseStoredRule(row?.recurrenceRule);
+        const occurrences = isRecurring
+          ? generateAdminOccurrences(row, windowStartUtcMs, windowEndUtcMs)
+          : (() => {
+              const parts = parseIsoParts(row?.startDateTime || "");
+              const startUtc = Date.parse(row?.startDateTime || "");
+              if (!parts || !Number.isFinite(startUtc) || startUtc < windowStartUtcMs || startUtc > windowEndUtcMs) return [];
+              return [{
+                occurrenceDate: row.startDateTime.slice(0, 10),
+                startDateTime: row.startDateTime,
+                parts,
+              }];
+            })();
+
+        for (const occ of occurrences) {
+          const key = keyForOccurrence(occ, mode);
+          if (!counts.has(key)) continue;
+          counts.set(key, Number(counts.get(key) || 0) + 1);
+        }
+      }
+
+      return { labels, values: keys.map((key) => Number(counts.get(key) || 0)) };
+    }
+
+    const buildDaily = async (metric) => {
+      if (metric === "events") return buildOccurrenceCounts("daily");
+      const rows = await all(
+        `SELECT date(startDateTime) AS d, ${viewsExpr} AS n
+         FROM events
+         ${dashAnd}date(startDateTime) >= date('now','-13 day')
+         GROUP BY d
+         ORDER BY d`,
+        dashParams
+      );
+      const byDay = new Map((rows || []).map((r) => [String(r.d), Number(r.n || 0)]));
+      const { labels, keys } = makeDailyBuckets();
+      return { labels, values: keys.map((key) => byDay.get(key) || 0) };
+    };
+
+    const buildWeekly = async (metric) => {
+      if (metric === "events") return buildOccurrenceCounts("weekly");
+      const rows = await all(
+        `SELECT date(startDateTime, 'weekday 1', '-7 day') AS wk, ${viewsExpr} AS n
+         FROM events
+         ${dashAnd}date(startDateTime) >= date('now','-83 day')
+         GROUP BY wk
+         ORDER BY wk`,
+        dashParams
+      );
+      const byWk = new Map((rows || []).map((r) => [String(r.wk), Number(r.n || 0)]));
+      const { labels, keys } = makeWeeklyBuckets();
+      return { labels, values: keys.map((key) => byWk.get(key) || 0) };
+    };
+
+    const buildMonthly = async (metric) => {
+      if (metric === "events") return buildOccurrenceCounts("monthly");
+      const rows = await all(
+        `SELECT strftime('%Y-%m', startDateTime) AS ym, ${viewsExpr} AS n
+         FROM events
+         ${dashAnd}date(startDateTime) >= date('now','start of month','-11 month')
+         GROUP BY ym
+         ORDER BY ym`,
+        dashParams
+      );
+      const byYm = new Map((rows || []).map((r) => [String(r.ym), Number(r.n || 0)]));
+      const { labels, keys } = makeMonthlyBuckets();
+      return { labels, values: keys.map((key) => byYm.get(key) || 0) };
+    };
+
+    const buildYearly = async (metric) => {
+      if (metric === "events") return buildOccurrenceCounts("yearly");
+      const rows = await all(
+        `SELECT strftime('%Y', startDateTime) AS y, ${viewsExpr} AS n
+         FROM events
+         ${dashAnd}date(startDateTime) >= date('now','start of year','-4 year')
+         GROUP BY y
+         ORDER BY y`,
+        dashParams
+      );
+      const byY = new Map((rows || []).map((r) => [String(r.y), Number(r.n || 0)]));
+      const { labels, keys } = makeYearlyBuckets();
+      return { labels, values: keys.map((key) => byY.get(key) || 0) };
     };
 
     const chartSets = {
