@@ -285,7 +285,7 @@ app.post("/login", async (req, res) => {
 
   if (user && pass) {
     const row = await get(
-      "SELECT id, username, email, passwordHash FROM users WHERE username = ? OR email = ? LIMIT 1",
+      "SELECT id, username, email, passwordHash, role, city FROM users WHERE username = ? OR email = ? LIMIT 1",
       [user, user]
     );
     if (row && verifyPassword(pass, row.passwordHash)) {

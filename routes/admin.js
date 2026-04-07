@@ -1727,6 +1727,54 @@ async function resolveSessionUser(req) {
   return null;
 }
 
+function normalizeOrganizerIdentity(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getOrganizerAccessValues(user, req) {
+  return Array.from(new Set(
+    [
+      user?.displayName,
+      user?.username,
+      user?.email,
+      req.user?.user,
+      req.user?.username,
+      req.user?.email,
+    ]
+      .map((value) => normalizeOrganizerIdentity(value))
+      .filter(Boolean)
+  ));
+}
+
+function getOrganizerPrimaryName(user, req) {
+  return [
+    user?.displayName,
+    user?.username,
+    user?.email,
+    req.user?.user,
+    req.user?.username,
+    req.user?.email,
+  ]
+    .map((value) => String(value || "").trim())
+    .find(Boolean) || "";
+}
+
+function buildOrganizerOwnerClause(column, values) {
+  const normalized = (values || []).map((value) => normalizeOrganizerIdentity(value)).filter(Boolean);
+  if (!normalized.length) {
+    return { sql: "1=0", params: [] };
+  }
+  const placeholders = normalized.map(() => "?").join(",");
+  return {
+    sql: `lower(trim(COALESCE(${column}, ''))) IN (${placeholders})`,
+    params: normalized,
+  };
+}
+
+function organizerOwnsEvent(row, organizerValues) {
+  return !!row && !!normalizeOrganizerIdentity(row.organizer) && (organizerValues || []).includes(normalizeOrganizerIdentity(row.organizer));
+}
+
 // GET /admin
 async function renderAdmin(req, res, view) {
   try {
@@ -1764,9 +1812,15 @@ const recurringOnly =
 let whereParts = [];
 let whereParams = [];
 
-    const isCityViewer = req.user?.role === "creator";
-    const isCityEditor = req.user?.role === "editor";
-    const isAdminUser = req.user?.role === "admin";
+    const currentUser = await resolveSessionUser(req);
+    const userRole = String(req.user?.role || "creator").trim().toLowerCase();
+    const isCityViewer = userRole === "creator";
+    const isCityEditor = userRole === "editor";
+    const isAdminUser = userRole === "admin";
+    const isOrganizerUser = userRole === "organizer";
+    const organizerAccessValues = isOrganizerUser ? getOrganizerAccessValues(currentUser, req) : [];
+    const organizerPrimaryName = isOrganizerUser ? getOrganizerPrimaryName(currentUser, req) : "";
+    const organizerOwnerClause = isOrganizerUser ? buildOrganizerOwnerClause("organizer", organizerAccessValues) : null;
 
     // City (from URL unless locked)
     const userCity = String(req.user?.city || "Enumclaw");
@@ -1783,6 +1837,11 @@ let whereParams = [];
     if (selectedCity) {
       whereParts.push(`city = ?`);
       whereParams.push(selectedCity);
+    }
+
+    if (organizerOwnerClause) {
+      whereParts.push(organizerOwnerClause.sql);
+      whereParams.push(...organizerOwnerClause.params);
     }
 
 if (fromDate && toDate) {
@@ -1993,6 +2052,9 @@ try {
     let editEvent = null;
     let pendingEvent = null;
     if (editId) editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
+    if (isOrganizerUser && editEvent && !organizerOwnsEvent(editEvent, organizerAccessValues)) {
+      return res.status(403).send("Forbidden");
+    }
     if (!editEvent && pendingId) {
       pendingEvent = await get("SELECT * FROM pending_events WHERE id = ?", [pendingId]);
       if (pendingEvent) {
@@ -2008,6 +2070,10 @@ try {
     const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
     const isFeatured = Number(editEvent?.featured || 0) === 1;
     const isEddiesPick = Number(editEvent?.eddiesPick || 0) === 1;
+    const canCurateEventPromotions = isAdminUser || isCityEditor;
+    const organizerFormValue = isOrganizerUser
+      ? (organizerPrimaryName || String(editEvent?.organizer || ""))
+      : String(editEvent?.organizer || "");
 
     // ✅ recurrence values for UI (these existed in your file, UI block was missing)
     const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
@@ -2145,7 +2211,7 @@ return `
       </div>
 
       <div class="event-actions">
-        ${isAdminUser || isCityEditor ? `
+        ${isAdminUser || isCityEditor || isOrganizerUser ? `
 	          <a class="btn btn-edit" href="/admin/create-events?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit</a>
 
 	          <form method="POST"
@@ -2216,6 +2282,10 @@ return `
     if (selectedCity) {
       dashParts.push("city = ?");
       dashParams.push(selectedCity);
+    }
+    if (organizerOwnerClause) {
+      dashParts.push(organizerOwnerClause.sql);
+      dashParams.push(...organizerOwnerClause.params);
     }
 
     const dashWhere = dashParts.length ? `WHERE ${dashParts.join(" AND ")}` : "";
@@ -2313,6 +2383,10 @@ return `
         sourceWhereParts.push("city = ?");
         sourceWhereParams.push(selectedCity);
       }
+      if (organizerOwnerClause) {
+        sourceWhereParts.push(organizerOwnerClause.sql);
+        sourceWhereParams.push(...organizerOwnerClause.params);
+      }
       const sourceEventWhereSql = sourceWhereParts.length ? `WHERE ${sourceWhereParts.join(" AND ")}` : "";
       const srcRow = await get(
         `SELECT
@@ -2343,7 +2417,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.91");
+const appVersion = String(process.env.APP_VERSION || "v0.0.93");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2357,6 +2431,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Added organizer user role with organizer-only event access and analytics" });
+    releaseLogItems.push({ date: "2026-04-07", text: "Selected organizer insights now swap the top-10 table for linked top events" });
     releaseLogItems.push({ date: "2026-04-07", text: "Single-event insight grey panels now stretch to fit the card space better" });
     releaseLogItems.push({ date: "2026-04-07", text: "Removed the extra helper note from single-event insight panels" });
     releaseLogItems.push({ date: "2026-04-07", text: "Single-event insight panels now show Going and Interested counts" });
@@ -2740,6 +2816,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
         todayWhere.push("LOWER(e.city) = LOWER(?)");
         todayParams.push(selectedCity);
       }
+      if (organizerOwnerClause) {
+        todayWhere.push(organizerOwnerClause.sql.replace(/organizer/g, "e.organizer"));
+        todayParams.push(...organizerOwnerClause.params);
+      }
       const todayWhereSql = todayWhere.length ? ` AND ${todayWhere.join(" AND ")}` : "";
       const rows = await all(
         `SELECT e.id, e.title, COUNT(*) AS todayViews
@@ -3050,8 +3130,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
          FROM events
          WHERE id = ?
          ${selectedCity ? "AND city = ?" : ""}
+         ${organizerOwnerClause ? `AND ${organizerOwnerClause.sql}` : ""}
          ${hasArchiveCols2 ? "AND (isArchived IS NULL OR isArchived = 0)" : ""}`,
-        selectedCity ? [requestedEventId, selectedCity] : [requestedEventId]
+        [requestedEventId, ...(selectedCity ? [selectedCity] : []), ...(organizerOwnerClause ? organizerOwnerClause.params : [])]
       );
       if (selectedEventRow) {
         const eventRow = normalizeRowTimes(selectedEventRow);
@@ -3272,12 +3353,17 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
     const showUsers = view === "users";
     const showInvites = view === "invites";
 
+    if (showDashboard && isOrganizerUser) {
+      return res.redirect(`/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`);
+    }
+    if (showExisting && !(isAdminUser || isCityEditor || isCityViewer || isOrganizerUser)) return res.status(403).send("Forbidden");
+    if (showAnalytics && !(isAdminUser || isCityEditor || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showUsers && !isAdminUser) return res.status(403).send("Forbidden");
     if (showInvites && !isAdminUser) return res.status(403).send("Forbidden");
-    if (showUpdatesLog && !isAdminUser) return res.status(403).send("Forbidden");
+    if (showUpdatesLog && !(isAdminUser || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showApprove && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
-    if (showCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
-    if (showUpload && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
+    if (showCreate && !(isAdminUser || isCityEditor || isCityViewer || isOrganizerUser)) return res.status(403).send("Forbidden");
+    if (showUpload && !(isAdminUser || isCityEditor || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showOrganizers && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
     if (showVenueCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showVenueExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
@@ -3323,7 +3409,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
       : `/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`;
     const isSingleManage = (showCreate ^ showUpload ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showAdsCreate ^ showAdsExisting ^ showAdsAnalytics ^ showPreferences);
 
-    const currentUser = await resolveSessionUser(req);
     const prefNotice = String(req.query.notice || "").trim().toLowerCase();
     const prefNoticeHtml = prefNotice
       ? (prefNotice === "profile_saved"
@@ -3438,7 +3523,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
                   <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
                     <div class="muted" style="min-width:0;">
                       <div style="font-weight:700; color:#0f172a;">${esc(inv.email || "Any email")}</div>
-                      <div>Role: ${esc(inv.role === "editor" ? "Editor" : "Creator")}</div>
+                      <div>Role: ${esc(inv.role === "editor" ? "Editor" : inv.role === "organizer" ? "Organizer" : "Creator")}</div>
                       <div>City: ${esc(inv.city || "Enumclaw")}</div>
                       <div>Created: ${esc(fmtPendingDate(inv.createdAt))}</div>
                       ${inv.expiresAt ? `<div>Expires: ${esc(fmtPendingDate(inv.expiresAt))}</div>` : ""}
@@ -3473,7 +3558,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
         ? noticeHtml +
           rows
             .map((u) => {
-              const labelRole = u.role === "editor" ? "Editor" : u.role === "creator" ? "Creator" : "Admin";
+              const labelRole = u.role === "editor" ? "Editor" : u.role === "organizer" ? "Organizer" : u.role === "creator" ? "Creator" : "Admin";
               return `
                 <div class="mini" style="margin-bottom:10px;">
                   <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
@@ -3495,6 +3580,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
                         <select name="role" class="ctrl" style="min-width:140px;">
                           <option value="creator" ${u.role === "creator" ? "selected" : ""}>Creator</option>
                           <option value="editor" ${u.role === "editor" ? "selected" : ""}>Editor</option>
+                          <option value="organizer" ${u.role === "organizer" ? "selected" : ""}>Organizer</option>
                           <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option>
                         </select>
                         <select name="city" class="ctrl" style="min-width:140px;">
@@ -4192,7 +4278,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
         .slice(0, 5)
         .map((row) => `
           <div class="kv">
-            <div class="k">${esc(String(row.title || "Untitled event"))}</div>
+            <div class="k"><a href="${esc(buildEventAnalyticsHref(row.id))}">${esc(String(row.title || "Untitled event"))}</a></div>
             <div class="v">${Number(row.viewCount || 0).toLocaleString("en-US")}</div>
           </div>
         `)
@@ -4301,7 +4387,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
           .slice(0, 5)
           .map((row) => `
             <div class="kv">
-              <div class="k">${esc(String(row.title || "Untitled event"))}</div>
+              <div class="k"><a href="${esc(buildEventAnalyticsHref(row.id))}">${esc(String(row.title || "Untitled event"))}</a></div>
               <div class="v">${Number(row.viewCount || 0).toLocaleString("en-US")}</div>
             </div>
           `)
@@ -4354,7 +4440,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
       : showApprove
       ? "Approve Events"
       : showExisting
-      ? "All Events"
+      ? (isOrganizerUser ? "My Events" : "All Events")
       : showOrganizers
       ? "Organizer Analytics"
       : showVenueCreate
@@ -4382,7 +4468,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
       : showUsers
       ? "Users"
       : showUpdatesLog
-      ? "Updates Log"
+      ? "Release Notes"
       : showInvites
       ? "Invites"
       : "Dashboard";
@@ -6354,15 +6440,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
           <div class="nav-group nav-collapsible ${eventsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${eventsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-calendar nav-title-icon" aria-hidden="true"></i><span>Events</span></a>
             <div class="nav-sub" data-nav-sub>
-              <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Events</a>
-              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
+              <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">${isOrganizerUser ? "My Events" : "All Events"}</a>
+              ${(isCityViewer || isCityEditor || isAdminUser || isOrganizerUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
               ${(isAdminUser || isCityEditor) ? `
               <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" style="display:flex; align-items:center; gap:8px;">
                 <span>Approve Events</span>
                 ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
               </a>` : ``}
-              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showUpload ? "active" : ""}" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
-              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
+              ${(isAdminUser || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showUpload ? "active" : ""}" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
+              ${(isAdminUser || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
               ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
             </div>
           </div>
@@ -6398,14 +6484,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
             </div>
           </div>
 
-          ${isAdminUser ? `<div class="sb-divider"></div>
+          ${(isAdminUser || isOrganizerUser) ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${adminMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="/admin/users${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
+            <a class="nav-title-btn" href="${isAdminUser ? `/admin/users${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}` : "/admin/preferences"}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="/admin/preferences">Preferences</a>
               <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="/admin/updates-log">Release Notes</a>
-              <a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>
-              <a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>
+              ${isAdminUser ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>` : ``}
+              ${isAdminUser ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>` : ``}
             </div>
           </div>` : ``}
         </nav>
@@ -6434,7 +6520,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
                 : showApprove
                 ? "Approve Events"
                 : showExisting
-                ? "All Events"
+                ? (isOrganizerUser ? "My Events" : "All Events")
                 : showAnalytics
                 ? "Events Analytics"
                 : showOrganizers
@@ -6462,7 +6548,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
                 : showPreferences
                 ? "Preferences"
                 : showUpdatesLog
-                ? "Updates Log"
+                ? "Release Notes"
                 : showInvites
                 ? "Invites"
                 : "Dashboard"
@@ -6475,7 +6561,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
                 : showApprove
                 ? "Review pending submissions"
                 : showExisting
-                ? "Edit, delete, and check stats"
+                ? (isOrganizerUser ? "Manage and review your organizer events" : "Edit, delete, and check stats")
                 : showAnalytics
                 ? "Event metrics, charts, and top performers"
                 : showOrganizers
@@ -6926,6 +7012,19 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
           </div>
         </section>
 
+        ${selectedOrganizer ? `
+        <section>
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>${esc(organizerTopEventsTitle)}</h2>
+                <p class="sub">Top 5 by lifetime views</p>
+              </div>
+            </div>
+            <div class="mini mini-list">${organizerTopEventsHtml}</div>
+          </div>
+        </section>
+        ` : `
         <section class="grid2 analytics-main-grid">
           <div class="card">
             <div class="sectionTitle">
@@ -6961,6 +7060,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
             <div class="mini mini-list">${organizerTopEventsHtml}</div>
           </div>
         </section>
+        `}
         ` : ``}
 
         <!-- Top events (views) -->
@@ -7049,6 +7149,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
               <select name="role">
                 <option value="creator">Creator</option>
                 <option value="editor">Editor</option>
+                <option value="organizer">Organizer</option>
               </select>
             </div>
             <div class="field">
@@ -7199,7 +7300,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
               <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
 
-              ${isCityViewer ? "" : `
+              ${canCurateEventPromotions ? `
               <div class="rec-box">
                 <div class="checkbox">
                   <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
@@ -7212,7 +7313,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
                 </div>
                 <div class="note">Shows this event as Eddie's Pick in weekend emails.</div>
               </div>
-              `}
+              ` : ""}
 
               <div class="rec-box">
                 <div style="font-weight:650; margin-bottom:6px;">Categories (pick up to 3)</div>
@@ -7442,7 +7543,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
               <input class="ctrl" name="location" value="${esc(editEvent?.location || "")}" required />
 
               <label>Organizer</label>
-              <input class="ctrl" name="organizer" value="${esc(editEvent?.organizer || "")}" required />
+              <input class="ctrl" name="organizer" value="${esc(organizerFormValue)}" ${isOrganizerUser ? "readonly" : ""} required />
+              ${isOrganizerUser ? `<div class="note">Organizer accounts save events under your organizer identity automatically.</div>` : ``}
 
               <div class="rec-box" style="margin-top:14px;">
                 <div class="checkbox">
@@ -7536,8 +7638,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.91");
 	          <div class="card" id="existing">
 	            <div class="sectionTitle">
 	              <div>
-	                <h2>All events</h2>
-	                <p class="sub">Edit, delete, and check stats</p>
+	                <h2>${isOrganizerUser ? "My events" : "All events"}</h2>
+	                <p class="sub">${isOrganizerUser ? "Manage and review your organizer events" : "Edit, delete, and check stats"}</p>
 	              </div>
 	            </div>
 
@@ -10643,7 +10745,7 @@ router.post("/invites", async (req, res) => {
 router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator")) {
+    if (!(role === "admin" || role === "editor" || role === "creator" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     const u = await resolveSessionUser(req);
@@ -10680,7 +10782,7 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
 router.post("/preferences/password", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator")) {
+    if (!(role === "admin" || role === "editor" || role === "creator" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     const sessionUser = await resolveSessionUser(req);
@@ -11192,10 +11294,16 @@ router.post("/ads/:id/delete", async (req, res) => {
 router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator")) {
+    if (!(role === "admin" || role === "editor" || role === "creator" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     await ensurePickSchema();
+    const sessionUser = await resolveSessionUser(req);
+    const organizerAccessValues = role === "organizer" ? getOrganizerAccessValues(sessionUser, req) : [];
+    const organizerPrimaryName = role === "organizer" ? getOrganizerPrimaryName(sessionUser, req) : "";
+    if (role === "organizer" && !organizerPrimaryName) {
+      return res.status(400).send("Organizer account is missing an organizer identity.");
+    }
 
     let {
       id,
@@ -11236,6 +11344,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       recurrenceDates,
     } = req.body;
 
+    if (role === "organizer") {
+      organizer = organizerPrimaryName;
+    }
+
     // If a file was uploaded, prefer it over the URL field
     if (req.file) {
       if (useR2) {
@@ -11272,6 +11384,14 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     if (role !== "creator" && !organizer) missing.push("organizer");
     if (missing.length) {
       return res.status(400).send("Missing required fields: " + missing.join(", "));
+    }
+
+    const eventId = id ? parseInt(String(id), 10) : null;
+    if (role === "organizer" && Number.isInteger(eventId) && eventId > 0) {
+      const existingEvent = await get("SELECT id, organizer FROM events WHERE id = ? LIMIT 1", [eventId]);
+      if (!existingEvent?.id || !organizerOwnsEvent(existingEvent, organizerAccessValues)) {
+        return res.status(403).send("Forbidden");
+      }
     }
 
     if (ticketUrl && !/^https?:\/\//i.test(ticketUrl)) {
@@ -11313,8 +11433,9 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       }
     }
 
-    const featuredFlag = role === "creator" ? 0 : (String(featured || "") === "1" ? 1 : 0);
-    const eddiesPickFlag = role === "creator" ? 0 : (String(eddiesPick || "") === "1" ? 1 : 0);
+    const canCurateEventPromotions = role === "admin" || role === "editor";
+    const featuredFlag = canCurateEventPromotions ? (String(featured || "") === "1" ? 1 : 0) : 0;
+    const eddiesPickFlag = canCurateEventPromotions ? (String(eddiesPick || "") === "1" ? 1 : 0) : 0;
 
     // Slug
     const rawSlug = String(req.body.slug || "").trim();
@@ -11618,10 +11739,15 @@ return res.redirect(`/admin/create-events?${sp.toString()}`);
 router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv", maxCount: 1 }, { name: "imageZip", maxCount: 1 }]), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor")) {
+    if (!(role === "admin" || role === "editor" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     await ensurePickSchema();
+    const sessionUser = await resolveSessionUser(req);
+    const organizerPrimaryName = role === "organizer" ? getOrganizerPrimaryName(sessionUser, req) : "";
+    if (role === "organizer" && !organizerPrimaryName) {
+      return res.status(400).send("Organizer account is missing an organizer identity.");
+    }
 
     const userCity = String(req.user?.city || "Enumclaw");
     const cityFromBody = String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw";
@@ -11658,7 +11784,9 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         const startRaw = getCsvValue(row, ["startDateTime", "startDateTimeISO", "start", "startsAt"]);
         const endRaw = getCsvValue(row, ["endDateTime", "endDateTimeISO", "end", "endsAt"]);
         const location = getCsvValue(row, ["location", "venue"]);
-        const organizer = getCsvValue(row, ["organizer", "host"]);
+        const organizer = role === "organizer"
+          ? organizerPrimaryName
+          : getCsvValue(row, ["organizer", "host"]);
         let imageUrl = normalizeHttpUrl(getCsvValue(row, ["imageUrl"]));
         const ticketUrl = normalizeHttpUrl(getCsvValue(row, ["ticketUrl", "eventLink", "ticketLink"]));
         const ticketLabel = getCsvValue(row, ["ticketLabel"]) || "Tickets";
@@ -11674,8 +11802,12 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         ].filter(Boolean);
         const imageAssetName = normalizeAssetKey(getCsvValue(row, ["imageFile", "imageFilename", "image"]));
         const categories = normalizeCategories(categoriesRaw);
-        const featuredFlag = parseCsvBoolean(getCsvValue(row, ["featured"])) ? 1 : 0;
-        const eddiesPickFlag = parseCsvBoolean(getCsvValue(row, ["eddiesPick"])) ? 1 : 0;
+        const featuredFlag = role === "admin" || role === "editor"
+          ? (parseCsvBoolean(getCsvValue(row, ["featured"])) ? 1 : 0)
+          : 0;
+        const eddiesPickFlag = role === "admin" || role === "editor"
+          ? (parseCsvBoolean(getCsvValue(row, ["eddiesPick"])) ? 1 : 0)
+          : 0;
         const hasRec = parseCsvBoolean(getCsvValue(row, ["hasRecurrence", "recurring"])) ? 1 : 0;
         const recurrenceType = String(getCsvValue(row, ["recurrenceType"]) || "none").trim().toLowerCase();
         const recurrenceInterval = Math.max(1, parseInt(getCsvValue(row, ["recurrenceInterval"]) || "1", 10) || 1);
@@ -11927,11 +12059,19 @@ router.post("/approve-events/:id/deny", async (req, res) => {
 router.post("/events/:id/delete", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor")) {
+    if (!(role === "admin" || role === "editor" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
+    if (role === "organizer") {
+      const sessionUser = await resolveSessionUser(req);
+      const organizerAccessValues = getOrganizerAccessValues(sessionUser, req);
+      const ownedEvent = await get("SELECT id, organizer FROM events WHERE id = ? LIMIT 1", [id]);
+      if (!ownedEvent?.id || !organizerOwnsEvent(ownedEvent, organizerAccessValues)) {
+        return res.status(403).send("Forbidden");
+      }
+    }
 
     await run("DELETE FROM events WHERE id = ?", [id]);
 
@@ -11962,13 +12102,21 @@ router.post("/events/:id/delete", async (req, res) => {
 router.post("/events/:id/archive", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor")) {
+    if (!(role === "admin" || role === "editor" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     await ensureArchiveSchema();
 
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
+    if (role === "organizer") {
+      const sessionUser = await resolveSessionUser(req);
+      const organizerAccessValues = getOrganizerAccessValues(sessionUser, req);
+      const ownedEvent = await get("SELECT id, organizer FROM events WHERE id = ? LIMIT 1", [id]);
+      if (!ownedEvent?.id || !organizerOwnsEvent(ownedEvent, organizerAccessValues)) {
+        return res.status(403).send("Forbidden");
+      }
+    }
 
     const cols = await getEventsColumns();
 
@@ -12012,13 +12160,21 @@ router.post("/events/:id/archive", async (req, res) => {
 router.post("/events/:id/unarchive", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor")) {
+    if (!(role === "admin" || role === "editor" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     await ensureArchiveSchema();
 
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
+    if (role === "organizer") {
+      const sessionUser = await resolveSessionUser(req);
+      const organizerAccessValues = getOrganizerAccessValues(sessionUser, req);
+      const ownedEvent = await get("SELECT id, organizer FROM events WHERE id = ? LIMIT 1", [id]);
+      if (!ownedEvent?.id || !organizerOwnsEvent(ownedEvent, organizerAccessValues)) {
+        return res.status(403).send("Forbidden");
+      }
+    }
 
     const cols = await getEventsColumns();
 
