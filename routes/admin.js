@@ -2343,7 +2343,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.90");
+const appVersion = String(process.env.APP_VERSION || "v0.0.91");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2357,6 +2357,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.90");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Single-event insight grey panels now stretch to fit the card space better" });
     releaseLogItems.push({ date: "2026-04-07", text: "Removed the extra helper note from single-event insight panels" });
     releaseLogItems.push({ date: "2026-04-07", text: "Single-event insight panels now show Going and Interested counts" });
     releaseLogItems.push({ date: "2026-04-07", text: "Event stats panels can now grow slightly so the analytics button stays fully inside the grey box" });
@@ -3226,7 +3227,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.90");
         analyticsSideTitle = selectedEventAnalytics.title;
         analyticsSideSub = "Individual event insights";
         analyticsSideBodyHtml = `
-          <div class="mini">
+          <div class="mini event-insights-mini">
             <div style="margin-bottom:12px;">
               <a class="btn" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Back to all events analytics</a>
             </div>
@@ -5304,6 +5305,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.90");
         background: var(--panel2);
         border-radius: var(--radius-mid);
         padding: 14px;
+      }
+      .event-insights-mini{
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
       }
       .mini + .mini{ margin-top:var(--gap); }
       .kv{ display:flex; justify-content:space-between; align-items:center; margin: 10px 0; color:var(--muted); font-size:13px; }
