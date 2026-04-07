@@ -2343,7 +2343,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.87");
+const appVersion = String(process.env.APP_VERSION || "v0.0.88");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2357,6 +2357,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.87");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Event stats panels can now grow slightly so the analytics button stays fully inside the grey box" });
     releaseLogItems.push({ date: "2026-04-07", text: "Event card analytics button height reduced to fit cleanly inside the stats panel" });
     releaseLogItems.push({ date: "2026-04-07", text: "Single-event analytics now shows only event-specific source stats in the top metric row" });
     releaseLogItems.push({ date: "2026-04-07", text: "Event card analytics button now stays contained inside the stats panel" });
@@ -5483,6 +5484,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.87");
       .event-card:not(.venue-card) .event-stats{
         width: 230px;
         flex: 0 0 230px;
+        height: auto;
+        min-height: var(--event-side-h);
         display:grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 6px 12px;
@@ -5490,13 +5493,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.87");
       }
       .event-card:not(.venue-card) .event-stats .event-stats-action{
         grid-column: 1 / -1;
-        margin-top: 4px;
+        margin-top: 2px;
       }
       .event-card:not(.venue-card) .event-stats .event-stats-action .btn{
         width: 100%;
-        height: 34px;
-        min-height: 34px;
-        padding: 0 10px;
+        height: 30px;
+        min-height: 30px;
+        padding: 0 8px;
         border-radius: 10px;
         font-size: 13px;
         line-height: 1;
