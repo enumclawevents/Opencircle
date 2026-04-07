@@ -2453,7 +2453,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.94");
+const appVersion = String(process.env.APP_VERSION || "v0.0.95");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2467,6 +2467,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Moved analytics into a dedicated Analytics tab and tailored dashboard sections by role" });
     releaseLogItems.push({ date: "2026-04-07", text: "Renamed Admin to Developer and added Area Manager role with a five-invite cap" });
     releaseLogItems.push({ date: "2026-04-07", text: "Added organizer user role with organizer-only event access and analytics" });
     releaseLogItems.push({ date: "2026-04-07", text: "Selected organizer insights now swap the top-10 table for linked top events" });
@@ -4522,11 +4523,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
       : showInvites
       ? "Invites"
       : "Dashboard";
-    const eventsMenuOpen = showExisting || showCreate || showApprove || showUpload || showAnalytics || showOrganizers;
+    const eventsMenuOpen = showExisting || showCreate || showApprove || showUpload;
     const venuesMenuOpen = showVenueExisting || showVenueCreate || showVenueAnalytics;
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants || showJobsAnalytics;
     const adsMenuOpen = showAdsExisting || showAdsCreate || showAdsAnalytics;
+    const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showOrganizers;
     const adminMenuOpen = showUsers || showInvites || showPreferences || showUpdatesLog;
+    const canManageEvents = hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser;
+    const canApproveEvents = hasDeveloperAccess || isCityEditor;
+    const canSeeEventsAnalytics = hasDeveloperAccess || isCityEditor || isOrganizerUser;
+    const canManageVenues = hasDeveloperAccess || isCityEditor || isCityViewer;
+    const canSeeVenueAnalytics = hasDeveloperAccess || isCityEditor;
+    const canManageJobs = hasDeveloperAccess || isCityEditor || isCityViewer;
+    const canSeeJobAnalytics = hasDeveloperAccess || isCityEditor;
+    const canManageAds = hasDeveloperAccess || isCityEditor || isCityViewer;
+    const canSeeAdsAnalytics = hasDeveloperAccess || isCityEditor;
+    const canSeeOrganizerAnalytics = hasDeveloperAccess || isCityEditor;
+    const canSeeAnyAnalytics = canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeJobAnalytics || canSeeAdsAnalytics || canSeeOrganizerAnalytics;
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
     res.send(`<!doctype html>
@@ -6477,7 +6490,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
         </div>
 
         <nav class="nav">
-          ${(hasDeveloperAccess || isCityEditor) ? `
+          ${(hasDeveloperAccess || isCityEditor || isCityViewer) ? `
           <div class="nav-group nav-collapsible ${showDashboard ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${showDashboard ? "page" : "false"}"><i class="fa-regular fa-chart-bar nav-title-icon" aria-hidden="true"></i><span>Dashboard</span></a>
             <div class="nav-sub" data-nav-sub>
@@ -6498,8 +6511,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
                 ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
               </a>` : ``}
               ${(hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showUpload ? "active" : ""}" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
-              ${(hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
-              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
             </div>
           </div>
           <div class="sb-divider"></div>
@@ -6509,7 +6520,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
             <div class="nav-sub" data-nav-sub>
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showVenueExisting ? "active" : ""}" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>` : ``}
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venues</a>` : ``}
-              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
             </div>
           </div>
           <div class="sb-divider"></div>
@@ -6520,7 +6530,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showJobsExisting ? "active" : ""}" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>` : ``}
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showJobsCreate ? "active" : ""}" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Jobs</a>` : ``}
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showJobsApplicants ? "active" : ""}" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>` : ``}
-              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
             </div>
           </div>
           <div class="sb-divider"></div>
@@ -6530,9 +6539,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
             <div class="nav-sub" data-nav-sub>
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showAdsExisting ? "active" : ""}" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>` : ``}
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showAdsCreate ? "active" : ""}" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ads</a>` : ``}
-              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showAdsAnalytics ? "active" : ""}" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
             </div>
           </div>
+
+          ${((hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<div class="sb-divider"></div>
+          <div class="nav-group nav-collapsible ${analyticsMenuOpen ? "is-open" : ""}" data-nav-group>
+            <a class="nav-title-btn" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${analyticsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-chart-line nav-title-icon" aria-hidden="true"></i><span>Analytics</span></a>
+            <div class="nav-sub" data-nav-sub>
+              ${(hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showAdsAnalytics ? "active" : ""}" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
+            </div>
+          </div>` : ``)}
 
           ${(hasDeveloperAccess || isOrganizerUser) ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${adminMenuOpen ? "is-open" : ""}" data-nav-group>
@@ -6729,30 +6749,37 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
               </div>
               <div class="card-body" id="dashboard-quick-links-body">
                 <div class="quick-links-grid">
-                  <div class="quick-links-group">
+                  ${canManageEvents ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Events</div>
+                    <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">${isOrganizerUser ? "My Events" : "All Events"}</a>
                     <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
-                    <a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>
-                    <a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>
-                  </div>
-                  <div class="quick-links-group">
+                    ${canApproveEvents ? `<a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>` : ``}
+                    ${(hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<a class="btn quick-link" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
+                  </div>` : ``}
+                  ${canManageVenues ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Venues</div>
                     <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
                     <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
-                    ${(hasDeveloperAccess || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
-                  </div>
-                  <div class="quick-links-group">
+                  </div>` : ``}
+                  ${canManageJobs ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Jobs</div>
                     <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
+                    <a class="btn quick-link" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>
                     <a class="btn quick-link" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
-                    ${(hasDeveloperAccess || isCityEditor) ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
-                  </div>
-                  <div class="quick-links-group">
+                  </div>` : ``}
+                  ${canManageAds ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Ads</div>
                     <a class="btn quick-link" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ad</a>
                     <a class="btn quick-link" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>
-                    ${(hasDeveloperAccess || isCityEditor) ? `<a class="btn quick-link" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
-                  </div>
+                  </div>` : ``}
+                  ${canSeeAnyAnalytics ? `<div class="quick-links-group">
+                    <div class="quick-links-group-title">Analytics</div>
+                    ${canSeeEventsAnalytics ? `<a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
+                    ${canSeeOrganizerAnalytics ? `<a class="btn quick-link" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
+                    ${canSeeVenueAnalytics ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+                    ${canSeeJobAnalytics ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
+                    ${canSeeAdsAnalytics ? `<a class="btn quick-link" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
+                  </div>` : ``}
                 </div>
               </div>
             </section>
@@ -6790,7 +6817,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
           </div>
 
           <div class="dashboard-col dashboard-col-fill dashboard-insights" data-dashboard-column="right">
-            <div class="card dashboard-card" id="dashboard-event-insights-card" data-dashboard-card="event-insights" data-collapsible-card data-collapsed="false">
+            ${canSeeEventsAnalytics ? `<div class="card dashboard-card" id="dashboard-event-insights-card" data-dashboard-card="event-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <div class="card-controls">
                   <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-event-insights-body">
@@ -6809,9 +6836,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
                   <div class="insight-row"><div class="label">Views</div><div class="value">${esc(stats.views)}</div></div>
                 </div>
               </div>
-            </div>
+            </div>` : ``}
 
-            <div class="card dashboard-card" id="dashboard-venue-insights-card" data-dashboard-card="venue-insights" data-collapsible-card data-collapsed="false">
+            ${canSeeVenueAnalytics ? `<div class="card dashboard-card" id="dashboard-venue-insights-card" data-dashboard-card="venue-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <div class="card-controls">
                   <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-venue-insights-body">
@@ -6830,9 +6857,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
                   <div class="insight-row"><div class="label">With Website</div><div class="value">${esc(venueStats.withWebsite)} (${esc(venueStats.withWebsitePct)})</div></div>
                 </div>
               </div>
-            </div>
+            </div>` : ``}
 
-            <div class="card dashboard-card" id="dashboard-ad-insights-card" data-dashboard-card="ad-insights" data-collapsible-card data-collapsed="false">
+            ${canSeeAdsAnalytics ? `<div class="card dashboard-card" id="dashboard-ad-insights-card" data-dashboard-card="ad-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <div class="card-controls">
                   <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-ad-insights-body">
@@ -6851,7 +6878,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.94");
                   <div class="insight-row"><div class="label">Views</div><div class="value">${esc(adAnalyticsStats.views)}</div></div>
                 </div>
               </div>
-            </div>
+            </div>` : ``}
           </div>
         </section>
         ` : ``}
