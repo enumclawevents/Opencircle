@@ -2340,7 +2340,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.82");
+const appVersion = String(process.env.APP_VERSION || "v0.0.83");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2354,6 +2354,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.82");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Top event cards now link into individual event analytics insights" });
     releaseLogItems.push({ date: "2026-04-07", text: "Header spacing now only increases between the search bar and account name, not between account icons" });
     releaseLogItems.push({ date: "2026-04-07", text: "Header search bar now stays visible across all admin tabs" });
     releaseLogItems.push({ date: "2026-04-07", text: "Header search now uses Enter to submit and has more spacing before the account name" });
@@ -2691,6 +2692,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.82");
       },
     });
 
+    const selectedEventIdRaw = parseInt(String(req.query.event || ""), 10);
+    const requestedEventId = Number.isInteger(selectedEventIdRaw) && selectedEventIdRaw > 0
+      ? selectedEventIdRaw
+      : null;
+    const buildEventAnalyticsHref = (id) =>
+      `/admin/events-analytics?event=${encodeURIComponent(String(id || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+
     // Top events by views (today / week / month / year)
     const hasViews = cols.has("viewCount");
     const topEventsFallback = `<div class="muted">Views not tracked.</div>`;
@@ -2706,7 +2714,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.82");
       if (!rows || rows.length === 0) return `<div class="muted">No events.</div>`;
       return rows
         .map((r) => {
-          const label = esc(String(r.title || ""));
+          const label = `<a href="${esc(buildEventAnalyticsHref(r.id))}">${esc(String(r.title || ""))}</a>`;
           const count = Number(r.viewCount || 0);
           return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
         })
@@ -2735,7 +2743,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.82");
       if (!rows || rows.length === 0) return `<div class="muted">No views today.</div>`;
       return rows
         .map((r) => {
-          const label = esc(String(r.title || ""));
+          const label = `<a href="${esc(buildEventAnalyticsHref(r.id))}">${esc(String(r.title || ""))}</a>`;
           const count = Number(r.todayViews || 0);
           return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
         })
@@ -3005,7 +3013,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.82");
       return { labels, values: keys.map((key) => byY.get(key) || 0) };
     };
 
-    const chartSets = {
+    let chartSets = {
       events: {
         daily: await buildDaily("events"),
         weekly: await buildWeekly("events"),
@@ -3019,6 +3027,215 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.82");
         yearly: await buildYearly("views"),
       },
     };
+    let selectedEventAnalytics = null;
+    let analyticsSideTitle = "Top organizers";
+    let analyticsSideSub = "Most frequent organizers";
+    let analyticsSideBodyHtml = `<div class="mini mini-list">${topOrganizersHtml}</div>`;
+    if (requestedEventId) {
+      const selectedEventRow = await get(
+        `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule,
+                recurrenceDates, recurrenceStartDate, recurrenceUntilDate, featured, viewCount, uniqueViewCount,
+                goingCount, interestedCount
+         FROM events
+         WHERE id = ?
+         ${selectedCity ? "AND city = ?" : ""}
+         ${hasArchiveCols2 ? "AND (isArchived IS NULL OR isArchived = 0)" : ""}`,
+        selectedCity ? [requestedEventId, selectedCity] : [requestedEventId]
+      );
+      if (selectedEventRow) {
+        const eventRow = normalizeRowTimes(selectedEventRow);
+        const nowMs = Date.now();
+        const monthlyWindowStartMs = new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1, 0, 0, 0, 0).getTime();
+        const monthlyWindowEndMs = endOfCurrentMonthUtcMs();
+        const isRecurring = hasRecurringData(eventRow);
+        const selectedEventViewRows = hasSourceTrackingTable
+          ? await all(
+              `SELECT viewedAt
+               FROM event_views
+               WHERE eventId = ?
+                 AND date(viewedAt) >= date('now','start of year','-4 year')`,
+              [requestedEventId]
+            )
+          : [];
+
+        function selectedEventOccurrencesForMode(mode) {
+          const bucketFactory =
+            mode === "daily" ? makeDailyBuckets :
+            mode === "weekly" ? makeWeeklyBuckets :
+            mode === "monthly" ? makeMonthlyBuckets :
+            makeYearlyBuckets;
+          const { labels, keys } = bucketFactory();
+          const counts = new Map(keys.map((key) => [key, 0]));
+          let windowStartUtcMs = 0;
+          let windowEndUtcMs = 0;
+          if (mode === "daily") {
+            const d = new Date();
+            d.setHours(0, 0, 0, 0);
+            d.setDate(d.getDate() - 13);
+            windowStartUtcMs = d.getTime();
+            windowEndUtcMs = endOfCurrentDayUtcMs();
+          } else if (mode === "weekly") {
+            const now = new Date();
+            now.setHours(0, 0, 0, 0);
+            now.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+            now.setDate(now.getDate() - 11 * 7);
+            windowStartUtcMs = now.getTime();
+            windowEndUtcMs = endOfCurrentWeekUtcMs();
+          } else if (mode === "monthly") {
+            const now = new Date();
+            windowStartUtcMs = new Date(now.getFullYear(), now.getMonth() - 11, 1, 0, 0, 0, 0).getTime();
+            windowEndUtcMs = endOfCurrentMonthUtcMs();
+          } else {
+            const now = new Date();
+            windowStartUtcMs = new Date(now.getFullYear() - 4, 0, 1, 0, 0, 0, 0).getTime();
+            windowEndUtcMs = endOfCurrentYearUtcMs();
+          }
+          const occurrences = isRecurring
+            ? generateAdminOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs)
+            : (() => {
+                const parts = parseIsoParts(eventRow?.startDateTime || "");
+                const startUtc = Date.parse(eventRow?.startDateTime || "");
+                if (!parts || !Number.isFinite(startUtc) || startUtc < windowStartUtcMs || startUtc > windowEndUtcMs) return [];
+                return [{
+                  occurrenceDate: eventRow.startDateTime.slice(0, 10),
+                  startDateTime: eventRow.startDateTime,
+                  parts,
+                }];
+              })();
+          for (const occ of occurrences) {
+            const key = keyForOccurrence(occ, mode);
+            if (!counts.has(key)) continue;
+            counts.set(key, Number(counts.get(key) || 0) + 1);
+          }
+          return { labels, values: keys.map((key) => Number(counts.get(key) || 0)) };
+        }
+
+        function selectedEventViewsForMode(mode) {
+          const bucketFactory =
+            mode === "daily" ? makeDailyBuckets :
+            mode === "weekly" ? makeWeeklyBuckets :
+            mode === "monthly" ? makeMonthlyBuckets :
+            makeYearlyBuckets;
+          const { labels, keys } = bucketFactory();
+          const counts = new Map(keys.map((key) => [key, 0]));
+          for (const row of selectedEventViewRows || []) {
+            const viewedAt = String(row?.viewedAt || "");
+            const dt = new Date(viewedAt);
+            if (Number.isNaN(dt.getTime())) continue;
+            let key = "";
+            if (mode === "daily") {
+              key = `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+            } else if (mode === "weekly") {
+              const wk = new Date(dt);
+              wk.setHours(0, 0, 0, 0);
+              wk.setDate(wk.getDate() - ((wk.getDay() + 6) % 7));
+              key = `${wk.getFullYear()}-${pad2(wk.getMonth() + 1)}-${pad2(wk.getDate())}`;
+            } else if (mode === "monthly") {
+              key = `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}`;
+            } else {
+              key = String(dt.getFullYear());
+            }
+            if (!counts.has(key)) continue;
+            counts.set(key, Number(counts.get(key) || 0) + 1);
+          }
+          return { labels, values: keys.map((key) => Number(counts.get(key) || 0)) };
+        }
+
+        chartSets = {
+          events: {
+            daily: selectedEventOccurrencesForMode("daily"),
+            weekly: selectedEventOccurrencesForMode("weekly"),
+            monthly: selectedEventOccurrencesForMode("monthly"),
+            yearly: selectedEventOccurrencesForMode("yearly"),
+          },
+          views: {
+            daily: selectedEventViewsForMode("daily"),
+            weekly: selectedEventViewsForMode("weekly"),
+            monthly: selectedEventViewsForMode("monthly"),
+            yearly: selectedEventViewsForMode("yearly"),
+          },
+        };
+
+        let sourceSummary = {
+          allViews: 0,
+          directViews: 0,
+          referralViews: 0,
+          internalViews: 0,
+        };
+        if (hasSourceTrackingTable) {
+          try {
+            const sourceRow = await get(
+              `SELECT
+                 COUNT(*) AS tracked,
+                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:direct%' OR COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 1 ELSE 0 END), 0) AS directCount,
+                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:referral%' THEN 1 ELSE 0 END), 0) AS referralCount,
+                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount
+               FROM event_views
+               WHERE eventId = ?`,
+              [requestedEventId]
+            );
+            sourceSummary = {
+              allViews: Number(sourceRow?.tracked || 0),
+              directViews: Number(sourceRow?.directCount || 0),
+              referralViews: Number(sourceRow?.referralCount || 0),
+              internalViews: Number(sourceRow?.internalCount || 0),
+            };
+          } catch (_) {}
+        }
+
+        const totalOccurrencesAllTime = isRecurring
+          ? generateAdminOccurrences(
+              eventRow,
+              Number.isFinite(Date.parse(String(eventRow?.startDateTime || "")))
+                ? Date.parse(String(eventRow?.startDateTime || ""))
+                : monthlyWindowStartMs,
+              getRecurringSeriesEndUtcMs(eventRow, monthlyWindowEndMs)
+            ).length || 1
+          : 1;
+        const upcomingOccurrences = isRecurring
+          ? generateAdminOccurrences(eventRow, nowMs - 5 * 60 * 1000, nowMs + 90 * 86400 * 1000).length
+          : (() => {
+              const startUtc = Date.parse(String(eventRow?.startDateTime || ""));
+              return Number.isFinite(startUtc) && startUtc >= nowMs ? 1 : 0;
+            })();
+        selectedEventAnalytics = {
+          id: Number(eventRow.id || 0),
+          title: String(eventRow.title || "Untitled event"),
+          location: String(eventRow.location || ""),
+          organizer: String(eventRow.organizer || ""),
+          totalOccurrences: Number(totalOccurrencesAllTime || 0),
+          upcomingOccurrences: Number(upcomingOccurrences || 0),
+          featured: Number(eventRow.featured || 0) === 1 ? 1 : 0,
+          lifetimeViews: Number(eventRow.viewCount || 0),
+          uniqueViews: Number(eventRow.uniqueViewCount || 0),
+          going: Number(eventRow.goingCount || 0),
+          interested: Number(eventRow.interestedCount || 0),
+          ...sourceSummary,
+        };
+
+        analyticsSideTitle = selectedEventAnalytics.title;
+        analyticsSideSub = "Individual event insights";
+        analyticsSideBodyHtml = `
+          <div class="mini">
+            <div style="margin-bottom:12px;">
+              <a class="btn" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Back to all events analytics</a>
+            </div>
+            ${selectedEventAnalytics.location ? `<div class="muted" style="margin-bottom:6px;">${esc(selectedEventAnalytics.location)}</div>` : ``}
+            ${selectedEventAnalytics.organizer ? `<div class="muted" style="margin-bottom:12px;">Organizer: ${esc(selectedEventAnalytics.organizer)}</div>` : ``}
+            <div class="kv"><div class="k">Total events</div><div class="v">${selectedEventAnalytics.totalOccurrences.toLocaleString("en-US")}</div></div>
+            <div class="kv"><div class="k">Upcoming</div><div class="v">${selectedEventAnalytics.upcomingOccurrences.toLocaleString("en-US")}</div></div>
+            <div class="kv"><div class="k">Featured</div><div class="v">${selectedEventAnalytics.featured.toLocaleString("en-US")}</div></div>
+            <div class="kv"><div class="k">Lifetime views</div><div class="v">${selectedEventAnalytics.lifetimeViews.toLocaleString("en-US")}</div></div>
+            <div class="kv"><div class="k">Unique views</div><div class="v">${selectedEventAnalytics.uniqueViews.toLocaleString("en-US")}</div></div>
+            <div class="kv"><div class="k">Direct views</div><div class="v">${selectedEventAnalytics.directViews.toLocaleString("en-US")}</div></div>
+            <div class="kv"><div class="k">Referral views</div><div class="v">${selectedEventAnalytics.referralViews.toLocaleString("en-US")}</div></div>
+            <div class="kv"><div class="k">Internal views</div><div class="v">${selectedEventAnalytics.internalViews.toLocaleString("en-US")}</div></div>
+            <div class="kv"><div class="k">Going</div><div class="v">${selectedEventAnalytics.going.toLocaleString("en-US")}</div></div>
+            <div class="kv"><div class="k">Interested</div><div class="v">${selectedEventAnalytics.interested.toLocaleString("en-US")}</div></div>
+          </div>
+        `;
+      }
+    }
     const chartDataJson = JSON.stringify(chartSets);
     const adPlacementOptions = [
       "homepage-top",
@@ -6579,14 +6796,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.82");
           <div class="card">
             <div class="sectionTitle">
               <div>
-                <h2>Top organizers</h2>
-                <p class="sub">Most frequent organizers</p>
+                <h2>${esc(analyticsSideTitle)}</h2>
+                <p class="sub">${esc(analyticsSideSub)}</p>
               </div>
             </div>
-
-            <div class="mini mini-list">
-              ${topOrganizersHtml}
-            </div>
+            ${analyticsSideBodyHtml}
           </div>
         </section>
         ` : ``}
