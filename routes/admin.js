@@ -2340,7 +2340,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.79");
+const appVersion = String(process.env.APP_VERSION || "v0.0.81");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2354,6 +2354,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.79");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Header spacing increased again between the search bar and account name" });
+    releaseLogItems.push({ date: "2026-04-07", text: "Header search bar now stays visible across all admin tabs" });
     releaseLogItems.push({ date: "2026-04-07", text: "Header search now uses Enter to submit and has more spacing before the account name" });
     releaseLogItems.push({ date: "2026-04-07", text: "Organizer analytics now defaults to overall performance with linked organizer drill-down insights" });
     releaseLogItems.push({ date: "2026-04-07", text: "Increased the events chart card height again to line up with top organizers" });
@@ -3067,7 +3069,38 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.79");
     if (showAdsCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showAdsExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showAdsAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
-    const showSearch = showAnalytics || showExisting || showVenueExisting || showJobsExisting || showJobsApplicants || showAdsExisting;
+    const showSearch = true;
+    const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
+      ? "/admin/venues"
+      : showJobsApplicants
+      ? "/admin/jobs/applicants"
+      : showJobsCreate || showJobsExisting || showJobsAnalytics
+      ? "/admin/jobs"
+      : showAdsCreate || showAdsExisting || showAdsAnalytics
+      ? "/admin/ads"
+      : showAnalytics
+      ? "/admin/events-analytics"
+      : "/admin/existing-events";
+    const searchPlaceholder = showVenueCreate || showVenueExisting || showVenueAnalytics
+      ? "Search venues (name, slug, address, ID)..."
+      : showJobsApplicants
+      ? "Search applicants (name, email, phone, job)..."
+      : showJobsCreate || showJobsExisting || showJobsAnalytics
+      ? "Search jobs (title, company, location, ID)..."
+      : showAdsCreate || showAdsExisting || showAdsAnalytics
+      ? "Search ads (name, placement, slug, URL, ID)..."
+      : "Search events (title, slug, location, ID)...";
+    const searchResetHref = showVenueCreate || showVenueExisting || showVenueAnalytics
+      ? `/admin/venues?pg=1&limit=${esc(String(limit))}`
+      : showJobsApplicants
+      ? `/admin/jobs/applicants?pg=1&limit=${esc(String(limit))}`
+      : showJobsCreate || showJobsExisting || showJobsAnalytics
+      ? `/admin/jobs?pg=1&limit=${esc(String(limit))}`
+      : showAdsCreate || showAdsExisting || showAdsAnalytics
+      ? `/admin/ads?pg=1&limit=${esc(String(limit))}`
+      : showAnalytics
+      ? `/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`
+      : `/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`;
     const isSingleManage = (showCreate ^ showUpload ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showAdsCreate ^ showAdsExisting ^ showAdsAnalytics ^ showPreferences);
 
     const currentUser = await resolveSessionUser(req);
@@ -4602,7 +4635,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.79");
       .header-tools{
         display:flex;
         align-items:center;
-        gap:18px;
+        gap:28px;
       }
       .header-icon-btn{
         position:relative;
@@ -6236,23 +6269,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.79");
 
           <div class="h-right">
             ${showSearch ? `
-            <form class="search" method="GET" action="${showVenueExisting ? "/admin/venues" : (showJobsExisting ? "/admin/jobs" : (showJobsApplicants ? "/admin/jobs/applicants" : (showAdsExisting ? "/admin/ads" : (showAnalytics ? "/admin/events-analytics" : "/admin/existing-events"))))}">
-              <input name="q" value="${esc(q)}" placeholder="${showVenueExisting ? "Search venues (name, slug, address, ID)..." : (showJobsExisting ? "Search jobs (title, company, location, ID)..." : (showJobsApplicants ? "Search applicants (name, email, phone, job)..." : (showAdsExisting ? "Search ads (name, placement, slug, URL, ID)..." : "Search events (title, slug, location, ID)...")))}" />
+            <form class="search" method="GET" action="${searchAction}">
+              <input name="q" value="${esc(q)}" placeholder="${searchPlaceholder}" />
+              ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
               <input type="hidden" name="pg" value="1" />
               <input type="hidden" name="limit" value="${esc(String(limit))}" />
-              ${(showVenueExisting || showJobsExisting || showJobsApplicants || showAdsExisting) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
-              ${(showVenueExisting || showJobsExisting || showJobsApplicants || showAdsExisting) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="${esc(String(1))}" />` : ``)}
-              ${q ? (showVenueExisting
-                ? `<a class="btn" href="/admin/venues?pg=1&limit=${esc(String(limit))}">Reset</a>`
-                : (showJobsExisting
-                  ? `<a class="btn" href="/admin/jobs?pg=1&limit=${esc(String(limit))}">Reset</a>`
-                  : (showJobsApplicants
-                    ? `<a class="btn" href="/admin/jobs/applicants?pg=1&limit=${esc(String(limit))}">Reset</a>`
-                    : (showAdsExisting
-                      ? `<a class="btn" href="/admin/ads?pg=1&limit=${esc(String(limit))}">Reset</a>`
-                      : (showAnalytics
-                        ? `<a class="btn" href="/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`
-                        : `<a class="btn" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}">Reset</a>`))))) : ``}
+              ${(showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
+              ${(showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="${esc(String(1))}" />` : ``)}
+              ${q ? `<a class="btn" href="${searchResetHref}">Reset</a>` : ``}
             </form>
             ` : ``}
             <div class="header-tools">
