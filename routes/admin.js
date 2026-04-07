@@ -2253,7 +2253,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.59");
+const appVersion = String(process.env.APP_VERSION || "v0.0.60");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2267,6 +2267,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.59");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows unique events in the first row and all views in the second row" });
     releaseLogItems.push({ date: "2026-04-06", text: "Removed duplicate total views card from events analytics" });
     releaseLogItems.push({ date: "2026-04-06", text: "Total events card now uses recurrence-aware occurrence totals" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events source cards now start with all views instead of campaign views" });
@@ -2348,6 +2349,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.59");
     };
 
     const stats = {
+      uniqueTotal: fmt(total),
       total: fmt(totalOccurrences || total),
       upcoming: fmt(upcoming),
       past: fmt(past),
@@ -5911,10 +5913,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.59");
         <section class="metrics" id="analytics">
           <div class="metric">
             <div>
-              <div class="k">All views</div>
-              <div class="v">${esc(stats.sourceTracked)}</div>
+              <div class="k">Unique events</div>
+              <div class="v">${esc(stats.uniqueTotal)}</div>
             </div>
-            <div class="tag">Tracked</div>
+            <div class="tag">Base rows</div>
           </div>
           <div class="metric">
             <div>
@@ -5936,6 +5938,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.59");
               <div class="v">${esc(stats.featured)}</div>
             </div>
             <div class="tag">Pinned</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">All views</div>
+              <div class="v">${esc(stats.sourceTracked)}</div>
+            </div>
+            <div class="tag">Tracked</div>
           </div>
           <div class="metric">
             <div>
