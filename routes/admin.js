@@ -2343,7 +2343,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.89");
+const appVersion = String(process.env.APP_VERSION || "v0.0.90");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2357,6 +2357,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.89");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Removed the extra helper note from single-event insight panels" });
     releaseLogItems.push({ date: "2026-04-07", text: "Single-event insight panels now show Going and Interested counts" });
     releaseLogItems.push({ date: "2026-04-07", text: "Event stats panels can now grow slightly so the analytics button stays fully inside the grey box" });
     releaseLogItems.push({ date: "2026-04-07", text: "Event card analytics button height reduced to fit cleanly inside the stats panel" });
@@ -3233,7 +3234,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.89");
             ${selectedEventAnalytics.organizer ? `<div class="muted" style="margin-bottom:12px;">Organizer: ${esc(selectedEventAnalytics.organizer)}</div>` : ``}
             <div class="kv"><div class="k">Going</div><div class="v">${selectedEventAnalytics.going.toLocaleString("en-US")}</div></div>
             <div class="kv"><div class="k">Interested</div><div class="v">${selectedEventAnalytics.interested.toLocaleString("en-US")}</div></div>
-            <div class="note">The metric cards above now reflect this event only.</div>
           </div>
         `;
       }
