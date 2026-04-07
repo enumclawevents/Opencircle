@@ -2253,7 +2253,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.65");
+const appVersion = String(process.env.APP_VERSION || "v0.0.66");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2267,6 +2267,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.65");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Fixed top events cards so short lists stack normally instead of stretching" });
     releaseLogItems.push({ date: "2026-04-07", text: "Fixed admin login crash caused by dashboard event view timestamp query" });
     releaseLogItems.push({ date: "2026-04-07", text: "Top events today now ranks all events by today's view activity" });
     releaseLogItems.push({ date: "2026-04-07", text: "Top event cards now use the same vertical spacing as top organizers" });
@@ -4625,6 +4626,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.65");
         margin: 14px 0;
         padding: 4px 0;
       }
+      .mini-list .kv{
+        margin: 14px 0;
+        padding: 4px 0;
+      }
       .grid4 > .card .mini-spaced{
         height: 100%;
         display:flex;
@@ -6066,7 +6071,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.65");
                 <p class="sub">Top 5 by views</p>
               </div>
             </div>
-            <div class="mini mini-spaced">${topTodayHtml}</div>
+            <div class="mini mini-list">${topTodayHtml}</div>
           </div>
           <div class="card">
             <div class="sectionTitle">
@@ -6075,7 +6080,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.65");
                 <p class="sub">Top 5 by views</p>
               </div>
             </div>
-            <div class="mini mini-spaced">${topWeekHtml}</div>
+            <div class="mini mini-list">${topWeekHtml}</div>
           </div>
           <div class="card">
             <div class="sectionTitle">
@@ -6084,7 +6089,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.65");
                 <p class="sub">Top 5 by views</p>
               </div>
             </div>
-            <div class="mini mini-spaced">${topMonthHtml}</div>
+            <div class="mini mini-list">${topMonthHtml}</div>
           </div>
           <div class="card">
             <div class="sectionTitle">
@@ -6093,7 +6098,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.65");
                 <p class="sub">Top 5 by views</p>
               </div>
             </div>
-            <div class="mini mini-spaced">${topYearHtml}</div>
+            <div class="mini mini-list">${topYearHtml}</div>
           </div>
         </section>
         ` : ``}
