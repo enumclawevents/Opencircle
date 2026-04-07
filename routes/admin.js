@@ -2187,6 +2187,9 @@ return `
   <div class="stat"><span>Referral</span><strong>${referralViews}</strong></div>
   <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
   <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
+  <div style="margin-top:10px;">
+    <a class="btn" href="/admin/events-analytics?event=${encodeURIComponent(String(e.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">See Analytics</a>
+  </div>
 </div>
 
     </div>
@@ -2340,7 +2343,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.83");
+const appVersion = String(process.env.APP_VERSION || "v0.0.84");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2354,6 +2357,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.83");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Event list cards now include a See Analytics button under the stats panel" });
     releaseLogItems.push({ date: "2026-04-07", text: "Top event cards now link into individual event analytics insights" });
     releaseLogItems.push({ date: "2026-04-07", text: "Header spacing now only increases between the search bar and account name, not between account icons" });
     releaseLogItems.push({ date: "2026-04-07", text: "Header search bar now stays visible across all admin tabs" });
