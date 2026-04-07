@@ -2340,7 +2340,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.81");
+const appVersion = String(process.env.APP_VERSION || "v0.0.82");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2354,7 +2354,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.81");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
-    releaseLogItems.push({ date: "2026-04-07", text: "Header spacing increased again between the search bar and account name" });
+    releaseLogItems.push({ date: "2026-04-07", text: "Header spacing now only increases between the search bar and account name, not between account icons" });
     releaseLogItems.push({ date: "2026-04-07", text: "Header search bar now stays visible across all admin tabs" });
     releaseLogItems.push({ date: "2026-04-07", text: "Header search now uses Enter to submit and has more spacing before the account name" });
     releaseLogItems.push({ date: "2026-04-07", text: "Organizer analytics now defaults to overall performance with linked organizer drill-down insights" });
@@ -4635,7 +4635,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.81");
       .header-tools{
         display:flex;
         align-items:center;
-        gap:28px;
+        gap:18px;
       }
       .header-icon-btn{
         position:relative;
@@ -4669,6 +4669,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.81");
         overflow:hidden;
         text-overflow:ellipsis;
         max-width:180px;
+        margin-left:14px;
       }
       .header-icon-btn .header-avatar{
         width:100%;
