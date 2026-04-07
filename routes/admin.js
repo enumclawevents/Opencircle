@@ -2125,37 +2125,68 @@ return `
 
 
     // Counts
-    const upcomingRow = await get(
-      `SELECT COUNT(*) AS n FROM events ${dashAnd}datetime(startDateTime) >= datetime('now')`,
-      dashParams
-    );
     const pastRow = await get(
       `SELECT COUNT(*) AS n FROM events ${dashAnd}datetime(startDateTime) < datetime('now')`,
       dashParams
     );
     const featuredRow = await get(`SELECT COUNT(*) AS n FROM events ${dashAnd}featured = 1`, dashParams);
 
-    const upcoming = Number(upcomingRow?.n || 0);
+    let upcoming = 0;
     const past = Number(pastRow?.n || 0);
     const featuredCount = Number(featuredRow?.n || 0);
 
-    // Count occurrences for recurring events (dashboard only)
+    // Count occurrences for recurring events in headline metrics
     let totalOccurrences = 0;
     try {
       const occRows = await all(
-        `SELECT recurrenceRule, recurrenceDates FROM events ${dashWhereSql}`,
+        `SELECT id, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
+         FROM events
+         ${dashWhereSql}`,
         dashParams
       );
-      totalOccurrences = (occRows || []).reduce((sum, r) => {
-        let n = 1;
-        const rr = safeParseJson(r?.recurrenceRule, null);
-        const rd = safeParseJson(r?.recurrenceDates, null);
-        if (rr && Array.isArray(rr.items) && rr.items.length) n = rr.items.length;
-        else if (Array.isArray(rd) && rd.length) n = rd.length;
-        return sum + n;
+      const nowMs = Date.now();
+      const upcomingWindowEndMs = nowMs + 90 * 86400 * 1000;
+
+      totalOccurrences = (occRows || []).reduce((sum, row) => {
+        const hasRec = Number(row?.hasRecurrence || 0) === 1 && !!parseStoredRule(row?.recurrenceRule);
+        if (!hasRec) return sum + 1;
+
+        const hasExplicitCustom =
+          (() => {
+            const rr = parseStoredRule(row?.recurrenceRule);
+            const rd = parseStoredDates(row?.recurrenceDates);
+            return (rr && Array.isArray(rr.items) && rr.items.length) || (Array.isArray(rd) && rd.length);
+          })();
+
+        const hasUntil = /^\d{4}-\d{2}-\d{2}$/.test(String(row?.recurrenceUntilDate || "").trim());
+        if (!hasExplicitCustom && !hasUntil) return sum + 1;
+
+        const startUtc = Date.parse(String(row?.startDateTime || ""));
+        const fallbackEnd = Number.isFinite(startUtc) ? (startUtc + 3650 * 86400 * 1000) : Date.now();
+        const occ = generateAdminOccurrences(
+          row,
+          Number.isFinite(startUtc) ? startUtc : 0,
+          hasUntil ? fallbackEnd : upcomingWindowEndMs
+        );
+        return sum + Math.max(1, occ.length);
+      }, 0);
+
+      upcoming = (occRows || []).reduce((sum, row) => {
+        const hasRec = Number(row?.hasRecurrence || 0) === 1 && !!parseStoredRule(row?.recurrenceRule);
+        if (!hasRec) {
+          const startUtc = Date.parse(String(row?.startDateTime || ""));
+          return sum + (Number.isFinite(startUtc) && startUtc >= nowMs ? 1 : 0);
+        }
+        const occ = generateAdminOccurrences(row, nowMs - 5 * 60 * 1000, upcomingWindowEndMs);
+        return sum + occ.length;
       }, 0);
     } catch (_) {
       totalOccurrences = total;
+      const upcomingRow = await get(
+        `SELECT COUNT(*) AS n FROM events ${dashAnd}datetime(startDateTime) >= datetime('now')`,
+        dashParams
+      );
+      upcoming = Number(upcomingRow?.n || 0);
     }
 
     // Optional sums (only if columns exist)
@@ -2222,7 +2253,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.55");
+const appVersion = String(process.env.APP_VERSION || "v0.0.56");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2236,6 +2267,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.55");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "Headline event totals now include recurring instances" });
     releaseLogItems.push({ date: "2026-04-06", text: "Source view cards now include archived and past events in lifetime totals" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now counts recurring event instances by occurrence date" });
     releaseLogItems.push({ date: "2026-04-06", text: "All chart headlines now stay on one line" });
