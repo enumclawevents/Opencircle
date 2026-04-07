@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.48");
+const appVersion = String(process.env.APP_VERSION || "v0.0.50");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,7 +1950,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
-    releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections now show a four-way move handle" });
+    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now uses a line legend instead of past and upcoming counts" });
+    releaseLogItems.push({ date: "2026-04-06", text: "Dashboard cards now show a move cursor on hover instead of a visible drag icon" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics row height increased so top organizers fits without scrolling" });
     releaseLogItems.push({ date: "2026-04-06", text: "Top organizers list now shows only the top 5" });
     releaseLogItems.push({ date: "2026-04-06", text: "Top organizers card height now capped with internal scroll" });
@@ -4720,6 +4721,38 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
         gap:14px;
         flex-wrap:wrap;
       }
+      .chartLegend{
+        display:flex;
+        gap:22px;
+        flex-wrap:wrap;
+        align-items:center;
+        margin-top:8px;
+      }
+      .chartLegendItem{
+        display:inline-flex;
+        align-items:center;
+        gap:10px;
+        color:var(--text);
+        font-size:13px;
+        font-weight:600;
+      }
+      .chartLegendLine{
+        width:40px;
+        height:0;
+        border-top:3px solid currentColor;
+        border-radius:999px;
+        flex:0 0 auto;
+      }
+      .chartLegendLine.is-dashed{
+        border-top-style:dashed;
+        border-top-width:2px;
+      }
+      .chartLegendItem.is-events{
+        color:rgba(16,185,129,.9);
+      }
+      .chartLegendItem.is-views{
+        color:rgba(37,99,235,.82);
+      }
       .dashboard-shell{
         display:grid;
         grid-template-columns: repeat(2, minmax(0,1fr));
@@ -4749,10 +4782,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
         position:relative;
       }
       .dashboard-card[draggable="true"]{
-        cursor:grab;
+        cursor: move;
       }
       .dashboard-card[draggable="true"]:active{
-        cursor:grabbing;
+        cursor: move;
       }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
       .dashboard-card[data-collapsed="true"] .sectionTitle{ margin-bottom: 0; }
@@ -4780,28 +4813,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
         align-items:center;
         gap:6px;
         width:100%;
-      }
-      .dashboard-card .card-drag{
-        width:32px;
-        height:32px;
-        border:1px solid var(--line);
-        border-radius:var(--radius-inner);
-        background:var(--panel);
-        color:var(--muted);
-        display:inline-flex;
-        align-items:center;
-        justify-content:center;
-        cursor:grab;
-        flex:0 0 32px;
-      }
-      .dashboard-card .card-drag:hover{
-        background:#f8fafc;
-        color:var(--text);
-        border-color:rgba(15,23,42,.18);
-      }
-      .dashboard-card[draggable="true"]:active .card-drag,
-      .dashboard-card.dragging .card-drag{
-        cursor:grabbing;
       }
       .dashboard-card .card-move{
         width:32px;
@@ -5304,7 +5315,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
             <section class="card dashboard-card" id="dashboard-quick-links" data-dashboard-card="quick-links" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <div class="card-controls">
-                  <span class="card-drag" aria-hidden="true" title="Drag to move section"><i class="fa-solid fa-up-down-left-right"></i></span>
                   <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
                     <h2>Quick links</h2>
                     <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
@@ -5346,7 +5356,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
             <div class="card dashboard-card" id="dashboard-release-notes-card" data-dashboard-card="release-notes" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <div class="card-controls">
-                  <span class="card-drag" aria-hidden="true" title="Drag to move section"><i class="fa-solid fa-up-down-left-right"></i></span>
                   <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
                     <h2>Release notes</h2>
                     <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
@@ -5380,7 +5389,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
             <div class="card dashboard-card" id="dashboard-event-insights-card" data-dashboard-card="event-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <div class="card-controls">
-                  <span class="card-drag" aria-hidden="true" title="Drag to move section"><i class="fa-solid fa-up-down-left-right"></i></span>
                   <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-event-insights-body">
                     <h2>Event insights</h2>
                     <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
@@ -5402,7 +5410,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
             <div class="card dashboard-card" id="dashboard-venue-insights-card" data-dashboard-card="venue-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <div class="card-controls">
-                  <span class="card-drag" aria-hidden="true" title="Drag to move section"><i class="fa-solid fa-up-down-left-right"></i></span>
                   <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-venue-insights-body">
                     <h2>Venue insights</h2>
                     <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
@@ -5424,7 +5431,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
             <div class="card dashboard-card" id="dashboard-ad-insights-card" data-dashboard-card="ad-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <div class="card-controls">
-                  <span class="card-drag" aria-hidden="true" title="Drag to move section"><i class="fa-solid fa-up-down-left-right"></i></span>
                   <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-ad-insights-body">
                     <h2>Ad Insights</h2>
                     <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
@@ -5519,9 +5525,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
                   <button type="button" data-metric="views">Views</button>
                 </div>
                 <p class="sub" id="chartRangeLabel">Last 14 days (by start date)</p>
-                <div class="subcounts">
-                  <span class="small">Past: <strong id="chartPast" data-events="${esc(stats.past)}" data-views="${esc(stats.pastViews)}">${esc(stats.past)}</strong></span>
-                  <span class="small">Upcoming: <strong id="chartUpcoming" data-events="${esc(stats.upcoming)}" data-views="${esc(stats.upcomingViews)}">${esc(stats.upcoming)}</strong></span>
+                <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
+                  <div class="chartLegendItem is-events" data-legend-metric="events">
+                    <span class="chartLegendLine"></span>
+                    <span>Events</span>
+                  </div>
+                  <div class="chartLegendItem is-views" data-legend-metric="views">
+                    <span class="chartLegendLine is-dashed"></span>
+                    <span>Views</span>
+                  </div>
                 </div>
               </div>
               <div class="right">
@@ -7969,8 +7981,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
     const $tip    = document.getElementById("eventsChartTip");
     const $seg    = document.getElementById("chartViewSeg");
     const $range  = document.getElementById("chartRangeLabel");
-    const $pastEl = document.getElementById("chartPast");
-    const $upEl   = document.getElementById("chartUpcoming");
+    const $legend = document.getElementById("eventsChartLegend");
 
     if (!$canvas || !$wrap) return;
     const ctx = $canvas.getContext("2d");
@@ -8032,13 +8043,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
     return (prefixMap[mode] || "Period") + ": " + label;
   }
 
-  function setSubcounts(){
-    if (!$pastEl || !$upEl) return;
-    const key = (metric === "views") ? "views" : "events";
-    const pastVal = $pastEl.getAttribute("data-" + key) || "0";
-    const upVal = $upEl.getAttribute("data-" + key) || "0";
-    $pastEl.textContent = pastVal;
-    $upEl.textContent = upVal;
+  function syncLegend(){
+    if (!$legend) return;
+    $legend.querySelectorAll("[data-legend-metric]").forEach((item) => {
+      const itemMetric = item.getAttribute("data-legend-metric") || "";
+      const line = item.querySelector(".chartLegendLine");
+      if (!line) return;
+      const isPrimary = itemMetric === metric;
+      line.classList.toggle("is-dashed", !isPrimary);
+    });
   }
 
   function sizeCanvas(){
@@ -8259,7 +8272,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
       hideTip();
       setActiveBtn();
       setRangeLabel();
-      setSubcounts();
+      syncLegend();
       draw();
     });
   }
@@ -8273,7 +8286,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
       hoverIndex = -1;
       hideTip();
       setActiveBtn();
-      setSubcounts();
+      syncLegend();
       draw();
     });
   }
@@ -8297,7 +8310,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.48");
   function init(){
     setActiveBtn();
     setRangeLabel();
-    setSubcounts();
+    syncLegend();
     draw();
   }
 
