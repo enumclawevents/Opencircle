@@ -242,6 +242,7 @@ async function initDB() {
   };
   await addInviteCol("role", `ALTER TABLE invites ADD COLUMN role TEXT DEFAULT 'creator';`);
   await addInviteCol("city", `ALTER TABLE invites ADD COLUMN city TEXT DEFAULT 'Enumclaw';`);
+  await addInviteCol("createdByUserId", `ALTER TABLE invites ADD COLUMN createdByUserId INTEGER;`);
 
   // Migrate legacy role values
   await tryExec(`UPDATE users SET role = 'creator' WHERE role = 'city_viewer' OR role IS NULL OR role = '';`);

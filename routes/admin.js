@@ -1727,6 +1727,40 @@ async function resolveSessionUser(req) {
   return null;
 }
 
+const AREA_MANAGER_INVITE_LIMIT = 5;
+
+function normalizeRoleValue(value) {
+  return String(value || "creator").trim().toLowerCase();
+}
+
+function isAreaManagerRole(role) {
+  return normalizeRoleValue(role) === "area_manager";
+}
+
+function isDeveloperRole(role) {
+  return normalizeRoleValue(role) === "admin";
+}
+
+function hasDeveloperAccessRole(role) {
+  const normalized = normalizeRoleValue(role);
+  return normalized === "admin" || normalized === "area_manager";
+}
+
+function formatRoleLabel(role) {
+  switch (normalizeRoleValue(role)) {
+    case "admin":
+      return "Developer";
+    case "area_manager":
+      return "Area Manager";
+    case "editor":
+      return "Editor";
+    case "organizer":
+      return "Organizer";
+    default:
+      return "Creator";
+  }
+}
+
 function normalizeOrganizerIdentity(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -1816,7 +1850,9 @@ let whereParams = [];
     const userRole = String(req.user?.role || "creator").trim().toLowerCase();
     const isCityViewer = userRole === "creator";
     const isCityEditor = userRole === "editor";
-    const isAdminUser = userRole === "admin";
+    const isAdminUser = isDeveloperRole(userRole);
+    const isAreaManagerUser = isAreaManagerRole(userRole);
+    const hasDeveloperAccess = hasDeveloperAccessRole(userRole);
     const isOrganizerUser = userRole === "organizer";
     const organizerAccessValues = isOrganizerUser ? getOrganizerAccessValues(currentUser, req) : [];
     const organizerPrimaryName = isOrganizerUser ? getOrganizerPrimaryName(currentUser, req) : "";
@@ -1824,7 +1860,7 @@ let whereParams = [];
 
     // City (from URL unless locked)
     const userCity = String(req.user?.city || "Enumclaw");
-    const selectedCity = isAdminUser ? String(req.query.city || userCity) : userCity;
+    const selectedCity = hasDeveloperAccess ? String(req.query.city || userCity) : userCity;
 
     // Search
     if (q) {
@@ -2070,7 +2106,7 @@ try {
     const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
     const isFeatured = Number(editEvent?.featured || 0) === 1;
     const isEddiesPick = Number(editEvent?.eddiesPick || 0) === 1;
-    const canCurateEventPromotions = isAdminUser || isCityEditor;
+    const canCurateEventPromotions = hasDeveloperAccess || isCityEditor;
     const organizerFormValue = isOrganizerUser
       ? (organizerPrimaryName || String(editEvent?.organizer || ""))
       : String(editEvent?.organizer || "");
@@ -2146,7 +2182,7 @@ try {
     };
 
     const ALLOWED_CITIES = ["Enumclaw", "Buckley"];
-    const allowedForUser = isAdminUser ? ALLOWED_CITIES : [selectedCity];
+    const allowedForUser = hasDeveloperAccess ? ALLOWED_CITIES : [selectedCity];
     const formCity = String(editEvent?.city || selectedCity);
     const cityOptions = allowedForUser.map((c) => {
       const sel = formCity === c ? "selected" : "";
@@ -2211,7 +2247,7 @@ return `
       </div>
 
       <div class="event-actions">
-        ${isAdminUser || isCityEditor || isOrganizerUser ? `
+        ${hasDeveloperAccess || isCityEditor || isOrganizerUser ? `
 	          <a class="btn btn-edit" href="/admin/create-events?edit=${e.id}&pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit</a>
 
 	          <form method="POST"
@@ -2417,7 +2453,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.93");
+const appVersion = String(process.env.APP_VERSION || "v0.0.94");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2431,6 +2467,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Renamed Admin to Developer and added Area Manager role with a five-invite cap" });
     releaseLogItems.push({ date: "2026-04-07", text: "Added organizer user role with organizer-only event access and analytics" });
     releaseLogItems.push({ date: "2026-04-07", text: "Selected organizer insights now swap the top-10 table for linked top events" });
     releaseLogItems.push({ date: "2026-04-07", text: "Single-event insight grey panels now stretch to fit the card space better" });
@@ -3356,25 +3393,25 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
     if (showDashboard && isOrganizerUser) {
       return res.redirect(`/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`);
     }
-    if (showExisting && !(isAdminUser || isCityEditor || isCityViewer || isOrganizerUser)) return res.status(403).send("Forbidden");
-    if (showAnalytics && !(isAdminUser || isCityEditor || isOrganizerUser)) return res.status(403).send("Forbidden");
-    if (showUsers && !isAdminUser) return res.status(403).send("Forbidden");
-    if (showInvites && !isAdminUser) return res.status(403).send("Forbidden");
-    if (showUpdatesLog && !(isAdminUser || isOrganizerUser)) return res.status(403).send("Forbidden");
-    if (showApprove && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
-    if (showCreate && !(isAdminUser || isCityEditor || isCityViewer || isOrganizerUser)) return res.status(403).send("Forbidden");
-    if (showUpload && !(isAdminUser || isCityEditor || isOrganizerUser)) return res.status(403).send("Forbidden");
-    if (showOrganizers && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
-    if (showVenueCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
-    if (showVenueExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
-    if (showVenueAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
-    if (showJobsCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
-    if (showJobsExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
-    if (showJobsApplicants && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
-    if (showJobsAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
-    if (showAdsCreate && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
-    if (showAdsExisting && !(isAdminUser || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
-    if (showAdsAnalytics && !(isAdminUser || isCityEditor)) return res.status(403).send("Forbidden");
+    if (showExisting && !(hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser)) return res.status(403).send("Forbidden");
+    if (showAnalytics && !(hasDeveloperAccess || isCityEditor || isOrganizerUser)) return res.status(403).send("Forbidden");
+    if (showUsers && !hasDeveloperAccess) return res.status(403).send("Forbidden");
+    if (showInvites && !hasDeveloperAccess) return res.status(403).send("Forbidden");
+    if (showUpdatesLog && !(hasDeveloperAccess || isOrganizerUser)) return res.status(403).send("Forbidden");
+    if (showApprove && !(hasDeveloperAccess || isCityEditor)) return res.status(403).send("Forbidden");
+    if (showCreate && !(hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser)) return res.status(403).send("Forbidden");
+    if (showUpload && !(hasDeveloperAccess || isCityEditor || isOrganizerUser)) return res.status(403).send("Forbidden");
+    if (showOrganizers && !(hasDeveloperAccess || isCityEditor)) return res.status(403).send("Forbidden");
+    if (showVenueCreate && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showVenueExisting && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showVenueAnalytics && !(hasDeveloperAccess || isCityEditor)) return res.status(403).send("Forbidden");
+    if (showJobsCreate && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showJobsExisting && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showJobsApplicants && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showJobsAnalytics && !(hasDeveloperAccess || isCityEditor)) return res.status(403).send("Forbidden");
+    if (showAdsCreate && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showAdsExisting && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
+    if (showAdsAnalytics && !(hasDeveloperAccess || isCityEditor)) return res.status(403).send("Forbidden");
     const showSearch = true;
     const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
       ? "/admin/venues"
@@ -3506,7 +3543,19 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
       : `<div class="muted">No pending approvals.</div>`;
 
     let invitesHtml = "";
+    let inviteLimitNoticeHtml = "";
     if (showInvites) {
+      const areaManagerInviteCount =
+        isAreaManagerUser && currentUser?.id
+          ? Number((await get("SELECT COUNT(*) AS count FROM invites WHERE createdByUserId = ?", [currentUser.id]))?.count || 0)
+          : 0;
+      if (isAreaManagerUser) {
+        const remaining = Math.max(0, AREA_MANAGER_INVITE_LIMIT - areaManagerInviteCount);
+        const limitMessage = String(req.query.notice || "") === "invite_limit"
+          ? `You have already used your ${AREA_MANAGER_INVITE_LIMIT}-person invite limit.`
+          : `Area Managers can invite up to ${AREA_MANAGER_INVITE_LIMIT} people. ${remaining} invite${remaining === 1 ? "" : "s"} remaining.`;
+        inviteLimitNoticeHtml = `<div class="mini" style="margin-bottom:10px; border-color:rgba(59,130,246,.22); color:#1d4ed8;">${esc(limitMessage)}</div>`;
+      }
       const inviteRows = await all(
         "SELECT id, email, role, city, expiresAt, usedAt, createdAt FROM invites ORDER BY datetime(createdAt) DESC"
       );
@@ -3523,7 +3572,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
                   <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
                     <div class="muted" style="min-width:0;">
                       <div style="font-weight:700; color:#0f172a;">${esc(inv.email || "Any email")}</div>
-                      <div>Role: ${esc(inv.role === "editor" ? "Editor" : inv.role === "organizer" ? "Organizer" : "Creator")}</div>
+                      <div>Role: ${esc(formatRoleLabel(inv.role))}</div>
                       <div>City: ${esc(inv.city || "Enumclaw")}</div>
                       <div>Created: ${esc(fmtPendingDate(inv.createdAt))}</div>
                       ${inv.expiresAt ? `<div>Expires: ${esc(fmtPendingDate(inv.expiresAt))}</div>` : ""}
@@ -3558,7 +3607,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
         ? noticeHtml +
           rows
             .map((u) => {
-              const labelRole = u.role === "editor" ? "Editor" : u.role === "organizer" ? "Organizer" : u.role === "creator" ? "Creator" : "Admin";
+              const labelRole = formatRoleLabel(u.role);
               return `
                 <div class="mini" style="margin-bottom:10px;">
                   <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
@@ -3581,7 +3630,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
                           <option value="creator" ${u.role === "creator" ? "selected" : ""}>Creator</option>
                           <option value="editor" ${u.role === "editor" ? "selected" : ""}>Editor</option>
                           <option value="organizer" ${u.role === "organizer" ? "selected" : ""}>Organizer</option>
-                          <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option>
+                          <option value="area_manager" ${u.role === "area_manager" ? "selected" : ""}>Area Manager</option>
+                          <option value="admin" ${u.role === "admin" ? "selected" : ""}>Developer</option>
                         </select>
                         <select name="city" class="ctrl" style="min-width:140px;">
                           <option value="Enumclaw" ${u.city === "Enumclaw" ? "selected" : ""}>Enumclaw</option>
@@ -6427,7 +6477,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
         </div>
 
         <nav class="nav">
-          ${(isAdminUser || isCityEditor) ? `
+          ${(hasDeveloperAccess || isCityEditor) ? `
           <div class="nav-group nav-collapsible ${showDashboard ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${showDashboard ? "page" : "false"}"><i class="fa-regular fa-chart-bar nav-title-icon" aria-hidden="true"></i><span>Dashboard</span></a>
             <div class="nav-sub" data-nav-sub>
@@ -6441,15 +6491,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
             <a class="nav-title-btn" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${eventsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-calendar nav-title-icon" aria-hidden="true"></i><span>Events</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">${isOrganizerUser ? "My Events" : "All Events"}</a>
-              ${(isCityViewer || isCityEditor || isAdminUser || isOrganizerUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
-              ${(isAdminUser || isCityEditor) ? `
+              ${(isCityViewer || isCityEditor || hasDeveloperAccess || isOrganizerUser) ? `<a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor) ? `
               <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" style="display:flex; align-items:center; gap:8px;">
                 <span>Approve Events</span>
                 ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
               </a>` : ``}
-              ${(isAdminUser || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showUpload ? "active" : ""}" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
-              ${(isAdminUser || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
-              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showUpload ? "active" : ""}" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
             </div>
           </div>
           <div class="sb-divider"></div>
@@ -6457,9 +6507,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
           <div class="nav-group nav-collapsible ${venuesMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${venuesMenuOpen ? "page" : "false"}"><i class="fa-regular fa-building nav-title-icon" aria-hidden="true"></i><span>Venues</span></a>
             <div class="nav-sub" data-nav-sub>
-              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueExisting ? "active" : ""}" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>` : ``}
-              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venues</a>` : ``}
-              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+              ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showVenueExisting ? "active" : ""}" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>` : ``}
+              ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venues</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
             </div>
           </div>
           <div class="sb-divider"></div>
@@ -6467,10 +6517,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
           <div class="nav-group nav-collapsible ${jobsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${jobsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-clipboard nav-title-icon" aria-hidden="true"></i><span>Jobs</span></a>
             <div class="nav-sub" data-nav-sub>
-              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsExisting ? "active" : ""}" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>` : ``}
-              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsCreate ? "active" : ""}" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Jobs</a>` : ``}
-              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showJobsApplicants ? "active" : ""}" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>` : ``}
-              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
+              ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showJobsExisting ? "active" : ""}" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>` : ``}
+              ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showJobsCreate ? "active" : ""}" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Jobs</a>` : ``}
+              ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showJobsApplicants ? "active" : ""}" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
             </div>
           </div>
           <div class="sb-divider"></div>
@@ -6478,20 +6528,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
           <div class="nav-group nav-collapsible ${adsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${adsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-image nav-title-icon" aria-hidden="true"></i><span>Ads</span></a>
             <div class="nav-sub" data-nav-sub>
-              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showAdsExisting ? "active" : ""}" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>` : ``}
-              ${(isCityViewer || isCityEditor || isAdminUser) ? `<a class="subnav-link ${showAdsCreate ? "active" : ""}" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ads</a>` : ``}
-              ${(isAdminUser || isCityEditor) ? `<a class="subnav-link ${showAdsAnalytics ? "active" : ""}" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
+              ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showAdsExisting ? "active" : ""}" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>` : ``}
+              ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showAdsCreate ? "active" : ""}" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ads</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showAdsAnalytics ? "active" : ""}" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
             </div>
           </div>
 
-          ${(isAdminUser || isOrganizerUser) ? `<div class="sb-divider"></div>
+          ${(hasDeveloperAccess || isOrganizerUser) ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${adminMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${isAdminUser ? `/admin/users${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}` : "/admin/preferences"}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
+            <a class="nav-title-btn" href="${hasDeveloperAccess ? `/admin/users${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}` : "/admin/preferences"}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="/admin/preferences">Preferences</a>
               <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="/admin/updates-log">Release Notes</a>
-              ${isAdminUser ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>` : ``}
-              ${isAdminUser ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>` : ``}
+              ${hasDeveloperAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>` : ``}
+              ${hasDeveloperAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>` : ``}
             </div>
           </div>` : ``}
         </nav>
@@ -6614,9 +6664,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
                   ? `<img class="header-avatar" src="${esc(currentUser.photoUrl)}" alt="${esc(currentUser.displayName || currentUser.username || "User")}" />`
                   : `<i class="fa-regular fa-user" aria-hidden="true"></i>`}
               </a>
-              <a class="header-icon-btn" href="${(isAdminUser || isCityEditor) ? `/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}` : `/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`}" title="Notifications" aria-label="Notifications">
+              <a class="header-icon-btn" href="${(hasDeveloperAccess || isCityEditor) ? `/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}` : `/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`}" title="Notifications" aria-label="Notifications">
                 <i class="fa-regular fa-bell" aria-hidden="true"></i>
-                ${(isAdminUser || isCityEditor) && pendingCount > 0 ? `<span class="icon-badge">${pendingCount > 99 ? "99+" : pendingCount}</span>` : ``}
+                ${(hasDeveloperAccess || isCityEditor) && pendingCount > 0 ? `<span class="icon-badge">${pendingCount > 99 ? "99+" : pendingCount}</span>` : ``}
               </a>
             </div>
           </div>
@@ -6689,19 +6739,19 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
                     <div class="quick-links-group-title">Venues</div>
                     <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
                     <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
-                    ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
+                    ${(hasDeveloperAccess || isCityEditor) ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
                   </div>
                   <div class="quick-links-group">
                     <div class="quick-links-group-title">Jobs</div>
                     <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
                     <a class="btn quick-link" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
-                    ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
+                    ${(hasDeveloperAccess || isCityEditor) ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
                   </div>
                   <div class="quick-links-group">
                     <div class="quick-links-group-title">Ads</div>
                     <a class="btn quick-link" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ad</a>
                     <a class="btn quick-link" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>
-                    ${(isAdminUser || isCityEditor) ? `<a class="btn quick-link" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
+                    ${(hasDeveloperAccess || isCityEditor) ? `<a class="btn quick-link" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
                   </div>
                 </div>
               </div>
@@ -7139,6 +7189,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
               <p class="sub">Invite-only signup links</p>
             </div>
           </div>
+          ${inviteLimitNoticeHtml}
           <form method="POST" action="/admin/invites?city=${encodeURIComponent(selectedCity)}" style="display:grid; gap:12px; max-width:520px;">
             <div class="field">
               <label>Email (optional, to lock invite)</label>
@@ -7150,11 +7201,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
                 <option value="creator">Creator</option>
                 <option value="editor">Editor</option>
                 <option value="organizer">Organizer</option>
+                <option value="area_manager">Area Manager</option>
+                <option value="admin">Developer</option>
               </select>
             </div>
             <div class="field">
               <label>City</label>
-              <select name="city" ${isAdminUser ? "" : "disabled"}>
+              <select name="city" ${hasDeveloperAccess ? "" : "disabled"}>
                 ${allowedForUser.map(c => `<option value="${esc(c)}" ${c === selectedCity ? "selected" : ""}>${esc(c)}</option>`).join("")}
               </select>
             </div>
@@ -7224,7 +7277,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.93");
                     ? `<img src="${esc(currentUser.photoUrl)}" alt="Profile photo" style="width:160px; height:160px; border-radius:999px; object-fit:cover; border:1px solid var(--line);" />`
                     : `<div style="width:160px; height:160px; border-radius:999px; border:1px dashed var(--line); display:flex; align-items:center; justify-content:center; color:var(--muted);">No photo</div>`}
                 </div>
-                <div class="note" style="margin-top:10px;">Role: <strong style="color:var(--text);">${esc(currentUser.role || "creator")}</strong> · City: <strong style="color:var(--text);">${esc(currentUser.city || selectedCity)}</strong></div>
+                <div class="note" style="margin-top:10px;">Role: <strong style="color:var(--text);">${esc(formatRoleLabel(currentUser.role || "creator"))}</strong> · City: <strong style="color:var(--text);">${esc(currentUser.city || selectedCity)}</strong></div>
               </div>
             </div>
 
@@ -10719,21 +10772,31 @@ router.get("/pending-count", async (req, res) => {
   }
 });
 
-// Create invite (admin)
+// Create invite (developer / area manager)
 router.post("/invites", async (req, res) => {
   try {
-    const userRole = req.user?.role || "creator";
-    if (userRole !== "admin") return res.status(403).send("Forbidden");
+    const userRole = normalizeRoleValue(req.user?.role || "creator");
+    if (!hasDeveloperAccessRole(userRole)) return res.status(403).send("Forbidden");
+    const sessionUser = await resolveSessionUser(req);
     const email = String(req.body?.email || "").trim().toLowerCase() || null;
-    const role = String(req.body?.role || "creator");
+    const role = normalizeRoleValue(req.body?.role || "creator");
     const city = String(req.body?.city || req.query.city || "Enumclaw");
     const days = Math.max(1, Math.min(30, parseInt(req.body?.days || "7", 10)));
+    if (!["creator", "editor", "organizer", "area_manager", "admin"].includes(role)) {
+      return res.status(400).send("Invalid role.");
+    }
+    if (isAreaManagerRole(userRole) && sessionUser?.id) {
+      const existingInviteCount = Number((await get("SELECT COUNT(*) AS count FROM invites WHERE createdByUserId = ?", [sessionUser.id]))?.count || 0);
+      if (existingInviteCount >= AREA_MANAGER_INVITE_LIMIT) {
+        return res.redirect(`/admin/invites?notice=invite_limit&city=${encodeURIComponent(city)}`);
+      }
+    }
     const token = crypto.randomBytes(20).toString("hex");
     const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
     await run(
-      "INSERT INTO invites (email, tokenHash, role, city, expiresAt) VALUES (?, ?, ?, ?, ?)",
-      [email, tokenHash, role, city, expiresAt]
+      "INSERT INTO invites (email, tokenHash, role, city, expiresAt, createdByUserId) VALUES (?, ?, ?, ?, ?, ?)",
+      [email, tokenHash, role, city, expiresAt, sessionUser?.id || null]
     );
     return res.redirect(`/admin/invites?invite=${encodeURIComponent(token)}&city=${encodeURIComponent(city)}`);
   } catch (err) {
@@ -10744,8 +10807,8 @@ router.post("/invites", async (req, res) => {
 
 router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
   try {
-    const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator" || role === "organizer")) {
+    const role = normalizeRoleValue(req.user?.role || "creator");
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "creator" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     const u = await resolveSessionUser(req);
@@ -10781,8 +10844,8 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
 
 router.post("/preferences/password", async (req, res) => {
   try {
-    const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator" || role === "organizer")) {
+    const role = normalizeRoleValue(req.user?.role || "creator");
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "creator" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     const sessionUser = await resolveSessionUser(req);
@@ -10810,8 +10873,8 @@ router.post("/preferences/password", async (req, res) => {
 
 router.post("/invites/:id/delete", async (req, res) => {
   try {
-    const role = req.user?.role || "creator";
-    if (role !== "admin") return res.status(403).send("Forbidden");
+    const role = normalizeRoleValue(req.user?.role || "creator");
+    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/invites");
     await run("DELETE FROM invites WHERE id = ?", [id]);
@@ -10825,11 +10888,14 @@ router.post("/invites/:id/delete", async (req, res) => {
 // Users admin actions
 router.post("/users/:id/role", async (req, res) => {
   try {
-    const role = req.user?.role || "creator";
-    if (role !== "admin") return res.status(403).send("Forbidden");
+    const role = normalizeRoleValue(req.user?.role || "creator");
+    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/users");
-    const newRole = String(req.body?.role || "creator");
+    const newRole = normalizeRoleValue(req.body?.role || "creator");
+    if (!["creator", "editor", "organizer", "area_manager", "admin"].includes(newRole)) {
+      return res.redirect("/admin/users");
+    }
     const newCity = String(req.body?.city || "Enumclaw");
     await run("UPDATE users SET role = ?, city = ? WHERE id = ?", [newRole, newCity, id]);
     return res.redirect("/admin/users");
@@ -10841,8 +10907,8 @@ router.post("/users/:id/role", async (req, res) => {
 
 router.post("/users/:id/delete", async (req, res) => {
   try {
-    const role = req.user?.role || "creator";
-    if (role !== "admin") return res.status(403).send("Forbidden");
+    const role = normalizeRoleValue(req.user?.role || "creator");
+    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/users");
     await run("DELETE FROM users WHERE id = ?", [id]);
@@ -10855,8 +10921,8 @@ router.post("/users/:id/delete", async (req, res) => {
 
 router.post("/users/:id/reset", async (req, res) => {
   try {
-    const role = req.user?.role || "creator";
-    if (role !== "admin") return res.status(403).send("Forbidden");
+    const role = normalizeRoleValue(req.user?.role || "creator");
+    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/users");
 
@@ -10885,8 +10951,9 @@ router.post("/users/:id/reset", async (req, res) => {
 
 router.post("/users/:id/resend-invite", async (req, res) => {
   try {
-    const role = req.user?.role || "creator";
-    if (role !== "admin") return res.status(403).send("Forbidden");
+    const role = normalizeRoleValue(req.user?.role || "creator");
+    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
+    const sessionUser = await resolveSessionUser(req);
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/users");
 
@@ -10897,8 +10964,8 @@ router.post("/users/:id/resend-invite", async (req, res) => {
     const tokenHash = hashToken(token);
     const exp = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     await run(
-      "INSERT INTO invites (email, tokenHash, role, city, expiresAt) VALUES (?, ?, ?, ?, ?)",
-      [u.email, tokenHash, u.role || "creator", u.city || "Enumclaw", exp]
+      "INSERT INTO invites (email, tokenHash, role, city, expiresAt, createdByUserId) VALUES (?, ?, ?, ?, ?, ?)",
+      [u.email, tokenHash, u.role || "creator", u.city || "Enumclaw", exp, sessionUser?.id || null]
     );
 
     const baseUrl = `${req.protocol}://${req.get("host")}`;
@@ -10924,7 +10991,7 @@ router.post("/users/:id/resend-invite", async (req, res) => {
 router.post("/venues", upload.fields([{ name: "venueImageFile", maxCount: 1 }, { name: "venueGalleryFiles", maxCount: 3 }]), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "creator")) {
       return res.status(403).send("Forbidden");
     }
     await ensureVenueSchema();
@@ -10934,7 +11001,7 @@ router.post("/venues", upload.fields([{ name: "venueImageFile", maxCount: 1 }, {
     const isUpdate = Number.isInteger(id) && id > 0;
 
     const userCity = String(req.user?.city || "Enumclaw");
-    const city = role === "admin"
+    const city = hasDeveloperAccessRole(role)
       ? String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw"
       : userCity;
 
@@ -11050,7 +11117,7 @@ router.post("/venues", upload.fields([{ name: "venueImageFile", maxCount: 1 }, {
 router.post("/venues/:id/delete", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "creator")) {
       return res.status(403).send("Forbidden");
     }
     await ensureVenueSchema();
@@ -11075,7 +11142,7 @@ router.post("/venues/:id/delete", async (req, res) => {
 router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "creator")) {
       return res.status(403).send("Forbidden");
     }
     await ensureJobSchema();
@@ -11085,7 +11152,7 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
     const isUpdate = Number.isInteger(id) && id > 0;
 
     const userCity = String(req.user?.city || "Enumclaw");
-    const city = role === "admin"
+    const city = hasDeveloperAccessRole(role)
       ? String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw"
       : userCity;
 
@@ -11162,7 +11229,7 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
 router.post("/jobs/:id/delete", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "creator")) {
       return res.status(403).send("Forbidden");
     }
     await ensureJobSchema();
@@ -11187,7 +11254,7 @@ router.post("/jobs/:id/delete", async (req, res) => {
 router.post("/ads", upload.single("adImageFile"), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "creator")) {
       return res.status(403).send("Forbidden");
     }
     await ensureAdSchema();
@@ -11197,7 +11264,7 @@ router.post("/ads", upload.single("adImageFile"), async (req, res) => {
     const isUpdate = Number.isInteger(id) && id > 0;
 
     const userCity = String(req.user?.city || "Enumclaw");
-    const city = role === "admin"
+    const city = hasDeveloperAccessRole(role)
       ? String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw"
       : userCity;
 
@@ -11269,7 +11336,7 @@ router.post("/ads", upload.single("adImageFile"), async (req, res) => {
 router.post("/ads/:id/delete", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "creator")) {
       return res.status(403).send("Forbidden");
     }
     await ensureAdSchema();
@@ -11294,7 +11361,7 @@ router.post("/ads/:id/delete", async (req, res) => {
 router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "creator" || role === "organizer")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "creator" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     await ensurePickSchema();
@@ -11433,7 +11500,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       }
     }
 
-    const canCurateEventPromotions = role === "admin" || role === "editor";
+    const canCurateEventPromotions = hasDeveloperAccessRole(role) || role === "editor";
     const featuredFlag = canCurateEventPromotions ? (String(featured || "") === "1" ? 1 : 0) : 0;
     const eddiesPickFlag = canCurateEventPromotions ? (String(eddiesPick || "") === "1" ? 1 : 0) : 0;
 
@@ -11739,7 +11806,7 @@ return res.redirect(`/admin/create-events?${sp.toString()}`);
 router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv", maxCount: 1 }, { name: "imageZip", maxCount: 1 }]), async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "organizer")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     await ensurePickSchema();
@@ -11751,7 +11818,7 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
 
     const userCity = String(req.user?.city || "Enumclaw");
     const cityFromBody = String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw";
-    const importCity = role === "admin" ? cityFromBody : userCity;
+    const importCity = hasDeveloperAccessRole(role) ? cityFromBody : userCity;
     const file = req.files?.eventsCsv?.[0] || null;
     const imageZipFile = req.files?.imageZip?.[0] || null;
     if (!file?.buffer) return res.status(400).send("CSV file is required.");
@@ -11774,7 +11841,7 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
     try {
       for (const row of rows) {
         const rowNumber = Number(row.__rowNumber || 0);
-        const city = role === "admin"
+        const city = hasDeveloperAccessRole(role)
           ? (getCsvValue(row, ["city"]) || importCity)
           : importCity;
         const title = getCsvValue(row, ["title", "name"]);
@@ -11802,10 +11869,10 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         ].filter(Boolean);
         const imageAssetName = normalizeAssetKey(getCsvValue(row, ["imageFile", "imageFilename", "image"]));
         const categories = normalizeCategories(categoriesRaw);
-        const featuredFlag = role === "admin" || role === "editor"
+        const featuredFlag = hasDeveloperAccessRole(role) || role === "editor"
           ? (parseCsvBoolean(getCsvValue(row, ["featured"])) ? 1 : 0)
           : 0;
-        const eddiesPickFlag = role === "admin" || role === "editor"
+        const eddiesPickFlag = hasDeveloperAccessRole(role) || role === "editor"
           ? (parseCsvBoolean(getCsvValue(row, ["eddiesPick"])) ? 1 : 0)
           : 0;
         const hasRec = parseCsvBoolean(getCsvValue(row, ["hasRecurrence", "recurring"])) ? 1 : 0;
@@ -12022,7 +12089,7 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
 router.post("/approve-events/:id/approve", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor")) return res.status(403).send("Forbidden");
+    if (!(hasDeveloperAccessRole(role) || role === "editor")) return res.status(403).send("Forbidden");
     await ensurePickSchema();
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
@@ -12045,7 +12112,7 @@ router.post("/approve-events/:id/approve", async (req, res) => {
 router.post("/approve-events/:id/deny", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor")) return res.status(403).send("Forbidden");
+    if (!(hasDeveloperAccessRole(role) || role === "editor")) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
     await run("DELETE FROM pending_events WHERE id = ?", [id]);
@@ -12059,7 +12126,7 @@ router.post("/approve-events/:id/deny", async (req, res) => {
 router.post("/events/:id/delete", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "organizer")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     const id = parseInt(req.params.id, 10);
@@ -12102,7 +12169,7 @@ router.post("/events/:id/delete", async (req, res) => {
 router.post("/events/:id/archive", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "organizer")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     await ensureArchiveSchema();
@@ -12160,7 +12227,7 @@ router.post("/events/:id/archive", async (req, res) => {
 router.post("/events/:id/unarchive", async (req, res) => {
   try {
     const role = req.user?.role || "creator";
-    if (!(role === "admin" || role === "editor" || role === "organizer")) {
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "organizer")) {
       return res.status(403).send("Forbidden");
     }
     await ensureArchiveSchema();
