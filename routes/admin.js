@@ -2300,7 +2300,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.72");
+const appVersion = String(process.env.APP_VERSION || "v0.0.73");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2314,6 +2314,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.72");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Moved the events chart legend inline with the metric toggle to free up chart height" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now uses the same recurrence window rules as the public event feed" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now uses the same legacy timezone normalization as the public event feed" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now counts recurring rows from actual recurrence data even when flags are inconsistent" });
@@ -5236,6 +5237,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.72");
         gap:6px;
         min-width:0;
       }
+      .chartTopRow{
+        display:flex;
+        align-items:center;
+        gap:18px;
+        flex-wrap:wrap;
+        min-width:0;
+      }
       .sectionTitle--chart h2,
       .sectionTitle--chart .chartTitle,
       #chartRangeLabel,
@@ -5279,7 +5287,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.72");
         gap:22px;
         flex-wrap:wrap;
         align-items:center;
-        margin-top:8px;
+        margin-top:0;
       }
       .chartLegendItem{
         display:inline-flex;
@@ -5525,6 +5533,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.72");
           align-items: flex-start;
         }
         .sectionTitle--chart .right{ width:100%; }
+        .chartTopRow{
+          width:100%;
+          align-items:flex-start;
+          gap:10px;
+        }
       }
 
       .small{ font-size:12px; color:var(--muted); font-weight:600; }
@@ -6068,21 +6081,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.72");
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
-                <div class="metricToggle" id="chartMetricSeg" aria-label="Metric toggle">
-                  <button type="button" data-metric="events" class="on">Events</button>
-                  <button type="button" data-metric="views">Views</button>
+                <div class="chartTopRow">
+                  <div class="metricToggle" id="chartMetricSeg" aria-label="Metric toggle">
+                    <button type="button" data-metric="events" class="on">Events</button>
+                    <button type="button" data-metric="views">Views</button>
+                  </div>
+                  <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
+                    <div class="chartLegendItem is-events" data-legend-metric="events">
+                      <span class="chartLegendLine"></span>
+                      <span>Events</span>
+                    </div>
+                    <div class="chartLegendItem is-views" data-legend-metric="views">
+                      <span class="chartLegendLine is-dashed"></span>
+                      <span>Views</span>
+                    </div>
+                  </div>
                 </div>
                 <p class="sub" id="chartRangeLabel">Last 14 days (by start date)</p>
-                <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
-                  <div class="chartLegendItem is-events" data-legend-metric="events">
-                    <span class="chartLegendLine"></span>
-                    <span>Events</span>
-                  </div>
-                  <div class="chartLegendItem is-views" data-legend-metric="views">
-                    <span class="chartLegendLine is-dashed"></span>
-                    <span>Views</span>
-                  </div>
-                </div>
               </div>
               <div class="right">
                 <div class="seg" id="chartViewSeg" aria-label="Chart view">
