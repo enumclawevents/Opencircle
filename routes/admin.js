@@ -2253,7 +2253,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.62");
+const appVersion = String(process.env.APP_VERSION || "v0.0.64");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2267,6 +2267,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.62");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Top events today now ranks all events by today's view activity" });
+    releaseLogItems.push({ date: "2026-04-07", text: "Top event cards now use the same vertical spacing as top organizers" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows total events before unique events" });
     releaseLogItems.push({ date: "2026-04-06", text: "Removed label badges from events analytics summary cards" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows unique events in the first row and all views in the second row" });
@@ -2608,10 +2610,37 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.62");
         .join("");
     }
 
+    async function topEventsTodayByViewsHtml() {
+      if (!hasSourceTrackingTable) return topEventsFallback;
+      const todayWhere = [];
+      const todayParams = [];
+      if (selectedCity) {
+        todayWhere.push("LOWER(e.city) = LOWER(?)");
+        todayParams.push(selectedCity);
+      }
+      const todayWhereSql = todayWhere.length ? ` AND ${todayWhere.join(" AND ")}` : "";
+      const rows = await all(
+        `SELECT e.id, e.title, COUNT(*) AS todayViews
+         FROM event_views ev
+         JOIN events e ON e.id = ev.eventId
+         WHERE date(ev.createdAt) = date('now')${todayWhereSql}
+         GROUP BY e.id, e.title
+         ORDER BY todayViews DESC, e.id DESC
+         LIMIT 5`,
+        todayParams
+      );
+      if (!rows || rows.length === 0) return `<div class="muted">No views today.</div>`;
+      return rows
+        .map((r) => {
+          const label = esc(String(r.title || ""));
+          const count = Number(r.todayViews || 0);
+          return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
+        })
+        .join("");
+    }
+
     const withDashAnd = (clause) => `${dashWhere ? dashWhere + " AND " : "WHERE "}${clause}`;
-    const topTodayHtml = await topEventsHtml(
-      withDashAnd(`date(startDateTime) = date('now')`)
-    );
+    const topTodayHtml = await topEventsTodayByViewsHtml();
     const topWeekHtml = await topEventsHtml(
       withDashAnd(`date(startDateTime) >= date('now','-6 day') AND date(startDateTime) <= date('now')`)
     );
@@ -4594,6 +4623,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.62");
       .mini-spaced .kv{
         margin: 14px 0;
         padding: 4px 0;
+      }
+      .grid4 > .card .mini-spaced{
+        height: 100%;
+        display:flex;
+        flex-direction:column;
+        justify-content:space-between;
       }
       .kv strong{ color:var(--text); font-size:14px; text-align:right; }
       .sidebar .mini .kv{
