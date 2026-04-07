@@ -1936,7 +1936,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.52");
+const appVersion = String(process.env.APP_VERSION || "v0.0.53");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -1950,6 +1950,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.52");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-06", text: "All chart headlines now stay on one line" });
     releaseLogItems.push({ date: "2026-04-06", text: "Venue and ad charts now match the main events chart style" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics range label now stays on one line" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now uses a line legend instead of past and upcoming counts" });
@@ -4691,7 +4692,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.52");
         display:flex;
         flex-direction:column;
         gap:6px;
+        min-width:0;
       }
+      .sectionTitle--chart h2,
+      .sectionTitle--chart .chartTitle,
       #chartRangeLabel,
       #venueChartRangeLabel,
       #adChartRangeLabel{
@@ -6539,7 +6543,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.52");
 		                  <div class="mini">
 		                    <div class="sectionTitle sectionTitle--chart" style="margin-bottom:10px;">
 		                      <div class="left">
-		                        <div style="font-weight:700;">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)} monthly performance</div>
+		                        <div class="chartTitle" style="font-weight:700;">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)} monthly performance</div>
 		                        <p class="sub" id="venueChartRangeLabel">Last 12 months</p>
 		                        <div class="chartLegend" id="venueChartLegend" aria-label="Chart legend">
 		                          <div class="chartLegendItem is-events" data-legend-metric="views">
@@ -7188,7 +7192,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.52");
                 <div class="mini">
                   <div class="sectionTitle sectionTitle--chart" style="margin-bottom:10px;">
                     <div class="left">
-                      <div style="font-weight:700;">${esc(selectedAd.name || `Ad #${selectedAd.id}`)} monthly performance</div>
+                      <div class="chartTitle" style="font-weight:700;">${esc(selectedAd.name || `Ad #${selectedAd.id}`)} monthly performance</div>
                       <p class="sub" id="adChartRangeLabel">Last 12 months</p>
                       <div class="chartLegend" id="adChartLegend" aria-label="Chart legend">
                         <div class="chartLegendItem is-events" data-legend-metric="views">
