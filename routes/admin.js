@@ -2340,7 +2340,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.74");
+const appVersion = String(process.env.APP_VERSION || "v0.0.75");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2354,6 +2354,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.74");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Moved the chart range text inline with the legend and restored the chart card height to match organizers" });
     releaseLogItems.push({ date: "2026-04-07", text: "Fixed total events overcounting by using real recurrence end dates instead of a 10-year fallback" });
     releaseLogItems.push({ date: "2026-04-07", text: "Moved the events chart legend inline with the metric toggle to free up chart height" });
     releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now uses the same recurrence window rules as the public event feed" });
@@ -4420,13 +4421,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.74");
       }
       .analytics-main-grid > .card{
         height:auto;
-        min-height:340px;
+        min-height:352px;
       }
       .analytics-main-grid > .card:first-child{
-        min-height:340px;
+        min-height:352px;
       }
       .analytics-main-grid > .card:last-child{
-        min-height:340px;
+        min-height:352px;
       }
 
       .grid4{
@@ -5285,6 +5286,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.74");
         flex-wrap:wrap;
         min-width:0;
       }
+      .chartTopRow .sub{
+        margin:0;
+        white-space:nowrap;
+      }
       .sectionTitle--chart h2,
       .sectionTitle--chart .chartTitle,
       #chartRangeLabel,
@@ -5578,6 +5583,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.74");
           width:100%;
           align-items:flex-start;
           gap:10px;
+        }
+        .chartTopRow .sub{
+          white-space:normal;
         }
       }
 
@@ -6137,8 +6145,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.74");
                       <span>Views</span>
                     </div>
                   </div>
+                  <p class="sub" id="chartRangeLabel">Last 14 days (by start date)</p>
                 </div>
-                <p class="sub" id="chartRangeLabel">Last 14 days (by start date)</p>
               </div>
               <div class="right">
                 <div class="seg" id="chartViewSeg" aria-label="Chart view">
@@ -6149,9 +6157,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.74");
                 </div>
               </div>
             </div>
-            <div class="chart-wrap" id="eventsChartWrap" style="min-height:72px;">
+            <div class="chart-wrap" id="eventsChartWrap" style="min-height:82px;">
               <div id="eventsChartData" data-chart="${esc(chartDataJson)}" hidden></div>
-              <canvas id="eventsChart" style="width:100%; height:170px; display:block;"></canvas>
+              <canvas id="eventsChart" style="width:100%; height:180px; display:block;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
           </div>
