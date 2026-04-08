@@ -2620,7 +2620,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.5");
+const appVersion = String(process.env.APP_VERSION || "v0.1.6");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2634,6 +2634,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.5");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now fails safely so one schema mismatch cannot break the whole admin home page" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now keeps a balanced mix of content types so recent events do not get crowded out" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now falls back cleanly so published events still appear even on older event schemas" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now includes recent pending event submissions alongside published content" });
@@ -3948,25 +3949,28 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.5");
       return name ? `Posted by ${name}` : "Posted by Legacy post";
     }
 
-    const activityItems = [];
-    const eventActivityCols = await getEventsColumns();
-    const eventActivityWhere = [];
-    const eventActivityParams = [];
-    if (selectedCity) {
-      eventActivityWhere.push("e.city = ?");
-      eventActivityParams.push(selectedCity);
-    }
-    if (organizerOwnerClause) {
-      eventActivityWhere.push(
-        organizerOwnerClause.sql
-          .replace(/\borganizer\b/g, "e.organizer")
-      );
-      eventActivityParams.push(...organizerOwnerClause.params);
-    }
-    const eventActivityWhereSql = eventActivityWhere.length ? `WHERE ${eventActivityWhere.join(" AND ")}` : "";
+    let activityDashboardHtml = `<div class="muted">No recent activity in ${esc(selectedCity)} yet.</div>`;
+    try {
+      const activityItems = [];
+      const eventActivityCols = await getEventsColumns();
+      const venueActivityCols = await getVenueColumns();
+      const jobActivityCols = await getJobColumns();
+      const adActivityCols = await getAdColumns();
+      const eventActivityWhere = [];
+      const eventActivityParams = [];
+      if (selectedCity) {
+        eventActivityWhere.push("e.city = ?");
+        eventActivityParams.push(selectedCity);
+      }
+      if (organizerOwnerClause) {
+        eventActivityWhere.push(
+          organizerOwnerClause.sql.replace(/\borganizer\b/g, "e.organizer")
+        );
+        eventActivityParams.push(...organizerOwnerClause.params);
+      }
+      const eventActivityWhereSql = eventActivityWhere.length ? `WHERE ${eventActivityWhere.join(" AND ")}` : "";
 
-    if (hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser) {
-      try {
+      if (hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser) {
         const eventCreatorJoin = eventActivityCols.has("createdByUserId")
           ? "LEFT JOIN users u ON u.id = e.createdByUserId"
           : "";
@@ -3992,11 +3996,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.5");
             href: buildActivityHref("/admin/existing-events", row.slug || row.title || row.id),
           });
         });
-      } catch (_) {}
-    }
+      }
 
-    if (canApproveEvents) {
-      try {
+      if (canApproveEvents) {
         const rows = await all(
           `SELECT id, title, location, organizer, submitterEmail, createdAt
              FROM pending_events
@@ -4015,16 +4017,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.5");
             href: buildActivityHref("/admin/approve-events", row.title || row.id),
           });
         });
-      } catch (_) {}
-    }
+      }
 
-    if (hasDeveloperAccess || isCityEditor || isCityViewer) {
-      try {
+      if (hasDeveloperAccess || isCityEditor || isCityViewer) {
+        const venueCreatorJoin = venueActivityCols.has("createdByUserId")
+          ? "LEFT JOIN users u ON u.id = v.createdByUserId"
+          : "";
+        const venueCreatorSelect = venueActivityCols.has("createdByUserId")
+          ? "u.displayName, u.username, u.email"
+          : "NULL AS displayName, NULL AS username, NULL AS email";
         const rows = await all(
           `SELECT v.id, v.slug, v.name, v.address, v.createdAt,
-                  u.displayName, u.username, u.email
+                  ${venueCreatorSelect}
              FROM venues v
-             LEFT JOIN users u ON u.id = v.createdByUserId
+             ${venueCreatorJoin}
             WHERE v.city = ?
             ORDER BY datetime(COALESCE(v.createdAt, '1970-01-01')) DESC, v.id DESC
             LIMIT 6`,
@@ -4039,16 +4045,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.5");
             href: buildActivityHref("/admin/venues", row.slug || row.name || row.id),
           });
         });
-      } catch (_) {}
-    }
+      }
 
-    if (hasDeveloperAccess || isCityEditor || isCityViewer) {
-      try {
+      if (hasDeveloperAccess || isCityEditor || isCityViewer) {
+        const jobCreatorJoin = jobActivityCols.has("createdByUserId")
+          ? "LEFT JOIN users u ON u.id = j.createdByUserId"
+          : "";
+        const jobCreatorSelect = jobActivityCols.has("createdByUserId")
+          ? "u.displayName, u.username, u.email"
+          : "NULL AS displayName, NULL AS username, NULL AS email";
         const rows = await all(
           `SELECT j.id, j.slug, j.title, j.company, j.createdAt,
-                  u.displayName, u.username, u.email
+                  ${jobCreatorSelect}
              FROM jobs j
-             LEFT JOIN users u ON u.id = j.createdByUserId
+             ${jobCreatorJoin}
             WHERE j.city = ?
             ORDER BY datetime(COALESCE(j.createdAt, '1970-01-01')) DESC, j.id DESC
             LIMIT 6`,
@@ -4063,16 +4073,20 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.5");
             href: buildActivityHref("/admin/jobs", row.slug || row.title || row.id),
           });
         });
-      } catch (_) {}
-    }
+      }
 
-    if (hasDeveloperAccess || isCityEditor || isCityViewer) {
-      try {
+      if (hasDeveloperAccess || isCityEditor || isCityViewer) {
+        const adCreatorJoin = adActivityCols.has("createdByUserId")
+          ? "LEFT JOIN users u ON u.id = a.createdByUserId"
+          : "";
+        const adCreatorSelect = adActivityCols.has("createdByUserId")
+          ? "u.displayName, u.username, u.email"
+          : "NULL AS displayName, NULL AS username, NULL AS email";
         const rows = await all(
           `SELECT a.id, a.slug, a.name, a.placement, a.createdAt,
-                  u.displayName, u.username, u.email
+                  ${adCreatorSelect}
              FROM ads a
-             LEFT JOIN users u ON u.id = a.createdByUserId
+             ${adCreatorJoin}
             WHERE a.city = ?
             ORDER BY datetime(COALESCE(a.createdAt, '1970-01-01')) DESC, a.id DESC
             LIMIT 6`,
@@ -4087,41 +4101,43 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.5");
             href: buildActivityHref("/admin/ads", row.slug || row.name || row.id),
           });
         });
-      } catch (_) {}
-    }
+      }
 
-    const sortedActivityItems = activityItems.slice().sort((a, b) => {
-      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return bTime - aTime;
-    });
-    const activityCardItems = [];
-    const seenActivityTypes = new Set();
-    for (const item of sortedActivityItems) {
-      if (seenActivityTypes.has(item.type)) continue;
-      seenActivityTypes.add(item.type);
-      activityCardItems.push(item);
-    }
-    for (const item of sortedActivityItems) {
-      if (activityCardItems.length >= 10) break;
-      if (activityCardItems.includes(item)) continue;
-      activityCardItems.push(item);
-    }
+      const sortedActivityItems = activityItems.slice().sort((a, b) => {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTime - aTime;
+      });
+      const activityCardItems = [];
+      const seenActivityTypes = new Set();
+      for (const item of sortedActivityItems) {
+        if (seenActivityTypes.has(item.type)) continue;
+        seenActivityTypes.add(item.type);
+        activityCardItems.push(item);
+      }
+      for (const item of sortedActivityItems) {
+        if (activityCardItems.length >= 10) break;
+        if (activityCardItems.includes(item)) continue;
+        activityCardItems.push(item);
+      }
 
-    const activityDashboardHtml = activityCardItems.length
-      ? activityCardItems
-          .map((item) => `
-            <a class="activity-item" href="${esc(item.href)}">
-              <div class="activity-item-top">
-                <span class="activity-pill">${esc(item.type)}</span>
-                <span class="activity-time">${esc(fmtPendingDate(item.createdAt))}</span>
-              </div>
-              <div class="activity-title">${esc(item.title)}</div>
-              <div class="activity-meta">${esc(item.meta || selectedCity)}</div>
-            </a>
-          `)
-          .join("")
-      : `<div class="muted">No recent activity in ${esc(selectedCity)} yet.</div>`;
+      activityDashboardHtml = activityCardItems.length
+        ? activityCardItems
+            .map((item) => `
+              <a class="activity-item" href="${esc(item.href)}">
+                <div class="activity-item-top">
+                  <span class="activity-pill">${esc(item.type)}</span>
+                  <span class="activity-time">${esc(fmtPendingDate(item.createdAt))}</span>
+                </div>
+                <div class="activity-title">${esc(item.title)}</div>
+                <div class="activity-meta">${esc(item.meta || selectedCity)}</div>
+              </a>
+            `)
+            .join("")
+        : `<div class="muted">No recent activity in ${esc(selectedCity)} yet.</div>`;
+    } catch (activityErr) {
+      console.error("[admin activity]", activityErr);
+    }
 
     let editJob = null;
     if (showJobsCreate && req.query.edit) {
