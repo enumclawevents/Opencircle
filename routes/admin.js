@@ -2620,7 +2620,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.2");
+const appVersion = String(process.env.APP_VERSION || "v0.1.4");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2634,6 +2634,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.2");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now falls back cleanly so published events still appear even on older event schemas" });
+    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now includes recent pending event submissions alongside published content" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now shows events alongside venues, jobs, and ads with posted-by usernames" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick-link groups now pin shorter link stacks to the top for cleaner alignment" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard now includes an Activity feed for recently posted events, venues, jobs, and ads" });
@@ -3946,6 +3948,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.2");
     }
 
     const activityItems = [];
+    const eventActivityCols = await getEventsColumns();
     const eventActivityWhere = [];
     const eventActivityParams = [];
     if (selectedCity) {
@@ -3963,13 +3966,18 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.2");
 
     if (hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser) {
       try {
+        const eventCreatorJoin = eventActivityCols.has("createdByUserId")
+          ? "LEFT JOIN users u ON u.id = e.createdByUserId"
+          : "";
+        const eventCreatorSelect = eventActivityCols.has("createdByUserId")
+          ? "u.displayName, u.username, u.email"
+          : "NULL AS displayName, NULL AS username, NULL AS email";
         const rows = await all(
           `SELECT e.id, e.slug, e.title, e.location, e.createdAt,
-                  u.displayName, u.username, u.email
-             FROM events
-             e
-             LEFT JOIN users u ON u.id = e.createdByUserId
-             ${eventActivityWhereSql ? eventActivityWhereSql.replace("WHERE", "WHERE") : ""}
+                  ${eventCreatorSelect}
+             FROM events e
+             ${eventCreatorJoin}
+             ${eventActivityWhereSql}
              ORDER BY datetime(COALESCE(e.createdAt, '1970-01-01')) DESC, e.id DESC
              LIMIT 8`,
           eventActivityParams
@@ -3981,6 +3989,29 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.2");
             meta: `${row.location || selectedCity} · ${getActivityAuthorLabel(row)}`,
             createdAt: row.createdAt,
             href: buildActivityHref("/admin/existing-events", row.slug || row.title || row.id),
+          });
+        });
+      } catch (_) {}
+    }
+
+    if (canApproveEvents) {
+      try {
+        const rows = await all(
+          `SELECT id, title, location, organizer, submitterEmail, createdAt
+             FROM pending_events
+            WHERE city = ?
+            ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+            LIMIT 6`,
+          [selectedCity]
+        );
+        rows.forEach((row) => {
+          const submitter = row.submitterEmail ? `Submitted by ${row.submitterEmail}` : (row.organizer ? `Submitted for ${row.organizer}` : "Submitted for review");
+          activityItems.push({
+            type: "Submission",
+            title: row.title || "Untitled event submission",
+            meta: `${row.location || selectedCity} · ${submitter}`,
+            createdAt: row.createdAt,
+            href: buildActivityHref("/admin/approve-events", row.title || row.id),
           });
         });
       } catch (_) {}
