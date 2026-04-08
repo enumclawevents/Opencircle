@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.20");
+const appVersion = String(process.env.APP_VERSION || "v0.1.21");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.20");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-08", text: "Header messages now uses the same icon-button style as notifications and sits beside it" });
     releaseLogItems.push({ date: "2026-04-08", text: "Admin header search now replaces the old title and helper block on the left across pages" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart now expands to match the organizer overview card height so the left panel no longer ends with a blank gap" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart no longer stretches to match the taller overview card, removing the large blank space below it" });
@@ -5525,39 +5526,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.20");
       .header-tools{
         display:flex;
         align-items:center;
-        gap:18px;
-      }
-      .header-messages-btn{
-        display:inline-flex;
-        align-items:center;
-        gap:8px;
-        min-height:40px;
-        padding:0 12px;
-        border-radius:var(--radius-inner);
-        border:1px solid var(--line);
-        background:#fff;
-        color:var(--text);
-        text-decoration:none;
-        font-size:13px;
-        font-weight:650;
-        white-space:nowrap;
-      }
-      .header-messages-btn:hover{
-        border-color:rgba(15,23,42,.18);
-        background:#f8fafc;
-      }
-      .header-messages-btn .icon-badge{
-        position:static;
-        min-width:18px;
-        height:18px;
-        padding:0 5px;
-        border-radius:999px;
-        background:#ef4444;
-        color:#fff;
-        font-size:11px;
-        font-weight:700;
-        line-height:18px;
-        text-align:center;
+        gap:12px;
       }
       .header-icon-btn{
         position:relative;
@@ -5615,6 +5584,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.20");
         line-height:18px;
         text-align:center;
         border:2px solid var(--panel);
+      }
+      .header-icon-btn.header-message-icon{
+        color:#0ea5e9;
       }
       .online-dot{
         width:10px;
@@ -7406,17 +7378,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.20");
 
           <div class="h-right">
             <div class="header-tools">
-              ${canUseMessages ? `<a class="header-messages-btn" href="/admin/messages${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" title="Messages" aria-label="Messages">
-                <i class="fa-regular fa-envelope" aria-hidden="true"></i>
-                <span>Messages</span>
-                ${unreadMessagesCount > 0 ? `<span class="icon-badge">${unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}</span>` : ``}
-              </a>` : ``}
               <span class="header-account-name">${esc(currentUser?.displayName || currentUser?.username || currentUser?.email || req.user?.user || "Account")}</span>
               <a class="header-icon-btn" href="/admin/preferences" title="Account" aria-label="Account">
                 ${currentUser?.photoUrl
                   ? `<img class="header-avatar" src="${esc(currentUser.photoUrl)}" alt="${esc(currentUser.displayName || currentUser.username || "User")}" />`
                   : `<i class="fa-regular fa-user" aria-hidden="true"></i>`}
               </a>
+              ${canUseMessages ? `<a class="header-icon-btn header-message-icon" href="/admin/messages${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" title="Messages" aria-label="Messages">
+                <i class="fa-regular fa-envelope" aria-hidden="true"></i>
+                ${unreadMessagesCount > 0 ? `<span class="icon-badge">${unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}</span>` : ``}
+              </a>` : ``}
               <a class="header-icon-btn" href="${(hasDeveloperAccess || isCityEditor) ? `/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}` : `/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`}" title="Notifications" aria-label="Notifications">
                 <i class="fa-regular fa-bell" aria-hidden="true"></i>
                 ${(hasDeveloperAccess || isCityEditor) && pendingCount > 0 ? `<span class="icon-badge">${pendingCount > 99 ? "99+" : pendingCount}</span>` : ``}
