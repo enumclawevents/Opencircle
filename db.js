@@ -221,6 +221,22 @@ async function initDB() {
   await addUserCol("role", `ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'creator';`);
   await addUserCol("city", `ALTER TABLE users ADD COLUMN city TEXT DEFAULT 'Enumclaw';`);
   await addUserCol("createdAt", `ALTER TABLE users ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
+  await addUserCol("lastSeenAt", `ALTER TABLE users ADD COLUMN lastSeenAt TEXT;`);
+
+  await tryExec(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL DEFAULT 'Enumclaw',
+      senderUserId INTEGER NOT NULL,
+      recipientUserId INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      readAt TEXT,
+      createdAt TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_messages_city_createdAt ON messages(city, createdAt DESC);`);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_messages_recipient_readAt ON messages(recipientUserId, readAt);`);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(senderUserId, recipientUserId, createdAt DESC);`);
 
   // Invites (invite-only signup)
   await tryExec(`

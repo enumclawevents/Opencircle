@@ -1660,6 +1660,7 @@ async function ensureUserProfileSchema() {
       phone TEXT,
       photoUrl TEXT,
       bio TEXT,
+      lastSeenAt TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT
     )
@@ -1677,9 +1678,30 @@ async function ensureUserProfileSchema() {
   await addCol("phone", "ALTER TABLE users ADD COLUMN phone TEXT");
   await addCol("photoUrl", "ALTER TABLE users ADD COLUMN photoUrl TEXT");
   await addCol("bio", "ALTER TABLE users ADD COLUMN bio TEXT");
+  await addCol("lastSeenAt", "ALTER TABLE users ADD COLUMN lastSeenAt TEXT");
   await addCol("updatedAt", "ALTER TABLE users ADD COLUMN updatedAt TEXT");
 
   _userProfileSchemaEnsured = true;
+}
+
+let _messageSchemaEnsured = false;
+async function ensureMessageSchema() {
+  if (_messageSchemaEnsured) return;
+  await run(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL DEFAULT 'Enumclaw',
+      senderUserId INTEGER NOT NULL,
+      recipientUserId INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      readAt TEXT,
+      createdAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  try { await run("CREATE INDEX IF NOT EXISTS idx_messages_city_createdAt ON messages(city, createdAt DESC)"); } catch (_) {}
+  try { await run("CREATE INDEX IF NOT EXISTS idx_messages_recipient_readAt ON messages(recipientUserId, readAt)"); } catch (_) {}
+  try { await run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(senderUserId, recipientUserId, createdAt DESC)"); } catch (_) {}
+  _messageSchemaEnsured = true;
 }
 
 async function resolveSessionUser(req) {
@@ -1699,7 +1721,7 @@ async function resolveSessionUser(req) {
 
   for (const key of candidates) {
     const row = await get(
-      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
       [key, key]
     );
     if (row?.id) return row;
@@ -1707,7 +1729,7 @@ async function resolveSessionUser(req) {
 
   if (role === "admin") {
     let adminRow = await get(
-      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, createdAt FROM users WHERE lower(COALESCE(role,'')) = 'admin' ORDER BY id ASC LIMIT 1"
+      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(role,'')) = 'admin' ORDER BY id ASC LIMIT 1"
     );
     if (adminRow?.id) return adminRow;
 
@@ -1718,13 +1740,25 @@ async function resolveSessionUser(req) {
       [email, username, "", city]
     );
     adminRow = await get(
-      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
       [username, email || username]
     );
     if (adminRow?.id) return adminRow;
   }
 
   return null;
+}
+
+function isUserOnline(lastSeenAt) {
+  if (!lastSeenAt) return false;
+  const ts = new Date(String(lastSeenAt)).getTime();
+  if (!Number.isFinite(ts)) return false;
+  return (Date.now() - ts) <= 5 * 60 * 1000;
+}
+
+function onlineStatusMarkup(lastSeenAt, label = "User status") {
+  const online = isUserOnline(lastSeenAt);
+  return `<span class="online-dot ${online ? "is-online" : "is-offline"}" title="${esc(online ? `${label}: online` : `${label}: offline`)}" aria-label="${esc(online ? `${label}: online` : `${label}: offline`)}"></span>`;
 }
 
 const AREA_MANAGER_INVITE_LIMIT = 5;
@@ -1817,6 +1851,7 @@ async function renderAdmin(req, res, view) {
     await ensureJobSchema();
     await ensureJobApplicantSchema();
     await ensureUserProfileSchema();
+    await ensureMessageSchema();
     // ✅ Pagination + total count + optional server-side search
 const limit = Math.max(5, Math.min(200, parseInt(req.query.limit || "20", 10)));
 const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
@@ -1861,6 +1896,128 @@ let whereParams = [];
     // City (from URL unless locked)
     const userCity = String(req.user?.city || "Enumclaw");
     const selectedCity = hasDeveloperAccess ? String(req.query.city || userCity) : userCity;
+    const canUseMessages = !!currentUser?.id;
+
+    let unreadMessagesCount = 0;
+    let messageContacts = [];
+    let recentMessageThreads = [];
+    let selectedMessageContactId = parseInt(String(req.query.user || ""), 10);
+    let selectedMessageContact = null;
+    let messageConversationRows = [];
+
+    if (canUseMessages) {
+      try {
+        const unreadRow = await get(
+          `SELECT COUNT(*) AS count
+             FROM messages
+            WHERE recipientUserId = ?
+              AND city = ?
+              AND readAt IS NULL`,
+          [currentUser.id, selectedCity]
+        );
+        unreadMessagesCount = Number(unreadRow?.count || 0);
+      } catch (_) {
+        unreadMessagesCount = 0;
+      }
+
+      try {
+        messageContacts = await all(
+          `SELECT
+             u.id,
+             u.email,
+             u.username,
+             u.displayName,
+             u.photoUrl,
+             u.lastSeenAt,
+             u.role,
+             u.city,
+             COALESCE(unread.unreadCount, 0) AS unreadCount,
+             latest.latestAt
+           FROM users u
+           LEFT JOIN (
+             SELECT senderUserId AS otherUserId, COUNT(*) AS unreadCount
+             FROM messages
+             WHERE recipientUserId = ?
+               AND city = ?
+               AND readAt IS NULL
+             GROUP BY senderUserId
+           ) unread ON unread.otherUserId = u.id
+           LEFT JOIN (
+             SELECT
+               CASE
+                 WHEN senderUserId = ? THEN recipientUserId
+                 ELSE senderUserId
+               END AS otherUserId,
+               MAX(datetime(createdAt)) AS latestAt
+             FROM messages
+             WHERE city = ?
+               AND (senderUserId = ? OR recipientUserId = ?)
+             GROUP BY otherUserId
+           ) latest ON latest.otherUserId = u.id
+           WHERE u.city = ?
+             AND u.id <> ?
+           ORDER BY
+             CASE WHEN latest.latestAt IS NULL THEN 1 ELSE 0 END ASC,
+             datetime(latest.latestAt) DESC,
+             lower(COALESCE(u.displayName, u.username, u.email, '')) ASC`,
+          [currentUser.id, selectedCity, currentUser.id, selectedCity, currentUser.id, currentUser.id, selectedCity, currentUser.id]
+        );
+      } catch (_) {
+        messageContacts = [];
+      }
+
+      if (Number.isInteger(selectedMessageContactId) && messageContacts.some((row) => Number(row.id) === selectedMessageContactId)) {
+        selectedMessageContact = messageContacts.find((row) => Number(row.id) === Number(selectedMessageContactId)) || null;
+      }
+
+      if (selectedMessageContactId && selectedMessageContact) {
+        try {
+          messageConversationRows = await all(
+            `SELECT
+               m.id,
+               m.body,
+               m.readAt,
+               m.createdAt,
+               m.senderUserId,
+               m.recipientUserId,
+               s.displayName AS senderDisplayName,
+               s.username AS senderUsername,
+               s.email AS senderEmail,
+               s.photoUrl AS senderPhotoUrl
+             FROM messages m
+             LEFT JOIN users s ON s.id = m.senderUserId
+             WHERE m.city = ?
+               AND (
+                 (m.senderUserId = ? AND m.recipientUserId = ?)
+                 OR
+                 (m.senderUserId = ? AND m.recipientUserId = ?)
+               )
+             ORDER BY datetime(m.createdAt) ASC`,
+            [selectedCity, currentUser.id, selectedMessageContactId, selectedMessageContactId, currentUser.id]
+          );
+          await run(
+            `UPDATE messages
+                SET readAt = datetime('now')
+              WHERE recipientUserId = ?
+                AND senderUserId = ?
+                AND city = ?
+                AND readAt IS NULL`,
+            [currentUser.id, selectedMessageContactId, selectedCity]
+          );
+          if (selectedMessageContact) selectedMessageContact.unreadCount = 0;
+          unreadMessagesCount = Math.max(
+            0,
+            unreadMessagesCount - messageConversationRows.filter((row) => Number(row.recipientUserId) === Number(currentUser.id) && !row.readAt).length
+          );
+        } catch (_) {
+          messageConversationRows = [];
+        }
+      }
+
+      recentMessageThreads = messageContacts
+        .filter((row) => row.latestAt || Number(row.unreadCount || 0) > 0)
+        .slice(0, 5);
+    }
 
     // Search
     if (q) {
@@ -2453,7 +2610,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.98");
+const appVersion = String(process.env.APP_VERSION || "v0.0.99");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2467,6 +2624,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Added city-scoped messaging with online status, header access, and dashboard inbox preview" });
+    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick links now show only the three most important actions per section" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick links are back to a simpler module-based layout without a separate Analytics section" });
     releaseLogItems.push({ date: "2026-04-07", text: "Content tabs now default cleanly to their main pages so analytics no longer shows a double-active sidebar state" });
     releaseLogItems.push({ date: "2026-04-07", text: "Analytics menu now uses simpler labels, a better icon, and the order Events, Organizers, Venues, Jobs, Ads" });
@@ -3389,6 +3548,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
     const showAdsCreate = view === "ads-create";
     const showAdsExisting = view === "ads-existing";
     const showAdsAnalytics = view === "ads-analytics";
+    const showMessages = view === "messages";
     const showPreferences = view === "preferences";
     const showUpdatesLog = view === "updates-log";
     const showUsers = view === "users";
@@ -3401,6 +3561,47 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
     if (showAnalytics && !(hasDeveloperAccess || isCityEditor || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showUsers && !hasDeveloperAccess) return res.status(403).send("Forbidden");
     if (showInvites && !hasDeveloperAccess) return res.status(403).send("Forbidden");
+    if (showMessages && !canUseMessages) return res.status(403).send("Forbidden");
+    if (showMessages && !selectedMessageContact && messageContacts.length) {
+      selectedMessageContactId = Number(messageContacts[0].id);
+      selectedMessageContact = messageContacts[0];
+      try {
+        messageConversationRows = await all(
+          `SELECT
+             m.id,
+             m.body,
+             m.readAt,
+             m.createdAt,
+             m.senderUserId,
+             m.recipientUserId,
+             s.displayName AS senderDisplayName,
+             s.username AS senderUsername,
+             s.email AS senderEmail,
+             s.photoUrl AS senderPhotoUrl
+           FROM messages m
+           LEFT JOIN users s ON s.id = m.senderUserId
+           WHERE m.city = ?
+             AND (
+               (m.senderUserId = ? AND m.recipientUserId = ?)
+               OR
+               (m.senderUserId = ? AND m.recipientUserId = ?)
+             )
+           ORDER BY datetime(m.createdAt) ASC`,
+          [selectedCity, currentUser.id, selectedMessageContactId, selectedMessageContactId, currentUser.id]
+        );
+        await run(
+          `UPDATE messages
+              SET readAt = datetime('now')
+            WHERE recipientUserId = ?
+              AND senderUserId = ?
+              AND city = ?
+              AND readAt IS NULL`,
+          [currentUser.id, selectedMessageContactId, selectedCity]
+        );
+        unreadMessagesCount = Math.max(0, unreadMessagesCount - Number(selectedMessageContact.unreadCount || 0));
+        selectedMessageContact.unreadCount = 0;
+      } catch (_) {}
+    }
     if (showUpdatesLog && !(hasDeveloperAccess || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showApprove && !(hasDeveloperAccess || isCityEditor)) return res.status(403).send("Forbidden");
     if (showCreate && !(hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser)) return res.status(403).send("Forbidden");
@@ -3416,7 +3617,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
     if (showAdsCreate && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showAdsExisting && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showAdsAnalytics && !(hasDeveloperAccess || isCityEditor)) return res.status(403).send("Forbidden");
-    const showSearch = true;
+    const showSearch = !showMessages;
     const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
       ? "/admin/venues"
       : showJobsApplicants
@@ -3436,6 +3637,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
       ? "Search jobs (title, company, location, ID)..."
       : showAdsCreate || showAdsExisting || showAdsAnalytics
       ? "Search ads (name, placement, slug, URL, ID)..."
+      : showMessages
+      ? ""
       : "Search events (title, slug, location, ID)...";
     const searchResetHref = showVenueCreate || showVenueExisting || showVenueAnalytics
       ? `/admin/venues?pg=1&limit=${esc(String(limit))}`
@@ -3596,7 +3799,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
     let usersHtml = "";
     if (showUsers) {
       const rows = await all(
-        "SELECT id, email, username, role, city, createdAt FROM users ORDER BY datetime(createdAt) DESC"
+        "SELECT id, email, username, role, city, createdAt, lastSeenAt FROM users ORDER BY datetime(createdAt) DESC"
       );
       const notice = String(req.query.notice || "");
       const noticeHtml =
@@ -3616,7 +3819,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
                 <div class="mini" style="margin-bottom:10px;">
                   <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
                     <div class="muted" style="min-width:0;">
-                      <div style="font-weight:700; color:#0f172a;">${esc(u.username || u.email || "User")}</div>
+                      <div class="user-line" style="font-weight:700; color:#0f172a;">${onlineStatusMarkup(u.lastSeenAt, `${u.username || u.email || "User"} status`)}<span>${esc(u.username || u.email || "User")}</span></div>
                       <div>Email: ${esc(u.email || "—")}</div>
                       <div>Role: ${esc(labelRole)}</div>
                       <div>City: ${esc(u.city || "Enumclaw")}</div>
@@ -3654,6 +3857,67 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
             .join("")
         : `<div class="muted">No users yet.</div>`;
     }
+
+    const messagesNotice = String(req.query.notice || "").trim().toLowerCase();
+    const messagesNoticeHtml = messagesNotice === "sent"
+      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(16,185,129,.35); color:#065f46;">Message sent.</div>`
+      : messagesNotice === "empty"
+      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); color:#991b1b;">Message cannot be empty.</div>`
+      : messagesNotice === "recipient"
+      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); color:#991b1b;">Choose a valid user in your city.</div>`
+      : "";
+
+    const messageContactsHtml = messageContacts.length
+      ? messageContacts.map((user) => {
+          const name = user.displayName || user.username || user.email || "User";
+          const href = `/admin/messages?user=${encodeURIComponent(String(user.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+          const latestLabel = user.latestAt ? fmtPendingDate(user.latestAt) : `${user.city || selectedCity} user`;
+          return `
+            <a class="message-user-link ${Number(user.id) === Number(selectedMessageContactId) ? "active" : ""}" href="${href}">
+              ${user.photoUrl
+                ? `<img class="message-user-avatar" src="${esc(user.photoUrl)}" alt="${esc(name)}" />`
+                : `<div class="message-user-avatar" aria-hidden="true"></div>`}
+              <div class="message-user-copy">
+                <div class="message-user-name">${onlineStatusMarkup(user.lastSeenAt, `${name} status`)}<span>${esc(name)}</span></div>
+                <div class="message-user-meta">${esc(latestLabel)}</div>
+              </div>
+              ${Number(user.unreadCount || 0) > 0 ? `<span class="message-unread">${Number(user.unreadCount) > 99 ? "99+" : Number(user.unreadCount)}</span>` : ``}
+            </a>
+          `;
+        }).join("")
+      : `<div class="messages-empty">No other users are available in ${esc(selectedCity)} yet.</div>`;
+
+    const messageConversationHtml = selectedMessageContact
+      ? (messageConversationRows.length
+        ? messageConversationRows.map((row) => {
+            const mine = Number(row.senderUserId) === Number(currentUser?.id || 0);
+            const senderName = row.senderDisplayName || row.senderUsername || row.senderEmail || "User";
+            return `
+              <div class="message-bubble ${mine ? "mine" : ""}">
+                <div>${esc(row.body || "")}</div>
+                <div class="meta">${esc(mine ? "You" : senderName)} · ${esc(fmtPendingDate(row.createdAt))}</div>
+              </div>
+            `;
+          }).join("")
+        : `<div class="messages-empty">No messages yet. Start the conversation below.</div>`)
+      : `<div class="messages-empty">Choose a user in ${esc(selectedCity)} to start messaging.</div>`;
+
+    const messagesDashboardHtml = recentMessageThreads.length
+      ? recentMessageThreads.map((user) => {
+          const name = user.displayName || user.username || user.email || "User";
+          return `
+            <div class="insight-row">
+              <div class="label">
+                <a href="/admin/messages?user=${encodeURIComponent(String(user.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}" style="display:inline-flex; align-items:center; gap:8px; color:inherit; text-decoration:none;">
+                  ${onlineStatusMarkup(user.lastSeenAt, `${name} status`)}
+                  <span>${esc(name)}</span>
+                </a>
+              </div>
+              <div class="value">${Number(user.unreadCount || 0) > 0 ? `${Number(user.unreadCount)} unread` : esc(user.latestAt ? fmtPendingDate(user.latestAt) : "No messages")}</div>
+            </div>
+          `;
+        }).join("")
+      : `<div class="muted">No recent messages in ${esc(selectedCity)} yet.</div>`;
 
     let editJob = null;
     if (showJobsCreate && req.query.edit) {
@@ -5009,6 +5273,38 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
         align-items:center;
         gap:18px;
       }
+      .header-messages-btn{
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        min-height:40px;
+        padding:0 12px;
+        border-radius:var(--radius-inner);
+        border:1px solid var(--line);
+        background:#fff;
+        color:var(--text);
+        text-decoration:none;
+        font-size:13px;
+        font-weight:650;
+        white-space:nowrap;
+      }
+      .header-messages-btn:hover{
+        border-color:rgba(15,23,42,.18);
+        background:#f8fafc;
+      }
+      .header-messages-btn .icon-badge{
+        position:static;
+        min-width:18px;
+        height:18px;
+        padding:0 5px;
+        border-radius:999px;
+        background:#ef4444;
+        color:#fff;
+        font-size:11px;
+        font-weight:700;
+        line-height:18px;
+        text-align:center;
+      }
       .header-icon-btn{
         position:relative;
         width:40px;
@@ -5065,6 +5361,130 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
         line-height:18px;
         text-align:center;
         border:2px solid var(--panel);
+      }
+      .online-dot{
+        width:10px;
+        height:10px;
+        border-radius:999px;
+        display:inline-block;
+        flex:0 0 auto;
+        border:2px solid #fff;
+        box-shadow:0 0 0 1px rgba(148,163,184,.25);
+      }
+      .online-dot.is-online{ background:#22c55e; }
+      .online-dot.is-offline{ background:#cbd5e1; }
+      .user-line{
+        display:flex;
+        align-items:center;
+        gap:8px;
+      }
+      .messages-layout{
+        display:grid;
+        grid-template-columns: 320px minmax(0, 1fr);
+        gap:var(--gap);
+        align-items:start;
+      }
+      .messages-card{
+        min-height:560px;
+      }
+      .message-list{
+        display:grid;
+        gap:10px;
+      }
+      .message-user-link{
+        display:flex;
+        align-items:center;
+        gap:10px;
+        padding:12px;
+        border:1px solid var(--line);
+        border-radius:var(--radius-inner);
+        background:#fff;
+        color:var(--text);
+        text-decoration:none;
+      }
+      .message-user-link.active{
+        border-color:rgba(0,192,139,.35);
+        background:rgba(0,192,139,.06);
+      }
+      .message-user-avatar{
+        width:40px;
+        height:40px;
+        border-radius:999px;
+        background:#e2e8f0;
+        object-fit:cover;
+        flex:0 0 auto;
+      }
+      .message-user-copy{
+        min-width:0;
+        flex:1 1 auto;
+      }
+      .message-user-name{
+        display:flex;
+        align-items:center;
+        gap:8px;
+        font-weight:650;
+        color:var(--text);
+      }
+      .message-user-meta{
+        color:var(--muted);
+        font-size:12px;
+        margin-top:4px;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+      }
+      .message-unread{
+        min-width:20px;
+        height:20px;
+        padding:0 6px;
+        border-radius:999px;
+        background:#0f172a;
+        color:#fff;
+        font-size:11px;
+        font-weight:700;
+        line-height:20px;
+        text-align:center;
+      }
+      .messages-thread{
+        display:grid;
+        gap:12px;
+        max-height:420px;
+        overflow:auto;
+        padding-right:4px;
+      }
+      .message-bubble{
+        max-width:min(540px, 82%);
+        padding:12px 14px;
+        border-radius:var(--radius-inner);
+        border:1px solid var(--line);
+        background:#fff;
+      }
+      .message-bubble.mine{
+        margin-left:auto;
+        background:rgba(0,192,139,.08);
+        border-color:rgba(0,192,139,.22);
+      }
+      .message-bubble .meta{
+        color:var(--muted);
+        font-size:11px;
+        margin-top:6px;
+      }
+      .messages-compose{
+        display:grid;
+        gap:10px;
+        margin-top:14px;
+      }
+      .messages-compose textarea{
+        min-height:104px;
+        resize:vertical;
+      }
+      .messages-empty{
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        min-height:220px;
+        color:var(--muted);
+        text-align:center;
       }
 
       .search{
@@ -5226,6 +5646,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
         .grid4{ grid-template-columns: 1fr; }
         .venue-analytics-grid2{ grid-template-columns: 1fr; }
         .gridMain{ grid-template-columns: 1fr; }
+        .messages-layout{ grid-template-columns: 1fr; }
         .rail{ display:none; }
         .mobile-sidebar-toggle{ display:inline-flex; }
         .sidebar{
@@ -6618,6 +7039,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
                 ? "All Ads"
                 : showAdsAnalytics
                 ? "Ads Analytics"
+                : showMessages
+                ? "Messages"
                 : showPreferences
                 ? "Preferences"
                 : showUpdatesLog
@@ -6659,6 +7082,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
                 ? "Browse and search ad inventory"
                 : showAdsAnalytics
                 ? "Views, clicks, and monthly ad performance"
+                : showMessages
+                ? `Message ${esc(selectedCity)} users and see who is online`
                 : showPreferences
                 ? "Manage your account details, profile photo, and password"
                 : showUpdatesLog
@@ -6681,6 +7106,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
             </form>
             ` : ``}
             <div class="header-tools">
+              ${canUseMessages ? `<a class="header-messages-btn" href="/admin/messages${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" title="Messages" aria-label="Messages">
+                <i class="fa-regular fa-envelope" aria-hidden="true"></i>
+                <span>Messages</span>
+                ${unreadMessagesCount > 0 ? `<span class="icon-badge">${unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}</span>` : ``}
+              </a>` : ``}
               <span class="header-account-name">${esc(currentUser?.displayName || currentUser?.username || currentUser?.email || req.user?.user || "Account")}</span>
               <a class="header-icon-btn" href="/admin/preferences" title="Account" aria-label="Account">
                 ${currentUser?.photoUrl
@@ -6756,28 +7186,30 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
                     <div class="quick-links-group-title">Events</div>
                     <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">${isOrganizerUser ? "My Events" : "All Events"}</a>
                     <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
-                    ${canApproveEvents ? `<a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>` : ``}
-                    ${(hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<a class="btn quick-link" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
-                    ${canSeeEventsAnalytics ? `<a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
-                    ${canSeeOrganizerAnalytics ? `<a class="btn quick-link" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
+                    ${canApproveEvents
+                      ? `<a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>`
+                      : ((hasDeveloperAccess || isCityEditor || isOrganizerUser)
+                        ? `<a class="btn quick-link" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>`
+                        : (canSeeEventsAnalytics
+                          ? `<a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>`
+                          : ``))}
                   </div>` : ``}
                   ${canManageVenues ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Venues</div>
-                    <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
                     <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
+                    <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
                     ${canSeeVenueAnalytics ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
                   </div>` : ``}
                   ${canManageJobs ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Jobs</div>
-                    <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
                     <a class="btn quick-link" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>
+                    <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
                     <a class="btn quick-link" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
-                    ${canSeeJobAnalytics ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
                   </div>` : ``}
                   ${canManageAds ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Ads</div>
-                    <a class="btn quick-link" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ad</a>
                     <a class="btn quick-link" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>
+                    <a class="btn quick-link" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ad</a>
                     ${canSeeAdsAnalytics ? `<a class="btn quick-link" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
                   </div>` : ``}
                 </div>
@@ -6817,6 +7249,25 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
           </div>
 
           <div class="dashboard-col dashboard-col-fill dashboard-insights" data-dashboard-column="right">
+            ${canUseMessages ? `<div class="card dashboard-card" id="dashboard-messages-card" data-dashboard-card="messages" data-collapsible-card data-collapsed="false">
+              <div class="sectionTitle">
+                <div class="card-controls">
+                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-messages-body">
+                    <h2>Messages</h2>
+                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
+                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
+                </div>
+              </div>
+              <div class="card-body" id="dashboard-messages-body">
+                <div class="insight-list">${messagesDashboardHtml}</div>
+                <div style="margin-top:12px;">
+                  <a class="btn" href="/admin/messages${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Open messages</a>
+                </div>
+              </div>
+            </div>` : ``}
+
             ${canSeeEventsAnalytics ? `<div class="card dashboard-card" id="dashboard-event-insights-card" data-dashboard-card="event-insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <div class="card-controls">
@@ -7255,6 +7706,48 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
         </section>
         ` : ``}
 
+        ${showMessages ? `
+        <section class="messages-layout" id="messages">
+          <div class="card messages-card">
+            <div class="sectionTitle">
+              <div>
+                <h2>${esc(selectedCity)} users</h2>
+                <p class="sub">Message people in your city and see who is online.</p>
+              </div>
+            </div>
+            ${messagesNoticeHtml}
+            <div class="message-list">${messageContactsHtml}</div>
+          </div>
+
+          <div class="card messages-card">
+            <div class="sectionTitle">
+              <div>
+                <h2>${selectedMessageContact ? esc(selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "Conversation") : "Conversation"}</h2>
+                <p class="sub">${selectedMessageContact ? `${selectedCity} conversation` : `Choose a ${selectedCity} user to start messaging.`}</p>
+              </div>
+            </div>
+            ${selectedMessageContact ? `
+            <div class="mini" style="margin-bottom:14px;">
+              <div class="user-line" style="font-weight:650; color:var(--text);">
+                ${onlineStatusMarkup(selectedMessageContact.lastSeenAt, `${selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User"} status`)}
+                <span>${esc(selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User")}</span>
+              </div>
+              <div class="muted" style="margin-top:6px;">Role: ${esc(formatRoleLabel(selectedMessageContact.role || "creator"))} · City: ${esc(selectedMessageContact.city || selectedCity)}</div>
+            </div>
+            ` : ``}
+            <div class="messages-thread">${messageConversationHtml}</div>
+            ${selectedMessageContact ? `
+            <form class="messages-compose" method="POST" action="/admin/messages">
+              <input type="hidden" name="recipientUserId" value="${esc(String(selectedMessageContact.id))}" />
+              ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
+              <textarea class="ctrl" name="body" placeholder="Write a message to ${esc(selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "this user")}..." required></textarea>
+              <div><button class="btn btn-primary" type="submit">Send message</button></div>
+            </form>
+            ` : ``}
+          </div>
+        </section>
+        ` : ``}
+
         ${showPreferences ? `
         <section class="gridMain single" id="preferences">
           <div class="card">
@@ -7304,7 +7797,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.98");
                     ? `<img src="${esc(currentUser.photoUrl)}" alt="Profile photo" style="width:160px; height:160px; border-radius:999px; object-fit:cover; border:1px solid var(--line);" />`
                     : `<div style="width:160px; height:160px; border-radius:999px; border:1px dashed var(--line); display:flex; align-items:center; justify-content:center; color:var(--muted);">No photo</div>`}
                 </div>
-                <div class="note" style="margin-top:10px;">Role: <strong style="color:var(--text);">${esc(formatRoleLabel(currentUser.role || "creator"))}</strong> · City: <strong style="color:var(--text);">${esc(currentUser.city || selectedCity)}</strong></div>
+                <div class="note" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${onlineStatusMarkup(currentUser.lastSeenAt, "Your status")}<span>Status: <strong style="color:var(--text);">${isUserOnline(currentUser.lastSeenAt) ? "Online" : "Offline"}</strong></span><span>·</span><span>Role: <strong style="color:var(--text);">${esc(formatRoleLabel(currentUser.role || "creator"))}</strong></span><span>·</span><span>City: <strong style="color:var(--text);">${esc(currentUser.city || selectedCity)}</strong></span></div>
               </div>
             </div>
 
@@ -10784,6 +11277,7 @@ router.get("/jobs/analytics", async (req, res) => renderAdmin(req, res, "jobs-an
 router.get("/ads", async (req, res) => renderAdmin(req, res, "ads-existing"));
 router.get("/ads/create", async (req, res) => renderAdmin(req, res, "ads-create"));
 router.get("/ads/analytics", async (req, res) => renderAdmin(req, res, "ads-analytics"));
+router.get("/messages", async (req, res) => renderAdmin(req, res, "messages"));
 router.get("/preferences", async (req, res) => renderAdmin(req, res, "preferences"));
 router.get("/updates-log", async (req, res) => renderAdmin(req, res, "updates-log"));
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
@@ -10796,6 +11290,46 @@ router.get("/pending-count", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ ok: false, count: 0 });
+  }
+});
+
+router.post("/messages", async (req, res) => {
+  try {
+    await ensureMessageSchema();
+    await ensureUserProfileSchema();
+    const currentUser = await resolveSessionUser(req);
+    if (!currentUser?.id) return res.status(403).send("Forbidden");
+
+    const requestedCity = String(req.body?.city || req.query.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
+    const city = hasDeveloperAccessRole(req.user?.role || "")
+      ? requestedCity
+      : String(currentUser.city || requestedCity || "Enumclaw").trim() || "Enumclaw";
+    const recipientUserId = parseInt(String(req.body?.recipientUserId || ""), 10);
+    const body = String(req.body?.body || "").trim().slice(0, 4000);
+
+    if (!Number.isInteger(recipientUserId) || recipientUserId <= 0 || recipientUserId === Number(currentUser.id)) {
+      return res.redirect(`/admin/messages?notice=recipient${city ? `&city=${encodeURIComponent(city)}` : ""}`);
+    }
+    if (!body) {
+      return res.redirect(`/admin/messages?notice=empty${city ? `&city=${encodeURIComponent(city)}` : ""}${Number.isInteger(recipientUserId) ? `&user=${encodeURIComponent(String(recipientUserId))}` : ""}`);
+    }
+
+    const recipient = await get(
+      "SELECT id, city FROM users WHERE id = ? LIMIT 1",
+      [recipientUserId]
+    );
+    if (!recipient?.id || String(recipient.city || "") !== city) {
+      return res.redirect(`/admin/messages?notice=recipient${city ? `&city=${encodeURIComponent(city)}` : ""}`);
+    }
+
+    await run(
+      "INSERT INTO messages (city, senderUserId, recipientUserId, body, createdAt) VALUES (?, ?, ?, ?, datetime('now'))",
+      [city, currentUser.id, recipientUserId, body]
+    );
+    return res.redirect(`/admin/messages?notice=sent&user=${encodeURIComponent(String(recipientUserId))}${city ? `&city=${encodeURIComponent(city)}` : ""}`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to send message.");
   }
 });
 

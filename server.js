@@ -164,7 +164,16 @@ function requireLogin(req, res, next) {
   const cookies = parseCookies(req.headers.cookie || "");
   const token = cookies.oc_auth;
   const sess = getSession(token);
-  if (sess) req.user = sess;
+  if (sess) {
+    req.user = sess;
+    const sessionKey = String(sess.user || "").trim();
+    if (sessionKey) {
+      run(
+        "UPDATE users SET lastSeenAt = datetime('now') WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?)",
+        [sessionKey, sessionKey]
+      ).catch(() => {});
+    }
+  }
 
   // allow login + public endpoints
   if (
