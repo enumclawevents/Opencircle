@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.19");
+const appVersion = String(process.env.APP_VERSION || "v0.1.20");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.19");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-08", text: "Admin header search now replaces the old title and helper block on the left across pages" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart now expands to match the organizer overview card height so the left panel no longer ends with a blank gap" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart no longer stretches to match the taller overview card, removing the large blank space below it" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart row cards now top-align instead of stretching to the tallest column, removing the large gap below the chart" });
@@ -5489,12 +5490,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.19");
       }
       .h-left{
         display:flex;
-        align-items:flex-start;
+        align-items:center;
         gap:12px;
         min-width:0;
+        flex:1 1 auto;
       }
-      .h-left-copy{
+      .h-left-search{
         min-width:0;
+        flex:1 1 auto;
+        max-width:980px;
       }
       .mobile-sidebar-toggle{
         display:none;
@@ -5516,10 +5520,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.19");
         background:rgba(15,23,42,.42);
         z-index:70;
       }
-      .h-left h1{ margin:0; font-size:30px; letter-spacing:-.02em; font-weight:700; line-height:1.1; }
-      .h-left p{ margin:10px 0 0; color:var(--muted); font-size:15px; line-height:1.45; max-width:68ch; }
       .h-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-      .h-right{ flex:1; justify-content:flex-end; }
+      .h-right{ flex:0 0 auto; justify-content:flex-end; }
       .header-tools{
         display:flex;
         align-items:center;
@@ -5774,9 +5776,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.19");
         border-radius:0;
         padding: 0;
         width:100%;
-        max-width:700px;
+        max-width:none;
         position:relative;
-        margin-right:10px;
+        margin-right:0;
       }
       .search::before{
         content:"\f002";
@@ -7387,106 +7389,22 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.19");
             <button type="button" class="mobile-sidebar-toggle" id="mobileSidebarToggle" aria-label="Open sidebar" aria-expanded="false" aria-controls="adminSidebar">
               <i class="fa-solid fa-bars" aria-hidden="true"></i>
             </button>
-            <div class="h-left-copy">
-            <h1>${
-              showCreate
-                ? "Create Events"
-                : showUpload
-                ? "Upload Events"
-                : showApprove
-                ? "Approve Events"
-                : showExisting
-                ? (isOrganizerUser ? "My Events" : "All Events")
-                : showAnalytics
-                ? "Events Analytics"
-                : showOrganizers
-                ? "Organizers"
-                : showVenueCreate
-                ? "Create Venue"
-                : showVenueExisting
-                ? "All Venues"
-                : showVenueAnalytics
-                ? "Venue Analytics"
-                : showJobsCreate
-                ? "Create Jobs"
-                : showJobsExisting
-                ? "All Jobs"
-                : showJobsApplicants
-                ? "Job Applicants"
-                : showJobsAnalytics
-                ? "Job Analytics"
-                : showAdsCreate
-                ? "Create Ads"
-                : showAdsExisting
-                ? "All Ads"
-                : showAdsAnalytics
-                ? "Ads Analytics"
-                : showMessages
-                ? "Messages"
-                : showPreferences
-                ? "Preferences"
-                : showUpdatesLog
-                ? "Release Notes"
-                : showInvites
-                ? "Invites"
-                : "Dashboard"
-            }</h1>
-            <p>${
-              showCreate
-                ? "Add or edit events"
-                : showUpload
-                ? "Bulk upload events from CSV"
-                : showApprove
-                ? "Review pending submissions"
-                : showExisting
-                ? (isOrganizerUser ? "Manage and review your organizer events" : "Edit, delete, and check stats")
-                : showAnalytics
-                ? "Event metrics, charts, and top performers"
-                : showOrganizers
-                ? "Organizer leaderboards and performance insights"
-                : showVenueCreate
-                ? "Create a venue record for this city"
-                : showVenueExisting
-                ? "Browse and search venue records"
-                : showVenueAnalytics
-                ? "Venue totals and city distribution"
-                : showJobsCreate
-                ? "Create a local job listing"
-                : showJobsExisting
-                ? "Browse and search local jobs"
-                : showJobsApplicants
-                ? "Review candidates submitted for local jobs"
-                : showJobsAnalytics
-                ? "Performance and funnel metrics for jobs"
-                : showAdsCreate
-                ? "Create and manage rotating ads"
-                : showAdsExisting
-                ? "Browse and search ad inventory"
-                : showAdsAnalytics
-                ? "Views, clicks, and monthly ad performance"
-                : showMessages
-                ? `Message ${esc(selectedCity)} users and see who is online`
-                : showPreferences
-                ? "Manage your account details, profile photo, and password"
-                : showUpdatesLog
-                ? "Full log of API updates and feature changes"
-                : "Combined events/venues overview with quick actions"
-            }</p>
+            ${showSearch ? `
+            <div class="h-left-search">
+              <form class="search" method="GET" action="${searchAction}">
+                <input name="q" value="${esc(q)}" placeholder="${searchPlaceholder}" />
+                ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
+                <input type="hidden" name="pg" value="1" />
+                <input type="hidden" name="limit" value="${esc(String(limit))}" />
+                ${(showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
+                ${(showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="${esc(String(1))}" />` : ``)}
+                ${q ? `<a class="btn" href="${searchResetHref}">Reset</a>` : ``}
+              </form>
             </div>
+            ` : ``}
           </div>
 
           <div class="h-right">
-            ${showSearch ? `
-            <form class="search" method="GET" action="${searchAction}">
-              <input name="q" value="${esc(q)}" placeholder="${searchPlaceholder}" />
-              ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
-              <input type="hidden" name="pg" value="1" />
-              <input type="hidden" name="limit" value="${esc(String(limit))}" />
-              ${(showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
-              ${(showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="${esc(String(1))}" />` : ``)}
-              ${q ? `<a class="btn" href="${searchResetHref}">Reset</a>` : ``}
-            </form>
-            ` : ``}
             <div class="header-tools">
               ${canUseMessages ? `<a class="header-messages-btn" href="/admin/messages${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" title="Messages" aria-label="Messages">
                 <i class="fa-regular fa-envelope" aria-hidden="true"></i>
