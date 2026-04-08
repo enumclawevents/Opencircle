@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.16");
+const appVersion = String(process.env.APP_VERSION || "v0.1.17");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.16");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart row cards now top-align instead of stretching to the tallest column, removing the large gap below the chart" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer spacing now only pulls the Top 10 organizers card upward without shifting the right-side card" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer lower sections now sit much closer to the chart row with the extra gap removed" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer leaderboard sections now sit tighter to the content above them without affecting the main analytics row" });
@@ -5892,6 +5893,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.16");
       .organizer-leaderboard-card{
         margin-top: calc(var(--gap) * -0.9);
       }
+      .organizer-chart-grid > .card{
+        height: auto;
+        align-self: start;
+      }
       .grid4{
         display:grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -7789,7 +7794,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.16");
 
         <!-- Charts -->
         ${showAnalytics ? `
-        <section class="grid2 analytics-main-grid">
+        <section class="grid2 analytics-main-grid organizer-chart-grid">
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
