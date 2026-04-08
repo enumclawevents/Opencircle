@@ -1907,6 +1907,17 @@ let whereParams = [];
     const userCity = String(req.user?.city || "Enumclaw");
     const selectedCity = hasDeveloperAccess ? String(req.query.city || userCity) : userCity;
     const canUseMessages = !!currentUser?.id;
+    const canManageEvents = hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser;
+    const canApproveEvents = hasDeveloperAccess || isCityEditor;
+    const canSeeEventsAnalytics = hasDeveloperAccess || isCityEditor || isOrganizerUser;
+    const canManageVenues = hasDeveloperAccess || isCityEditor || isCityViewer;
+    const canSeeVenueAnalytics = hasDeveloperAccess || isCityEditor;
+    const canManageJobs = hasDeveloperAccess || isCityEditor || isCityViewer;
+    const canSeeJobAnalytics = hasDeveloperAccess || isCityEditor;
+    const canManageAds = hasDeveloperAccess || isCityEditor || isCityViewer;
+    const canSeeAdsAnalytics = hasDeveloperAccess || isCityEditor;
+    const canSeeOrganizerAnalytics = hasDeveloperAccess || isCityEditor;
+    const canSeeAnyAnalytics = canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeJobAnalytics || canSeeAdsAnalytics || canSeeOrganizerAnalytics;
 
     let unreadMessagesCount = 0;
     let messageContacts = [];
@@ -2620,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.8");
+const appVersion = String(process.env.APP_VERSION || "v0.1.10");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2634,6 +2645,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.8");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-08", text: "Dashboard activity now uses the shared role permissions early so the feed no longer blanks before rendering" });
+    releaseLogItems.push({ date: "2026-04-08", text: "Dashboard activity now loads each content type independently so one bad query cannot blank the whole feed" });
     releaseLogItems.push({ date: "2026-04-08", text: "Message panes now top-align contacts and conversation bubbles instead of stretching them vertically" });
     releaseLogItems.push({ date: "2026-04-08", text: "Messages now use a fixed-height full-screen layout with scrolling panes instead of growing taller with each message" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now fails safely so one schema mismatch cannot break the whole admin home page" });
@@ -3954,10 +3967,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.8");
     let activityDashboardHtml = `<div class="muted">No recent activity in ${esc(selectedCity)} yet.</div>`;
     try {
       const activityItems = [];
-      const eventActivityCols = await getEventsColumns();
-      const venueActivityCols = await getVenueColumns();
-      const jobActivityCols = await getJobColumns();
-      const adActivityCols = await getAdColumns();
       const eventActivityWhere = [];
       const eventActivityParams = [];
       if (selectedCity) {
@@ -3973,136 +3982,160 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.8");
       const eventActivityWhereSql = eventActivityWhere.length ? `WHERE ${eventActivityWhere.join(" AND ")}` : "";
 
       if (hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser) {
-        const eventCreatorJoin = eventActivityCols.has("createdByUserId")
-          ? "LEFT JOIN users u ON u.id = e.createdByUserId"
-          : "";
-        const eventCreatorSelect = eventActivityCols.has("createdByUserId")
-          ? "u.displayName, u.username, u.email"
-          : "NULL AS displayName, NULL AS username, NULL AS email";
-        const rows = await all(
-          `SELECT e.id, e.slug, e.title, e.location, e.createdAt,
-                  ${eventCreatorSelect}
-             FROM events e
-             ${eventCreatorJoin}
-             ${eventActivityWhereSql}
-             ORDER BY datetime(COALESCE(e.createdAt, '1970-01-01')) DESC, e.id DESC
-             LIMIT 8`,
-          eventActivityParams
-        );
-        rows.forEach((row) => {
-          activityItems.push({
-            type: "Event",
-            title: row.title || "Untitled event",
-            meta: `${row.location || selectedCity} · ${getActivityAuthorLabel(row)}`,
-            createdAt: row.createdAt,
-            href: buildActivityHref("/admin/existing-events", row.slug || row.title || row.id),
+        try {
+          const eventActivityCols = await getEventsColumns();
+          const eventCreatorJoin = eventActivityCols.has("createdByUserId")
+            ? "LEFT JOIN users u ON u.id = e.createdByUserId"
+            : "";
+          const eventCreatorSelect = eventActivityCols.has("createdByUserId")
+            ? "u.displayName, u.username, u.email"
+            : "NULL AS displayName, NULL AS username, NULL AS email";
+          const rows = await all(
+            `SELECT e.id, e.slug, e.title, e.location, e.createdAt,
+                    ${eventCreatorSelect}
+               FROM events e
+               ${eventCreatorJoin}
+               ${eventActivityWhereSql}
+               ORDER BY datetime(COALESCE(e.createdAt, '1970-01-01')) DESC, e.id DESC
+               LIMIT 8`,
+            eventActivityParams
+          );
+          rows.forEach((row) => {
+            activityItems.push({
+              type: "Event",
+              title: row.title || "Untitled event",
+              meta: `${row.location || selectedCity} · ${getActivityAuthorLabel(row)}`,
+              createdAt: row.createdAt,
+              href: buildActivityHref("/admin/existing-events", row.slug || row.title || row.id),
+            });
           });
-        });
+        } catch (err) {
+          console.error("[admin activity events]", err);
+        }
       }
 
       if (canApproveEvents) {
-        const rows = await all(
-          `SELECT id, title, location, organizer, submitterEmail, createdAt
-             FROM pending_events
-            WHERE city = ?
-            ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
-            LIMIT 6`,
-          [selectedCity]
-        );
-        rows.forEach((row) => {
-          const submitter = row.submitterEmail ? `Submitted by ${row.submitterEmail}` : (row.organizer ? `Submitted for ${row.organizer}` : "Submitted for review");
-          activityItems.push({
-            type: "Submission",
-            title: row.title || "Untitled event submission",
-            meta: `${row.location || selectedCity} · ${submitter}`,
-            createdAt: row.createdAt,
-            href: buildActivityHref("/admin/approve-events", row.title || row.id),
+        try {
+          const rows = await all(
+            `SELECT id, title, location, organizer, submitterEmail, createdAt
+               FROM pending_events
+              WHERE city = ?
+              ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+              LIMIT 6`,
+            [selectedCity]
+          );
+          rows.forEach((row) => {
+            const submitter = row.submitterEmail ? `Submitted by ${row.submitterEmail}` : (row.organizer ? `Submitted for ${row.organizer}` : "Submitted for review");
+            activityItems.push({
+              type: "Submission",
+              title: row.title || "Untitled event submission",
+              meta: `${row.location || selectedCity} · ${submitter}`,
+              createdAt: row.createdAt,
+              href: buildActivityHref("/admin/approve-events", row.title || row.id),
+            });
           });
-        });
+        } catch (err) {
+          console.error("[admin activity submissions]", err);
+        }
       }
 
       if (hasDeveloperAccess || isCityEditor || isCityViewer) {
-        const venueCreatorJoin = venueActivityCols.has("createdByUserId")
-          ? "LEFT JOIN users u ON u.id = v.createdByUserId"
-          : "";
-        const venueCreatorSelect = venueActivityCols.has("createdByUserId")
-          ? "u.displayName, u.username, u.email"
-          : "NULL AS displayName, NULL AS username, NULL AS email";
-        const rows = await all(
-          `SELECT v.id, v.slug, v.name, v.address, v.createdAt,
-                  ${venueCreatorSelect}
-             FROM venues v
-             ${venueCreatorJoin}
-            WHERE v.city = ?
-            ORDER BY datetime(COALESCE(v.createdAt, '1970-01-01')) DESC, v.id DESC
-            LIMIT 6`,
-          [selectedCity]
-        );
-        rows.forEach((row) => {
-          activityItems.push({
-            type: "Venue",
-            title: row.name || "Untitled venue",
-            meta: `${row.address || selectedCity} · ${getActivityAuthorLabel(row)}`,
-            createdAt: row.createdAt,
-            href: buildActivityHref("/admin/venues", row.slug || row.name || row.id),
+        try {
+          const venueActivityCols = await getVenueColumns();
+          const venueCreatorJoin = venueActivityCols.has("createdByUserId")
+            ? "LEFT JOIN users u ON u.id = v.createdByUserId"
+            : "";
+          const venueCreatorSelect = venueActivityCols.has("createdByUserId")
+            ? "u.displayName, u.username, u.email"
+            : "NULL AS displayName, NULL AS username, NULL AS email";
+          const rows = await all(
+            `SELECT v.id, v.slug, v.name, v.address, v.createdAt,
+                    ${venueCreatorSelect}
+               FROM venues v
+               ${venueCreatorJoin}
+              WHERE v.city = ?
+              ORDER BY datetime(COALESCE(v.createdAt, '1970-01-01')) DESC, v.id DESC
+              LIMIT 6`,
+            [selectedCity]
+          );
+          rows.forEach((row) => {
+            activityItems.push({
+              type: "Venue",
+              title: row.name || "Untitled venue",
+              meta: `${row.address || selectedCity} · ${getActivityAuthorLabel(row)}`,
+              createdAt: row.createdAt,
+              href: buildActivityHref("/admin/venues", row.slug || row.name || row.id),
+            });
           });
-        });
+        } catch (err) {
+          console.error("[admin activity venues]", err);
+        }
       }
 
       if (hasDeveloperAccess || isCityEditor || isCityViewer) {
-        const jobCreatorJoin = jobActivityCols.has("createdByUserId")
-          ? "LEFT JOIN users u ON u.id = j.createdByUserId"
-          : "";
-        const jobCreatorSelect = jobActivityCols.has("createdByUserId")
-          ? "u.displayName, u.username, u.email"
-          : "NULL AS displayName, NULL AS username, NULL AS email";
-        const rows = await all(
-          `SELECT j.id, j.slug, j.title, j.company, j.createdAt,
-                  ${jobCreatorSelect}
-             FROM jobs j
-             ${jobCreatorJoin}
-            WHERE j.city = ?
-            ORDER BY datetime(COALESCE(j.createdAt, '1970-01-01')) DESC, j.id DESC
-            LIMIT 6`,
-          [selectedCity]
-        );
-        rows.forEach((row) => {
-          activityItems.push({
-            type: "Job",
-            title: row.title || "Untitled job",
-            meta: `${row.company || selectedCity} · ${getActivityAuthorLabel(row)}`,
-            createdAt: row.createdAt,
-            href: buildActivityHref("/admin/jobs", row.slug || row.title || row.id),
+        try {
+          const jobActivityCols = await getJobColumns();
+          const jobCreatorJoin = jobActivityCols.has("createdByUserId")
+            ? "LEFT JOIN users u ON u.id = j.createdByUserId"
+            : "";
+          const jobCreatorSelect = jobActivityCols.has("createdByUserId")
+            ? "u.displayName, u.username, u.email"
+            : "NULL AS displayName, NULL AS username, NULL AS email";
+          const rows = await all(
+            `SELECT j.id, j.slug, j.title, j.company, j.createdAt,
+                    ${jobCreatorSelect}
+               FROM jobs j
+               ${jobCreatorJoin}
+              WHERE j.city = ?
+              ORDER BY datetime(COALESCE(j.createdAt, '1970-01-01')) DESC, j.id DESC
+              LIMIT 6`,
+            [selectedCity]
+          );
+          rows.forEach((row) => {
+            activityItems.push({
+              type: "Job",
+              title: row.title || "Untitled job",
+              meta: `${row.company || selectedCity} · ${getActivityAuthorLabel(row)}`,
+              createdAt: row.createdAt,
+              href: buildActivityHref("/admin/jobs", row.slug || row.title || row.id),
+            });
           });
-        });
+        } catch (err) {
+          console.error("[admin activity jobs]", err);
+        }
       }
 
       if (hasDeveloperAccess || isCityEditor || isCityViewer) {
-        const adCreatorJoin = adActivityCols.has("createdByUserId")
-          ? "LEFT JOIN users u ON u.id = a.createdByUserId"
-          : "";
-        const adCreatorSelect = adActivityCols.has("createdByUserId")
-          ? "u.displayName, u.username, u.email"
-          : "NULL AS displayName, NULL AS username, NULL AS email";
-        const rows = await all(
-          `SELECT a.id, a.slug, a.name, a.placement, a.createdAt,
-                  ${adCreatorSelect}
-             FROM ads a
-             ${adCreatorJoin}
-            WHERE a.city = ?
-            ORDER BY datetime(COALESCE(a.createdAt, '1970-01-01')) DESC, a.id DESC
-            LIMIT 6`,
-          [selectedCity]
-        );
-        rows.forEach((row) => {
-          activityItems.push({
-            type: "Ad",
-            title: row.name || "Untitled ad",
-            meta: `${row.placement || selectedCity} · ${getActivityAuthorLabel(row)}`,
-            createdAt: row.createdAt,
-            href: buildActivityHref("/admin/ads", row.slug || row.name || row.id),
+        try {
+          const adActivityCols = await getAdColumns();
+          const adCreatorJoin = adActivityCols.has("createdByUserId")
+            ? "LEFT JOIN users u ON u.id = a.createdByUserId"
+            : "";
+          const adCreatorSelect = adActivityCols.has("createdByUserId")
+            ? "u.displayName, u.username, u.email"
+            : "NULL AS displayName, NULL AS username, NULL AS email";
+          const rows = await all(
+            `SELECT a.id, a.slug, a.name, a.placement, a.createdAt,
+                    ${adCreatorSelect}
+               FROM ads a
+               ${adCreatorJoin}
+              WHERE a.city = ?
+              ORDER BY datetime(COALESCE(a.createdAt, '1970-01-01')) DESC, a.id DESC
+              LIMIT 6`,
+            [selectedCity]
+          );
+          rows.forEach((row) => {
+            activityItems.push({
+              type: "Ad",
+              title: row.name || "Untitled ad",
+              meta: `${row.placement || selectedCity} · ${getActivityAuthorLabel(row)}`,
+              createdAt: row.createdAt,
+              href: buildActivityHref("/admin/ads", row.slug || row.name || row.id),
+            });
           });
-        });
+        } catch (err) {
+          console.error("[admin activity ads]", err);
+        }
       }
 
       const sortedActivityItems = activityItems.slice().sort((a, b) => {
@@ -5018,17 +5051,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.8");
     const adsMenuOpen = showAdsExisting || showAdsCreate;
     const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showOrganizers;
     const adminMenuOpen = showUsers || showInvites || showPreferences || showUpdatesLog;
-    const canManageEvents = hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser;
-    const canApproveEvents = hasDeveloperAccess || isCityEditor;
-    const canSeeEventsAnalytics = hasDeveloperAccess || isCityEditor || isOrganizerUser;
-    const canManageVenues = hasDeveloperAccess || isCityEditor || isCityViewer;
-    const canSeeVenueAnalytics = hasDeveloperAccess || isCityEditor;
-    const canManageJobs = hasDeveloperAccess || isCityEditor || isCityViewer;
-    const canSeeJobAnalytics = hasDeveloperAccess || isCityEditor;
-    const canManageAds = hasDeveloperAccess || isCityEditor || isCityViewer;
-    const canSeeAdsAnalytics = hasDeveloperAccess || isCityEditor;
-    const canSeeOrganizerAnalytics = hasDeveloperAccess || isCityEditor;
-    const canSeeAnyAnalytics = canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeJobAnalytics || canSeeAdsAnalytics || canSeeOrganizerAnalytics;
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
     res.send(`<!doctype html>
