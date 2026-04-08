@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.18");
+const appVersion = String(process.env.APP_VERSION || "v0.1.19");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.18");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart now expands to match the organizer overview card height so the left panel no longer ends with a blank gap" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart no longer stretches to match the taller overview card, removing the large blank space below it" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart row cards now top-align instead of stretching to the tallest column, removing the large gap below the chart" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer spacing now only pulls the Top 10 organizers card upward without shifting the right-side card" });
@@ -5899,10 +5900,11 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.18");
         align-self: start;
       }
       .organizer-chart-grid > .card:first-child{
-        display:block;
+        display:flex;
+        flex-direction:column;
       }
       .organizer-chart-grid > .card:first-child .chart-wrap{
-        flex: 0 0 auto;
+        flex: 1 1 auto;
       }
       .grid4{
         display:grid;
