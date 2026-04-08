@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.14");
+const appVersion = String(process.env.APP_VERSION || "v0.1.15");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.14");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-08", text: "Organizer lower sections now sit much closer to the chart row with the extra gap removed" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer leaderboard sections now sit tighter to the content above them without affecting the main analytics row" });
     releaseLogItems.push({ date: "2026-04-08", text: "Reverted the organizer spacing tweak that had leaked into the main analytics row" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer analytics no longer shows a redundant standalone views summary card" });
@@ -5888,7 +5889,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.14");
         min-height:366px;
       }
       .organizer-leaderboard-section{
-        margin-top: calc(var(--gap) * -0.5);
+        margin-top: calc(var(--gap) * -0.9);
       }
       .grid4{
         display:grid;
