@@ -1849,6 +1849,7 @@ async function renderAdmin(req, res, view) {
     await ensurePickSchema();
     await ensureVenueSchema();
     await ensureJobSchema();
+    await ensureAdSchema();
     await ensureJobApplicantSchema();
     await ensureUserProfileSchema();
     await ensureMessageSchema();
@@ -2610,7 +2611,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.99");
+const appVersion = String(process.env.APP_VERSION || "v0.1.1");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2624,6 +2625,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick-link groups now pin shorter link stacks to the top for cleaner alignment" });
+    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard now includes an Activity feed for recently posted events, venues, jobs, and ads" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard insights now live in one switchable card, and new messages trigger live notification dings" });
     releaseLogItems.push({ date: "2026-04-07", text: "Added city-scoped messaging with online status, header access, and dashboard inbox preview" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick links now show only the three most important actions per section" });
@@ -3919,6 +3922,135 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
           `;
         }).join("")
       : `<div class="muted">No recent messages in ${esc(selectedCity)} yet.</div>`;
+
+    function buildActivityHref(basePath, term) {
+      const sp = new URLSearchParams();
+      if (selectedCity) sp.set("city", selectedCity);
+      if (term) sp.set("q", String(term));
+      return `${basePath}?${sp.toString()}`;
+    }
+
+    const activityItems = [];
+    const eventActivityWhere = [];
+    const eventActivityParams = [];
+    if (selectedCity) {
+      eventActivityWhere.push("city = ?");
+      eventActivityParams.push(selectedCity);
+    }
+    if (organizerOwnerClause) {
+      eventActivityWhere.push(organizerOwnerClause.sql);
+      eventActivityParams.push(...organizerOwnerClause.params);
+    }
+    const eventActivityWhereSql = eventActivityWhere.length ? `WHERE ${eventActivityWhere.join(" AND ")}` : "";
+
+    if (hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser) {
+      try {
+        const rows = await all(
+          `SELECT id, slug, title, location, createdAt
+             FROM events
+             ${eventActivityWhereSql}
+             ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+             LIMIT 8`,
+          eventActivityParams
+        );
+        rows.forEach((row) => {
+          activityItems.push({
+            type: "Event",
+            title: row.title || "Untitled event",
+            meta: row.location || selectedCity,
+            createdAt: row.createdAt,
+            href: buildActivityHref("/admin/existing-events", row.slug || row.title || row.id),
+          });
+        });
+      } catch (_) {}
+    }
+
+    if (hasDeveloperAccess || isCityEditor || isCityViewer) {
+      try {
+        const rows = await all(
+          `SELECT id, slug, name, address, createdAt
+             FROM venues
+            WHERE city = ?
+            ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+            LIMIT 6`,
+          [selectedCity]
+        );
+        rows.forEach((row) => {
+          activityItems.push({
+            type: "Venue",
+            title: row.name || "Untitled venue",
+            meta: row.address || selectedCity,
+            createdAt: row.createdAt,
+            href: buildActivityHref("/admin/venues", row.slug || row.name || row.id),
+          });
+        });
+      } catch (_) {}
+    }
+
+    if (hasDeveloperAccess || isCityEditor || isCityViewer) {
+      try {
+        const rows = await all(
+          `SELECT id, slug, title, company, createdAt
+             FROM jobs
+            WHERE city = ?
+            ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+            LIMIT 6`,
+          [selectedCity]
+        );
+        rows.forEach((row) => {
+          activityItems.push({
+            type: "Job",
+            title: row.title || "Untitled job",
+            meta: row.company || selectedCity,
+            createdAt: row.createdAt,
+            href: buildActivityHref("/admin/jobs", row.slug || row.title || row.id),
+          });
+        });
+      } catch (_) {}
+    }
+
+    if (hasDeveloperAccess || isCityEditor || isCityViewer) {
+      try {
+        const rows = await all(
+          `SELECT id, slug, name, placement, createdAt
+             FROM ads
+            WHERE city = ?
+            ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+            LIMIT 6`,
+          [selectedCity]
+        );
+        rows.forEach((row) => {
+          activityItems.push({
+            type: "Ad",
+            title: row.name || "Untitled ad",
+            meta: row.placement || selectedCity,
+            createdAt: row.createdAt,
+            href: buildActivityHref("/admin/ads", row.slug || row.name || row.id),
+          });
+        });
+      } catch (_) {}
+    }
+
+    const activityDashboardHtml = activityItems.length
+      ? activityItems
+          .sort((a, b) => {
+            const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return bTime - aTime;
+          })
+          .slice(0, 10)
+          .map((item) => `
+            <a class="activity-item" href="${esc(item.href)}">
+              <div class="activity-item-top">
+                <span class="activity-pill">${esc(item.type)}</span>
+                <span class="activity-time">${esc(fmtPendingDate(item.createdAt))}</span>
+              </div>
+              <div class="activity-title">${esc(item.title)}</div>
+              <div class="activity-meta">${esc(item.meta || selectedCity)}</div>
+            </a>
+          `)
+          .join("")
+      : `<div class="muted">No recent activity in ${esc(selectedCity)} yet.</div>`;
 
     let editJob = null;
     if (showJobsCreate && req.query.edit) {
@@ -6760,6 +6892,59 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
         font-weight:700;
         color: var(--text);
       }
+      .activity-list{
+        display:grid;
+        gap:10px;
+      }
+      .activity-item{
+        display:grid;
+        gap:6px;
+        padding:12px 14px;
+        border:1px solid var(--line);
+        border-radius:var(--radius-inner);
+        background:var(--panel2);
+        text-decoration:none;
+        color:inherit;
+      }
+      .activity-item:hover{
+        border-color:rgba(15,23,42,.18);
+        background:#fbfdff;
+      }
+      .activity-item-top{
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:10px;
+      }
+      .activity-pill{
+        display:inline-flex;
+        align-items:center;
+        height:24px;
+        padding:0 8px;
+        border-radius:999px;
+        background:rgba(15,23,42,.06);
+        color:var(--muted);
+        font-size:11px;
+        font-weight:700;
+        letter-spacing:.02em;
+        text-transform:uppercase;
+      }
+      .activity-time{
+        color:var(--muted);
+        font-size:12px;
+        white-space:nowrap;
+      }
+      .activity-title{
+        color:var(--text);
+        font-size:14px;
+        font-weight:700;
+        line-height:1.35;
+      }
+      .activity-meta{
+        color:var(--muted);
+        font-size:12px;
+        line-height:1.35;
+      }
       .release-meta{
         display:grid;
         gap:10px;
@@ -6806,6 +6991,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
         background: var(--panel2);
         padding:10px;
         display:grid;
+        align-content:start;
         gap:8px;
       }
       .quick-links-group-title{
@@ -7301,6 +7487,22 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
                 </div>
               </div>
             </div>` : ``}
+
+            <div class="card dashboard-card" id="dashboard-activity-card" data-dashboard-card="activity" data-collapsible-card data-collapsed="false">
+              <div class="sectionTitle">
+                <div class="card-controls">
+                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-activity-body">
+                    <h2>Activity</h2>
+                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
+                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
+                </div>
+              </div>
+              <div class="card-body" id="dashboard-activity-body">
+                <div class="activity-list">${activityDashboardHtml}</div>
+              </div>
+            </div>
 
             ${(canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeAdsAnalytics) ? `<div class="card dashboard-card" id="dashboard-insights-card" data-dashboard-card="insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
