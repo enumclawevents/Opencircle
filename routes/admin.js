@@ -2620,7 +2620,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.7");
+const appVersion = String(process.env.APP_VERSION || "v0.1.8");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2634,6 +2634,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.7");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-08", text: "Message panes now top-align contacts and conversation bubbles instead of stretching them vertically" });
     releaseLogItems.push({ date: "2026-04-08", text: "Messages now use a fixed-height full-screen layout with scrolling panes instead of growing taller with each message" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now fails safely so one schema mismatch cannot break the whole admin home page" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now keeps a balanced mix of content types so recent events do not get crowded out" });
@@ -5620,6 +5621,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.7");
         min-height:0;
         overflow:auto;
         padding-right:4px;
+        align-content:start;
       }
       .message-user-link{
         display:flex;
@@ -5682,6 +5684,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.7");
         min-height:0;
         overflow:auto;
         padding-right:4px;
+        align-content:start;
       }
       .message-bubble{
         max-width:min(540px, 82%);
