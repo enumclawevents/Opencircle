@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.21");
+const appVersion = String(process.env.APP_VERSION || "v0.1.22");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.21");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-08", text: "Header username label removed so the top-right controls stay cleaner and more compact" });
     releaseLogItems.push({ date: "2026-04-08", text: "Header messages now uses the same icon-button style as notifications and sits beside it" });
     releaseLogItems.push({ date: "2026-04-08", text: "Admin header search now replaces the old title and helper block on the left across pages" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart now expands to match the organizer overview card height so the left panel no longer ends with a blank gap" });
@@ -5552,16 +5553,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.21");
       .header-icon-btn i{
         font-size:15px;
       }
-      .header-account-name{
-        font-size:13px;
-        font-weight:600;
-        color:var(--muted);
-        white-space:nowrap;
-        overflow:hidden;
-        text-overflow:ellipsis;
-        max-width:180px;
-        margin-left:14px;
-      }
       .header-icon-btn .header-avatar{
         width:100%;
         height:100%;
@@ -7378,7 +7369,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.21");
 
           <div class="h-right">
             <div class="header-tools">
-              <span class="header-account-name">${esc(currentUser?.displayName || currentUser?.username || currentUser?.email || req.user?.user || "Account")}</span>
               <a class="header-icon-btn" href="/admin/preferences" title="Account" aria-label="Account">
                 ${currentUser?.photoUrl
                   ? `<img class="header-avatar" src="${esc(currentUser.photoUrl)}" alt="${esc(currentUser.displayName || currentUser.username || "User")}" />`
