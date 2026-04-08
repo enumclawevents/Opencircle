@@ -1348,6 +1348,7 @@ async function ensureVenueSchema() {
       websiteClickCount INTEGER NOT NULL DEFAULT 0,
       socialClickCount INTEGER NOT NULL DEFAULT 0,
       description TEXT,
+      createdByUserId INTEGER,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     )
@@ -1397,6 +1398,9 @@ async function ensureVenueSchema() {
   }
   if (!cols.has("socialClickCount")) {
     await run(`ALTER TABLE venues ADD COLUMN socialClickCount INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.has("createdByUserId")) {
+    await run(`ALTER TABLE venues ADD COLUMN createdByUserId INTEGER`);
   }
 
   await run(`
@@ -1465,6 +1469,7 @@ async function ensureJobSchema() {
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       viewCount INTEGER NOT NULL DEFAULT 0,
+      createdByUserId INTEGER,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     )
@@ -1489,6 +1494,7 @@ async function ensureJobSchema() {
   if (!cols.has("applicationMode")) await run(`ALTER TABLE jobs ADD COLUMN applicationMode TEXT NOT NULL DEFAULT 'external'`);
   if (!cols.has("applicationFieldsJson")) await run(`ALTER TABLE jobs ADD COLUMN applicationFieldsJson TEXT`);
   if (!cols.has("viewCount")) await run(`ALTER TABLE jobs ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0`);
+  if (!cols.has("createdByUserId")) await run(`ALTER TABLE jobs ADD COLUMN createdByUserId INTEGER`);
   if (!cols.has("createdAt")) await run(`ALTER TABLE jobs ADD COLUMN createdAt TEXT DEFAULT (datetime('now'))`);
   if (!cols.has("updatedAt")) await run(`ALTER TABLE jobs ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'))`);
 
@@ -1546,6 +1552,7 @@ async function ensureAdSchema() {
       notes TEXT,
       viewCount INTEGER NOT NULL DEFAULT 0,
       clickCount INTEGER NOT NULL DEFAULT 0,
+      createdByUserId INTEGER,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     )
@@ -1573,6 +1580,7 @@ async function ensureAdSchema() {
   if (!cols.has("notes")) await run(`ALTER TABLE ads ADD COLUMN notes TEXT`);
   if (!cols.has("viewCount")) await run(`ALTER TABLE ads ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0`);
   if (!cols.has("clickCount")) await run(`ALTER TABLE ads ADD COLUMN clickCount INTEGER NOT NULL DEFAULT 0`);
+  if (!cols.has("createdByUserId")) await run(`ALTER TABLE ads ADD COLUMN createdByUserId INTEGER`);
   if (!cols.has("createdAt")) await run(`ALTER TABLE ads ADD COLUMN createdAt TEXT DEFAULT (datetime('now'))`);
   if (!cols.has("updatedAt")) await run(`ALTER TABLE ads ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'))`);
 
@@ -1848,6 +1856,7 @@ async function renderAdmin(req, res, view) {
   try {
     await ensurePickSchema();
     await ensureVenueSchema();
+    const sessionUser = await resolveSessionUser(req);
     await ensureJobSchema();
     await ensureAdSchema();
     await ensureJobApplicantSchema();
@@ -2611,7 +2620,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.1");
+const appVersion = String(process.env.APP_VERSION || "v0.1.2");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2625,6 +2634,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.1");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now shows events alongside venues, jobs, and ads with posted-by usernames" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick-link groups now pin shorter link stacks to the top for cleaner alignment" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard now includes an Activity feed for recently posted events, venues, jobs, and ads" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard insights now live in one switchable card, and new messages trigger live notification dings" });
@@ -3930,15 +3940,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.1");
       return `${basePath}?${sp.toString()}`;
     }
 
+    function getActivityAuthorLabel(row) {
+      const name = row?.displayName || row?.username || row?.email || "";
+      return name ? `Posted by ${name}` : "Posted by Legacy post";
+    }
+
     const activityItems = [];
     const eventActivityWhere = [];
     const eventActivityParams = [];
     if (selectedCity) {
-      eventActivityWhere.push("city = ?");
+      eventActivityWhere.push("e.city = ?");
       eventActivityParams.push(selectedCity);
     }
     if (organizerOwnerClause) {
-      eventActivityWhere.push(organizerOwnerClause.sql);
+      eventActivityWhere.push(
+        organizerOwnerClause.sql
+          .replace(/\borganizer\b/g, "e.organizer")
+      );
       eventActivityParams.push(...organizerOwnerClause.params);
     }
     const eventActivityWhereSql = eventActivityWhere.length ? `WHERE ${eventActivityWhere.join(" AND ")}` : "";
@@ -3946,10 +3964,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.1");
     if (hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser) {
       try {
         const rows = await all(
-          `SELECT id, slug, title, location, createdAt
+          `SELECT e.id, e.slug, e.title, e.location, e.createdAt,
+                  u.displayName, u.username, u.email
              FROM events
-             ${eventActivityWhereSql}
-             ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+             e
+             LEFT JOIN users u ON u.id = e.createdByUserId
+             ${eventActivityWhereSql ? eventActivityWhereSql.replace("WHERE", "WHERE") : ""}
+             ORDER BY datetime(COALESCE(e.createdAt, '1970-01-01')) DESC, e.id DESC
              LIMIT 8`,
           eventActivityParams
         );
@@ -3957,7 +3978,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.1");
           activityItems.push({
             type: "Event",
             title: row.title || "Untitled event",
-            meta: row.location || selectedCity,
+            meta: `${row.location || selectedCity} · ${getActivityAuthorLabel(row)}`,
             createdAt: row.createdAt,
             href: buildActivityHref("/admin/existing-events", row.slug || row.title || row.id),
           });
@@ -3968,10 +3989,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.1");
     if (hasDeveloperAccess || isCityEditor || isCityViewer) {
       try {
         const rows = await all(
-          `SELECT id, slug, name, address, createdAt
-             FROM venues
-            WHERE city = ?
-            ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+          `SELECT v.id, v.slug, v.name, v.address, v.createdAt,
+                  u.displayName, u.username, u.email
+             FROM venues v
+             LEFT JOIN users u ON u.id = v.createdByUserId
+            WHERE v.city = ?
+            ORDER BY datetime(COALESCE(v.createdAt, '1970-01-01')) DESC, v.id DESC
             LIMIT 6`,
           [selectedCity]
         );
@@ -3979,7 +4002,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.1");
           activityItems.push({
             type: "Venue",
             title: row.name || "Untitled venue",
-            meta: row.address || selectedCity,
+            meta: `${row.address || selectedCity} · ${getActivityAuthorLabel(row)}`,
             createdAt: row.createdAt,
             href: buildActivityHref("/admin/venues", row.slug || row.name || row.id),
           });
@@ -3990,10 +4013,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.1");
     if (hasDeveloperAccess || isCityEditor || isCityViewer) {
       try {
         const rows = await all(
-          `SELECT id, slug, title, company, createdAt
-             FROM jobs
-            WHERE city = ?
-            ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+          `SELECT j.id, j.slug, j.title, j.company, j.createdAt,
+                  u.displayName, u.username, u.email
+             FROM jobs j
+             LEFT JOIN users u ON u.id = j.createdByUserId
+            WHERE j.city = ?
+            ORDER BY datetime(COALESCE(j.createdAt, '1970-01-01')) DESC, j.id DESC
             LIMIT 6`,
           [selectedCity]
         );
@@ -4001,7 +4026,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.1");
           activityItems.push({
             type: "Job",
             title: row.title || "Untitled job",
-            meta: row.company || selectedCity,
+            meta: `${row.company || selectedCity} · ${getActivityAuthorLabel(row)}`,
             createdAt: row.createdAt,
             href: buildActivityHref("/admin/jobs", row.slug || row.title || row.id),
           });
@@ -4012,10 +4037,12 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.1");
     if (hasDeveloperAccess || isCityEditor || isCityViewer) {
       try {
         const rows = await all(
-          `SELECT id, slug, name, placement, createdAt
-             FROM ads
-            WHERE city = ?
-            ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+          `SELECT a.id, a.slug, a.name, a.placement, a.createdAt,
+                  u.displayName, u.username, u.email
+             FROM ads a
+             LEFT JOIN users u ON u.id = a.createdByUserId
+            WHERE a.city = ?
+            ORDER BY datetime(COALESCE(a.createdAt, '1970-01-01')) DESC, a.id DESC
             LIMIT 6`,
           [selectedCity]
         );
@@ -4023,7 +4050,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.1");
           activityItems.push({
             type: "Ad",
             title: row.name || "Untitled ad",
-            meta: row.placement || selectedCity,
+            meta: `${row.placement || selectedCity} · ${getActivityAuthorLabel(row)}`,
             createdAt: row.createdAt,
             href: buildActivityHref("/admin/ads", row.slug || row.name || row.id),
           });
@@ -11895,15 +11922,15 @@ router.post("/venues", upload.fields([{ name: "venueImageFile", maxCount: 1 }, {
     if (isUpdate) {
       await run(
         `UPDATE venues
-            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, imageUrl = ?, galleryJson = ?, categoriesJson = ?, socialJson = ?, hoursJson = ?, seoTitle = ?, metaDescription = ?, focusKeyphrase = ?, imageAlt = ?, description = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, imageUrl = ?, galleryJson = ?, categoriesJson = ?, socialJson = ?, hoursJson = ?, seoTitle = ?, metaDescription = ?, focusKeyphrase = ?, imageAlt = ?, description = ?, createdByUserId = COALESCE(createdByUserId, ?), updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, name, address || null, website || null, phone || null, imageUrl || null, galleryJson, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description || null, id]
+        [city, slug, name, address || null, website || null, phone || null, imageUrl || null, galleryJson, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description || null, sessionUser?.id || null, id]
       );
     } else {
       await run(
-        `INSERT INTO venues (city, slug, name, address, website, phone, imageUrl, galleryJson, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, name, address || null, website || null, phone || null, imageUrl || null, galleryJson, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description || null]
+        `INSERT INTO venues (city, slug, name, address, website, phone, imageUrl, galleryJson, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description, createdByUserId)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, name, address || null, website || null, phone || null, imageUrl || null, galleryJson, categoriesJson, socialJson, hoursJson, seoTitle, metaDescription, focusKeyphrase, imageAlt, description || null, sessionUser?.id || null]
       );
     }
 
@@ -11951,6 +11978,7 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
       return res.status(403).send("Forbidden");
     }
     await ensureJobSchema();
+    const sessionUser = await resolveSessionUser(req);
 
     const idRaw = String(req.body?.id || "").trim();
     const id = idRaw ? parseInt(idRaw, 10) : null;
@@ -12007,15 +12035,15 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
     if (isUpdate) {
       await run(
         `UPDATE jobs
-            SET city = ?, slug = ?, title = ?, company = ?, location = ?, employmentType = ?, employmentTypesJson = ?, salaryRange = ?, applyUrl = ?, imageUrl = ?, description = ?, status = ?, applicationMode = ?, applicationFieldsJson = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, title = ?, company = ?, location = ?, employmentType = ?, employmentTypesJson = ?, salaryRange = ?, applyUrl = ?, imageUrl = ?, description = ?, status = ?, applicationMode = ?, applicationFieldsJson = ?, createdByUserId = COALESCE(createdByUserId, ?), updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, title, company || null, location || null, employmentType || null, employmentTypesJson, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson, id]
+        [city, slug, title, company || null, location || null, employmentType || null, employmentTypesJson, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson, sessionUser?.id || null, id]
       );
     } else {
       await run(
-        `INSERT INTO jobs (city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, title, company || null, location || null, employmentType || null, employmentTypesJson, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson]
+        `INSERT INTO jobs (city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, createdByUserId)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, title, company || null, location || null, employmentType || null, employmentTypesJson, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson, sessionUser?.id || null]
       );
     }
 
@@ -12063,6 +12091,7 @@ router.post("/ads", upload.single("adImageFile"), async (req, res) => {
       return res.status(403).send("Forbidden");
     }
     await ensureAdSchema();
+    const sessionUser = await resolveSessionUser(req);
 
     const idRaw = String(req.body?.id || "").trim();
     const id = idRaw ? parseInt(idRaw, 10) : null;
@@ -12114,15 +12143,15 @@ router.post("/ads", upload.single("adImageFile"), async (req, res) => {
     if (isUpdate) {
       await run(
         `UPDATE ads
-            SET city = ?, slug = ?, name = ?, placement = ?, placementsJson = ?, imageUrl = ?, targetUrl = ?, altText = ?, visibilityPercent = ?, status = ?, startsAt = ?, endsAt = ?, notes = ?, updatedAt = datetime('now')
+            SET city = ?, slug = ?, name = ?, placement = ?, placementsJson = ?, imageUrl = ?, targetUrl = ?, altText = ?, visibilityPercent = ?, status = ?, startsAt = ?, endsAt = ?, notes = ?, createdByUserId = COALESCE(createdByUserId, ?), updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, name, placement, placementsJson, imageUrl || null, targetUrl || null, altText || null, visibilityPercent, status, startsAt, endsAt, notes || null, id]
+        [city, slug, name, placement, placementsJson, imageUrl || null, targetUrl || null, altText || null, visibilityPercent, status, startsAt, endsAt, notes || null, sessionUser?.id || null, id]
       );
     } else {
       await run(
-        `INSERT INTO ads (city, slug, name, placement, placementsJson, imageUrl, targetUrl, altText, visibilityPercent, status, startsAt, endsAt, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, name, placement, placementsJson, imageUrl || null, targetUrl || null, altText || null, visibilityPercent, status, startsAt, endsAt, notes || null]
+        `INSERT INTO ads (city, slug, name, placement, placementsJson, imageUrl, targetUrl, altText, visibilityPercent, status, startsAt, endsAt, notes, createdByUserId)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, name, placement, placementsJson, imageUrl || null, targetUrl || null, altText || null, visibilityPercent, status, startsAt, endsAt, notes || null, sessionUser?.id || null]
       );
     }
 
@@ -12504,6 +12533,9 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["featured", featuredFlag],
       ["eddiesPick", eddiesPickFlag],
     ];
+    if (!isUpdate) {
+      baseFields.push(["createdByUserId", sessionUser?.id || null]);
+    }
 
     const recFields = [
       ["hasRecurrence", hasRec],
@@ -12539,6 +12571,9 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       vals.push(Number(id));
 
 await run(`UPDATE events SET ${sets.join(", ")} WHERE id=?`, vals);
+if (cols.has("createdByUserId")) {
+  await run("UPDATE events SET createdByUserId = COALESCE(createdByUserId, ?) WHERE id = ?", [sessionUser?.id || null, Number(id)]);
+}
 
 // preserve list state (pg/limit/q) if present
 const pg = req.query.pg ? String(req.query.pg) : "1";

@@ -150,6 +150,7 @@ async function initDB() {
       archived_at TEXT,
       archived_reason TEXT,
 
+      createdByUserId INTEGER,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     );
@@ -354,6 +355,7 @@ async function initDB() {
   await addCol("archived_at", `ALTER TABLE events ADD COLUMN archived_at TEXT;`);
   await addCol("archived_reason", `ALTER TABLE events ADD COLUMN archived_reason TEXT;`);
 
+  await addCol("createdByUserId", `ALTER TABLE events ADD COLUMN createdByUserId INTEGER;`);
   await addCol("createdAt", `ALTER TABLE events ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
   await addCol("updatedAt", `ALTER TABLE events ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'));`);
 
