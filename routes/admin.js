@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.12");
+const appVersion = String(process.env.APP_VERSION || "v0.1.13");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,7 +2645,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.12");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
-    releaseLogItems.push({ date: "2026-04-08", text: "Organizer top-ten section now sits tighter under the content above it without the extra blank gap" });
+    releaseLogItems.push({ date: "2026-04-08", text: "Reverted the organizer spacing tweak that had leaked into the main analytics row" });
     releaseLogItems.push({ date: "2026-04-08", text: "Organizer analytics no longer shows a redundant standalone views summary card" });
     releaseLogItems.push({ date: "2026-04-08", text: "Dashboard activity now uses the shared role permissions early so the feed no longer blanks before rendering" });
     releaseLogItems.push({ date: "2026-04-08", text: "Dashboard activity now loads each content type independently so one bad query cannot blank the whole feed" });
@@ -5886,10 +5886,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.12");
       .analytics-main-grid > .card:last-child{
         min-height:366px;
       }
-      .organizer-summary-grid{
-        margin-top: calc(var(--gap) * -1);
-      }
-
       .grid4{
         display:grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -7787,7 +7783,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.12");
 
         <!-- Charts -->
         ${showAnalytics ? `
-        <section class="grid2 analytics-main-grid organizer-summary-grid">
+        <section class="grid2 analytics-main-grid">
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
