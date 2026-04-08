@@ -2620,7 +2620,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.6");
+const appVersion = String(process.env.APP_VERSION || "v0.1.7");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2634,6 +2634,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.6");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-08", text: "Messages now use a fixed-height full-screen layout with scrolling panes instead of growing taller with each message" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now fails safely so one schema mismatch cannot break the whole admin home page" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now keeps a balanced mix of content types so recent events do not get crowded out" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now falls back cleanly so published events still appear even on older event schemas" });
@@ -5602,14 +5603,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.6");
         display:grid;
         grid-template-columns: 320px minmax(0, 1fr);
         gap:var(--gap);
-        align-items:start;
+        align-items:stretch;
+        min-height:calc(100vh - 180px);
       }
       .messages-card{
-        min-height:560px;
+        min-height:0;
+        height:calc(100vh - 180px);
+        display:flex;
+        flex-direction:column;
+        overflow:hidden;
       }
       .message-list{
         display:grid;
         gap:10px;
+        flex:1 1 auto;
+        min-height:0;
+        overflow:auto;
+        padding-right:4px;
       }
       .message-user-link{
         display:flex;
@@ -5668,7 +5678,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.6");
       .messages-thread{
         display:grid;
         gap:12px;
-        max-height:420px;
+        flex:1 1 auto;
+        min-height:0;
         overflow:auto;
         padding-right:4px;
       }
@@ -5693,16 +5704,32 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.6");
         display:grid;
         gap:10px;
         margin-top:14px;
+        flex:0 0 auto;
       }
       .messages-compose textarea{
-        min-height:104px;
+        min-height:96px;
+        max-height:160px;
         resize:vertical;
+      }
+      .messages-panel{
+        display:flex;
+        flex-direction:column;
+        flex:1 1 auto;
+        min-height:0;
+      }
+      .messages-contact-card{
+        flex:1 1 auto;
+        min-height:0;
+      }
+      .messages-profile{
+        flex:0 0 auto;
+        margin-bottom:14px;
       }
       .messages-empty{
         display:flex;
         align-items:center;
         justify-content:center;
-        min-height:220px;
+        min-height:100%;
         color:var(--muted);
         text-align:center;
       }
@@ -7104,6 +7131,14 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.6");
         .quick-links-grid{
           grid-template-columns: 1fr;
         }
+        .messages-layout{
+          grid-template-columns:1fr;
+          min-height:auto;
+        }
+        .messages-card{
+          height:auto;
+          min-height:420px;
+        }
       }
       @media (max-width: 900px){
         .sectionTitle--chart{
@@ -8007,7 +8042,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.6");
 
         ${showMessages ? `
         <section class="messages-layout" id="messages">
-          <div class="card messages-card">
+          <div class="card messages-card messages-contact-card">
             <div class="sectionTitle">
               <div>
                 <h2>${esc(selectedCity)} users</h2>
@@ -8025,8 +8060,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.6");
                 <p class="sub">${selectedMessageContact ? `${selectedCity} conversation` : `Choose a ${selectedCity} user to start messaging.`}</p>
               </div>
             </div>
+            <div class="messages-panel">
             ${selectedMessageContact ? `
-            <div class="mini" style="margin-bottom:14px;">
+            <div class="mini messages-profile">
               <div class="user-line" style="font-weight:650; color:var(--text);">
                 ${onlineStatusMarkup(selectedMessageContact.lastSeenAt, `${selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User"} status`)}
                 <span>${esc(selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User")}</span>
@@ -8043,6 +8079,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.6");
               <div><button class="btn btn-primary" type="submit">Send message</button></div>
             </form>
             ` : ``}
+            </div>
           </div>
         </section>
         ` : ``}
