@@ -2453,7 +2453,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.0.97");
+const appVersion = String(process.env.APP_VERSION || "v0.0.98");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2467,6 +2467,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.97");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick links are back to a simpler module-based layout without a separate Analytics section" });
     releaseLogItems.push({ date: "2026-04-07", text: "Content tabs now default cleanly to their main pages so analytics no longer shows a double-active sidebar state" });
     releaseLogItems.push({ date: "2026-04-07", text: "Analytics menu now uses simpler labels, a better icon, and the order Events, Organizers, Venues, Jobs, Ads" });
     releaseLogItems.push({ date: "2026-04-07", text: "Moved analytics into a dedicated Analytics tab and tailored dashboard sections by role" });
@@ -6757,29 +6758,26 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.97");
                     <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
                     ${canApproveEvents ? `<a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>` : ``}
                     ${(hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<a class="btn quick-link" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>` : ``}
+                    ${canSeeEventsAnalytics ? `<a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
+                    ${canSeeOrganizerAnalytics ? `<a class="btn quick-link" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
                   </div>` : ``}
                   ${canManageVenues ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Venues</div>
                     <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
                     <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
+                    ${canSeeVenueAnalytics ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
                   </div>` : ``}
                   ${canManageJobs ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Jobs</div>
                     <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
                     <a class="btn quick-link" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>
                     <a class="btn quick-link" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
+                    ${canSeeJobAnalytics ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
                   </div>` : ``}
                   ${canManageAds ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Ads</div>
                     <a class="btn quick-link" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ad</a>
                     <a class="btn quick-link" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>
-                  </div>` : ``}
-                  ${canSeeAnyAnalytics ? `<div class="quick-links-group">
-                    <div class="quick-links-group-title">Analytics</div>
-                    ${canSeeEventsAnalytics ? `<a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>` : ``}
-                    ${canSeeOrganizerAnalytics ? `<a class="btn quick-link" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
-                    ${canSeeVenueAnalytics ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
-                    ${canSeeJobAnalytics ? `<a class="btn quick-link" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Job Analytics</a>` : ``}
                     ${canSeeAdsAnalytics ? `<a class="btn quick-link" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
                   </div>` : ``}
                 </div>
