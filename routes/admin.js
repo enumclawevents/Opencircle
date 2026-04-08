@@ -2624,6 +2624,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard insights now live in one switchable card, and new messages trigger live notification dings" });
     releaseLogItems.push({ date: "2026-04-07", text: "Added city-scoped messaging with online status, header access, and dashboard inbox preview" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick links now show only the three most important actions per section" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick links are back to a simpler module-based layout without a separate Analytics section" });
@@ -6709,6 +6710,33 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
         justify-content:space-between;
         gap:0;
       }
+      .insights-switcher{
+        display:flex;
+        gap:8px;
+        flex-wrap:wrap;
+        margin-bottom:12px;
+      }
+      .insights-switcher button{
+        height:34px;
+        padding:0 12px;
+        border-radius:var(--radius-inner);
+        border:1px solid var(--line);
+        background:#fff;
+        color:var(--muted);
+        font-weight:650;
+        cursor:pointer;
+      }
+      .insights-switcher button.is-active{
+        color:#065f46;
+        border-color:rgba(0,192,139,.35);
+        background:rgba(0,192,139,.08);
+      }
+      .insight-panel{
+        display:none;
+      }
+      .insight-panel.is-active{
+        display:block;
+      }
       .insight-row{
         display:flex;
         justify-content:space-between;
@@ -7128,6 +7156,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
         <script>
         (function(){
           var lastCount = ${pendingCount};
+          var lastMessageCount = ${unreadMessagesCount};
           var pollMs = 30000;
 
           function beep(){
@@ -7154,10 +7183,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
               if(!res.ok) return;
               var json = await res.json();
               var c = Number(json && json.count || 0);
+              var m = Number(json && json.messages || 0);
               if(c > lastCount && document.visibilityState === 'visible'){
                 beep();
               }
+              if(m > lastMessageCount && document.visibilityState === 'visible'){
+                beep();
+              }
               lastCount = c;
+              lastMessageCount = m;
             }catch(e){}
           }
 
@@ -7268,65 +7302,41 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
               </div>
             </div>` : ``}
 
-            ${canSeeEventsAnalytics ? `<div class="card dashboard-card" id="dashboard-event-insights-card" data-dashboard-card="event-insights" data-collapsible-card data-collapsed="false">
+            ${(canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeAdsAnalytics) ? `<div class="card dashboard-card" id="dashboard-insights-card" data-dashboard-card="insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <div class="card-controls">
-                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-event-insights-body">
-                    <h2>Event insights</h2>
+                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-insights-body">
+                    <h2>Insights</h2>
                     <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
                   </button>
                   <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
                   <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
                 </div>
               </div>
-              <div class="card-body" id="dashboard-event-insights-body">
-                <div class="insight-list">
+              <div class="card-body" id="dashboard-insights-body">
+                <div class="insights-switcher" id="dashboardInsightsSwitcher">
+                  ${canSeeEventsAnalytics ? `<button type="button" class="is-active" data-insight-target="events">Events</button>` : ``}
+                  ${canSeeVenueAnalytics ? `<button type="button" class="${canSeeEventsAnalytics ? "" : "is-active"}" data-insight-target="venues">Venues</button>` : ``}
+                  ${canSeeAdsAnalytics ? `<button type="button" class="${(!canSeeEventsAnalytics && !canSeeVenueAnalytics) ? "is-active" : ""}" data-insight-target="ads">Ads</button>` : ``}
+                </div>
+                ${canSeeEventsAnalytics ? `<div class="insight-panel is-active" data-insight-panel="events"><div class="insight-list">
                   <div class="insight-row"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
                   <div class="insight-row"><div class="label">Upcoming</div><div class="value">${esc(stats.upcoming)}</div></div>
                   <div class="insight-row"><div class="label">Featured</div><div class="value">${esc(stats.featured)}</div></div>
                   <div class="insight-row"><div class="label">Views</div><div class="value">${esc(stats.views)}</div></div>
-                </div>
-              </div>
-            </div>` : ``}
-
-            ${canSeeVenueAnalytics ? `<div class="card dashboard-card" id="dashboard-venue-insights-card" data-dashboard-card="venue-insights" data-collapsible-card data-collapsed="false">
-              <div class="sectionTitle">
-                <div class="card-controls">
-                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-venue-insights-body">
-                    <h2>Venue insights</h2>
-                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                  </button>
-                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
-                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
-                </div>
-              </div>
-              <div class="card-body" id="dashboard-venue-insights-body">
-                <div class="insight-list">
+                </div></div>` : ``}
+                ${canSeeVenueAnalytics ? `<div class="insight-panel ${canSeeEventsAnalytics ? "" : "is-active"}" data-insight-panel="venues"><div class="insight-list">
                   <div class="insight-row"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
                   <div class="insight-row"><div class="label">Views</div><div class="value">${esc(venueStats.views)}</div></div>
                   <div class="insight-row"><div class="label">Total Link Clicks</div><div class="value">${esc(venueStats.totalClicks)}</div></div>
                   <div class="insight-row"><div class="label">With Website</div><div class="value">${esc(venueStats.withWebsite)} (${esc(venueStats.withWebsitePct)})</div></div>
-                </div>
-              </div>
-            </div>` : ``}
-
-            ${canSeeAdsAnalytics ? `<div class="card dashboard-card" id="dashboard-ad-insights-card" data-dashboard-card="ad-insights" data-collapsible-card data-collapsed="false">
-              <div class="sectionTitle">
-                <div class="card-controls">
-                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-ad-insights-body">
-                    <h2>Ad Insights</h2>
-                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                  </button>
-                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
-                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
-                </div>
-              </div>
-              <div class="card-body" id="dashboard-ad-insights-body">
-                <div class="insight-list">
+                </div></div>` : ``}
+                ${canSeeAdsAnalytics ? `<div class="insight-panel ${(!canSeeEventsAnalytics && !canSeeVenueAnalytics) ? "is-active" : ""}" data-insight-panel="ads"><div class="insight-list">
                   <div class="insight-row"><div class="label">Ads</div><div class="value">${esc(adAnalyticsStats.total)}</div></div>
                   <div class="insight-row"><div class="label">Active</div><div class="value">${esc(adAnalyticsStats.active)}</div></div>
                   <div class="insight-row"><div class="label">Clicks</div><div class="value">${esc(adAnalyticsStats.clicks)}</div></div>
                   <div class="insight-row"><div class="label">Views</div><div class="value">${esc(adAnalyticsStats.views)}</div></div>
+                </div></div>` : ``}
                 </div>
               </div>
             </div>` : ``}
@@ -9368,6 +9378,27 @@ const appVersion = String(process.env.APP_VERSION || "v0.0.99");
         });
       })();
 
+      // ---- dashboard insights switcher ----
+      (function(){
+        var switcher = document.getElementById('dashboardInsightsSwitcher');
+        if (!switcher) return;
+        var buttons = Array.prototype.slice.call(switcher.querySelectorAll('[data-insight-target]'));
+        var panels = Array.prototype.slice.call(document.querySelectorAll('[data-insight-panel]'));
+        function activate(target){
+          buttons.forEach(function(btn){
+            btn.classList.toggle('is-active', btn.getAttribute('data-insight-target') === target);
+          });
+          panels.forEach(function(panel){
+            panel.classList.toggle('is-active', panel.getAttribute('data-insight-panel') === target);
+          });
+        }
+        buttons.forEach(function(btn){
+          btn.addEventListener('click', function(){
+            activate(btn.getAttribute('data-insight-target'));
+          });
+        });
+      })();
+
       // ---- dashboard drag + drop layout ----
       (function(){
         var board = document.getElementById('dashboard-overview');
@@ -11284,12 +11315,23 @@ router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 router.get("/pending-count", async (req, res) => {
   try {
+    await ensureMessageSchema();
+    await ensureUserProfileSchema();
     const city = String(req.query.city || "Enumclaw");
     const row = await get("SELECT COUNT(*) AS n FROM pending_events WHERE city = ?", [city]);
-    return res.json({ ok: true, count: Number(row?.n || 0) });
+    const currentUser = await resolveSessionUser(req);
+    let messages = 0;
+    if (currentUser?.id) {
+      const messageRow = await get(
+        "SELECT COUNT(*) AS count FROM messages WHERE recipientUserId = ? AND city = ? AND readAt IS NULL",
+        [currentUser.id, city]
+      );
+      messages = Number(messageRow?.count || 0);
+    }
+    return res.json({ ok: true, count: Number(row?.n || 0), messages });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ ok: false, count: 0 });
+    return res.status(500).json({ ok: false, count: 0, messages: 0 });
   }
 });
 
