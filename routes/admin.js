@@ -2620,7 +2620,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.4");
+const appVersion = String(process.env.APP_VERSION || "v0.1.5");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2634,6 +2634,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.4");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now keeps a balanced mix of content types so recent events do not get crowded out" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now falls back cleanly so published events still appear even on older event schemas" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now includes recent pending event submissions alongside published content" });
     releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now shows events alongside venues, jobs, and ads with posted-by usernames" });
@@ -4089,14 +4090,26 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.4");
       } catch (_) {}
     }
 
-    const activityDashboardHtml = activityItems.length
-      ? activityItems
-          .sort((a, b) => {
-            const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-            return bTime - aTime;
-          })
-          .slice(0, 10)
+    const sortedActivityItems = activityItems.slice().sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+    const activityCardItems = [];
+    const seenActivityTypes = new Set();
+    for (const item of sortedActivityItems) {
+      if (seenActivityTypes.has(item.type)) continue;
+      seenActivityTypes.add(item.type);
+      activityCardItems.push(item);
+    }
+    for (const item of sortedActivityItems) {
+      if (activityCardItems.length >= 10) break;
+      if (activityCardItems.includes(item)) continue;
+      activityCardItems.push(item);
+    }
+
+    const activityDashboardHtml = activityCardItems.length
+      ? activityCardItems
           .map((item) => `
             <a class="activity-item" href="${esc(item.href)}">
               <div class="activity-item-top">
