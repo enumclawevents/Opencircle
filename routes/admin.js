@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.33");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.34");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Organizer dashboards now focus on event-only quick links, messages, activity, release notes, and event insights scoped to that organizer" });
     releaseLogItems.push({ date: "2026-04-09", text: "The organizer-only events analytics page now uses the same row gap below the chart card as the gap above it" });
     releaseLogItems.push({ date: "2026-04-09", text: "The API root URL now redirects directly to /admin" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer event analytics now uses the same card spacing below the chart row as the spacing above it" });
@@ -4036,7 +4037,53 @@ return `
         }
       }
 
-      if (canApproveEvents) {
+      if (isOrganizerUser) {
+        try {
+          const organizerSubmissionWhere = [];
+          const organizerSubmissionParams = [];
+          if (selectedCity) {
+            organizerSubmissionWhere.push("city = ?");
+            organizerSubmissionParams.push(selectedCity);
+          }
+          const organizerSubmissionParts = [];
+          if (currentUser?.email) {
+            organizerSubmissionParts.push("lower(COALESCE(submitterEmail,'')) = lower(?)");
+            organizerSubmissionParams.push(String(currentUser.email));
+          }
+          if (organizerOwnerClause) {
+            organizerSubmissionParts.push(organizerOwnerClause.sql);
+            organizerSubmissionParams.push(...organizerOwnerClause.params);
+          }
+          if (organizerSubmissionParts.length) {
+            organizerSubmissionWhere.push(`(${organizerSubmissionParts.join(" OR ")})`);
+          }
+          const organizerSubmissionWhereSql = organizerSubmissionWhere.length
+            ? `WHERE ${organizerSubmissionWhere.join(" AND ")}`
+            : "";
+          const rows = await all(
+            `SELECT id, title, location, organizer, submitterEmail, createdAt
+               FROM pending_events
+               ${organizerSubmissionWhereSql}
+              ORDER BY datetime(COALESCE(createdAt, '1970-01-01')) DESC, id DESC
+              LIMIT 6`,
+            organizerSubmissionParams
+          );
+          rows.forEach((row) => {
+            const submitter = row.submitterEmail
+              ? `Submitted by ${row.submitterEmail}`
+              : (row.organizer ? `Submitted for ${row.organizer}` : "Submitted for review");
+            activityItems.push({
+              type: "Submission",
+              title: row.title || "Untitled event submission",
+              meta: `${row.location || selectedCity} · ${submitter}`,
+              createdAt: row.createdAt,
+              href: buildActivityHref("/admin/existing-events", row.title || row.id),
+            });
+          });
+        } catch (err) {
+          console.error("[admin activity organizer submissions]", err);
+        }
+      } else if (canApproveEvents) {
         try {
           const rows = await all(
             `SELECT id, title, location, organizer, submitterEmail, createdAt
@@ -7475,7 +7522,9 @@ return `
                     <div class="quick-links-group-title">Events</div>
                     <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">${isOrganizerUser ? "My Events" : "All Events"}</a>
                     <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
-                    ${canApproveEvents
+                    ${isOrganizerUser
+                      ? `<a class="btn quick-link" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>`
+                      : canApproveEvents
                       ? `<a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>`
                       : ((hasDeveloperAccess || isCityEditor || isOrganizerUser)
                         ? `<a class="btn quick-link" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>`
