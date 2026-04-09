@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.22");
+const appVersion = String(process.env.APP_VERSION || "v0.1.25");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Event and organizer charts now always show Events as the main line with Views as the blue dotted comparison, without a metric toggle" });
+    releaseLogItems.push({ date: "2026-04-08", text: "Header search now stretches fully toward the icon cluster instead of leaving a large empty gap" });
     releaseLogItems.push({ date: "2026-04-08", text: "Header username label removed so the top-right controls stay cleaner and more compact" });
     releaseLogItems.push({ date: "2026-04-08", text: "Header messages now uses the same icon-button style as notifications and sits beside it" });
     releaseLogItems.push({ date: "2026-04-08", text: "Admin header search now replaces the old title and helper block on the left across pages" });
@@ -5500,7 +5502,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
       .h-left-search{
         min-width:0;
         flex:1 1 auto;
-        max-width:980px;
+        max-width:none;
       }
       .mobile-sidebar-toggle{
         display:none;
@@ -7687,10 +7689,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
                 <div class="chartTopRow">
-                  <div class="metricToggle" id="chartMetricSeg" aria-label="Metric toggle">
-                    <button type="button" data-metric="events" class="on">Events</button>
-                    <button type="button" data-metric="views">Views</button>
-                  </div>
                   <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
                     <div class="chartLegendItem is-events" data-legend-metric="events">
                       <span class="chartLegendLine"></span>
@@ -7745,10 +7743,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
                 <div class="chartTopRow">
-                  <div class="metricToggle" id="organizerChartMetricSeg" aria-label="Organizer metric toggle">
-                    <button type="button" data-metric="events" class="on">Events</button>
-                    <button type="button" data-metric="views">Views</button>
-                  </div>
                   <div class="chartLegend" id="organizerChartLegend" aria-label="Organizer chart legend">
                     <div class="chartLegendItem is-events" data-legend-metric="events">
                       <span class="chartLegendLine"></span>
@@ -10370,7 +10364,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
     } catch (_) {}
 
     let mode = "daily";
-    let metric = "events";
     let hoverIndex = -1;
     let resizeRetry = 0;
 
@@ -10378,14 +10371,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
     if ($seg) {
       $seg.querySelectorAll("[data-view]").forEach((b) => {
         const on = (b.getAttribute("data-view") === mode);
-        b.classList.toggle("on", on);
-        b.setAttribute("aria-pressed", on ? "true" : "false");
-      });
-    }
-    const metricSeg = document.getElementById("chartMetricSeg");
-    if (metricSeg) {
-      metricSeg.querySelectorAll("[data-metric]").forEach((b) => {
-        const on = (b.getAttribute("data-metric") === metric);
         b.classList.toggle("on", on);
         b.setAttribute("aria-pressed", on ? "true" : "false");
       });
@@ -10421,7 +10406,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
       const itemMetric = item.getAttribute("data-legend-metric") || "";
       const line = item.querySelector(".chartLegendLine");
       if (!line) return;
-      const isPrimary = itemMetric === metric;
+      const isPrimary = itemMetric === "events";
       line.classList.toggle("is-dashed", !isPrimary);
     });
   }
@@ -10448,9 +10433,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
   }
 
   function draw(){
-    const primarySet = (chartSets[metric] && chartSets[metric][mode]) ? chartSets[metric][mode] : chartSets.events.daily;
-    const secondaryMetric = metric === "events" ? "views" : "events";
-    const secondarySet = (chartSets[secondaryMetric] && chartSets[secondaryMetric][mode]) ? chartSets[secondaryMetric][mode] : chartSets[secondaryMetric]?.daily;
+    const primarySet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
+    const secondarySet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : chartSets.views?.daily;
     const labels = (primarySet && primarySet.labels) ? primarySet.labels : [];
     const primaryValues = (primarySet && primarySet.values) ? primarySet.values : [];
     const secondaryValues = (secondarySet && secondarySet.values) ? secondarySet.values : [];
@@ -10513,10 +10497,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
       });
     }
 
-    const eventColor = "rgba(16,185,129,.82)";
-    const viewColor = "rgba(37,99,235,.72)";
-    const primaryColor = metric === "events" ? eventColor : viewColor;
-    const secondaryColor = metric === "events" ? viewColor : eventColor;
+    const primaryColor = "rgba(16,185,129,.82)";
+    const secondaryColor = "rgba(37,99,235,.72)";
 
     if (primaryPoints.length) {
       ctx.save();
@@ -10541,7 +10523,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
       const last = primaryPoints[primaryPoints.length - 1];
       ctx.lineTo(last.x, frame.padT + frame.gh);
       ctx.closePath();
-      ctx.fillStyle = metric === "events" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)";
+      ctx.fillStyle = "rgba(16,185,129,.10)";
       ctx.fill();
       ctx.restore();
     }
@@ -10590,7 +10572,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
   }
 
   function getPointIndexFromEvent(ev){
-    const set = (chartSets[metric] && chartSets[metric][mode]) ? chartSets[metric][mode] : chartSets.events.daily;
+    const set = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
     const values = (set && set.values) ? set.values : [];
     if (!values.length) return -1;
 
@@ -10649,20 +10631,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
     });
   }
 
-  const metricSeg = document.getElementById("chartMetricSeg");
-  if (metricSeg){
-    metricSeg.addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-metric]");
-      if (!btn) return;
-      metric = btn.getAttribute("data-metric") || "events";
-      hoverIndex = -1;
-      hideTip();
-      setActiveBtn();
-      syncLegend();
-      draw();
-    });
-  }
-
   // Hover tooltip
   $canvas.addEventListener("mousemove", (e) => {
     const idx = getPointIndexFromEvent(e);
@@ -10700,9 +10668,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
     const $canvas = document.getElementById("organizerChart");
     const $wrap = document.getElementById("organizerChartWrap");
     const $tip = document.getElementById("organizerChartTip");
-    const $metricSeg = document.getElementById("organizerChartMetricSeg");
     const $legend = document.getElementById("organizerChartLegend");
-    if (!$canvas || !$wrap || !$metricSeg) return;
+    if (!$canvas || !$wrap) return;
 
     const ctx = $canvas.getContext("2d");
     if (!ctx) return;
@@ -10729,25 +10696,15 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
       }
     } catch (_) {}
 
-    let metric = "events";
     let hoverIndex = -1;
 
-    function getSet(){ return chartSets[metric] || { labels: [], values: [] }; }
-    function getSecondaryMetric(){ return metric === "events" ? "views" : "events"; }
-    function setActiveBtn(){
-      $metricSeg.querySelectorAll("[data-metric]").forEach((btn) => {
-        const on = btn.getAttribute("data-metric") === metric;
-        btn.classList.toggle("on", on);
-        btn.setAttribute("aria-pressed", on ? "true" : "false");
-      });
-    }
     function syncLegend(){
       if (!$legend) return;
       $legend.querySelectorAll("[data-legend-metric]").forEach((item) => {
         const itemMetric = item.getAttribute("data-legend-metric") || "";
         const line = item.querySelector(".chartLegendLine");
         if (!line) return;
-        line.classList.toggle("is-dashed", itemMetric !== metric);
+        line.classList.toggle("is-dashed", itemMetric !== "events");
       });
     }
     function sizeCanvas(){
@@ -10764,8 +10721,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
       return { w, h };
     }
     function draw(){
-      const primarySet = getSet();
-      const secondarySet = chartSets[getSecondaryMetric()] || { labels: [], values: [] };
+      const primarySet = chartSets.events || { labels: [], values: [] };
+      const secondarySet = chartSets.views || { labels: [], values: [] };
       const labels = primarySet.labels || [];
       const primaryValues = primarySet.values || [];
       const secondaryValues = secondarySet.values || [];
@@ -10821,10 +10778,8 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
         });
       }
 
-      const eventColor = "rgba(16,185,129,.82)";
-      const viewColor = "rgba(37,99,235,.72)";
-      const primaryColor = metric === "events" ? eventColor : viewColor;
-      const secondaryColor = metric === "events" ? viewColor : eventColor;
+      const primaryColor = "rgba(16,185,129,.82)";
+      const secondaryColor = "rgba(37,99,235,.72)";
 
       if (primaryPoints.length) {
         ctx.save();
@@ -10845,7 +10800,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
         const last = primaryPoints[primaryPoints.length - 1];
         ctx.lineTo(last.x, frame.padT + frame.gh);
         ctx.closePath();
-        ctx.fillStyle = metric === "events" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)";
+        ctx.fillStyle = "rgba(16,185,129,.10)";
         ctx.fill();
         ctx.restore();
       }
@@ -10891,7 +10846,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
       }
     }
     function getPointIndexFromEvent(ev){
-      const set = getSet();
+      const set = chartSets.events || { labels: [], values: [] };
       const values = set.values || [];
       if (!values.length) return -1;
       const rect = $canvas.getBoundingClientRect();
@@ -10924,16 +10879,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
     }
     function hideTip(){ if ($tip) $tip.style.display = "none"; }
 
-    $metricSeg.addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-metric]");
-      if (!btn) return;
-      metric = btn.getAttribute("data-metric") || "events";
-      hoverIndex = -1;
-      hideTip();
-      setActiveBtn();
-      syncLegend();
-      draw();
-    });
     $canvas.addEventListener("mousemove", (e) => {
       const idx = getPointIndexFromEvent(e);
       if (idx !== hoverIndex) {
@@ -10948,7 +10893,6 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.22");
       draw();
     });
 
-    setActiveBtn();
     syncLegend();
     draw();
     window.addEventListener("resize", () => window.requestAnimationFrame(draw));
