@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.28");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.31");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.28");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Organizer event analytics now uses the same visual gap below the chart row as the gap above it" });
+    releaseLogItems.push({ date: "2026-04-09", text: "Organizer event analytics now collapses to the chart's natural height instead of leaving a large gap before the top-events row" });
+    releaseLogItems.push({ date: "2026-04-09", text: "Admin header search now fills the available left-side space without leaving a large gap before the icon buttons" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now see a full-width events analytics chart without the top organizers side card" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer users no longer see organizer analytics in the sidebar or have direct access to that page" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now see only Dashboard, Events, Analytics, and Admin in the sidebar" });
@@ -5500,11 +5503,13 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.28");
         align-items:center;
         gap:12px;
         min-width:0;
-        flex:1 1 auto;
+        flex:1 1 0;
+        width:100%;
       }
       .h-left-search{
         min-width:0;
         flex:1 1 auto;
+        width:100%;
         max-width:none;
       }
       .mobile-sidebar-toggle{
@@ -5744,6 +5749,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.28");
         border-radius:0;
         padding: 0;
         width:100%;
+        min-width:0;
         max-width:none;
         position:relative;
         margin-right:0;
@@ -5862,6 +5868,10 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.28");
       .analytics-main-grid > .card:last-child{
         min-height:366px;
       }
+      .organizer-analytics-single > .card,
+      .organizer-analytics-single > .card:first-child{
+        min-height:0;
+      }
       .organizer-leaderboard-card{
         margin-top: calc(var(--gap) * -0.9);
       }
@@ -5882,6 +5892,9 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.28");
         gap:var(--gap);
         margin-bottom:var(--gap);
         align-items: stretch;
+      }
+      .organizer-top-events-grid{
+        margin-top: calc(var(--gap) * -0.35);
       }
       .grid4 > .card{ height:100%; }
 
@@ -7688,7 +7701,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.28");
 
         <!-- Charts -->
         ${showAnalytics ? `
-        <section class="${isOrganizerUser ? "analytics-main-grid" : "grid2 analytics-main-grid organizer-chart-grid"}">
+        <section class="${isOrganizerUser ? "analytics-main-grid organizer-analytics-single" : "grid2 analytics-main-grid organizer-chart-grid"}">
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
@@ -7851,7 +7864,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.28");
 
         <!-- Top events (views) -->
         ${showAnalytics ? `
-        <section class="grid4">
+        <section class="grid4 ${isOrganizerUser ? "organizer-top-events-grid" : ""}">
           <div class="card">
             <div class="sectionTitle">
               <div>
