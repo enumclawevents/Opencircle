@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.27");
+const appVersion = String(process.env.APP_VERSION || "v0.1.28");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.27");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now see a full-width events analytics chart without the top organizers side card" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer users no longer see organizer analytics in the sidebar or have direct access to that page" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now see only Dashboard, Events, Analytics, and Admin in the sidebar" });
     releaseLogItems.push({ date: "2026-04-09", text: "Event and organizer charts now always show Events as the main line with Views as the blue dotted comparison, without a metric toggle" });
@@ -7687,7 +7688,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.27");
 
         <!-- Charts -->
         ${showAnalytics ? `
-        <section class="grid2 analytics-main-grid organizer-chart-grid">
+        <section class="${isOrganizerUser ? "analytics-main-grid" : "grid2 analytics-main-grid organizer-chart-grid"}">
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
@@ -7721,6 +7722,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.27");
             </div>
           </div>
 
+          ${!isOrganizerUser ? `
           <div class="card">
             <div class="sectionTitle">
               <div>
@@ -7730,6 +7732,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.27");
             </div>
             ${analyticsSideBodyHtml}
           </div>
+          ` : ``}
         </section>
         ` : ``}
 
