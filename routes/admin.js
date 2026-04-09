@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-const appVersion = String(process.env.APP_VERSION || "v0.1.25");
+const appVersion = String(process.env.APP_VERSION || "v0.1.26");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.25");
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now see only Dashboard, Events, Analytics, and Admin in the sidebar" });
     releaseLogItems.push({ date: "2026-04-09", text: "Event and organizer charts now always show Events as the main line with Views as the blue dotted comparison, without a metric toggle" });
     releaseLogItems.push({ date: "2026-04-08", text: "Header search now stretches fully toward the icon cluster instead of leaving a large empty gap" });
     releaseLogItems.push({ date: "2026-04-08", text: "Header username label removed so the top-right controls stay cleaner and more compact" });
@@ -3652,7 +3653,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.25");
     if (showApprove && !(hasDeveloperAccess || isCityEditor)) return res.status(403).send("Forbidden");
     if (showCreate && !(hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showUpload && !(hasDeveloperAccess || isCityEditor || isOrganizerUser)) return res.status(403).send("Forbidden");
-    if (showOrganizers && !(hasDeveloperAccess || isCityEditor)) return res.status(403).send("Forbidden");
+    if (showOrganizers && !(hasDeveloperAccess || isCityEditor || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showVenueCreate && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showVenueExisting && !(hasDeveloperAccess || isCityEditor || isCityViewer)) return res.status(403).send("Forbidden");
     if (showVenueAnalytics && !(hasDeveloperAccess || isCityEditor)) return res.status(403).send("Forbidden");
@@ -7263,7 +7264,7 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.25");
         </div>
 
         <nav class="nav">
-          ${(hasDeveloperAccess || isCityEditor || isCityViewer) ? `
+          ${(hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser) ? `
           <div class="nav-group nav-collapsible ${showDashboard ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${showDashboard ? "page" : "false"}"><i class="fa-regular fa-chart-bar nav-title-icon" aria-hidden="true"></i><span>Dashboard</span></a>
             <div class="nav-sub" data-nav-sub>
@@ -7288,16 +7289,16 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.25");
           </div>
           <div class="sb-divider"></div>
 
-          <div class="nav-group nav-collapsible ${venuesMenuOpen ? "is-open" : ""}" data-nav-group>
+          ${!isOrganizerUser ? `<div class="nav-group nav-collapsible ${venuesMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${venuesMenuOpen ? "page" : "false"}"><i class="fa-regular fa-building nav-title-icon" aria-hidden="true"></i><span>Venues</span></a>
             <div class="nav-sub" data-nav-sub>
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showVenueExisting ? "active" : ""}" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>` : ``}
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venues</a>` : ``}
             </div>
           </div>
-          <div class="sb-divider"></div>
+          <div class="sb-divider"></div>` : ``}
 
-          <div class="nav-group nav-collapsible ${jobsMenuOpen ? "is-open" : ""}" data-nav-group>
+          ${!isOrganizerUser ? `<div class="nav-group nav-collapsible ${jobsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${jobsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-clipboard nav-title-icon" aria-hidden="true"></i><span>Jobs</span></a>
             <div class="nav-sub" data-nav-sub>
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showJobsExisting ? "active" : ""}" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>` : ``}
@@ -7305,22 +7306,23 @@ const appVersion = String(process.env.APP_VERSION || "v0.1.25");
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showJobsApplicants ? "active" : ""}" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>` : ``}
             </div>
           </div>
-          <div class="sb-divider"></div>
+          <div class="sb-divider"></div>` : ``}
 
-          <div class="nav-group nav-collapsible ${adsMenuOpen ? "is-open" : ""}" data-nav-group>
+          ${!isOrganizerUser ? `<div class="nav-group nav-collapsible ${adsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${adsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-image nav-title-icon" aria-hidden="true"></i><span>Ads</span></a>
             <div class="nav-sub" data-nav-sub>
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showAdsExisting ? "active" : ""}" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>` : ``}
               ${(isCityViewer || isCityEditor || hasDeveloperAccess) ? `<a class="subnav-link ${showAdsCreate ? "active" : ""}" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ads</a>` : ``}
             </div>
           </div>
+          ` : ``}
 
           ${((hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${analyticsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${analyticsMenuOpen ? "page" : "false"}"><i class="fa-solid fa-chart-column nav-title-icon" aria-hidden="true"></i><span>Analytics</span></a>
             <div class="nav-sub" data-nav-sub>
               ${(hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events</a>` : ``}
-              ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
+              ${(hasDeveloperAccess || isCityEditor || isOrganizerUser) ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
               ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venues</a>` : ``}
               ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Jobs</a>` : ``}
               ${(hasDeveloperAccess || isCityEditor) ? `<a class="subnav-link ${showAdsAnalytics ? "active" : ""}" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads</a>` : ``}
