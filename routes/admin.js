@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.32");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.33");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,8 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "The organizer-only events analytics page now uses the same row gap below the chart card as the gap above it" });
+    releaseLogItems.push({ date: "2026-04-09", text: "The API root URL now redirects directly to /admin" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer event analytics now uses the same card spacing below the chart row as the spacing above it" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer event analytics now uses the same visual gap below the chart row as the gap above it" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer event analytics now collapses to the chart's natural height instead of leaving a large gap before the top-events row" });
@@ -5872,6 +5874,9 @@ return `
       .organizer-analytics-single > .card,
       .organizer-analytics-single > .card:first-child{
         min-height:0;
+      }
+      .organizer-analytics-single{
+        margin-bottom:var(--gap);
       }
       .organizer-leaderboard-card{
         margin-top: calc(var(--gap) * -0.9);

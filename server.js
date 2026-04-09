@@ -324,6 +324,10 @@ app.post("/login", async (req, res) => {
   return res.status(401).send("Invalid credentials");
 });
 
+app.get("/", (_req, res) => {
+  return res.redirect("/admin");
+});
+
 app.get("/signup", (req, res) => {
   const html = `<!doctype html>
   <html>
