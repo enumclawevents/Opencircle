@@ -2460,6 +2460,16 @@ try {
     const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
     const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
     const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
+    const eventStartLocalValue = toDateTimeLocalValue(editEvent?.startDateTime);
+    const eventEndLocalValue = toDateTimeLocalValue(editEvent?.endDateTime);
+    const inferredEventType = (function(){
+      if (!editEvent) return "";
+      if (!isOrganizerUser && hasRecurrence) return "recurring";
+      const startDate = String(eventStartLocalValue || "").slice(0, 10);
+      const endDate = String(eventEndLocalValue || "").slice(0, 10);
+      if (startDate && endDate && startDate !== endDate) return "multi-day";
+      return "single";
+    })();
     const storedRecurrenceDates = parseStoredDates(editEvent?.recurrenceDates);
 
     const customDates = (function(){
@@ -2798,7 +2808,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.41");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.42");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2812,6 +2822,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-10", text: "Create Event now begins with Single Event, Multi-Day Event, and Recurring Event choices so the matching form stays hidden until an event type is selected" });
     releaseLogItems.push({ date: "2026-04-09", text: "Dashboard activity cards now show only the 5 most recent items instead of growing taller with a longer mixed feed" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer event submission now auto-generates SEO fields and temporarily removes recurring-event controls from organizer workflows" });
     releaseLogItems.push({ date: "2026-04-09", text: "Messages now show a simple checkmark and Read label once a sent message has been opened" });
@@ -6928,6 +6939,55 @@ return `
       .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: var(--radius-mid); padding: 14px; }
       .rec-grid{ display:grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
       @media (max-width: 900px){ .rec-grid{ grid-template-columns: 1fr; } }
+      .event-type-picker{
+        display:grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap:12px;
+        margin-top:10px;
+      }
+      @media (max-width: 900px){ .event-type-picker{ grid-template-columns: 1fr; } }
+      .event-type-card{
+        appearance:none;
+        border:1px solid var(--line);
+        border-radius: var(--radius-mid);
+        background:#fff;
+        padding:16px;
+        text-align:left;
+        cursor:pointer;
+        display:flex;
+        flex-direction:column;
+        gap:8px;
+        transition:border-color .14s ease, box-shadow .14s ease, background-color .14s ease;
+      }
+      .event-type-card:hover{
+        border-color: rgba(0,192,139,.28);
+        box-shadow: 0 0 0 4px rgba(0,192,139,.08);
+      }
+      .event-type-card.is-active{
+        background: rgba(0,192,139,.08);
+        border-color: rgba(0,192,139,.28);
+        box-shadow: 0 0 0 4px rgba(0,192,139,.10);
+      }
+      .event-type-card-title{
+        font-size:18px;
+        font-weight:700;
+        color:var(--text);
+        line-height:1.2;
+      }
+      .event-type-card-copy{
+        font-size:13px;
+        line-height:1.5;
+        color:var(--muted);
+      }
+      .event-type-managed-rec-toggle{ display:none; }
+      .event-type-shell{ display:none; }
+      .event-type-shell.is-visible{ display:block; }
+      .event-type-note{
+        margin-top:14px;
+        color:var(--muted);
+        font-size:14px;
+        line-height:1.5;
+      }
       .rec-label{ font-weight:650; font-size: 12px; margin-bottom: 8px; color: var(--text); letter-spacing: .2px; }
       .rec-help{ margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.4; }
 
@@ -8381,9 +8441,33 @@ return `
               ${fromPending ? `<input type="hidden" name="pendingId" value="${esc(pendingEvent.id)}" />` : ""}
 
               <input type="hidden" name="city" id="cityHidden" value="${esc(formCity)}" />
+              <input type="hidden" name="eventTypeChoice" id="eventTypeChoice" value="${esc(inferredEventType)}" />
 
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
               <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
+
+              <div class="rec-box">
+                <div style="font-weight:650; margin-bottom:6px;">Event Type</div>
+                <div class="event-type-picker" id="eventTypePicker">
+                  <button type="button" class="event-type-card ${inferredEventType === "single" ? "is-active" : ""}" data-event-type="single">
+                    <span class="event-type-card-title">Single Event</span>
+                    <span class="event-type-card-copy">One event with a single start and end time on the same day.</span>
+                  </button>
+                  <button type="button" class="event-type-card ${inferredEventType === "multi-day" ? "is-active" : ""}" data-event-type="multi-day">
+                    <span class="event-type-card-title">Multi-Day Event</span>
+                    <span class="event-type-card-copy">One event that spans across multiple days with one continuous date range.</span>
+                  </button>
+                  ${isOrganizerUser ? `` : `
+                  <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring">
+                    <span class="event-type-card-title">Recurring Event</span>
+                    <span class="event-type-card-copy">An event that repeats weekly, monthly, or on a custom schedule.</span>
+                  </button>
+                  `}
+                </div>
+                ${editEvent ? `` : `<div class="event-type-note">Choose an event type to open the matching form.</div>`}
+              </div>
+
+              <div class="event-type-shell ${inferredEventType ? "is-visible" : ""}" id="eventTypeShell">
 
               ${canCurateEventPromotions ? `
               <div class="rec-box">
@@ -8458,12 +8542,12 @@ return `
 
               ${isOrganizerUser ? `` : `
               <!-- Recurring Events -->
-              <div class="rec-box recurrence">
-                <div class="checkbox">
+              <div class="rec-box recurrence" id="recurrenceSettings">
+                <div class="checkbox event-type-managed-rec-toggle">
                   <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
                   <label for="hasRecurrence" style="margin:0;font-size:12px;font-weight:650;">Recurring event</label>
                 </div>
-                <div class="note">Weekly/monthly rule or custom dates list.</div>
+                <div class="note event-type-managed-rec-toggle">Weekly/monthly rule or custom dates list.</div>
 
                 <div class="rec-grid" style="margin-top:12px;">
                   <div>
@@ -8649,8 +8733,9 @@ return `
 
               <div class="actions">
                 <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
-	                ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
+              ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
                 <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
+              </div>
               </div>
             </form>
           </div>
@@ -10095,7 +10180,12 @@ return `
         var form = document.querySelector('form[action="/admin/events"]');
         if(!form) return;
 
-        form.addEventListener("submit", function(){
+        form.addEventListener("submit", function(ev){
+          var eventTypeChoice = String(((document.getElementById("eventTypeChoice") || {}).value) || "").trim();
+          if (!eventTypeChoice) {
+            ev.preventDefault();
+            return;
+          }
           try {
             sessionStorage.setItem("oc_admin_scroll", String(window.scrollY || 0));
           } catch (_) {}
@@ -10139,6 +10229,72 @@ return `
             }
           }
         });
+      })();
+
+      // Event type chooser controls the create-event experience
+      (function(){
+        var picker = document.getElementById("eventTypePicker");
+        var shell = document.getElementById("eventTypeShell");
+        var hidden = document.getElementById("eventTypeChoice");
+        if (!picker || !shell || !hidden) return;
+
+        var buttons = Array.prototype.slice.call(picker.querySelectorAll("[data-event-type]"));
+        if (!buttons.length) return;
+
+        var hasRecEl = document.getElementById("hasRecurrence");
+        var typeEl = document.getElementById("recurrenceType");
+        var recurrenceSettings = document.getElementById("recurrenceSettings");
+        var lastRecurringType = typeEl && typeEl.value && typeEl.value !== "none" ? String(typeEl.value) : "weekly";
+
+        function emitChange(el){
+          if (!el) return;
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+
+        function setSelection(nextType){
+          var selected = String(nextType || "").trim().toLowerCase();
+          hidden.value = selected;
+          shell.classList.toggle("is-visible", !!selected);
+          if (recurrenceSettings) recurrenceSettings.style.display = selected === "recurring" ? "" : "none";
+          buttons.forEach(function(btn){
+            btn.classList.toggle("is-active", (btn.getAttribute("data-event-type") || "") === selected);
+          });
+
+          if (hasRecEl) {
+            if (selected === "recurring") {
+              hasRecEl.checked = true;
+              if (typeEl) {
+                if (!typeEl.value || typeEl.value === "none") {
+                  typeEl.value = lastRecurringType || "weekly";
+                }
+                lastRecurringType = String(typeEl.value || lastRecurringType || "weekly");
+              }
+            } else {
+              hasRecEl.checked = false;
+              if (typeEl && typeEl.value && typeEl.value !== "none") {
+                lastRecurringType = String(typeEl.value);
+              }
+            }
+            emitChange(hasRecEl);
+          }
+          emitChange(typeEl);
+        }
+
+        buttons.forEach(function(btn){
+          btn.addEventListener("click", function(){
+            setSelection(btn.getAttribute("data-event-type") || "");
+          });
+        });
+
+        if (typeEl) {
+          typeEl.addEventListener("change", function(){
+            if (typeEl.value && typeEl.value !== "none") {
+              lastRecurringType = String(typeEl.value);
+            }
+          });
+        }
+
+        setSelection(hidden.value || "");
       })();
 
       // Auto-set End = Start + 2 hours (only if end is empty)
