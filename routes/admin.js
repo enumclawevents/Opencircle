@@ -8,8 +8,8 @@ const os = require("os");
 const fs = require("fs");
 const { execSync, execFileSync } = require("child_process");
 const multer = require("multer");
-const { S3Client } = require("@aws-sdk/client-s3");
-const multerS3 = require("multer-s3");
+const sharp = require("sharp");
+const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { sendEmail } = require("../mailer");
 const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const crypto = require("crypto");
@@ -92,10 +92,12 @@ const UPLOAD_DIR =
   (process.env.RENDER_DISK_PATH
     ? path.join(process.env.RENDER_DISK_PATH, "uploads")
     : path.join(process.cwd(), "uploads"));
+const TEMP_UPLOAD_DIR = path.join(os.tmpdir(), "opencircle-upload-tmp");
 
 if (!useR2) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
+fs.mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
 
 const r2Client = useR2
   ? new S3Client({
@@ -109,38 +111,39 @@ const r2Client = useR2
     })
   : null;
 
-function buildUploadKey(file) {
-  const ext = path.extname(file.originalname || "").toLowerCase() || ".jpg";
+function buildUploadBaseName(inputName, fallback = "image") {
+  const ext = path.extname(inputName || "").toLowerCase();
   const base = path
-    .basename(file.originalname || "image", ext)
+    .basename(inputName || fallback, ext)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
-  const stamp = Date.now();
-  return `${base || "event"}-${stamp}${ext}`;
+  return base || fallback;
 }
 
-const storage = useR2
-  ? multerS3({
-      s3: r2Client,
-      bucket: R2_BUCKET,
-      contentType: multerS3.AUTO_CONTENT_TYPE,
-      key: (req, file, cb) => cb(null, buildUploadKey(file)),
-    })
-  : multer.diskStorage({
-      destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-      filename: (req, file, cb) => cb(null, buildUploadKey(file)),
-    });
+function buildTempUploadKey(file) {
+  const base = buildUploadBaseName(file?.originalname || "", "upload");
+  return `${base}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildStoredImageKey(inputName, fallback = "image") {
+  const base = buildUploadBaseName(inputName, fallback);
+  return `${base}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.webp`;
+}
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, TEMP_UPLOAD_DIR),
+  filename: (_req, file, cb) => cb(null, buildTempUploadKey(file)),
+});
 
 function fileFilter(req, file, cb) {
-  const ok = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.mimetype || "");
+  const ok = /^image\//i.test(file.mimetype || "");
   cb(ok ? null : new Error("Only image files are allowed."), ok);
 }
 
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
 });
 
 const bulkImportUpload = multer({
@@ -395,39 +398,52 @@ function buildZipImageMap(zipBuffer) {
 
 async function persistImportedImage(localPath, req) {
   if (!localPath || !fs.existsSync(localPath)) return "";
+  return await processAndPersistImage(localPath, path.basename(localPath), req);
+}
 
-  const ext = path.extname(localPath || "").toLowerCase() || ".jpg";
-  const destName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
-
-  if (useR2) {
-    const tmpFile = {
-      originalname: path.basename(localPath),
-      mimetype: ({
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".webp": "image/webp",
-        ".gif": "image/gif"
-      })[ext] || "application/octet-stream"
-    };
-    const key = buildUploadKey(tmpFile);
-    const putScript = [
-      "const fs=require('fs');",
-      "const {S3Client,PutObjectCommand}=require('@aws-sdk/client-s3');",
-      `const client=new S3Client({region:'auto',endpoint:${JSON.stringify(`https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`)},credentials:{accessKeyId:${JSON.stringify(R2_ACCESS_KEY_ID)},secretAccessKey:${JSON.stringify(R2_SECRET_ACCESS_KEY)}},forcePathStyle:true});`,
-      `const body=fs.readFileSync(${JSON.stringify(localPath)});`,
-      `client.send(new PutObjectCommand({Bucket:${JSON.stringify(R2_BUCKET)},Key:${JSON.stringify(key)},Body:body,ContentType:${JSON.stringify(tmpFile.mimetype)}})).then(()=>process.stdout.write(${JSON.stringify(key)})).catch((err)=>{console.error(err);process.exit(1);});`
-    ].join("");
-    execFileSync(process.execPath, ["-e", putScript], { stdio: ["ignore", "pipe", "pipe"] });
-    const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
-    return `${base}/${key}`;
-  }
-
-  const destPath = path.join(UPLOAD_DIR, destName);
-  fs.copyFileSync(localPath, destPath);
+function buildLocalUploadUrl(fileName, req) {
   const proto = req.headers["x-forwarded-proto"] || req.protocol;
   const host = req.headers["x-forwarded-host"] || req.get("host");
-  return `${proto}://${host}/uploads/${destName}`;
+  return `${proto}://${host}/uploads/${fileName}`;
+}
+
+async function processAndPersistImage(inputPath, sourceName, req) {
+  const outputKey = buildStoredImageKey(sourceName, "image");
+  const imageBuffer = await sharp(inputPath)
+    .rotate()
+    .resize(1920, 1080, {
+      fit: "contain",
+      position: "centre",
+      background: { r: 229, g: 231, b: 235, alpha: 1 },
+    })
+    .withMetadata({ density: 72 })
+    .webp({ quality: 85 })
+    .toBuffer();
+
+  if (useR2) {
+    await r2Client.send(new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: outputKey,
+      Body: imageBuffer,
+      ContentType: "image/webp",
+      CacheControl: "public, max-age=31536000, immutable",
+    }));
+    const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
+    return `${base}/${outputKey}`;
+  }
+
+  const destPath = path.join(UPLOAD_DIR, outputKey);
+  fs.writeFileSync(destPath, imageBuffer);
+  return buildLocalUploadUrl(outputKey, req);
+}
+
+async function persistUploadedImage(file, req) {
+  if (!file?.path) return "";
+  try {
+    return await processAndPersistImage(file.path, file.originalname || file.filename || "image", req);
+  } finally {
+    try { fs.rmSync(file.path, { force: true }); } catch (_) {}
+  }
 }
 
 function normalizeVenueCategories(input) {
@@ -2631,7 +2647,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.36");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.37");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2661,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Uploaded images now keep the full frame with a neutral grey background instead of being cropped to fill" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer dashboard quick links now use a single full-width events column" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now land on their dashboard instead of being redirected straight into My Events" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer dashboards now focus on event-only quick links, messages, activity, release notes, and event insights scoped to that organizer" });
@@ -11690,15 +11707,7 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
     let photoUrl = normalizeHttpUrl(req.body?.photoUrl || "");
 
     if (req.file) {
-      if (useR2) {
-        const base = (R2_PUBLIC_URL || "").replace(/\/+$/, "");
-        const keyName = req.file.key || req.file.filename || "";
-        if (base && keyName) photoUrl = `${base}/${keyName}`;
-      } else if (req.file.filename) {
-        const proto = req.get("x-forwarded-proto") || req.protocol;
-        const host = req.get("host");
-        photoUrl = `${proto}://${host}/uploads/${req.file.filename}`;
-      }
+      photoUrl = await persistUploadedImage(req.file, req);
     }
 
     await run(
@@ -11923,29 +11932,14 @@ router.post("/venues", upload.fields([{ name: "venueImageFile", maxCount: 1 }, {
     const galleryFiles = Array.isArray(req.files?.venueGalleryFiles) ? req.files.venueGalleryFiles : [];
 
     if (primaryFile) {
-      if (useR2) {
-        const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
-        const key = primaryFile.key || primaryFile.filename || "";
-        if (base && key) imageUrl = `${base}/${key}`;
-      } else if (primaryFile.filename) {
-        const proto = req.headers["x-forwarded-proto"] || req.protocol;
-        const host = req.headers["x-forwarded-host"] || req.get("host");
-        imageUrl = `${proto}://${host}/uploads/${primaryFile.filename}`;
-      }
+      imageUrl = await persistUploadedImage(primaryFile, req);
     }
 
     if (galleryFiles.length) {
-      const proto = req.headers["x-forwarded-proto"] || req.protocol;
-      const host = req.headers["x-forwarded-host"] || req.get("host");
-      const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
       const uploaded = [];
       for (const f of galleryFiles.slice(0, 3)) {
-        if (useR2) {
-          const key = f.key || f.filename || "";
-          if (base && key) uploaded.push(`${base}/${key}`);
-        } else if (f.filename) {
-          uploaded.push(`${proto}://${host}/uploads/${f.filename}`);
-        }
+        const uploadedUrl = await persistUploadedImage(f, req);
+        if (uploadedUrl) uploaded.push(uploadedUrl);
       }
       galleryImages = normalizeGalleryImages([...(galleryImages || []), ...uploaded], 3);
     }
@@ -12056,15 +12050,7 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
 
     const imageFile = req.file || null;
     if (imageFile) {
-      if (useR2) {
-        const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
-        const key = imageFile.key || imageFile.filename || "";
-        if (base && key) imageUrl = `${base}/${key}`;
-      } else if (imageFile.filename) {
-        const proto = req.headers["x-forwarded-proto"] || req.protocol;
-        const host = req.headers["x-forwarded-host"] || req.get("host");
-        imageUrl = `${proto}://${host}/uploads/${imageFile.filename}`;
-      }
+      imageUrl = await persistUploadedImage(imageFile, req);
     }
 
     const baseSlug = slugify(`${title}-${company}`);
@@ -12164,15 +12150,7 @@ router.post("/ads", upload.single("adImageFile"), async (req, res) => {
 
     const imageFile = req.file || null;
     if (imageFile) {
-      if (useR2) {
-        const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
-        const key = imageFile.key || imageFile.filename || "";
-        if (base && key) imageUrl = `${base}/${key}`;
-      } else if (imageFile.filename) {
-        const proto = req.headers["x-forwarded-proto"] || req.protocol;
-        const host = req.headers["x-forwarded-host"] || req.get("host");
-        imageUrl = `${proto}://${host}/uploads/${imageFile.filename}`;
-      }
+      imageUrl = await persistUploadedImage(imageFile, req);
     }
 
     const baseSlug = slugify(`${name}-${placement}`);
@@ -12289,15 +12267,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     // If a file was uploaded, prefer it over the URL field
     if (req.file) {
-      if (useR2) {
-        const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
-        const key = req.file.key || req.file.filename || "";
-        if (base && key) imageUrl = `${base}/${key}`;
-      } else if (req.file.filename) {
-        const proto = req.headers["x-forwarded-proto"] || req.protocol;
-        const host = req.headers["x-forwarded-host"] || req.get("host");
-        imageUrl = `${proto}://${host}/uploads/${req.file.filename}`;
-      }
+      imageUrl = await persistUploadedImage(req.file, req);
     }
 
     // Prefer browser-generated ISO with offset (prevents UTC shift)
