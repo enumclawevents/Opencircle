@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.34");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.35");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now land on their dashboard instead of being redirected straight into My Events" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer dashboards now focus on event-only quick links, messages, activity, release notes, and event insights scoped to that organizer" });
     releaseLogItems.push({ date: "2026-04-09", text: "The organizer-only events analytics page now uses the same row gap below the chart card as the gap above it" });
     releaseLogItems.push({ date: "2026-04-09", text: "The API root URL now redirects directly to /admin" });
@@ -3610,9 +3611,6 @@ return `
     const showUsers = view === "users";
     const showInvites = view === "invites";
 
-    if (showDashboard && isOrganizerUser) {
-      return res.redirect(`/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`);
-    }
     if (showExisting && !(hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showAnalytics && !(hasDeveloperAccess || isCityEditor || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showUsers && !hasDeveloperAccess) return res.status(403).send("Forbidden");
