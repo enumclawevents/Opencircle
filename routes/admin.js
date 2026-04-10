@@ -546,6 +546,43 @@ function stripHtml(str) {
   return String(str || "").replace(/<[^>]*>/g, "").trim();
 }
 
+function truncatePlainText(str, max) {
+  const text = String(str || "").replace(/\s+/g, " ").trim();
+  const limit = Math.max(0, Number(max || 0));
+  if (!limit || text.length <= limit) return text;
+  return text.slice(0, Math.max(0, limit - 1)).trimEnd() + "…";
+}
+
+function buildBasicEventSeoFields(input = {}) {
+  const title = String(input.title || "").replace(/\s+/g, " ").trim();
+  const location = String(input.location || "").replace(/\s+/g, " ").trim();
+  const organizer = String(input.organizer || "").replace(/\s+/g, " ").trim();
+  const description = truncatePlainText(stripHtml(input.description || ""), 160);
+
+  const seoTitleBase = [title, location].filter(Boolean).join(" | ");
+  const seoTitle = truncatePlainText(seoTitleBase || title, 60);
+
+  let metaDescription = description;
+  if (!metaDescription) {
+    metaDescription = truncatePlainText(
+      [title, location ? `at ${location}` : "", organizer ? `hosted by ${organizer}` : ""]
+        .filter(Boolean)
+        .join(" "),
+      160
+    );
+  }
+
+  return {
+    seoTitle,
+    metaDescription,
+    focusKeyphrase: truncatePlainText(title, 100),
+    imageAlt: truncatePlainText(
+      [title, location ? `at ${location}` : ""].filter(Boolean).join(" "),
+      120
+    ),
+  };
+}
+
 function mapCategoriesFromJson(input) {
   const map = {
     family: "Family & Kids",
@@ -2761,7 +2798,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.39");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.40");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2775,6 +2812,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Organizer event submission now auto-generates SEO fields and temporarily removes recurring-event controls from organizer workflows" });
     releaseLogItems.push({ date: "2026-04-09", text: "Messages now show a simple checkmark and Read label once a sent message has been opened" });
     releaseLogItems.push({ date: "2026-04-09", text: "Support Circle now appears in messages as a built-in troubleshooting chat that routes directly to support without exposing a personal name" });
     releaseLogItems.push({ date: "2026-04-09", text: "Uploaded images now keep the full frame with a neutral grey background instead of being cropped to fill" });
@@ -8394,6 +8432,9 @@ return `
               <label>Good to Know</label>
               <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
 
+              ${isOrganizerUser ? `
+              <div class="note" style="margin-top:12px;">SEO is generated automatically from your event title, description, location, and organizer details. Recurring events are temporarily disabled for organizer accounts.</div>
+              ` : `
               <div class="rec-box">
                 <div style="font-weight:650; margin-bottom:6px;">SEO</div>
                 <label>SEO Title</label>
@@ -8410,6 +8451,7 @@ return `
                 <label style="margin-top:10px;">Image Alt Text</label>
                 <input class="ctrl" name="imageAlt" value="${esc(editEvent?.imageAlt || "")}" />
               </div>
+              `}
 
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
@@ -8424,6 +8466,7 @@ return `
                 </div>
               </div>
 
+              ${isOrganizerUser ? `` : `
               <!-- Recurring Events -->
               <div class="rec-box recurrence">
                 <div class="checkbox">
@@ -8561,6 +8604,7 @@ return `
                   <div class="note">Use “Remove past dates” to drop occurrences that have already passed.</div>
                 </div>
               </div>
+              `}
 
               <label>Flyer Image (Upload)</label>
               <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
@@ -12405,6 +12449,17 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     if (role === "organizer") {
       organizer = organizerPrimaryName;
+      hasRecurrence = 0;
+      recurrenceType = "none";
+      recurrenceInterval = 1;
+      weeklyByDay = [];
+      monthlyMode = "monthday";
+      byMonthday = "";
+      setPos = "";
+      monthlyByDay = [];
+      recurrenceStartDate = "";
+      recurrenceUntilDate = "";
+      recurrenceDates = null;
     }
 
     // If a file was uploaded, prefer it over the URL field
@@ -12451,6 +12506,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     const finalTicketLabel =
       ticketLabel && String(ticketLabel).trim() ? String(ticketLabel).trim() : "Tickets";
+
+    const autoSeoFields = role === "organizer"
+      ? buildBasicEventSeoFields({ title, description, location, organizer })
+      : null;
 
     const startMs = Date.parse(startDateTime);
     const endMs = Date.parse(endDateTime);
@@ -12668,10 +12727,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["description", description],
       ["eventDetails", eventDetails || ""],
       ["goodToKnow", goodToKnow || ""],
-      ["seoTitle", String(seoTitle || "")],
-      ["metaDescription", String(metaDescription || "")],
-      ["focusKeyphrase", String(focusKeyphrase || "")],
-      ["imageAlt", String(imageAlt || "")],
+      ["seoTitle", String((autoSeoFields?.seoTitle ?? seoTitle) || "")],
+      ["metaDescription", String((autoSeoFields?.metaDescription ?? metaDescription) || "")],
+      ["focusKeyphrase", String((autoSeoFields?.focusKeyphrase ?? focusKeyphrase) || "")],
+      ["imageAlt", String((autoSeoFields?.imageAlt ?? imageAlt) || "")],
       ["startDateTime", startDateTime],
       ["endDateTime", endDateTime],
       ["location", location],
@@ -12865,8 +12924,12 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         const eddiesPickFlag = hasDeveloperAccessRole(role) || role === "editor"
           ? (parseCsvBoolean(getCsvValue(row, ["eddiesPick"])) ? 1 : 0)
           : 0;
-        const hasRec = parseCsvBoolean(getCsvValue(row, ["hasRecurrence", "recurring"])) ? 1 : 0;
-        const recurrenceType = String(getCsvValue(row, ["recurrenceType"]) || "none").trim().toLowerCase();
+        const hasRec = role === "organizer"
+          ? 0
+          : (parseCsvBoolean(getCsvValue(row, ["hasRecurrence", "recurring"])) ? 1 : 0);
+        const recurrenceType = role === "organizer"
+          ? "none"
+          : String(getCsvValue(row, ["recurrenceType"]) || "none").trim().toLowerCase();
         const recurrenceInterval = Math.max(1, parseInt(getCsvValue(row, ["recurrenceInterval"]) || "1", 10) || 1);
         const weeklyByDay = parseCsvListValues(getCsvValue(row, ["weeklyByDay", "byDay"])).map((item) => String(item || "").toUpperCase());
         const monthlyMode = String(getCsvValue(row, ["monthlyMode"]) || "monthday").trim().toLowerCase();
@@ -12987,6 +13050,9 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         }
 
         const slug = await ensureUniqueSlug(slugify(title), null);
+        const autoSeoFields = role === "organizer"
+          ? buildBasicEventSeoFields({ title, description, location, organizer })
+          : null;
         const catsJson = JSON.stringify(categories);
         const fields = [
           ["city", city],
@@ -12995,10 +13061,10 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
           ["description", description],
           ["eventDetails", eventDetails || ""],
           ["goodToKnow", goodToKnow || ""],
-          ["seoTitle", seoTitle || ""],
-          ["metaDescription", metaDescription || ""],
-          ["focusKeyphrase", focusKeyphrase || ""],
-          ["imageAlt", imageAlt || ""],
+          ["seoTitle", String((autoSeoFields?.seoTitle ?? seoTitle) || "")],
+          ["metaDescription", String((autoSeoFields?.metaDescription ?? metaDescription) || "")],
+          ["focusKeyphrase", String((autoSeoFields?.focusKeyphrase ?? focusKeyphrase) || "")],
+          ["imageAlt", String((autoSeoFields?.imageAlt ?? imageAlt) || "")],
           ["startDateTime", startDateTime],
           ["endDateTime", endDateTime],
           ["location", location],
