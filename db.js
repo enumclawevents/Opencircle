@@ -238,6 +238,17 @@ async function initDB() {
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_messages_city_createdAt ON messages(city, createdAt DESC);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_messages_recipient_readAt ON messages(recipientUserId, readAt);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(senderUserId, recipientUserId, createdAt DESC);`);
+  await tryExec(`
+    CREATE TABLE IF NOT EXISTS message_typing_status (
+      city TEXT NOT NULL DEFAULT 'Enumclaw',
+      senderUserId INTEGER NOT NULL,
+      recipientUserId INTEGER NOT NULL,
+      isTyping INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (city, senderUserId, recipientUserId)
+    );
+  `);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_message_typing_lookup ON message_typing_status(city, recipientUserId, senderUserId, updatedAt DESC);`);
 
   // Invites (invite-only signup)
   await tryExec(`

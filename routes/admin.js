@@ -1780,6 +1780,17 @@ async function ensureMessageSchema() {
   try { await run("CREATE INDEX IF NOT EXISTS idx_messages_city_createdAt ON messages(city, createdAt DESC)"); } catch (_) {}
   try { await run("CREATE INDEX IF NOT EXISTS idx_messages_recipient_readAt ON messages(recipientUserId, readAt)"); } catch (_) {}
   try { await run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(senderUserId, recipientUserId, createdAt DESC)"); } catch (_) {}
+  await run(`
+    CREATE TABLE IF NOT EXISTS message_typing_status (
+      city TEXT NOT NULL DEFAULT 'Enumclaw',
+      senderUserId INTEGER NOT NULL,
+      recipientUserId INTEGER NOT NULL,
+      isTyping INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (city, senderUserId, recipientUserId)
+    )
+  `);
+  try { await run("CREATE INDEX IF NOT EXISTS idx_message_typing_lookup ON message_typing_status(city, recipientUserId, senderUserId, updatedAt DESC)"); } catch (_) {}
   _messageSchemaEnsured = true;
 }
 
@@ -2834,7 +2845,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.46");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.47");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2848,6 +2859,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-10", text: "Messages now show a live typing indicator while another person is actively composing in the same conversation" });
     releaseLogItems.push({ date: "2026-04-10", text: "Fixed an event-save server error and organizer accounts can now submit recurring events without the save flow forcing recurrence back off" });
     releaseLogItems.push({ date: "2026-04-10", text: "Organizer accounts can now create recurring events again alongside single and multi-day event types" });
     releaseLogItems.push({ date: "2026-04-10", text: "Multi-Day Event setup now supports optional per-day time ranges while keeping the existing event start/end fields and API responses compatible with current event data and WordPress integrations" });
@@ -6016,6 +6028,16 @@ return `
         color:var(--muted);
         text-align:center;
       }
+      .message-typing-status{
+        min-height:20px;
+        margin-top:8px;
+        color:var(--muted);
+        font-size:13px;
+        font-weight:600;
+      }
+      .message-typing-status.is-active{
+        color:#0f766e;
+      }
 
       .search{
         display:flex; align-items:center; gap:10px;
@@ -8367,17 +8389,124 @@ return `
             </div>
             ` : ``}
             <div class="messages-thread">${messageConversationHtml}</div>
+            ${selectedMessageContact ? `<div class="message-typing-status" id="messageTypingStatus" aria-live="polite"></div>` : ``}
             ${selectedMessageContact ? `
-            <form class="messages-compose" method="POST" action="/admin/messages">
+            <form class="messages-compose" method="POST" action="/admin/messages" id="messagesComposeForm">
               <input type="hidden" name="recipientUserId" value="${esc(String(selectedMessageContact.id))}" />
               ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
-              <textarea class="ctrl" name="body" placeholder="Write a message to ${esc(selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "this user"))}..." required></textarea>
+              <textarea class="ctrl" name="body" id="messagesComposeBody" placeholder="Write a message to ${esc(selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "this user"))}..." required></textarea>
               <div><button class="btn btn-primary" type="submit">Send message</button></div>
             </form>
             ` : ``}
             </div>
           </div>
         </section>
+        <script>
+        (function(){
+          var recipientUserId = ${selectedMessageContact ? Number(selectedMessageContact.id || 0) : 0};
+          var currentCity = ${JSON.stringify(String(selectedCity || ""))};
+          var bodyEl = document.getElementById("messagesComposeBody");
+          var formEl = document.getElementById("messagesComposeForm");
+          var typingEl = document.getElementById("messageTypingStatus");
+          if (!recipientUserId || !bodyEl || !typingEl) return;
+
+          var lastTypedAt = 0;
+          var typingSent = false;
+          var typingTimeout = null;
+          var heartbeatMs = 3000;
+          var idleMs = 5000;
+
+          function setTypingLabel(name){
+            if (!typingEl) return;
+            if (name) {
+              typingEl.textContent = name + " is typing...";
+              typingEl.classList.add("is-active");
+            } else {
+              typingEl.textContent = "";
+              typingEl.classList.remove("is-active");
+            }
+          }
+
+          async function sendTyping(active){
+            try{
+              await fetch("/admin/messages/typing", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  recipientUserId: recipientUserId,
+                  city: currentCity,
+                  active: active ? 1 : 0
+                }),
+                cache: "no-store"
+              });
+              typingSent = !!active;
+            }catch(e){}
+          }
+
+          function scheduleStop(){
+            if (typingTimeout) window.clearTimeout(typingTimeout);
+            typingTimeout = window.setTimeout(function(){
+              sendTyping(false);
+            }, idleMs);
+          }
+
+          bodyEl.addEventListener("input", function(){
+            var hasText = !!String(bodyEl.value || "").trim();
+            lastTypedAt = Date.now();
+            if (hasText && !typingSent) {
+              sendTyping(true);
+            } else if (!hasText && typingSent) {
+              sendTyping(false);
+            }
+            scheduleStop();
+          });
+
+          bodyEl.addEventListener("blur", function(){
+            sendTyping(false);
+          });
+
+          if (formEl) {
+            formEl.addEventListener("submit", function(){
+              sendTyping(false);
+            });
+          }
+
+          window.addEventListener("beforeunload", function(){
+            if (!typingSent) return;
+            try{
+              navigator.sendBeacon("/admin/messages/typing", new Blob([JSON.stringify({
+                recipientUserId: recipientUserId,
+                city: currentCity,
+                active: 0
+              })], { type: "application/json" }));
+            }catch(e){}
+          });
+
+          async function pollTyping(){
+            try{
+              var url = "/admin/messages/typing?user=" + encodeURIComponent(String(recipientUserId));
+              if (currentCity) url += "&city=" + encodeURIComponent(currentCity);
+              var res = await fetch(url, { cache: "no-store" });
+              if (!res.ok) return;
+              var json = await res.json();
+              if (json && json.ok && json.typing && json.name) {
+                setTypingLabel(String(json.name));
+              } else {
+                setTypingLabel("");
+              }
+            }catch(e){}
+          }
+
+          pollTyping();
+          window.setInterval(function(){
+            var hasText = !!String(bodyEl.value || "").trim();
+            if (typingSent && hasText && (Date.now() - lastTypedAt) < idleMs) {
+              sendTyping(true);
+            }
+            pollTyping();
+          }, heartbeatMs);
+        })();
+        </script>
         ` : ``}
 
         ${showPreferences ? `
@@ -12149,10 +12278,108 @@ router.post("/messages", async (req, res) => {
       "INSERT INTO messages (city, senderUserId, recipientUserId, body, createdAt) VALUES (?, ?, ?, ?, datetime('now'))",
       [city, currentUser.id, recipientUserId, body]
     );
+    try {
+      await run(
+        `INSERT INTO message_typing_status (city, senderUserId, recipientUserId, isTyping, updatedAt)
+         VALUES (?, ?, ?, 0, datetime('now'))
+         ON CONFLICT(city, senderUserId, recipientUserId)
+         DO UPDATE SET isTyping = 0, updatedAt = datetime('now')`,
+        [city, currentUser.id, recipientUserId]
+      );
+    } catch (_) {}
     return res.redirect(`/admin/messages?notice=sent&user=${encodeURIComponent(String(recipientUserId))}${city ? `&city=${encodeURIComponent(city)}` : ""}`);
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to send message.");
+  }
+});
+
+router.get("/messages/typing", async (req, res) => {
+  try {
+    await ensureMessageSchema();
+    await ensureUserProfileSchema();
+    const currentUser = await resolveSessionUser(req);
+    const supportCircleUser = await resolveSupportCircleUser();
+    if (!currentUser?.id) return res.status(403).json({ ok: false, typing: false });
+
+    const requestedCity = String(req.query?.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
+    const city = hasDeveloperAccessRole(req.user?.role || "")
+      ? requestedCity
+      : String(currentUser.city || requestedCity || "Enumclaw").trim() || "Enumclaw";
+    const otherUserId = parseInt(String(req.query?.user || ""), 10);
+    if (!Number.isInteger(otherUserId) || otherUserId <= 0) {
+      return res.json({ ok: true, typing: false });
+    }
+
+    const otherUser = await get(
+      "SELECT id, city, displayName, username, email FROM users WHERE id = ? LIMIT 1",
+      [otherUserId]
+    );
+    const isSupportCircleUser = supportCircleUser?.id && Number(supportCircleUser.id) === Number(otherUserId);
+    if (!otherUser?.id || (!isSupportCircleUser && String(otherUser.city || "") !== city)) {
+      return res.json({ ok: true, typing: false });
+    }
+
+    const row = await get(
+      `SELECT isTyping, updatedAt
+         FROM message_typing_status
+        WHERE city = ?
+          AND senderUserId = ?
+          AND recipientUserId = ?
+        LIMIT 1`,
+      [city, otherUserId, currentUser.id]
+    );
+    const updatedMs = Date.parse(String(row?.updatedAt || ""));
+    const isFresh = Number.isFinite(updatedMs) && (Date.now() - updatedMs) <= 8000;
+    const typing = Number(row?.isTyping || 0) === 1 && isFresh;
+    const name = isSupportCircleUser
+      ? "Support Circle"
+      : String(otherUser.displayName || otherUser.username || otherUser.email || "User");
+    return res.json({ ok: true, typing, name });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, typing: false });
+  }
+});
+
+router.post("/messages/typing", express.json(), async (req, res) => {
+  try {
+    await ensureMessageSchema();
+    await ensureUserProfileSchema();
+    const currentUser = await resolveSessionUser(req);
+    const supportCircleUser = await resolveSupportCircleUser();
+    if (!currentUser?.id) return res.status(403).json({ ok: false });
+
+    const requestedCity = String(req.body?.city || req.query?.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
+    const city = hasDeveloperAccessRole(req.user?.role || "")
+      ? requestedCity
+      : String(currentUser.city || requestedCity || "Enumclaw").trim() || "Enumclaw";
+    const recipientUserId = parseInt(String(req.body?.recipientUserId || ""), 10);
+    const active = String(req.body?.active || "0") === "1" ? 1 : 0;
+    if (!Number.isInteger(recipientUserId) || recipientUserId <= 0 || recipientUserId === Number(currentUser.id)) {
+      return res.status(400).json({ ok: false });
+    }
+
+    const recipient = await get(
+      "SELECT id, city FROM users WHERE id = ? LIMIT 1",
+      [recipientUserId]
+    );
+    const isSupportCircleRecipient = supportCircleUser?.id && Number(supportCircleUser.id) === Number(recipientUserId);
+    if (!recipient?.id || (!isSupportCircleRecipient && String(recipient.city || "") !== city)) {
+      return res.status(400).json({ ok: false });
+    }
+
+    await run(
+      `INSERT INTO message_typing_status (city, senderUserId, recipientUserId, isTyping, updatedAt)
+       VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(city, senderUserId, recipientUserId)
+       DO UPDATE SET isTyping = excluded.isTyping, updatedAt = datetime('now')`,
+      [city, currentUser.id, recipientUserId, active]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false });
   }
 });
 
