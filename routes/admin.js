@@ -5757,19 +5757,22 @@ return `
       }
       .header-icon-btn .icon-badge{
         position:absolute;
-        top:-4px;
-        right:-4px;
-        min-width:18px;
-        height:18px;
-        padding:0 5px;
+        top:2px;
+        right:1px;
+        min-width:20px;
+        height:20px;
+        padding:0 4px;
         border-radius:999px;
         background:#ef4444;
         color:#fff;
         font-size:11px;
         font-weight:700;
-        line-height:18px;
+        line-height:1;
         text-align:center;
-        border:2px solid var(--panel);
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        border:2px solid #fff;
       }
       .header-icon-btn.header-message-icon{
         color:#0ea5e9;
