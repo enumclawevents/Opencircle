@@ -52,6 +52,30 @@ function normalizeCategoriesInput(val) {
     .filter(Boolean);
 }
 
+function normalizeMultiDaySchedule(val) {
+  if (!val) return [];
+  let parsed = val;
+  if (typeof val === "string") {
+    try {
+      parsed = JSON.parse(val);
+    } catch {
+      parsed = [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((item) => {
+      const date = String(item?.date || "").trim();
+      const startTime = String(item?.startTime || "").trim();
+      const endTime = String(item?.endTime || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      if (!/^\d{2}:\d{2}$/.test(startTime)) return null;
+      if (!/^\d{2}:\d{2}$/.test(endTime)) return null;
+      return { date, startTime, endTime };
+    })
+    .filter(Boolean);
+}
+
 function addHoursIso(iso, hours) {
   try {
     const d = new Date(iso);
@@ -1238,6 +1262,7 @@ router.get("/", async (req, res) => {
     const normalizedRows = rows.map((r) => ({
       ...r,
       categories: normalizeCats(r),
+      multiDaySchedule: normalizeMultiDaySchedule(r.multiDaySchedule),
       hasRecurrence: Number(r.hasRecurrence || 0),
       recurrenceRule: safeParseJson(r.recurrenceRule, null),
       recurrenceDates: safeParseJson(r.recurrenceDates, []),
@@ -1867,6 +1892,7 @@ router.get("/:idOrSlug", async (req, res) => {
     const base = {
       ...rowFixed,
       categories: Array.isArray(cats) ? cats : [],
+      multiDaySchedule: normalizeMultiDaySchedule(rowFixed.multiDaySchedule),
       hasRecurrence: Number(rowFixed.hasRecurrence || 0),
       recurrenceRule: recurRuleObj,
       recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),

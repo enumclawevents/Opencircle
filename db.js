@@ -295,6 +295,7 @@ async function initDB() {
   await addPendingCol("metaDescription", `ALTER TABLE pending_events ADD COLUMN metaDescription TEXT;`);
   await addPendingCol("focusKeyphrase", `ALTER TABLE pending_events ADD COLUMN focusKeyphrase TEXT;`);
   await addPendingCol("imageAlt", `ALTER TABLE pending_events ADD COLUMN imageAlt TEXT;`);
+  await addPendingCol("multiDaySchedule", `ALTER TABLE pending_events ADD COLUMN multiDaySchedule TEXT;`);
 
   // ---- Safe migrations for older DBs ----
   // If an older DB exists with snake_case columns, add camelCase columns and keep app working.
@@ -343,6 +344,7 @@ async function initDB() {
   await addCol("recurrenceDates", `ALTER TABLE events ADD COLUMN recurrenceDates TEXT;`);
   await addCol("recurrenceStartDate", `ALTER TABLE events ADD COLUMN recurrenceStartDate TEXT;`);
   await addCol("recurrenceUntilDate", `ALTER TABLE events ADD COLUMN recurrenceUntilDate TEXT;`);
+  await addCol("multiDaySchedule", `ALTER TABLE events ADD COLUMN multiDaySchedule TEXT;`);
 
   await addCol("viewCount", `ALTER TABLE events ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0;`);
   await addCol("uniqueViewCount", `ALTER TABLE events ADD COLUMN uniqueViewCount INTEGER NOT NULL DEFAULT 0;`);

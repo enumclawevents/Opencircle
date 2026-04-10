@@ -505,6 +505,23 @@ function safeParseJson(val, fallback) {
   }
 }
 
+function normalizeMultiDaySchedule(input) {
+  const items = safeParseJson(input, []);
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => {
+      const date = String(item?.date || "").trim();
+      const startTime = String(item?.startTime || "").trim();
+      const endTime = String(item?.endTime || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      if (!/^\d{2}:\d{2}$/.test(startTime)) return null;
+      if (!/^\d{2}:\d{2}$/.test(endTime)) return null;
+      return { date, startTime, endTime };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function normalizeAdPlacements(input, fallbackPlacement = "") {
   const allowed = new Set([
     "homepage-top",
@@ -1141,6 +1158,7 @@ async function insertEventFromPending(p) {
     ["recurrenceDates", null],
     ["recurrenceStartDate", null],
     ["recurrenceUntilDate", null],
+    ["multiDaySchedule", String(p.multiDaySchedule || "") || null],
     ["submissionId", String(p.submissionId || "") || null],
     ["featuredOrderId", String(p.featuredOrderId || "") || null],
     ["featuredPurchasedAt", String(p.featuredPurchasedAt || "") || null],
@@ -2516,6 +2534,7 @@ try {
       const endTimePart = String(eventEndLocalValue || "").length >= 16 ? String(eventEndLocalValue).slice(10) : "T23:59";
       return `${recurrenceUntilDateVal}${endTimePart}`;
     })();
+    const multiDaySchedule = normalizeMultiDaySchedule(editEvent?.multiDaySchedule);
 
     const weeklyByDay = Array.isArray(rule.byDay) ? rule.byDay : [];
     const monthlyMode = String(rule.mode || "monthday");
@@ -2815,7 +2834,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.43");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.44");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2829,6 +2848,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-10", text: "Multi-Day Event setup now supports optional per-day time ranges while keeping the existing event start/end fields and API responses compatible with current event data and WordPress integrations" });
     releaseLogItems.push({ date: "2026-04-10", text: "Recurring event setup now uses the top Start and End fields as the only date inputs while preserving the same stored recurrence data for existing events and WordPress integrations" });
     releaseLogItems.push({ date: "2026-04-10", text: "Create Event now begins with Single Event, Multi-Day Event, and Recurring Event choices so the matching form stays hidden until an event type is selected" });
     releaseLogItems.push({ date: "2026-04-09", text: "Dashboard activity cards now show only the 5 most recent items instead of growing taller with a longer mixed feed" });
@@ -6996,6 +7016,36 @@ return `
         font-size:14px;
         line-height:1.5;
       }
+      .multi-day-shell{ display:none; }
+      .multi-day-shell.is-visible{ display:block; }
+      .multi-day-row{
+        display:grid;
+        grid-template-columns: 160px 1fr 1fr;
+        gap:12px;
+        align-items:end;
+        padding:12px 0;
+        border-top:1px solid var(--line);
+      }
+      .multi-day-row:first-child{ border-top:0; padding-top:0; }
+      .multi-day-date{
+        font-size:13px;
+        font-weight:650;
+        color:var(--text);
+        padding-bottom:10px;
+      }
+      .multi-day-empty{
+        color:var(--muted);
+        font-size:14px;
+        line-height:1.5;
+      }
+      @media (max-width: 900px){
+        .multi-day-row{
+          grid-template-columns: 1fr;
+        }
+        .multi-day-date{
+          padding-bottom:0;
+        }
+      }
       .rec-label{ font-weight:650; font-size: 12px; margin-bottom: 8px; color: var(--text); letter-spacing: .2px; }
       .rec-help{ margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.4; }
 
@@ -8545,6 +8595,15 @@ return `
                   <label style="margin-top:0;">End</label>
                   <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
                     value="${esc(displayEventEndLocalValue)}" required />
+                </div>
+              </div>
+
+              <div class="rec-box multi-day-shell ${inferredEventType === "multi-day" ? "is-visible" : ""}" id="multiDayScheduleShell" style="margin-top:14px;">
+                <div style="font-weight:650; margin-bottom:6px;">Daily Time Ranges</div>
+                <div class="note">For multi-day events, you can override the start and end time for each day. The overall Start and End fields above still define the event's first and last day.</div>
+                <input type="hidden" name="multiDayScheduleJson" id="multiDayScheduleJson" value='${esc(JSON.stringify(multiDaySchedule || []))}' />
+                <div id="multiDayScheduleWrap" style="margin-top:12px;">
+                  <div class="multi-day-empty">Choose a multi-day start and end range to set hours for each day.</div>
                 </div>
               </div>
 
@@ -10198,6 +10257,22 @@ return `
           if(startHidden) startHidden.value = startISO;
           if(endHidden) endHidden.value = endISO;
 
+          var multiDayHidden = document.getElementById("multiDayScheduleJson");
+          var multiDayWrap = document.getElementById("multiDayScheduleWrap");
+          if (multiDayHidden && multiDayWrap) {
+            var dayRows = multiDayWrap.querySelectorAll("[data-multi-day-row]");
+            var dayItems = [];
+            for (var j = 0; j < dayRows.length; j++) {
+              var row = dayRows[j];
+              var date = String(row.getAttribute("data-date") || "").trim();
+              var dayStart = (row.querySelector('input[name="multiDayStart"]') || {}).value || "";
+              var dayEnd = (row.querySelector('input[name="multiDayEnd"]') || {}).value || "";
+              if (!date || !dayStart || !dayEnd) continue;
+              dayItems.push({ date: date, startTime: dayStart, endTime: dayEnd });
+            }
+            multiDayHidden.value = JSON.stringify(dayItems);
+          }
+
           var recHidden = document.getElementById("recurrenceDatesJson");
           var hasRec = !!((document.getElementById("hasRecurrence") || {}).checked);
           var recType = String(((document.getElementById("recurrenceType") || {}).value) || "").toLowerCase();
@@ -10242,6 +10317,7 @@ return `
         var hasRecEl = document.getElementById("hasRecurrence");
         var typeEl = document.getElementById("recurrenceType");
         var recurrenceSettings = document.getElementById("recurrenceSettings");
+        var multiDayShell = document.getElementById("multiDayScheduleShell");
         var lastRecurringType = typeEl && typeEl.value && typeEl.value !== "none" ? String(typeEl.value) : "weekly";
 
         function emitChange(el){
@@ -10252,8 +10328,10 @@ return `
         function setSelection(nextType){
           var selected = String(nextType || "").trim().toLowerCase();
           hidden.value = selected;
+          emitChange(hidden);
           shell.classList.toggle("is-visible", !!selected);
           if (recurrenceSettings) recurrenceSettings.style.display = selected === "recurring" ? "" : "none";
+          if (multiDayShell) multiDayShell.classList.toggle("is-visible", selected === "multi-day");
           buttons.forEach(function(btn){
             btn.classList.toggle("is-active", (btn.getAttribute("data-event-type") || "") === selected);
           });
@@ -10293,6 +10371,96 @@ return `
         }
 
         setSelection(hidden.value || "");
+      })();
+
+      // Multi-day per-day schedule editor
+      (function(){
+        var wrap = document.getElementById("multiDayScheduleWrap");
+        var hidden = document.getElementById("multiDayScheduleJson");
+        var startEl = document.getElementById("startDateTime");
+        var endEl = document.getElementById("endDateTime");
+        var typeChoice = document.getElementById("eventTypeChoice");
+        if (!wrap || !hidden || !startEl || !endEl || !typeChoice) return;
+
+        function parseLocalDateTime(value){
+          var s = String(value || "").trim();
+          var m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+          if (!m) return null;
+          return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]), hour: Number(m[4]), minute: Number(m[5]) };
+        }
+        function pad(n){ return String(n).padStart(2, "0"); }
+        function toDateKey(parts){ return parts.year + "-" + pad(parts.month) + "-" + pad(parts.day); }
+        function toTimeValue(parts){ return pad(parts.hour) + ":" + pad(parts.minute); }
+        function formatDateLabel(dateKey){
+          var d = new Date(dateKey + "T12:00:00");
+          if (isNaN(d.getTime())) return dateKey;
+          return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        }
+        function enumerateDates(startKey, endKey){
+          var out = [];
+          var cur = new Date(startKey + "T12:00:00");
+          var end = new Date(endKey + "T12:00:00");
+          if (isNaN(cur.getTime()) || isNaN(end.getTime()) || cur > end) return out;
+          while (cur <= end) {
+            out.push(cur.getFullYear() + "-" + pad(cur.getMonth() + 1) + "-" + pad(cur.getDate()));
+            cur.setDate(cur.getDate() + 1);
+          }
+          return out;
+        }
+        function parseExisting(){
+          try {
+            var parsed = JSON.parse(hidden.value || "[]");
+            if (!Array.isArray(parsed)) return {};
+            var out = {};
+            parsed.forEach(function(item){
+              var date = String((item && item.date) || "").trim();
+              var startTime = String((item && item.startTime) || "").trim();
+              var endTime = String((item && item.endTime) || "").trim();
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+              if (!/^\d{2}:\d{2}$/.test(startTime)) return;
+              if (!/^\d{2}:\d{2}$/.test(endTime)) return;
+              out[date] = { startTime: startTime, endTime: endTime };
+            });
+            return out;
+          } catch (_) {
+            return {};
+          }
+        }
+        function render(){
+          if (String(typeChoice.value || "") !== "multi-day") return;
+          var startParts = parseLocalDateTime(startEl.value);
+          var endParts = parseLocalDateTime(endEl.value);
+          if (!startParts || !endParts) {
+            wrap.innerHTML = '<div class="multi-day-empty">Choose a multi-day start and end range to set hours for each day.</div>';
+            return;
+          }
+          var startKey = toDateKey(startParts);
+          var endKey = toDateKey(endParts);
+          var dateKeys = enumerateDates(startKey, endKey);
+          if (!dateKeys.length || (dateKeys.length === 1 && startKey === endKey)) {
+            wrap.innerHTML = '<div class="multi-day-empty">Choose a start and end date on different days to add daily time ranges.</div>';
+            return;
+          }
+          var existing = parseExisting();
+          var defaultStart = toTimeValue(startParts);
+          var defaultEnd = toTimeValue(endParts);
+          wrap.innerHTML = dateKeys.map(function(dateKey){
+            var saved = existing[dateKey] || {};
+            var startVal = saved.startTime || defaultStart;
+            var endVal = saved.endTime || defaultEnd;
+            return '' +
+              '<div class="multi-day-row" data-multi-day-row="1" data-date="' + dateKey + '">' +
+                '<div class="multi-day-date">' + formatDateLabel(dateKey) + '</div>' +
+                '<div><label style="margin-top:0;">Start time</label><input class="ctrl" type="time" name="multiDayStart" value="' + startVal + '" /></div>' +
+                '<div><label style="margin-top:0;">End time</label><input class="ctrl" type="time" name="multiDayEnd" value="' + endVal + '" /></div>' +
+              '</div>';
+          }).join("");
+        }
+
+        startEl.addEventListener("change", render);
+        endEl.addEventListener("change", render);
+        typeChoice.addEventListener("change", render);
+        render();
       })();
 
       // Auto-set End = Start + 2 hours (only if end is empty)
@@ -12703,6 +12871,13 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     const catsJson = JSON.stringify(cats);
 
     // ---- Recurrence normalize ----
+    const eventTypeChoice = String(req.body?.eventTypeChoice || "").trim().toLowerCase();
+    let multiDayScheduleJson = null;
+    if (eventTypeChoice === "multi-day") {
+      const parsedMultiDaySchedule = normalizeMultiDaySchedule(req.body?.multiDayScheduleJson);
+      multiDayScheduleJson = parsedMultiDaySchedule.length ? JSON.stringify(parsedMultiDaySchedule) : null;
+    }
+
     const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
     const t = String(recurrenceType || "none").toLowerCase();
     const submittedRecurringStartDate = toDateValue(startDateTime);
@@ -12880,12 +13055,12 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         `INSERT INTO pending_events
           (city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
            startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
-           submitterEmail, approvalNotes, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           submitterEmail, approvalNotes, source, multiDaySchedule)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           city, title, description, eventDetails || "", goodToKnow || "", ticketUrl || "", finalTicketLabel,
           startDateTime, endDateTime, location, organizerSafe, imageUrl || "", eventLinkSafe, catsJson,
-          submitterEmail, approvalNotes, source
+          submitterEmail, approvalNotes, source, multiDayScheduleJson
         ]
       );
 
@@ -12918,6 +13093,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["imageAlt", String((autoSeoFields?.imageAlt ?? imageAlt) || "")],
       ["startDateTime", startDateTime],
       ["endDateTime", endDateTime],
+      ["multiDaySchedule", multiDayScheduleJson],
       ["location", location],
       ["organizer", organizer],
       ["imageUrl", imageUrl || null],
