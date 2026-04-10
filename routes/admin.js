@@ -2763,6 +2763,10 @@ return `
     const dashWhere = dashParts.length ? `WHERE ${dashParts.join(" AND ")}` : "";
     const dashWhereSql = dashWhere ? (dashWhere + " ") : "";
     const dashAnd = dashWhere ? (dashWhere + " AND ") : "WHERE ";
+    const cityDashParts = dashParts.filter((part) => part !== organizerOwnerClause?.sql);
+    const cityDashParams = organizerOwnerClause ? dashParams.slice(0, dashParams.length - organizerOwnerClause.params.length) : [...dashParams];
+    const cityDashWhere = cityDashParts.length ? `WHERE ${cityDashParts.join(" AND ")}` : "";
+    const cityDashWhereSql = cityDashWhere ? (cityDashWhere + " ") : "";
 
 
     // Counts
@@ -2889,7 +2893,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.49");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.51");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2903,6 +2907,8 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-10", text: "Dashboard activity now keeps your most recent published event visible in the 5-item feed instead of letting mixed content push it out" });
+    releaseLogItems.push({ date: "2026-04-10", text: "Organizer event analytics tooltips now show both My events and City events so citywide daily counts are visible alongside organizer-specific totals" });
     releaseLogItems.push({ date: "2026-04-10", text: "Events analytics now counts same-day events correctly even when older rows use simpler stored date/time formats" });
     releaseLogItems.push({ date: "2026-04-10", text: "Duplicate event warnings now include a direct Save Anyway action so you can confirm and continue without going back to re-check the form" });
     releaseLogItems.push({ date: "2026-04-10", text: "Messages now show a live typing indicator while another person is actively composing in the same conversation" });
@@ -3514,7 +3520,16 @@ return `
       dashParams
     );
 
-    function buildOccurrenceCounts(mode) {
+    const cityEventChartRows = isOrganizerUser
+      ? await all(
+          `SELECT id, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
+           FROM events
+           ${cityDashWhereSql}`,
+          cityDashParams
+        )
+      : [];
+
+    function buildOccurrenceCountsFromRows(mode, rows) {
       const bucketFactory =
         mode === "daily" ? makeDailyBuckets :
         mode === "weekly" ? makeWeeklyBuckets :
@@ -3548,7 +3563,7 @@ return `
         windowEndUtcMs = endOfCurrentYearUtcMs();
       }
 
-      for (const row of (eventChartRows || []).map((item) => normalizeRowTimes(item))) {
+      for (const row of (rows || []).map((item) => normalizeRowTimes(item))) {
         const isRecurring = hasRecurringData(row);
         const occurrences = isRecurring
           ? generateAdminOccurrences(row, windowStartUtcMs, windowEndUtcMs)
@@ -3571,6 +3586,10 @@ return `
       }
 
       return { labels, values: keys.map((key) => Number(counts.get(key) || 0)) };
+    }
+
+    function buildOccurrenceCounts(mode) {
+      return buildOccurrenceCountsFromRows(mode, eventChartRows);
     }
 
     const buildDaily = async (metric) => {
@@ -3647,6 +3666,14 @@ return `
         yearly: await buildYearly("views"),
       },
     };
+    if (isOrganizerUser) {
+      chartSets.cityEvents = {
+        daily: buildOccurrenceCountsFromRows("daily", cityEventChartRows),
+        weekly: buildOccurrenceCountsFromRows("weekly", cityEventChartRows),
+        monthly: buildOccurrenceCountsFromRows("monthly", cityEventChartRows),
+        yearly: buildOccurrenceCountsFromRows("yearly", cityEventChartRows),
+      };
+    }
     let selectedEventAnalytics = null;
     let analyticsSideTitle = "Top organizers";
     let analyticsSideSub = "Most frequent organizers";
@@ -4294,7 +4321,7 @@ return `
             ? "u.displayName, u.username, u.email"
             : "NULL AS displayName, NULL AS username, NULL AS email";
           const rows = await all(
-            `SELECT e.id, e.slug, e.title, e.location, e.createdAt,
+            `SELECT e.id, e.slug, e.title, e.location, e.createdAt, e.createdByUserId,
                     ${eventCreatorSelect}
                FROM events e
                ${eventCreatorJoin}
@@ -4310,6 +4337,7 @@ return `
               meta: `${row.location || selectedCity} · ${getActivityAuthorLabel(row)}`,
               createdAt: row.createdAt,
               href: buildActivityHref("/admin/existing-events", row.slug || row.title || row.id),
+              isOwnEvent: Number(row.createdByUserId || 0) === Number(currentUser?.id || 0),
             });
           });
         } catch (err) {
@@ -4492,7 +4520,17 @@ return `
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bTime - aTime;
       });
-      const activityCardItems = sortedActivityItems.slice(0, 5);
+      let activityCardItems = sortedActivityItems.slice(0, 5);
+      const mostRecentOwnEvent = sortedActivityItems.find((item) => item.type === "Event" && item.isOwnEvent);
+      if (
+        mostRecentOwnEvent &&
+        !activityCardItems.some((item) => item.type === "Event" && item.isOwnEvent)
+      ) {
+        activityCardItems = [
+          mostRecentOwnEvent,
+          ...activityCardItems.filter((item) => item !== mostRecentOwnEvent),
+        ].slice(0, 5);
+      }
 
       activityDashboardHtml = activityCardItems.length
         ? activityCardItems
@@ -8133,13 +8171,13 @@ return `
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
                 <div class="chartTopRow">
-                  <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
-                    <div class="chartLegendItem is-events" data-legend-metric="events">
-                      <span class="chartLegendLine"></span>
-                      <span>Events</span>
-                    </div>
-                    <div class="chartLegendItem is-views" data-legend-metric="views">
-                      <span class="chartLegendLine is-dashed"></span>
+                    <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
+                      <div class="chartLegendItem is-events" data-legend-metric="events">
+                        <span class="chartLegendLine"></span>
+                        <span>${isOrganizerUser ? "My events" : "Events"}</span>
+                      </div>
+                      <div class="chartLegendItem is-views" data-legend-metric="views">
+                        <span class="chartLegendLine is-dashed"></span>
                       <span>Views</span>
                     </div>
                   </div>
@@ -11122,6 +11160,7 @@ return `
         }
       }
     } catch (_) {}
+    const hasCityEventSeries = !!(chartSets.cityEvents && chartSets.cityEvents.daily);
 
     let mode = "daily";
     let hoverIndex = -1;
@@ -11348,19 +11387,25 @@ return `
     if (!$tip) return;
     const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
     const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : chartSets.views.daily;
+    const cityEventSet = (chartSets.cityEvents && chartSets.cityEvents[mode]) ? chartSets.cityEvents[mode] : chartSets.cityEvents?.daily;
     const labels = (eventSet && eventSet.labels) ? eventSet.labels : [];
     const eventValues = (eventSet && eventSet.values) ? eventSet.values : [];
     const viewValues = (viewSet && viewSet.values) ? viewSet.values : [];
+    const cityEventValues = (cityEventSet && cityEventSet.values) ? cityEventSet.values : [];
 
     const rect = $canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
     const eventValue = Number(eventValues[idx] ?? 0);
     const viewValue = Number(viewValues[idx] ?? 0);
+    const cityEventValue = Number(cityEventValues[idx] ?? 0);
     const periodLabel = getPeriodLabel(labels[idx] || "");
     $tip.innerHTML =
       '<div style="font-weight:700; margin-bottom:4px;">' + periodLabel + '</div>' +
-      '<div><span style="color:rgba(16,185,129,.9); font-weight:700;">Events:</span> ' + eventValue.toLocaleString("en-US") + '</div>' +
+      '<div><span style="color:rgba(16,185,129,.9); font-weight:700;">' + (hasCityEventSeries ? 'My events:' : 'Events:') + '</span> ' + eventValue.toLocaleString("en-US") + '</div>' +
+      (hasCityEventSeries
+        ? '<div><span style="color:rgba(71,85,105,.9); font-weight:700;">City events:</span> ' + cityEventValue.toLocaleString("en-US") + '</div>'
+        : '') +
       '<div><span style="color:rgba(37,99,235,.85); font-weight:700;">Views:</span> ' + viewValue.toLocaleString("en-US") + '</div>';
     $tip.style.display = "block";
 
