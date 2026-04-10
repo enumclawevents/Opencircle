@@ -2798,7 +2798,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.40");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.41");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2812,6 +2812,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Dashboard activity cards now show only the 5 most recent items instead of growing taller with a longer mixed feed" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer event submission now auto-generates SEO fields and temporarily removes recurring-event controls from organizer workflows" });
     releaseLogItems.push({ date: "2026-04-09", text: "Messages now show a simple checkmark and Read label once a sent message has been opened" });
     releaseLogItems.push({ date: "2026-04-09", text: "Support Circle now appears in messages as a built-in troubleshooting chat that routes directly to support without exposing a personal name" });
@@ -4392,18 +4393,7 @@ return `
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bTime - aTime;
       });
-      const activityCardItems = [];
-      const seenActivityTypes = new Set();
-      for (const item of sortedActivityItems) {
-        if (seenActivityTypes.has(item.type)) continue;
-        seenActivityTypes.add(item.type);
-        activityCardItems.push(item);
-      }
-      for (const item of sortedActivityItems) {
-        if (activityCardItems.length >= 10) break;
-        if (activityCardItems.includes(item)) continue;
-        activityCardItems.push(item);
-      }
+      const activityCardItems = sortedActivityItems.slice(0, 5);
 
       activityDashboardHtml = activityCardItems.length
         ? activityCardItems
@@ -8378,11 +8368,11 @@ return `
           <div class="card" id="create">
             <div class="sectionTitle">
               <div>
-                <h2>${editEvent ? "Edit event" : "Create event"}</h2>
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                  <h2 style="margin:0;">${editEvent ? "Edit event" : "Create event"}</h2>
+                  <span class="pill">${esc(selectedCity)}</span>
+                </div>
                 <p class="sub">This saves to SQLite and powers your API</p>
-              </div>
-              <div class="right">
-                <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
               </div>
             </div>
 
