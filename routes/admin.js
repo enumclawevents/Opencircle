@@ -8433,7 +8433,7 @@ return `
               <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
 
               ${isOrganizerUser ? `
-              <div class="note" style="margin-top:12px;">SEO is generated automatically from your event title, description, location, and organizer details. Recurring events are temporarily disabled for organizer accounts.</div>
+              <div class="note" style="margin-top:12px;">SEO is generated automatically from your event title, description, location, and organizer details.</div>
               ` : `
               <div class="rec-box">
                 <div style="font-weight:650; margin-bottom:6px;">SEO</div>
@@ -8608,10 +8608,11 @@ return `
 
               <label>Flyer Image (Upload)</label>
               <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
-              <div class="note">Uploading replaces the Image URL below.</div>
+              <div class="note">${isOrganizerUser ? "Images are automatically formatted after upload." : "Uploading replaces the Image URL below."}</div>
 
               <img id="uploadPreview" style="margin-top:10px; width:160px; height:160px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); display:none;" alt="Flyer upload preview" />
 
+              ${isOrganizerUser ? `` : `
               <label style="margin-top:12px;">Image URL (optional fallback)</label>
               <input class="ctrl" name="imageUrl" value="${esc(editEvent?.imageUrl || "")}" placeholder="https://..." />
 
@@ -8622,11 +8623,12 @@ return `
                     <div style="margin-top:10px;">
                       <img id="existingPreview" src="${esc(editEvent.imageUrl)}"
                         style="width:160px; height:160px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line);"
-                        alt="Current flyer preview" onerror="this.style.display='none';" />
+                      alt="Current flyer preview" onerror="this.style.display='none';" />
                     </div>
                   `
                   : ""
               }
+              `}
 
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
