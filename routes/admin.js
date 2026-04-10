@@ -2834,7 +2834,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.45");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.46");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2848,6 +2848,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-10", text: "Fixed an event-save server error and organizer accounts can now submit recurring events without the save flow forcing recurrence back off" });
     releaseLogItems.push({ date: "2026-04-10", text: "Organizer accounts can now create recurring events again alongside single and multi-day event types" });
     releaseLogItems.push({ date: "2026-04-10", text: "Multi-Day Event setup now supports optional per-day time ranges while keeping the existing event start/end fields and API responses compatible with current event data and WordPress integrations" });
     releaseLogItems.push({ date: "2026-04-10", text: "Recurring event setup now uses the top Start and End fields as the only date inputs while preserving the same stored recurrence data for existing events and WordPress integrations" });
@@ -12759,17 +12760,6 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     if (role === "organizer") {
       organizer = organizerPrimaryName;
-      hasRecurrence = 0;
-      recurrenceType = "none";
-      recurrenceInterval = 1;
-      weeklyByDay = [];
-      monthlyMode = "monthday";
-      byMonthday = "";
-      setPos = "";
-      monthlyByDay = [];
-      recurrenceStartDate = "";
-      recurrenceUntilDate = "";
-      recurrenceDates = null;
     }
 
     // If a file was uploaded, prefer it over the URL field
@@ -13076,6 +13066,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     const recurrenceUntilDateClean = normYmd(recurrenceUntilDate);
 
     // ---- Build fields ----
+    const isUpdate = id !== undefined && id !== null && String(id).trim() !== "";
+
     const baseFields = [
       ["city", city],
       ["slug", slug],
@@ -13122,8 +13114,6 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       cols.has("recurrenceUntilDate");
 
     if (hasRecCols) fields.push(...recFields);
-
-    const isUpdate = id !== undefined && id !== null && String(id).trim() !== "";
 
     if (isUpdate) {
       const sets = [];
