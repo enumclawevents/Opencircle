@@ -682,6 +682,9 @@ function parseStoredRule(stored) {
 function normalizeIsoToTzKeepClock(iso, tz = DEFAULT_TZ) {
   const s = String(iso || "").trim();
   if (!s) return s;
+  if (s.endsWith("Z")) {
+    return normalizeIsoToTzKeepClock(`${s.slice(0, -1)}+00:00`, tz);
+  }
   if (/[+-]\d{2}:\d{2}$/.test(s) && !s.endsWith("+00:00")) return s;
   if (!s.endsWith("+00:00")) return s;
   const dt = new Date(s);
@@ -780,18 +783,38 @@ function toYmd(parts) {
   return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
 }
 
+function localOffsetStringForParts(year, month, day, hour = 0, minute = 0, second = 0) {
+  const local = new Date(year, month - 1, day, hour, minute, second, 0);
+  const offsetMin = -local.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMin);
+  return `${sign}${pad2(Math.floor(abs / 60))}:${pad2(abs % 60)}`;
+}
+
 function parseIsoParts(iso) {
   const s = String(iso || "").trim();
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?([+-]\d{2}:\d{2})$/);
+  const m = s.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?(?:([+-]\d{2}:\d{2}|Z))?$/
+  );
   if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4] || "00");
+  const minute = Number(m[5] || "00");
+  const second = Number(m[6] || "00");
+  const rawOffset = m[7] || "";
+  const offset = rawOffset === "Z"
+    ? "+00:00"
+    : (rawOffset || localOffsetStringForParts(year, month, day, hour, minute, second));
   return {
-    year: Number(m[1]),
-    month: Number(m[2]),
-    day: Number(m[3]),
-    hour: Number(m[4]),
-    minute: Number(m[5]),
-    second: Number(m[6] || "00"),
-    offset: m[7],
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    offset,
   };
 }
 
@@ -1193,8 +1216,26 @@ function esc(s) {
     .replaceAll('"', "&quot;");
 }
 
-function buildAdminDuplicateResponse(submitted, matches) {
+function buildHiddenAdminFormInputs(payload) {
+  const rows = [];
+  const append = (key, value) => {
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => append(key, item));
+      return;
+    }
+    rows.push(`<input type="hidden" name="${esc(key)}" value="${esc(String(value))}" />`);
+  };
+  Object.entries(payload || {}).forEach(([key, value]) => append(key, value));
+  return rows.join("");
+}
+
+function buildAdminDuplicateResponse(submitted, matches, originalPayload) {
   const first = matches[0] || {};
+  const replayInputs = buildHiddenAdminFormInputs({
+    ...(originalPayload || {}),
+    forceDuplicateSave: "1",
+  });
   const items = (matches || []).slice(0, 8).map((match) => {
     const href = match.source === "events" && match.id
       ? `/admin/create-events?edit=${encodeURIComponent(String(match.id))}`
@@ -1237,9 +1278,12 @@ function buildAdminDuplicateResponse(submitted, matches) {
           <div class="matches">${items || `<div style="color:#526377;">No detailed matches available.</div>`}</div>
           <div class="actions">
             <a class="btn" href="javascript:history.back()">Go Back</a>
-            <a class="btn btn-primary" href="javascript:history.back()">Review And Save Again</a>
+            <form method="POST" action="/admin/events" style="display:inline;">
+              ${replayInputs}
+              <button class="btn btn-primary" type="submit">Save Anyway</button>
+            </form>
           </div>
-          <div class="note">If this is genuinely a different event, go back, check “Save anyway if a possible duplicate is found,” and submit again.</div>
+          <div class="note">Use Save Anyway only when you are sure this is a separate event and not an accidental duplicate.</div>
         </div>
       </div>
     </body>
@@ -2845,7 +2889,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.47");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.49");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2859,6 +2903,8 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-10", text: "Events analytics now counts same-day events correctly even when older rows use simpler stored date/time formats" });
+    releaseLogItems.push({ date: "2026-04-10", text: "Duplicate event warnings now include a direct Save Anyway action so you can confirm and continue without going back to re-check the form" });
     releaseLogItems.push({ date: "2026-04-10", text: "Messages now show a live typing indicator while another person is actively composing in the same conversation" });
     releaseLogItems.push({ date: "2026-04-10", text: "Fixed an event-save server error and organizer accounts can now submit recurring events without the save flow forcing recurrence back off" });
     releaseLogItems.push({ date: "2026-04-10", text: "Organizer accounts can now create recurring events again alongside single and multi-day event types" });
@@ -13066,7 +13112,45 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
           title,
           startDateTime,
           location,
-        }, duplicateMatches));
+        }, duplicateMatches, {
+          ...req.body,
+          id,
+          pendingId,
+          city,
+          title,
+          description,
+          eventDetails,
+          goodToKnow,
+          startDateTime,
+          endDateTime,
+          location,
+          organizer,
+          imageUrl,
+          ticketUrl,
+          ticketLabel: finalTicketLabel,
+          seoTitle: String((autoSeoFields?.seoTitle ?? seoTitle) || ""),
+          metaDescription: String((autoSeoFields?.metaDescription ?? metaDescription) || ""),
+          focusKeyphrase: String((autoSeoFields?.focusKeyphrase ?? focusKeyphrase) || ""),
+          imageAlt: String((autoSeoFields?.imageAlt ?? imageAlt) || ""),
+          categories: Array.isArray(categories) ? categories : normalizeCategories(categories),
+          featured: featuredFlag ? "1" : "0",
+          eddiesPick: eddiesPickFlag ? "1" : "0",
+          hasRecurrence: hasRec ? "1" : "0",
+          recurrenceType: t,
+          recurrenceInterval,
+          weeklyByDay,
+          monthlyMode,
+          byMonthday,
+          setPos,
+          monthlyByDay,
+          recurrenceStartDate,
+          recurrenceUntilDate,
+          recurrenceDates,
+          multiDayScheduleJson,
+          startDateTimeISO: startDateTime,
+          endDateTimeISO: endDateTime,
+          eventTypeChoice,
+        }));
       }
     }
 
