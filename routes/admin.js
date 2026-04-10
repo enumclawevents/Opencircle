@@ -2761,7 +2761,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.38");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.39");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2775,6 +2775,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Messages now show a simple checkmark and Read label once a sent message has been opened" });
     releaseLogItems.push({ date: "2026-04-09", text: "Support Circle now appears in messages as a built-in troubleshooting chat that routes directly to support without exposing a personal name" });
     releaseLogItems.push({ date: "2026-04-09", text: "Uploaded images now keep the full frame with a neutral grey background instead of being cropped to fill" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer dashboard quick links now use a single full-width events column" });
@@ -4083,10 +4084,16 @@ return `
             const senderName = selectedMessageContact?.supportAlias && Number(row.senderUserId) === Number(selectedMessageContact.id)
               ? "Support Circle"
               : (row.senderDisplayName || row.senderUsername || row.senderEmail || "User");
+            const readMarkup = mine && row.readAt
+              ? `<span class="message-read-indicator">&#10003; Read</span>`
+              : ``;
             return `
               <div class="message-bubble ${mine ? "mine" : ""}">
                 <div>${esc(row.body || "")}</div>
-                <div class="meta">${esc(mine ? "You" : senderName)} · ${esc(fmtPendingDate(row.createdAt))}</div>
+                <div class="meta">
+                  <span>${esc(mine ? "You" : senderName)} · ${esc(fmtPendingDate(row.createdAt))}</span>
+                  ${readMarkup}
+                </div>
               </div>
             `;
           }).join("")
@@ -5895,6 +5902,17 @@ return `
         color:var(--muted);
         font-size:11px;
         margin-top:6px;
+        display:flex;
+        align-items:center;
+        gap:8px;
+        flex-wrap:wrap;
+      }
+      .message-read-indicator{
+        display:inline-flex;
+        align-items:center;
+        gap:4px;
+        color:#0f766e;
+        font-weight:700;
       }
       .messages-compose{
         display:grid;
