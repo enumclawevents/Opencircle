@@ -2482,7 +2482,7 @@ try {
     const eventEndLocalValue = toDateTimeLocalValue(editEvent?.endDateTime);
     const inferredEventType = (function(){
       if (!editEvent) return "";
-      if (!isOrganizerUser && hasRecurrence) return "recurring";
+      if (hasRecurrence) return "recurring";
       const startDate = String(eventStartLocalValue || "").slice(0, 10);
       const endDate = String(eventEndLocalValue || "").slice(0, 10);
       if (startDate && endDate && startDate !== endDate) return "multi-day";
@@ -2834,7 +2834,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.44");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.45");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2848,6 +2848,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-10", text: "Organizer accounts can now create recurring events again alongside single and multi-day event types" });
     releaseLogItems.push({ date: "2026-04-10", text: "Multi-Day Event setup now supports optional per-day time ranges while keeping the existing event start/end fields and API responses compatible with current event data and WordPress integrations" });
     releaseLogItems.push({ date: "2026-04-10", text: "Recurring event setup now uses the top Start and End fields as the only date inputs while preserving the same stored recurrence data for existing events and WordPress integrations" });
     releaseLogItems.push({ date: "2026-04-10", text: "Create Event now begins with Single Event, Multi-Day Event, and Recurring Event choices so the matching form stays hidden until an event type is selected" });
@@ -8515,12 +8516,10 @@ return `
                     <span class="event-type-card-title">Multi-Day Event</span>
                     <span class="event-type-card-copy">One event that spans across multiple days with one continuous date range.</span>
                   </button>
-                  ${isOrganizerUser ? `` : `
                   <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring">
                     <span class="event-type-card-title">Recurring Event</span>
                     <span class="event-type-card-copy">An event that repeats weekly, monthly, or on a custom schedule.</span>
                   </button>
-                  `}
                 </div>
                 ${editEvent ? `` : `<div class="event-type-note">Choose an event type to open the matching form.</div>`}
               </div>
@@ -8607,7 +8606,6 @@ return `
                 </div>
               </div>
 
-              ${isOrganizerUser ? `` : `
               <!-- Recurring Events -->
               <div class="rec-box recurrence" id="recurrenceSettings">
                 <div class="checkbox event-type-managed-rec-toggle">
@@ -8735,8 +8733,6 @@ return `
                   <div class="note">Use “Remove past dates” to drop occurrences that have already passed.</div>
                 </div>
               </div>
-              `}
-
               <label>Flyer Image (Upload)</label>
               <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
               <div class="note">${isOrganizerUser ? "Images are automatically formatted after upload." : "Uploading replaces the Image URL below."}</div>
@@ -13285,12 +13281,8 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         const eddiesPickFlag = hasDeveloperAccessRole(role) || role === "editor"
           ? (parseCsvBoolean(getCsvValue(row, ["eddiesPick"])) ? 1 : 0)
           : 0;
-        const hasRec = role === "organizer"
-          ? 0
-          : (parseCsvBoolean(getCsvValue(row, ["hasRecurrence", "recurring"])) ? 1 : 0);
-        const recurrenceType = role === "organizer"
-          ? "none"
-          : String(getCsvValue(row, ["recurrenceType"]) || "none").trim().toLowerCase();
+        const hasRec = parseCsvBoolean(getCsvValue(row, ["hasRecurrence", "recurring"])) ? 1 : 0;
+        const recurrenceType = String(getCsvValue(row, ["recurrenceType"]) || "none").trim().toLowerCase();
         const recurrenceInterval = Math.max(1, parseInt(getCsvValue(row, ["recurrenceInterval"]) || "1", 10) || 1);
         const weeklyByDay = parseCsvListValues(getCsvValue(row, ["weeklyByDay", "byDay"])).map((item) => String(item || "").toUpperCase());
         const monthlyMode = String(getCsvValue(row, ["monthlyMode"]) || "monthday").trim().toLowerCase();
