@@ -1773,6 +1773,45 @@ async function resolveSessionUser(req) {
   return null;
 }
 
+async function resolveSupportCircleUser() {
+  await ensureUserProfileSchema();
+  const preferred = [
+    { displayName: "Daniel Osterholt" },
+    { username: "danielosterholt" },
+    { email: "daniel@opencircleapi.com" },
+    { email: "daniel@enumclawevents.org" },
+    { role: "admin" }
+  ];
+
+  for (const candidate of preferred) {
+    let row = null;
+    if (candidate.displayName) {
+      row = await get(
+        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(displayName,'')) = lower(?) LIMIT 1",
+        [candidate.displayName]
+      );
+    } else if (candidate.username) {
+      row = await get(
+        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) LIMIT 1",
+        [candidate.username]
+      );
+    } else if (candidate.email) {
+      row = await get(
+        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+        [candidate.email]
+      );
+    } else if (candidate.role) {
+      row = await get(
+        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(role,'')) = lower(?) ORDER BY id ASC LIMIT 1",
+        [candidate.role]
+      );
+    }
+    if (row?.id) return row;
+  }
+
+  return null;
+}
+
 function isUserOnline(lastSeenAt) {
   if (!lastSeenAt) return false;
   const ts = new Date(String(lastSeenAt)).getTime();
@@ -1941,8 +1980,10 @@ let whereParams = [];
     let selectedMessageContactId = parseInt(String(req.query.user || ""), 10);
     let selectedMessageContact = null;
     let messageConversationRows = [];
+    let supportCircleUser = null;
 
     if (canUseMessages) {
+      supportCircleUser = await resolveSupportCircleUser();
       try {
         const unreadRow = await get(
           `SELECT COUNT(*) AS count
@@ -1993,14 +2034,87 @@ let whereParams = [];
            ) latest ON latest.otherUserId = u.id
            WHERE u.city = ?
              AND u.id <> ?
+             AND (? IS NULL OR u.id <> ?)
            ORDER BY
              CASE WHEN latest.latestAt IS NULL THEN 1 ELSE 0 END ASC,
              datetime(latest.latestAt) DESC,
              lower(COALESCE(u.displayName, u.username, u.email, '')) ASC`,
-          [currentUser.id, selectedCity, currentUser.id, selectedCity, currentUser.id, currentUser.id, selectedCity, currentUser.id]
+          [
+            currentUser.id,
+            selectedCity,
+            currentUser.id,
+            selectedCity,
+            currentUser.id,
+            currentUser.id,
+            selectedCity,
+            currentUser.id,
+            supportCircleUser?.id || null,
+            supportCircleUser?.id || null
+          ]
         );
       } catch (_) {
         messageContacts = [];
+      }
+
+      if (supportCircleUser?.id && Number(supportCircleUser.id) !== Number(currentUser.id)) {
+        try {
+          const supportUnreadRow = await get(
+            `SELECT COUNT(*) AS count
+               FROM messages
+              WHERE recipientUserId = ?
+                AND senderUserId = ?
+                AND city = ?
+                AND readAt IS NULL`,
+            [currentUser.id, supportCircleUser.id, selectedCity]
+          );
+          const supportLatestRow = await get(
+            `SELECT MAX(datetime(createdAt)) AS latestAt
+               FROM messages
+              WHERE city = ?
+                AND (
+                  (senderUserId = ? AND recipientUserId = ?)
+                  OR
+                  (senderUserId = ? AND recipientUserId = ?)
+                )`,
+            [selectedCity, currentUser.id, supportCircleUser.id, supportCircleUser.id, currentUser.id]
+          );
+          const supportContact = {
+            id: Number(supportCircleUser.id),
+            email: supportCircleUser.email,
+            username: supportCircleUser.username,
+            displayName: "Support Circle",
+            photoUrl: supportCircleUser.photoUrl,
+            lastSeenAt: supportCircleUser.lastSeenAt,
+            role: supportCircleUser.role,
+            city: selectedCity,
+            unreadCount: Number(supportUnreadRow?.count || 0),
+            latestAt: supportLatestRow?.latestAt || null,
+            supportAlias: 1,
+            supportDescription: "Troubleshooting chat"
+          };
+          messageContacts = [
+            supportContact,
+            ...messageContacts.filter((row) => Number(row.id) !== Number(supportCircleUser.id))
+          ];
+        } catch (_) {
+          messageContacts = [
+            {
+              id: Number(supportCircleUser.id),
+              email: supportCircleUser.email,
+              username: supportCircleUser.username,
+              displayName: "Support Circle",
+              photoUrl: supportCircleUser.photoUrl,
+              lastSeenAt: supportCircleUser.lastSeenAt,
+              role: supportCircleUser.role,
+              city: selectedCity,
+              unreadCount: 0,
+              latestAt: null,
+              supportAlias: 1,
+              supportDescription: "Troubleshooting chat"
+            },
+            ...messageContacts.filter((row) => Number(row.id) !== Number(supportCircleUser.id))
+          ];
+        }
       }
 
       if (Number.isInteger(selectedMessageContactId) && messageContacts.some((row) => Number(row.id) === selectedMessageContactId)) {
@@ -2647,7 +2761,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.37");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.38");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2661,6 +2775,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Support Circle now appears in messages as a built-in troubleshooting chat that routes directly to support without exposing a personal name" });
     releaseLogItems.push({ date: "2026-04-09", text: "Uploaded images now keep the full frame with a neutral grey background instead of being cropped to fill" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer dashboard quick links now use a single full-width events column" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now land on their dashboard instead of being redirected straight into My Events" });
@@ -3941,9 +4056,11 @@ return `
 
     const messageContactsHtml = messageContacts.length
       ? messageContacts.map((user) => {
-          const name = user.displayName || user.username || user.email || "User";
+          const name = user.supportAlias ? "Support Circle" : (user.displayName || user.username || user.email || "User");
           const href = `/admin/messages?user=${encodeURIComponent(String(user.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
-          const latestLabel = user.latestAt ? fmtPendingDate(user.latestAt) : `${user.city || selectedCity} user`;
+          const latestLabel = user.latestAt
+            ? fmtPendingDate(user.latestAt)
+            : (user.supportAlias ? "Troubleshooting chat" : `${user.city || selectedCity} user`);
           return `
             <a class="message-user-link ${Number(user.id) === Number(selectedMessageContactId) ? "active" : ""}" href="${href}">
               ${user.photoUrl
@@ -3963,7 +4080,9 @@ return `
       ? (messageConversationRows.length
         ? messageConversationRows.map((row) => {
             const mine = Number(row.senderUserId) === Number(currentUser?.id || 0);
-            const senderName = row.senderDisplayName || row.senderUsername || row.senderEmail || "User";
+            const senderName = selectedMessageContact?.supportAlias && Number(row.senderUserId) === Number(selectedMessageContact.id)
+              ? "Support Circle"
+              : (row.senderDisplayName || row.senderUsername || row.senderEmail || "User");
             return `
               <div class="message-bubble ${mine ? "mine" : ""}">
                 <div>${esc(row.body || "")}</div>
@@ -3976,7 +4095,7 @@ return `
 
     const messagesDashboardHtml = recentMessageThreads.length
       ? recentMessageThreads.map((user) => {
-          const name = user.displayName || user.username || user.email || "User";
+          const name = user.supportAlias ? "Support Circle" : (user.displayName || user.username || user.email || "User");
           return `
             <div class="insight-row">
               <div class="label">
@@ -8054,7 +8173,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>${esc(selectedCity)} users</h2>
-                <p class="sub">Message people in your city and see who is online.</p>
+                <p class="sub">Message people in your city, see who is online, or open Support Circle for troubleshooting help.</p>
               </div>
             </div>
             ${messagesNoticeHtml}
@@ -8064,18 +8183,18 @@ return `
           <div class="card messages-card">
             <div class="sectionTitle">
               <div>
-                <h2>${selectedMessageContact ? esc(selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "Conversation") : "Conversation"}</h2>
-                <p class="sub">${selectedMessageContact ? `${selectedCity} conversation` : `Choose a ${selectedCity} user to start messaging.`}</p>
+                <h2>${selectedMessageContact ? esc(selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "Conversation")) : "Conversation"}</h2>
+                <p class="sub">${selectedMessageContact ? esc(selectedMessageContact.supportAlias ? "Troubleshooting chat" : `${selectedCity} conversation`) : `Choose a ${selectedCity} user to start messaging.`}</p>
               </div>
             </div>
             <div class="messages-panel">
             ${selectedMessageContact ? `
             <div class="mini messages-profile">
               <div class="user-line" style="font-weight:650; color:var(--text);">
-                ${onlineStatusMarkup(selectedMessageContact.lastSeenAt, `${selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User"} status`)}
-                <span>${esc(selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User")}</span>
+                ${onlineStatusMarkup(selectedMessageContact.lastSeenAt, `${selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User")} status`)}
+                <span>${esc(selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User"))}</span>
               </div>
-              <div class="muted" style="margin-top:6px;">Role: ${esc(formatRoleLabel(selectedMessageContact.role || "creator"))} · City: ${esc(selectedMessageContact.city || selectedCity)}</div>
+              <div class="muted" style="margin-top:6px;">${selectedMessageContact.supportAlias ? `Direct troubleshooting help for ${esc(selectedCity)} users` : `Role: ${esc(formatRoleLabel(selectedMessageContact.role || "creator"))} · City: ${esc(selectedMessageContact.city || selectedCity)}`}</div>
             </div>
             ` : ``}
             <div class="messages-thread">${messageConversationHtml}</div>
@@ -8083,7 +8202,7 @@ return `
             <form class="messages-compose" method="POST" action="/admin/messages">
               <input type="hidden" name="recipientUserId" value="${esc(String(selectedMessageContact.id))}" />
               ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
-              <textarea class="ctrl" name="body" placeholder="Write a message to ${esc(selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "this user")}..." required></textarea>
+              <textarea class="ctrl" name="body" placeholder="Write a message to ${esc(selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "this user"))}..." required></textarea>
               <div><button class="btn btn-primary" type="submit">Send message</button></div>
             </form>
             ` : ``}
@@ -11624,6 +11743,7 @@ router.post("/messages", async (req, res) => {
     await ensureMessageSchema();
     await ensureUserProfileSchema();
     const currentUser = await resolveSessionUser(req);
+    const supportCircleUser = await resolveSupportCircleUser();
     if (!currentUser?.id) return res.status(403).send("Forbidden");
 
     const requestedCity = String(req.body?.city || req.query.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
@@ -11644,7 +11764,8 @@ router.post("/messages", async (req, res) => {
       "SELECT id, city FROM users WHERE id = ? LIMIT 1",
       [recipientUserId]
     );
-    if (!recipient?.id || String(recipient.city || "") !== city) {
+    const isSupportCircleRecipient = supportCircleUser?.id && Number(supportCircleUser.id) === Number(recipientUserId);
+    if (!recipient?.id || (!isSupportCircleRecipient && String(recipient.city || "") !== city)) {
       return res.redirect(`/admin/messages?notice=recipient${city ? `&city=${encodeURIComponent(city)}` : ""}`);
     }
 
