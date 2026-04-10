@@ -2631,7 +2631,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.35");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.36");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2645,6 +2645,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-09", text: "Organizer dashboard quick links now use a single full-width events column" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now land on their dashboard instead of being redirected straight into My Events" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer dashboards now focus on event-only quick links, messages, activity, release notes, and event insights scoped to that organizer" });
     releaseLogItems.push({ date: "2026-04-09", text: "The organizer-only events analytics page now uses the same row gap below the chart card as the gap above it" });
@@ -7170,6 +7171,9 @@ return `
         gap:12px;
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+      .quick-links-grid.is-organizer{
+        grid-template-columns: 1fr;
+      }
       #dashboard-quick-links{
         --quick-links-outer-radius: var(--radius);
         --quick-links-group-radius: var(--radius-mid);
@@ -7515,7 +7519,7 @@ return `
                 </div>
               </div>
               <div class="card-body" id="dashboard-quick-links-body">
-                <div class="quick-links-grid">
+                <div class="quick-links-grid${isOrganizerUser ? ` is-organizer` : ``}">
                   ${canManageEvents ? `<div class="quick-links-group">
                     <div class="quick-links-group-title">Events</div>
                     <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">${isOrganizerUser ? "My Events" : "All Events"}</a>
