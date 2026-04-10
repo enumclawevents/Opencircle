@@ -2509,6 +2509,13 @@ try {
     })();
     const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
     const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
+    const displayEventStartLocalValue = eventStartLocalValue;
+    const displayEventEndLocalValue = (function(){
+      if (inferredEventType !== "recurring") return eventEndLocalValue;
+      if (!recurrenceUntilDateVal) return eventEndLocalValue;
+      const endTimePart = String(eventEndLocalValue || "").length >= 16 ? String(eventEndLocalValue).slice(10) : "T23:59";
+      return `${recurrenceUntilDateVal}${endTimePart}`;
+    })();
 
     const weeklyByDay = Array.isArray(rule.byDay) ? rule.byDay : [];
     const monthlyMode = String(rule.mode || "monthday");
@@ -2808,7 +2815,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.42");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.43");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2822,6 +2829,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-10", text: "Recurring event setup now uses the top Start and End fields as the only date inputs while preserving the same stored recurrence data for existing events and WordPress integrations" });
     releaseLogItems.push({ date: "2026-04-10", text: "Create Event now begins with Single Event, Multi-Day Event, and Recurring Event choices so the matching form stays hidden until an event type is selected" });
     releaseLogItems.push({ date: "2026-04-09", text: "Dashboard activity cards now show only the 5 most recent items instead of growing taller with a longer mixed feed" });
     releaseLogItems.push({ date: "2026-04-09", text: "Organizer event submission now auto-generates SEO fields and temporarily removes recurring-event controls from organizer workflows" });
@@ -8531,12 +8539,12 @@ return `
                 <div>
                   <label style="margin-top:0;">Start</label>
                   <input id="startDateTime" class="ctrl" type="datetime-local" name="startDateTime"
-                    value="${esc(toDateTimeLocalValue(editEvent?.startDateTime))}" required />
+                    value="${esc(displayEventStartLocalValue)}" required />
                 </div>
                 <div>
                   <label style="margin-top:0;">End</label>
                   <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
-                    value="${esc(toDateTimeLocalValue(editEvent?.endDateTime))}" required />
+                    value="${esc(displayEventEndLocalValue)}" required />
                 </div>
               </div>
 
@@ -8549,19 +8557,9 @@ return `
                 </div>
                 <div class="note event-type-managed-rec-toggle">Weekly/monthly rule or custom dates list.</div>
 
-                <div class="rec-grid" style="margin-top:12px;">
-                  <div>
-                    <label style="margin-top:0;">First date (series starts)</label>
-                    <input class="ctrl" type="date" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
-                    <div class="note">First occurrence date for this series.</div>
-                  </div>
-
-                  <div>
-                    <label style="margin-top:0;">Until date (series ends)</label>
-                    <input class="ctrl" type="date" name="recurrenceUntilDate" value="${esc(recurrenceUntilDateVal)}" />
-                    <div class="note">No occurrences after this date.</div>
-                  </div>
-                </div>
+                <input type="hidden" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
+                <input type="hidden" name="recurrenceUntilDate" value="${esc(recurrenceUntilDateVal)}" />
+                <div class="note" style="margin-top:12px;">For recurring events, the start date above becomes the first occurrence date and the end date above becomes the repeat-until date. The start and end times repeat for each occurrence.</div>
 
                 <div class="rec-grid" style="margin-top:12px;">
                   <div>
@@ -12707,11 +12705,50 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     // ---- Recurrence normalize ----
     const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
     const t = String(recurrenceType || "none").toLowerCase();
+    const submittedRecurringStartDate = toDateValue(startDateTime);
+    const submittedRecurringEndDate = toDateValue(endDateTime);
 
     let recurrenceRule = null;
     let recurrenceDatesJson = null;
 
     if (hasRec && t !== "none") {
+      recurrenceStartDate = submittedRecurringStartDate || recurrenceStartDate;
+      recurrenceUntilDate = submittedRecurringEndDate || recurrenceUntilDate;
+
+      const recurringStartParts = parseIsoParts(startDateTime);
+      const recurringEndParts = parseIsoParts(endDateTime);
+      const recurringStartUtc = Date.parse(startDateTime);
+      if (recurringStartParts && recurringEndParts && Number.isFinite(recurringStartUtc)) {
+        let occurrenceEndParts = {
+          year: recurringStartParts.year,
+          month: recurringStartParts.month,
+          day: recurringStartParts.day,
+          hour: recurringEndParts.hour,
+          minute: recurringEndParts.minute,
+          second: recurringEndParts.second,
+          offset: recurringStartParts.offset,
+        };
+        let occurrenceEndUtc = partsToUtcMs(occurrenceEndParts);
+        if (occurrenceEndUtc <= recurringStartUtc) {
+          const rollover = new Date(Date.UTC(
+            occurrenceEndParts.year,
+            occurrenceEndParts.month - 1,
+            occurrenceEndParts.day,
+            occurrenceEndParts.hour,
+            occurrenceEndParts.minute,
+            occurrenceEndParts.second || 0
+          ));
+          rollover.setUTCDate(rollover.getUTCDate() + 1);
+          occurrenceEndParts = {
+            ...occurrenceEndParts,
+            year: rollover.getUTCFullYear(),
+            month: rollover.getUTCMonth() + 1,
+            day: rollover.getUTCDate(),
+          };
+        }
+        endDateTime = partsToIso(occurrenceEndParts);
+      }
+
       if (t === "custom") {
         // Prefer the hidden JSON emitted by the admin UI (keeps per-date start/end)
         let raw = safeParseJson((req.body.recurrenceDatesJson || "").trim(), []);
