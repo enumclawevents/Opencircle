@@ -2893,7 +2893,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.52");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.53");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2907,6 +2907,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-11", text: "Dashboard activity now always keeps recent event posts represented in the 5-item feed, including your own latest event when available" });
     releaseLogItems.push({ date: "2026-04-10", text: "Fixed an event-save server error caused by duplicate-save checks reading normalized event values before they were initialized" });
     releaseLogItems.push({ date: "2026-04-10", text: "Dashboard activity now keeps your most recent published event visible in the 5-item feed instead of letting mixed content push it out" });
     releaseLogItems.push({ date: "2026-04-10", text: "Organizer event analytics tooltips now show both My events and City events so citywide daily counts are visible alongside organizer-specific totals" });
@@ -4522,15 +4523,23 @@ return `
         return bTime - aTime;
       });
       let activityCardItems = sortedActivityItems.slice(0, 5);
+      const mostRecentEvent = sortedActivityItems.find((item) => item.type === "Event");
       const mostRecentOwnEvent = sortedActivityItems.find((item) => item.type === "Event" && item.isOwnEvent);
+      const guaranteedItems = [mostRecentOwnEvent, mostRecentEvent].filter(Boolean);
       if (
-        mostRecentOwnEvent &&
-        !activityCardItems.some((item) => item.type === "Event" && item.isOwnEvent)
+        guaranteedItems.length &&
+        guaranteedItems.some((candidate) => !activityCardItems.includes(candidate))
       ) {
-        activityCardItems = [
-          mostRecentOwnEvent,
-          ...activityCardItems.filter((item) => item !== mostRecentOwnEvent),
-        ].slice(0, 5);
+        const seen = new Set();
+        activityCardItems = [...guaranteedItems, ...activityCardItems]
+          .filter((item) => {
+            if (!item) return false;
+            const key = `${item.type}|${item.href}|${item.createdAt || ""}|${item.title || ""}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .slice(0, 5);
       }
 
       activityDashboardHtml = activityCardItems.length
