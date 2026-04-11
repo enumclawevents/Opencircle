@@ -2893,7 +2893,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.51");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.52");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2907,6 +2907,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-10", text: "Fixed an event-save server error caused by duplicate-save checks reading normalized event values before they were initialized" });
     releaseLogItems.push({ date: "2026-04-10", text: "Dashboard activity now keeps your most recent published event visible in the 5-item feed instead of letting mixed content push it out" });
     releaseLogItems.push({ date: "2026-04-10", text: "Organizer event analytics tooltips now show both My events and City events so citywide daily counts are visible alongside organizer-specific totals" });
     releaseLogItems.push({ date: "2026-04-10", text: "Events analytics now counts same-day events correctly even when older rows use simpler stored date/time formats" });
@@ -13138,6 +13139,32 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
+    const canCurateEventPromotions = hasDeveloperAccessRole(role) || role === "editor";
+    const featuredFlag = canCurateEventPromotions ? (String(featured || "") === "1" ? 1 : 0) : 0;
+    const eddiesPickFlag = canCurateEventPromotions ? (String(eddiesPick || "") === "1" ? 1 : 0) : 0;
+
+    // Slug
+    const rawSlug = String(req.body.slug || "").trim();
+    const baseSlug = rawSlug ? slugify(rawSlug) : slugify(title);
+    const slug = await ensureUniqueSlug(baseSlug, id ? Number(id) : null);
+
+    // Categories (max 3, from allow-list)
+    const cats = normalizeCategories(categories);
+    const catsJson = JSON.stringify(cats);
+
+    // ---- Recurrence normalize ----
+    const eventTypeChoice = String(req.body?.eventTypeChoice || "").trim().toLowerCase();
+    let multiDayScheduleJson = null;
+    if (eventTypeChoice === "multi-day") {
+      const parsedMultiDaySchedule = normalizeMultiDaySchedule(req.body?.multiDayScheduleJson);
+      multiDayScheduleJson = parsedMultiDaySchedule.length ? JSON.stringify(parsedMultiDaySchedule) : null;
+    }
+
+    const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
+    const t = String(recurrenceType || "none").toLowerCase();
+    const submittedRecurringStartDate = toDateValue(startDateTime);
+    const submittedRecurringEndDate = toDateValue(endDateTime);
+
     const forceDuplicateSave = String(req.body?.forceDuplicateSave || "") === "1";
     if (!forceDuplicateSave) {
       const duplicateMatches = await findAdminEventDuplicateMatches({
@@ -13198,32 +13225,6 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         }));
       }
     }
-
-    const canCurateEventPromotions = hasDeveloperAccessRole(role) || role === "editor";
-    const featuredFlag = canCurateEventPromotions ? (String(featured || "") === "1" ? 1 : 0) : 0;
-    const eddiesPickFlag = canCurateEventPromotions ? (String(eddiesPick || "") === "1" ? 1 : 0) : 0;
-
-    // Slug
-    const rawSlug = String(req.body.slug || "").trim();
-    const baseSlug = rawSlug ? slugify(rawSlug) : slugify(title);
-    const slug = await ensureUniqueSlug(baseSlug, id ? Number(id) : null);
-
-    // Categories (max 3, from allow-list)
-    const cats = normalizeCategories(categories);
-    const catsJson = JSON.stringify(cats);
-
-    // ---- Recurrence normalize ----
-    const eventTypeChoice = String(req.body?.eventTypeChoice || "").trim().toLowerCase();
-    let multiDayScheduleJson = null;
-    if (eventTypeChoice === "multi-day") {
-      const parsedMultiDaySchedule = normalizeMultiDaySchedule(req.body?.multiDayScheduleJson);
-      multiDayScheduleJson = parsedMultiDaySchedule.length ? JSON.stringify(parsedMultiDaySchedule) : null;
-    }
-
-    const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
-    const t = String(recurrenceType || "none").toLowerCase();
-    const submittedRecurringStartDate = toDateValue(startDateTime);
-    const submittedRecurringEndDate = toDateValue(endDateTime);
 
     let recurrenceRule = null;
     let recurrenceDatesJson = null;
