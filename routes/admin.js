@@ -2988,7 +2988,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.65");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.66");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3002,6 +3002,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar month arrows and selected-day list now stay synchronized through server-rendered navigation" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar month navigation now safely falls back to the current month instead of zeroing out the grid" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now has previous and next month arrows for browsing different months" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now greys out past days while keeping them selectable" });
@@ -3220,18 +3221,22 @@ return `
 
     let dashboardCalendarHtml = `<div class="muted">No events found for this calendar view.</div>`;
     try {
+      const calendarPageSize = 5;
       const nowParts = getZonedDateParts(new Date(), DEFAULT_TZ);
       const fallbackTodayYmd = new Date().toISOString().slice(0, 10);
       const todayYmd = nowParts?.ymd || fallbackTodayYmd;
-      const monthStartYmd = todayYmd ? `${String(todayYmd).slice(0, 7)}-01` : "";
-      const monthStartParts = /^\d{4}-\d{2}-\d{2}$/.test(monthStartYmd)
-        ? monthStartYmd.split("-").map(Number)
+      const defaultMonthStartYmd = todayYmd ? `${String(todayYmd).slice(0, 7)}-01` : "";
+      const requestedMonthYmd = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.calMonth || "").trim())
+        ? `${String(req.query.calMonth).trim().slice(0, 7)}-01`
+        : defaultMonthStartYmd;
+      const monthStartParts = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonthYmd)
+        ? requestedMonthYmd.split("-").map(Number)
         : null;
       const monthStartDate = monthStartParts
         ? new Date(Date.UTC(monthStartParts[0], monthStartParts[1] - 1, 1, 12, 0, 0))
         : null;
-      const calendarMinMonthYmd = monthStartYmd ? addMonthsToYmd(monthStartYmd, -12) : "";
-      const calendarMaxMonthYmd = monthStartYmd ? addMonthsToYmd(monthStartYmd, 12) : "";
+      const calendarMinMonthYmd = defaultMonthStartYmd ? addMonthsToYmd(defaultMonthStartYmd, -12) : "";
+      const calendarMaxMonthYmd = defaultMonthStartYmd ? addMonthsToYmd(defaultMonthStartYmd, 12) : "";
       const gridStartYmd = calendarMinMonthYmd ? startOfWeekYmd(calendarMinMonthYmd) : "";
       const lastGridStartYmd = calendarMaxMonthYmd ? startOfWeekYmd(calendarMaxMonthYmd) : "";
       const gridEndYmd = lastGridStartYmd ? addDaysToYmd(lastGridStartYmd, 41) : "";
@@ -3303,8 +3308,20 @@ return `
       const monthLabel = monthStartDate
         ? monthStartDate.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
         : "This month";
-      const selectedDayYmd = todayYmd && dayMap.has(todayYmd) ? todayYmd : Array.from(dayMap.keys())[0];
-      const currentMonthGridStart = monthStartYmd ? startOfWeekYmd(monthStartYmd) : "";
+      let selectedDayYmd = "";
+      const requestedDayYmd = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.calDay || "").trim())
+        ? String(req.query.calDay).trim()
+        : "";
+      if (requestedDayYmd && requestedDayYmd.slice(0, 7) === String(requestedMonthYmd).slice(0, 7) && dayMap.has(requestedDayYmd)) {
+        selectedDayYmd = requestedDayYmd;
+      } else if (todayYmd && todayYmd.slice(0, 7) === String(requestedMonthYmd).slice(0, 7) && dayMap.has(todayYmd)) {
+        selectedDayYmd = todayYmd;
+      } else if (requestedMonthYmd && dayMap.has(requestedMonthYmd)) {
+        selectedDayYmd = requestedMonthYmd;
+      } else {
+        selectedDayYmd = Array.from(dayMap.keys()).find((ymd) => String(ymd).slice(0, 7) === String(requestedMonthYmd).slice(0, 7)) || Array.from(dayMap.keys())[0] || todayYmd;
+      }
+      const currentMonthGridStart = requestedMonthYmd ? startOfWeekYmd(requestedMonthYmd) : "";
       const calendarDays = Array.from({ length: 42 }, (_, index) => {
         const ymd = addDaysToYmd(currentMonthGridStart, index);
         const entries = Array.isArray(dayMap.get(ymd)) ? dayMap.get(ymd) : [];
@@ -3312,7 +3329,7 @@ return `
         return {
           ymd,
           day,
-          inMonth: month === nowParts.month,
+          inMonth: month === (monthStartParts ? monthStartParts[1] : nowParts.month),
           isToday: ymd === todayYmd,
           isPast: ymd < todayYmd,
           count: entries.length,
@@ -3326,6 +3343,36 @@ return `
           .sort((a, b) => String(a.sortKey || "").localeCompare(String(b.sortKey || "")))
           .map(({ sortKey, ...entry }) => entry);
       }
+      const selectedDayEntries = Array.isArray(calendarAgenda[selectedDayYmd]) ? calendarAgenda[selectedDayYmd] : [];
+      const selectedPageRaw = parseInt(String(req.query.calPage || "1"), 10);
+      const selectedDayTotalPages = Math.max(1, Math.ceil(selectedDayEntries.length / calendarPageSize));
+      const selectedDayPage = Math.max(1, Math.min(selectedDayTotalPages, Number.isFinite(selectedPageRaw) ? selectedPageRaw : 1));
+      const selectedVisibleEntries = selectedDayEntries.slice((selectedDayPage - 1) * calendarPageSize, selectedDayPage * calendarPageSize);
+      const calendarNavParams = new URLSearchParams();
+      for (const [key, value] of Object.entries(req.query || {})) {
+        if (value == null) continue;
+        if (Array.isArray(value)) {
+          for (const item of value) calendarNavParams.append(key, String(item));
+        } else {
+          calendarNavParams.set(key, String(value));
+        }
+      }
+      const buildCalendarHref = (updates = {}) => {
+        const sp = new URLSearchParams(calendarNavParams.toString());
+        for (const [key, value] of Object.entries(updates)) {
+          if (value == null || value === "") sp.delete(key);
+          else sp.set(key, String(value));
+        }
+        const qs = sp.toString();
+        return `/admin${qs ? `?${qs}` : ""}`;
+      };
+      const prevMonthYmd = requestedMonthYmd ? addMonthsToYmd(requestedMonthYmd, -1) : "";
+      const nextMonthYmd = requestedMonthYmd ? addMonthsToYmd(requestedMonthYmd, 1) : "";
+      const prevMonthHref = buildCalendarHref({ calMonth: prevMonthYmd, calDay: prevMonthYmd, calPage: null });
+      const nextMonthHref = buildCalendarHref({ calMonth: nextMonthYmd, calDay: nextMonthYmd, calPage: null });
+      const selectedDayLabel = /^\d{4}-\d{2}-\d{2}$/.test(String(selectedDayYmd || ""))
+        ? new Date(`${selectedDayYmd}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" })
+        : "No day selected";
 
       dashboardCalendarHtml = `
         <div class="dashboard-calendar" id="dashboardCalendarTile">
@@ -3334,31 +3381,30 @@ return `
               <div class="dashboard-calendar-head-top">
                 <div>
                   <div class="dashboard-calendar-month-row">
-                    <button type="button" class="dashboard-calendar-nav" data-calendar-month-nav="prev" aria-label="Previous month">‹</button>
-                    <div class="dashboard-calendar-month" id="dashboardCalendarMonthLabel">${esc(monthLabel)}</div>
-                    <button type="button" class="dashboard-calendar-nav" data-calendar-month-nav="next" aria-label="Next month">›</button>
+                    <a class="dashboard-calendar-nav" href="${esc(prevMonthHref)}" aria-label="Previous month">‹</a>
+                    <div class="dashboard-calendar-month">${esc(monthLabel)}</div>
+                    <a class="dashboard-calendar-nav" href="${esc(nextMonthHref)}" aria-label="Next month">›</a>
                   </div>
                   <div class="dashboard-calendar-sub">Tap a day to preview what is happening on that day.</div>
                 </div>
                 <div class="dashboard-calendar-total">
                   <span class="dashboard-calendar-total-label">Month total</span>
-                  <span class="dashboard-calendar-total-value" id="dashboardCalendarMonthTotal">${monthTotalCount.toLocaleString("en-US")}</span>
+                  <span class="dashboard-calendar-total-value">${monthTotalCount.toLocaleString("en-US")}</span>
                 </div>
               </div>
             </div>
             <div class="dashboard-calendar-weekdays">
               ${weekdayLabels.map((label) => `<div>${esc(label)}</div>`).join("")}
             </div>
-            <div class="dashboard-calendar-grid" id="dashboardCalendarGrid">
+            <div class="dashboard-calendar-grid">
               ${calendarDays.map((day) => `
-                <button
-                  type="button"
+                <a
+                  href="${esc(buildCalendarHref({ calMonth: `${String(day.ymd).slice(0, 7)}-01`, calDay: day.ymd, calPage: null }))}"
                   class="dashboard-calendar-day${day.inMonth ? "" : " is-outside"}${day.isToday ? " is-today" : ""}${day.isPast ? " is-past" : ""}${day.ymd === selectedDayYmd ? " is-selected" : ""}"
-                  data-calendar-day="${esc(day.ymd)}"
                 >
                   <span class="dashboard-calendar-daynum">${esc(day.day)}</span>
                   <span class="dashboard-calendar-daycount">${day.count ? `${esc(day.count)} event${day.count === 1 ? "" : "s"}` : "No events"}</span>
-                </button>
+                </a>
               `).join("")}
             </div>
           </div>
@@ -3366,17 +3412,17 @@ return `
             <div class="dashboard-calendar-detail-head">
               <div>
                 <div class="dashboard-calendar-panel-title">Selected day</div>
-                <div class="dashboard-calendar-panel-sub" id="dashboardCalendarSelectedLabel">${esc(new Date(`${selectedDayYmd}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" }))}</div>
+                <div class="dashboard-calendar-panel-sub">${esc(selectedDayLabel)}</div>
               </div>
-              <div class="dashboard-calendar-pager" id="dashboardCalendarPager" style="display:none;">
-                <button type="button" class="btn" data-calendar-page="prev">Prev</button>
-                <span class="muted small" id="dashboardCalendarPageLabel">Page 1 / 1</span>
-                <button type="button" class="btn" data-calendar-page="next">Next</button>
+              <div class="dashboard-calendar-pager"${selectedDayTotalPages > 1 ? "" : ` style="display:none;"`}>
+                <a class="btn${selectedDayPage <= 1 ? " is-disabled" : ""}" ${selectedDayPage <= 1 ? `aria-disabled="true"` : `href="${esc(buildCalendarHref({ calMonth: requestedMonthYmd, calDay: selectedDayYmd, calPage: selectedDayPage - 1 }))}"`}>Prev</a>
+                <span class="muted small">Page ${selectedDayPage} / ${selectedDayTotalPages}</span>
+                <a class="btn${selectedDayPage >= selectedDayTotalPages ? " is-disabled" : ""}" ${selectedDayPage >= selectedDayTotalPages ? `aria-disabled="true"` : `href="${esc(buildCalendarHref({ calMonth: requestedMonthYmd, calDay: selectedDayYmd, calPage: selectedDayPage + 1 }))}"`}>Next</a>
               </div>
             </div>
-            <div class="dashboard-calendar-list" id="dashboardCalendarDayList">
-              ${(calendarAgenda[selectedDayYmd] || []).length
-                ? (calendarAgenda[selectedDayYmd] || []).slice(0, 5).map((item) => `
+            <div class="dashboard-calendar-list">
+              ${selectedVisibleEntries.length
+                ? selectedVisibleEntries.map((item) => `
                     <a class="dashboard-calendar-item" href="${esc(item.href)}">
                       <div class="dashboard-calendar-item-title">${esc(item.title)}</div>
                       <div class="dashboard-calendar-item-meta">${esc(item.timeLabel || "All day")}${item.location ? ` · ${esc(item.location)}` : ""}</div>
@@ -3385,14 +3431,6 @@ return `
                 : `<div class="muted">No events on this day.</div>`}
             </div>
           </div>
-          <script type="application/json" id="dashboardCalendarData">${JSON.stringify({
-            selectedDayYmd,
-            todayYmd,
-            currentMonthYmd: monthStartYmd,
-            minMonthYmd: calendarMinMonthYmd,
-            maxMonthYmd: calendarMaxMonthYmd,
-            agendaByDay: calendarAgenda,
-          }).replace(/</g, "\\u003c")}</script>
         </div>
       `;
     } catch (err) {
@@ -7849,10 +7887,14 @@ return `
         font-weight:700;
         line-height:1;
         cursor:pointer;
+        text-decoration:none;
+        border:1px solid var(--line);
       }
-      .dashboard-calendar-nav:disabled{
+      .dashboard-calendar-nav.is-disabled,
+      .dashboard-calendar-nav[aria-disabled="true"]{
         opacity:.45;
         cursor:not-allowed;
+        pointer-events:none;
       }
       .dashboard-calendar-month{
         font-size:18px;
@@ -7912,6 +7954,7 @@ return `
         align-content:start;
         gap:8px;
         cursor:pointer;
+        text-decoration:none;
       }
       .dashboard-calendar-day:hover{
         border-color:rgba(15,23,42,.18);
