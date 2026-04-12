@@ -2972,7 +2972,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.61");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.62");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2986,6 +2986,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now shows the selected month total in the header for a quicker at-a-glance count" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar day counts now follow the actual event occurrence date instead of spreading one event across every day in its date range" });
     releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics now uses matching vertical gap spacing across both columns" });
     releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics row spacing is now tuned a little looser between the chart and leaderboard" });
@@ -3283,6 +3284,7 @@ return `
           count: entries.length,
         };
       });
+      const monthTotalCount = calendarDays.reduce((sum, day) => sum + (day.inMonth ? Number(day.count || 0) : 0), 0);
       const calendarAgenda = {};
       for (const [ymd, entries] of dayMap.entries()) {
         calendarAgenda[ymd] = entries
@@ -3295,8 +3297,16 @@ return `
         <div class="dashboard-calendar" id="dashboardCalendarTile">
           <div class="dashboard-calendar-main">
             <div class="dashboard-calendar-head">
-              <div class="dashboard-calendar-month">${esc(monthLabel)}</div>
-              <div class="dashboard-calendar-sub">Tap a day to preview what is happening on that day.</div>
+              <div class="dashboard-calendar-head-top">
+                <div>
+                  <div class="dashboard-calendar-month">${esc(monthLabel)}</div>
+                  <div class="dashboard-calendar-sub">Tap a day to preview what is happening on that day.</div>
+                </div>
+                <div class="dashboard-calendar-total">
+                  <span class="dashboard-calendar-total-label">Month total</span>
+                  <span class="dashboard-calendar-total-value">${monthTotalCount.toLocaleString("en-US")}</span>
+                </div>
+              </div>
             </div>
             <div class="dashboard-calendar-weekdays">
               ${weekdayLabels.map((label) => `<div>${esc(label)}</div>`).join("")}
@@ -7772,9 +7782,36 @@ return `
         gap:2px;
         margin-bottom:12px;
       }
+      .dashboard-calendar-head-top{
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-start;
+        gap:16px;
+      }
       .dashboard-calendar-month{
         font-size:18px;
         font-weight:800;
+        color:var(--text);
+      }
+      .dashboard-calendar-total{
+        display:flex;
+        flex-direction:column;
+        align-items:flex-end;
+        gap:2px;
+        text-align:right;
+        flex:0 0 auto;
+      }
+      .dashboard-calendar-total-label{
+        font-size:12px;
+        font-weight:700;
+        letter-spacing:.04em;
+        text-transform:uppercase;
+        color:var(--muted);
+      }
+      .dashboard-calendar-total-value{
+        font-size:22px;
+        font-weight:800;
+        line-height:1;
         color:var(--text);
       }
       .dashboard-calendar-sub{
