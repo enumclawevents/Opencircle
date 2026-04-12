@@ -2972,7 +2972,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.62");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.63");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2986,6 +2986,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now greys out past days while keeping them selectable" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now shows the selected month total in the header for a quicker at-a-glance count" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar day counts now follow the actual event occurrence date instead of spreading one event across every day in its date range" });
     releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics now uses matching vertical gap spacing across both columns" });
@@ -3281,6 +3282,7 @@ return `
           day: day,
           inMonth: month === nowParts.month,
           isToday: ymd === todayYmd,
+          isPast: ymd < todayYmd,
           count: entries.length,
         };
       });
@@ -3315,7 +3317,7 @@ return `
               ${calendarDays.map((day) => `
                 <button
                   type="button"
-                  class="dashboard-calendar-day${day.inMonth ? "" : " is-outside"}${day.isToday ? " is-today" : ""}${day.ymd === selectedDayYmd ? " is-selected" : ""}"
+                  class="dashboard-calendar-day${day.inMonth ? "" : " is-outside"}${day.isToday ? " is-today" : ""}${day.isPast ? " is-past" : ""}${day.ymd === selectedDayYmd ? " is-selected" : ""}"
                   data-calendar-day="${esc(day.ymd)}"
                 >
                   <span class="dashboard-calendar-daynum">${esc(day.day)}</span>
@@ -7854,6 +7856,14 @@ return `
       .dashboard-calendar-day.is-selected{
         border-color:rgba(0,192,139,.35);
         background:rgba(0,192,139,.08);
+      }
+      .dashboard-calendar-day.is-past:not(.is-selected){
+        background:#f3f6fa;
+        border-color:rgba(148,163,184,.22);
+      }
+      .dashboard-calendar-day.is-past:not(.is-selected) .dashboard-calendar-daynum,
+      .dashboard-calendar-day.is-past:not(.is-selected) .dashboard-calendar-daycount{
+        color:#7b8799;
       }
       .dashboard-calendar-day.is-today .dashboard-calendar-daynum{
         color:#065f46;
