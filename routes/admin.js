@@ -1112,6 +1112,22 @@ function addDaysToYmd(ymd, delta) {
   ].join("-");
 }
 
+function addMonthsToYmd(ymd, delta) {
+  const s = String(ymd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  const [year, month, day] = s.split("-").map(Number);
+  const dt = new Date(Date.UTC(year, month - 1, 1, 12, 0, 0));
+  dt.setUTCMonth(dt.getUTCMonth() + Number(delta || 0));
+  const targetYear = dt.getUTCFullYear();
+  const targetMonth = dt.getUTCMonth() + 1;
+  const targetDay = Math.min(day, new Date(Date.UTC(targetYear, targetMonth, 0, 12, 0, 0)).getUTCDate());
+  return [
+    targetYear,
+    String(targetMonth).padStart(2, "0"),
+    String(targetDay).padStart(2, "0"),
+  ].join("-");
+}
+
 function startOfWeekYmd(ymd) {
   const s = String(ymd || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
@@ -2972,7 +2988,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.63");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.64");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2986,6 +3002,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now has previous and next month arrows for browsing different months" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now greys out past days while keeping them selectable" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now shows the selected month total in the header for a quicker at-a-glance count" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar day counts now follow the actual event occurrence date instead of spreading one event across every day in its date range" });
@@ -3206,13 +3223,18 @@ return `
       const todayYmd = nowParts?.ymd || "";
       const monthStartYmd = todayYmd ? `${String(nowParts.year).padStart(4, "0")}-${String(nowParts.month).padStart(2, "0")}-01` : "";
       const monthStartDate = monthStartYmd ? new Date(Date.UTC(nowParts.year, nowParts.month - 1, 1, 12, 0, 0)) : null;
-      const monthStartDow = monthStartDate ? monthStartDate.getUTCDay() : 0;
-      const gridStartYmd = monthStartYmd ? addDaysToYmd(monthStartYmd, -monthStartDow) : "";
-      const gridEndYmd = gridStartYmd ? addDaysToYmd(gridStartYmd, 41) : "";
+      const calendarMinMonthYmd = monthStartYmd ? addMonthsToYmd(monthStartYmd, -12) : "";
+      const calendarMaxMonthYmd = monthStartYmd ? addMonthsToYmd(monthStartYmd, 12) : "";
+      const gridStartYmd = calendarMinMonthYmd ? startOfWeekYmd(calendarMinMonthYmd) : "";
+      const lastGridStartYmd = calendarMaxMonthYmd ? startOfWeekYmd(calendarMaxMonthYmd) : "";
+      const gridEndYmd = lastGridStartYmd ? addDaysToYmd(lastGridStartYmd, 41) : "";
       const windowStartMs = gridStartYmd ? Date.parse(`${gridStartYmd}T00:00:00-08:00`) : 0;
       const windowEndMs = gridEndYmd ? Date.parse(`${gridEndYmd}T23:59:59-07:00`) : 0;
       const dayMap = new Map();
-      for (let i = 0; i < 42; i++) {
+      const totalGridDays = gridStartYmd && gridEndYmd
+        ? Math.max(0, Math.round((Date.parse(`${gridEndYmd}T12:00:00Z`) - Date.parse(`${gridStartYmd}T12:00:00Z`)) / 86400000)) + 1
+        : 0;
+      for (let i = 0; i < totalGridDays; i++) {
         const ymd = addDaysToYmd(gridStartYmd, i);
         if (!ymd) continue;
         dayMap.set(ymd, []);
@@ -3275,11 +3297,14 @@ return `
         ? monthStartDate.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
         : "This month";
       const selectedDayYmd = todayYmd && dayMap.has(todayYmd) ? todayYmd : Array.from(dayMap.keys())[0];
-      const calendarDays = Array.from(dayMap.entries()).map(([ymd, entries]) => {
+      const currentMonthGridStart = monthStartYmd ? startOfWeekYmd(monthStartYmd) : "";
+      const calendarDays = Array.from({ length: 42 }, (_, index) => {
+        const ymd = addDaysToYmd(currentMonthGridStart, index);
+        const entries = Array.isArray(dayMap.get(ymd)) ? dayMap.get(ymd) : [];
         const [year, month, day] = ymd.split("-").map(Number);
         return {
           ymd,
-          day: day,
+          day,
           inMonth: month === nowParts.month,
           isToday: ymd === todayYmd,
           isPast: ymd < todayYmd,
@@ -3301,19 +3326,23 @@ return `
             <div class="dashboard-calendar-head">
               <div class="dashboard-calendar-head-top">
                 <div>
-                  <div class="dashboard-calendar-month">${esc(monthLabel)}</div>
+                  <div class="dashboard-calendar-month-row">
+                    <button type="button" class="dashboard-calendar-nav" data-calendar-month-nav="prev" aria-label="Previous month">‹</button>
+                    <div class="dashboard-calendar-month" id="dashboardCalendarMonthLabel">${esc(monthLabel)}</div>
+                    <button type="button" class="dashboard-calendar-nav" data-calendar-month-nav="next" aria-label="Next month">›</button>
+                  </div>
                   <div class="dashboard-calendar-sub">Tap a day to preview what is happening on that day.</div>
                 </div>
                 <div class="dashboard-calendar-total">
                   <span class="dashboard-calendar-total-label">Month total</span>
-                  <span class="dashboard-calendar-total-value">${monthTotalCount.toLocaleString("en-US")}</span>
+                  <span class="dashboard-calendar-total-value" id="dashboardCalendarMonthTotal">${monthTotalCount.toLocaleString("en-US")}</span>
                 </div>
               </div>
             </div>
             <div class="dashboard-calendar-weekdays">
               ${weekdayLabels.map((label) => `<div>${esc(label)}</div>`).join("")}
             </div>
-            <div class="dashboard-calendar-grid">
+            <div class="dashboard-calendar-grid" id="dashboardCalendarGrid">
               ${calendarDays.map((day) => `
                 <button
                   type="button"
@@ -3351,6 +3380,10 @@ return `
           </div>
           <script type="application/json" id="dashboardCalendarData">${JSON.stringify({
             selectedDayYmd,
+            todayYmd,
+            currentMonthYmd: monthStartYmd,
+            minMonthYmd: calendarMinMonthYmd,
+            maxMonthYmd: calendarMaxMonthYmd,
             agendaByDay: calendarAgenda,
           }).replace(/</g, "\\u003c")}</script>
         </div>
@@ -7790,6 +7823,30 @@ return `
         align-items:flex-start;
         gap:16px;
       }
+      .dashboard-calendar-month-row{
+        display:flex;
+        align-items:center;
+        gap:10px;
+      }
+      .dashboard-calendar-nav{
+        width:32px;
+        height:32px;
+        border-radius:999px;
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        padding:0;
+        background:#fff;
+        color:var(--text);
+        font-size:20px;
+        font-weight:700;
+        line-height:1;
+        cursor:pointer;
+      }
+      .dashboard-calendar-nav:disabled{
+        opacity:.45;
+        cursor:not-allowed;
+      }
       .dashboard-calendar-month{
         font-size:18px;
         font-weight:800;
@@ -10719,14 +10776,18 @@ return `
         var tile = document.getElementById('dashboardCalendarTile');
         var dataEl = document.getElementById('dashboardCalendarData');
         if (!tile || !dataEl) return;
-        var buttons = Array.prototype.slice.call(tile.querySelectorAll('[data-calendar-day]'));
+        var grid = document.getElementById('dashboardCalendarGrid');
+        var monthLabelEl = document.getElementById('dashboardCalendarMonthLabel');
+        var monthTotalEl = document.getElementById('dashboardCalendarMonthTotal');
+        var monthPrevBtn = tile.querySelector('[data-calendar-month-nav="prev"]');
+        var monthNextBtn = tile.querySelector('[data-calendar-month-nav="next"]');
         var dayList = document.getElementById('dashboardCalendarDayList');
         var selectedLabel = document.getElementById('dashboardCalendarSelectedLabel');
         var pager = document.getElementById('dashboardCalendarPager');
         var pageLabel = document.getElementById('dashboardCalendarPageLabel');
         var prevBtn = tile.querySelector('[data-calendar-page="prev"]');
         var nextBtn = tile.querySelector('[data-calendar-page="next"]');
-        if (!buttons.length || !dayList || !selectedLabel) return;
+        if (!grid || !dayList || !selectedLabel || !monthLabelEl || !monthTotalEl) return;
 
         var payload = null;
         try {
@@ -10735,6 +10796,38 @@ return `
           payload = null;
         }
         if (!payload || !payload.agendaByDay) return;
+
+        function pad2(n){
+          return String(n).padStart(2, '0');
+        }
+
+        function addDaysYmd(ymd, delta){
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || ''))) return '';
+          var parts = String(ymd).split('-').map(Number);
+          var d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+          d.setUTCDate(d.getUTCDate() + Number(delta || 0));
+          return [d.getUTCFullYear(), pad2(d.getUTCMonth() + 1), pad2(d.getUTCDate())].join('-');
+        }
+
+        function addMonthsYmd(ymd, delta){
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || ''))) return '';
+          var parts = String(ymd).split('-').map(Number);
+          var d = new Date(Date.UTC(parts[0], parts[1] - 1, 1, 12, 0, 0));
+          d.setUTCMonth(d.getUTCMonth() + Number(delta || 0));
+          var year = d.getUTCFullYear();
+          var month = d.getUTCMonth() + 1;
+          var maxDay = new Date(Date.UTC(year, month, 0, 12, 0, 0)).getUTCDate();
+          var day = Math.min(parts[2], maxDay);
+          return [year, pad2(month), pad2(day)].join('-');
+        }
+
+        function startOfWeekYmd(ymd){
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || ''))) return '';
+          var parts = String(ymd).split('-').map(Number);
+          var d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+          d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+          return [d.getUTCFullYear(), pad2(d.getUTCMonth() + 1), pad2(d.getUTCDate())].join('-');
+        }
 
         function formatLongDate(ymd){
           var d = new Date(String(ymd) + 'T12:00:00Z');
@@ -10747,7 +10840,37 @@ return `
           });
         }
 
-        var currentDay = payload.selectedDayYmd || buttons[0].getAttribute('data-calendar-day');
+        function formatMonthLabel(monthYmd){
+          var d = new Date(String(monthYmd) + 'T12:00:00Z');
+          if (isNaN(d.getTime())) return monthYmd;
+          return d.toLocaleDateString('en-US', {
+            month: 'long',
+            year: 'numeric',
+            timeZone: 'UTC'
+          });
+        }
+
+        function buildMonthDays(monthYmd){
+          var targetMonth = String(monthYmd || '').slice(5, 7);
+          var gridStart = startOfWeekYmd(monthYmd);
+          var days = [];
+          for (var i = 0; i < 42; i++) {
+            var ymd = addDaysYmd(gridStart, i);
+            var items = Array.isArray(payload.agendaByDay[ymd]) ? payload.agendaByDay[ymd] : [];
+            days.push({
+              ymd: ymd,
+              day: Number(String(ymd).slice(8, 10)),
+              inMonth: String(ymd).slice(5, 7) === targetMonth,
+              isToday: ymd === payload.todayYmd,
+              isPast: payload.todayYmd ? ymd < payload.todayYmd : false,
+              count: items.length
+            });
+          }
+          return days;
+        }
+
+        var currentDay = payload.selectedDayYmd || payload.todayYmd || '';
+        var currentMonth = payload.currentMonthYmd || (currentDay ? String(currentDay).slice(0, 7) + '-01' : '');
         var currentPage = 1;
         var pageSize = 5;
 
@@ -10782,17 +10905,62 @@ return `
         function activate(ymd){
           currentDay = ymd;
           currentPage = 1;
-          buttons.forEach(function(btn){
-            btn.classList.toggle('is-selected', btn.getAttribute('data-calendar-day') === ymd);
-          });
+          renderMonth(currentMonth);
           renderDayItems(ymd);
         }
 
-        buttons.forEach(function(btn){
-          btn.addEventListener('click', function(){
-            activate(btn.getAttribute('data-calendar-day'));
+        function renderMonth(monthYmd){
+          currentMonth = monthYmd;
+          var days = buildMonthDays(monthYmd);
+          var monthTotal = days.reduce(function(sum, day){
+            return sum + (day.inMonth ? Number(day.count || 0) : 0);
+          }, 0);
+          monthLabelEl.textContent = formatMonthLabel(monthYmd);
+          monthTotalEl.textContent = monthTotal.toLocaleString('en-US');
+          grid.innerHTML = days.map(function(day){
+            var className = 'dashboard-calendar-day' +
+              (day.inMonth ? '' : ' is-outside') +
+              (day.isToday ? ' is-today' : '') +
+              (day.isPast ? ' is-past' : '') +
+              (day.ymd === currentDay ? ' is-selected' : '');
+            var countLabel = day.count ? (day.count + ' event' + (day.count === 1 ? '' : 's')) : 'No events';
+            return '<button type="button" class="' + className + '" data-calendar-day="' + day.ymd + '">' +
+              '<span class="dashboard-calendar-daynum">' + day.day + '</span>' +
+              '<span class="dashboard-calendar-daycount">' + countLabel + '</span>' +
+            '</button>';
+          }).join('');
+          Array.prototype.slice.call(grid.querySelectorAll('[data-calendar-day]')).forEach(function(btn){
+            btn.addEventListener('click', function(){
+              activate(btn.getAttribute('data-calendar-day'));
+            });
           });
-        });
+          if (monthPrevBtn) monthPrevBtn.disabled = !!payload.minMonthYmd && monthYmd <= payload.minMonthYmd;
+          if (monthNextBtn) monthNextBtn.disabled = !!payload.maxMonthYmd && monthYmd >= payload.maxMonthYmd;
+        }
+
+        function activateMonth(monthYmd){
+          currentMonth = monthYmd;
+          var preferredDay = (payload.todayYmd && payload.todayYmd.slice(0, 7) + '-01' === monthYmd)
+            ? payload.todayYmd
+            : monthYmd;
+          currentDay = preferredDay;
+          currentPage = 1;
+          renderMonth(monthYmd);
+          renderDayItems(currentDay);
+        }
+
+        if (monthPrevBtn) {
+          monthPrevBtn.addEventListener('click', function(){
+            if (payload.minMonthYmd && currentMonth <= payload.minMonthYmd) return;
+            activateMonth(addMonthsYmd(currentMonth, -1));
+          });
+        }
+        if (monthNextBtn) {
+          monthNextBtn.addEventListener('click', function(){
+            if (payload.maxMonthYmd && currentMonth >= payload.maxMonthYmd) return;
+            activateMonth(addMonthsYmd(currentMonth, 1));
+          });
+        }
 
         if (prevBtn) {
           prevBtn.addEventListener('click', function(){
@@ -10807,7 +10975,7 @@ return `
           });
         }
 
-        activate(currentDay);
+        activateMonth(currentMonth);
       })();
 
       // ---- dashboard drag + drop layout ----
