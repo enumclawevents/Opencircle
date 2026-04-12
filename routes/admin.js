@@ -2972,7 +2972,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.59");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.60");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2986,6 +2986,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics now uses matching vertical gap spacing across both columns" });
     releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics row spacing is now tuned a little looser between the chart and leaderboard" });
     releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics now has a little more breathing room between the chart row and leaderboard row" });
     releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics now lets the chart card fill the top row so the empty gap under the chart is removed" });
@@ -6494,7 +6495,7 @@ return `
         margin-bottom:var(--gap);
       }
       .organizer-leaderboard-card{
-        margin-top: calc(var(--gap) * -0.25);
+        margin-top: 0;
       }
       .organizer-chart-grid > .card{
         height: auto;
