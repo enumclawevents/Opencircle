@@ -2988,7 +2988,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.64");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.65");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3002,6 +3002,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar month navigation now safely falls back to the current month instead of zeroing out the grid" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now has previous and next month arrows for browsing different months" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now greys out past days while keeping them selectable" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now shows the selected month total in the header for a quicker at-a-glance count" });
@@ -3220,9 +3221,15 @@ return `
     let dashboardCalendarHtml = `<div class="muted">No events found for this calendar view.</div>`;
     try {
       const nowParts = getZonedDateParts(new Date(), DEFAULT_TZ);
-      const todayYmd = nowParts?.ymd || "";
-      const monthStartYmd = todayYmd ? `${String(nowParts.year).padStart(4, "0")}-${String(nowParts.month).padStart(2, "0")}-01` : "";
-      const monthStartDate = monthStartYmd ? new Date(Date.UTC(nowParts.year, nowParts.month - 1, 1, 12, 0, 0)) : null;
+      const fallbackTodayYmd = new Date().toISOString().slice(0, 10);
+      const todayYmd = nowParts?.ymd || fallbackTodayYmd;
+      const monthStartYmd = todayYmd ? `${String(todayYmd).slice(0, 7)}-01` : "";
+      const monthStartParts = /^\d{4}-\d{2}-\d{2}$/.test(monthStartYmd)
+        ? monthStartYmd.split("-").map(Number)
+        : null;
+      const monthStartDate = monthStartParts
+        ? new Date(Date.UTC(monthStartParts[0], monthStartParts[1] - 1, 1, 12, 0, 0))
+        : null;
       const calendarMinMonthYmd = monthStartYmd ? addMonthsToYmd(monthStartYmd, -12) : "";
       const calendarMaxMonthYmd = monthStartYmd ? addMonthsToYmd(monthStartYmd, 12) : "";
       const gridStartYmd = calendarMinMonthYmd ? startOfWeekYmd(calendarMinMonthYmd) : "";
@@ -10797,6 +10804,20 @@ return `
         }
         if (!payload || !payload.agendaByDay) return;
 
+        function isValidYmd(value){
+          return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+        }
+
+        function clampMonthYmd(monthYmd){
+          var safe = isValidYmd(monthYmd) ? String(monthYmd).slice(0, 7) + '-01' : '';
+          var min = isValidYmd(payload.minMonthYmd) ? String(payload.minMonthYmd).slice(0, 7) + '-01' : '';
+          var max = isValidYmd(payload.maxMonthYmd) ? String(payload.maxMonthYmd).slice(0, 7) + '-01' : '';
+          if (!safe) return '';
+          if (min && safe < min) return min;
+          if (max && safe > max) return max;
+          return safe;
+        }
+
         function pad2(n){
           return String(n).padStart(2, '0');
         }
@@ -10851,11 +10872,14 @@ return `
         }
 
         function buildMonthDays(monthYmd){
+          if (!isValidYmd(monthYmd)) return [];
           var targetMonth = String(monthYmd || '').slice(5, 7);
           var gridStart = startOfWeekYmd(monthYmd);
+          if (!isValidYmd(gridStart)) return [];
           var days = [];
           for (var i = 0; i < 42; i++) {
             var ymd = addDaysYmd(gridStart, i);
+            if (!isValidYmd(ymd)) continue;
             var items = Array.isArray(payload.agendaByDay[ymd]) ? payload.agendaByDay[ymd] : [];
             days.push({
               ymd: ymd,
@@ -10869,12 +10893,25 @@ return `
           return days;
         }
 
-        var currentDay = payload.selectedDayYmd || payload.todayYmd || '';
-        var currentMonth = payload.currentMonthYmd || (currentDay ? String(currentDay).slice(0, 7) + '-01' : '');
+        var agendaKeys = Object.keys(payload.agendaByDay || {}).filter(isValidYmd).sort();
+        var fallbackToday = isValidYmd(payload.todayYmd)
+          ? payload.todayYmd
+          : (agendaKeys[0] || new Date().toISOString().slice(0, 10));
+        var currentDay = isValidYmd(payload.selectedDayYmd)
+          ? payload.selectedDayYmd
+          : fallbackToday;
+        var currentMonth = clampMonthYmd(payload.currentMonthYmd || (currentDay ? String(currentDay).slice(0, 7) + '-01' : '')) || clampMonthYmd(fallbackToday);
         var currentPage = 1;
         var pageSize = 5;
 
         function renderDayItems(ymd){
+          if (!isValidYmd(ymd)) {
+            selectedLabel.textContent = 'No day selected';
+            currentPage = 1;
+            if (pager) pager.style.display = 'none';
+            dayList.innerHTML = '<div class="muted">No events on this day.</div>';
+            return;
+          }
           var items = Array.isArray(payload.agendaByDay[ymd]) ? payload.agendaByDay[ymd] : [];
           selectedLabel.textContent = formatLongDate(ymd);
           if (!items.length) {
@@ -10910,12 +10947,14 @@ return `
         }
 
         function renderMonth(monthYmd){
-          currentMonth = monthYmd;
-          var days = buildMonthDays(monthYmd);
+          var safeMonth = clampMonthYmd(monthYmd) || clampMonthYmd(fallbackToday);
+          currentMonth = safeMonth;
+          var days = buildMonthDays(safeMonth);
+          if (!days.length) return;
           var monthTotal = days.reduce(function(sum, day){
             return sum + (day.inMonth ? Number(day.count || 0) : 0);
           }, 0);
-          monthLabelEl.textContent = formatMonthLabel(monthYmd);
+          monthLabelEl.textContent = formatMonthLabel(safeMonth);
           monthTotalEl.textContent = monthTotal.toLocaleString('en-US');
           grid.innerHTML = days.map(function(day){
             var className = 'dashboard-calendar-day' +
@@ -10934,18 +10973,19 @@ return `
               activate(btn.getAttribute('data-calendar-day'));
             });
           });
-          if (monthPrevBtn) monthPrevBtn.disabled = !!payload.minMonthYmd && monthYmd <= payload.minMonthYmd;
-          if (monthNextBtn) monthNextBtn.disabled = !!payload.maxMonthYmd && monthYmd >= payload.maxMonthYmd;
+          if (monthPrevBtn) monthPrevBtn.disabled = !!payload.minMonthYmd && safeMonth <= clampMonthYmd(payload.minMonthYmd);
+          if (monthNextBtn) monthNextBtn.disabled = !!payload.maxMonthYmd && safeMonth >= clampMonthYmd(payload.maxMonthYmd);
         }
 
         function activateMonth(monthYmd){
-          currentMonth = monthYmd;
-          var preferredDay = (payload.todayYmd && payload.todayYmd.slice(0, 7) + '-01' === monthYmd)
+          var safeMonth = clampMonthYmd(monthYmd) || clampMonthYmd(fallbackToday);
+          currentMonth = safeMonth;
+          var preferredDay = (isValidYmd(payload.todayYmd) && payload.todayYmd.slice(0, 7) + '-01' === safeMonth)
             ? payload.todayYmd
-            : monthYmd;
+            : safeMonth;
           currentDay = preferredDay;
           currentPage = 1;
-          renderMonth(monthYmd);
+          renderMonth(safeMonth);
           renderDayItems(currentDay);
         }
 
