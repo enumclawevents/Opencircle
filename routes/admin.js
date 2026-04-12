@@ -2972,7 +2972,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.54");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.55");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2986,6 +2986,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-11", text: "Dashboard calendar now gives the month view more room by moving selected-day events underneath it and paging long event days" });
     releaseLogItems.push({ date: "2026-04-11", text: "Dashboard now includes a calendar tile so you can preview what events are happening on a selected day and across that week at a glance" });
     releaseLogItems.push({ date: "2026-04-11", text: "Dashboard activity now always keeps recent event posts represented in the 5-item feed, including your own latest event when available" });
     releaseLogItems.push({ date: "2026-04-10", text: "Fixed an event-save server error caused by duplicate-save checks reading normalized event values before they were initialized" });
@@ -3259,7 +3260,6 @@ return `
         ? monthStartDate.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
         : "This month";
       const selectedDayYmd = todayYmd && dayMap.has(todayYmd) ? todayYmd : Array.from(dayMap.keys())[0];
-      const weekStartYmd = startOfWeekYmd(selectedDayYmd);
       const calendarDays = Array.from(dayMap.entries()).map(([ymd, entries]) => {
         const [year, month, day] = ymd.split("-").map(Number);
         return {
@@ -3277,24 +3277,13 @@ return `
           .sort((a, b) => String(a.sortKey || "").localeCompare(String(b.sortKey || "")))
           .map(({ sortKey, ...entry }) => entry);
       }
-      const initialWeekItems = [];
-      for (let i = 0; i < 7; i++) {
-        const dayKey = addDaysToYmd(weekStartYmd, i);
-        const label = new Date(`${dayKey}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-        const items = calendarAgenda[dayKey] || [];
-        initialWeekItems.push({
-          ymd: dayKey,
-          label,
-          items,
-        });
-      }
 
       dashboardCalendarHtml = `
         <div class="dashboard-calendar" id="dashboardCalendarTile">
           <div class="dashboard-calendar-main">
             <div class="dashboard-calendar-head">
               <div class="dashboard-calendar-month">${esc(monthLabel)}</div>
-              <div class="dashboard-calendar-sub">Tap a day to preview what is happening that day and week.</div>
+              <div class="dashboard-calendar-sub">Tap a day to preview what is happening on that day.</div>
             </div>
             <div class="dashboard-calendar-weekdays">
               ${weekdayLabels.map((label) => `<div>${esc(label)}</div>`).join("")}
@@ -3312,38 +3301,27 @@ return `
               `).join("")}
             </div>
           </div>
-          <div class="dashboard-calendar-side">
-            <div class="dashboard-calendar-panel">
-              <div class="dashboard-calendar-panel-title">Selected day</div>
-              <div class="dashboard-calendar-panel-sub" id="dashboardCalendarSelectedLabel">${esc(new Date(`${selectedDayYmd}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" }))}</div>
-              <div class="dashboard-calendar-list" id="dashboardCalendarDayList">
-                ${(calendarAgenda[selectedDayYmd] || []).length
-                  ? (calendarAgenda[selectedDayYmd] || []).map((item) => `
-                      <a class="dashboard-calendar-item" href="${esc(item.href)}">
-                        <div class="dashboard-calendar-item-title">${esc(item.title)}</div>
-                        <div class="dashboard-calendar-item-meta">${esc(item.timeLabel || "All day")}${item.location ? ` · ${esc(item.location)}` : ""}</div>
-                      </a>
-                    `).join("")
-                  : `<div class="muted">No events on this day.</div>`}
+          <div class="dashboard-calendar-panel dashboard-calendar-detail">
+            <div class="dashboard-calendar-detail-head">
+              <div>
+                <div class="dashboard-calendar-panel-title">Selected day</div>
+                <div class="dashboard-calendar-panel-sub" id="dashboardCalendarSelectedLabel">${esc(new Date(`${selectedDayYmd}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" }))}</div>
+              </div>
+              <div class="dashboard-calendar-pager" id="dashboardCalendarPager" style="display:none;">
+                <button type="button" class="btn" data-calendar-page="prev">Prev</button>
+                <span class="muted small" id="dashboardCalendarPageLabel">Page 1 / 1</span>
+                <button type="button" class="btn" data-calendar-page="next">Next</button>
               </div>
             </div>
-            <div class="dashboard-calendar-panel">
-              <div class="dashboard-calendar-panel-title">This week</div>
-              <div class="dashboard-calendar-list" id="dashboardCalendarWeekList">
-                ${initialWeekItems.map((day) => `
-                  <div class="dashboard-calendar-weekgroup">
-                    <div class="dashboard-calendar-weeklabel">${esc(day.label)}</div>
-                    ${day.items.length
-                      ? day.items.slice(0, 3).map((item) => `
-                          <a class="dashboard-calendar-item compact" href="${esc(item.href)}">
-                            <div class="dashboard-calendar-item-title">${esc(item.title)}</div>
-                            <div class="dashboard-calendar-item-meta">${esc(item.timeLabel || "All day")}</div>
-                          </a>
-                        `).join("")
-                      : `<div class="muted small">No events</div>`}
-                  </div>
-                `).join("")}
-              </div>
+            <div class="dashboard-calendar-list" id="dashboardCalendarDayList">
+              ${(calendarAgenda[selectedDayYmd] || []).length
+                ? (calendarAgenda[selectedDayYmd] || []).slice(0, 5).map((item) => `
+                    <a class="dashboard-calendar-item" href="${esc(item.href)}">
+                      <div class="dashboard-calendar-item-title">${esc(item.title)}</div>
+                      <div class="dashboard-calendar-item-meta">${esc(item.timeLabel || "All day")}${item.location ? ` · ${esc(item.location)}` : ""}</div>
+                    </a>
+                  `).join("")
+                : `<div class="muted">No events on this day.</div>`}
             </div>
           </div>
           <script type="application/json" id="dashboardCalendarData">${JSON.stringify({
@@ -7756,8 +7734,8 @@ return `
       }
       .dashboard-calendar{
         display:grid;
-        grid-template-columns:minmax(0, 1.45fr) minmax(280px, .95fr);
-        gap:14px;
+        grid-template-columns:1fr;
+        gap:12px;
       }
       .dashboard-calendar-main,
       .dashboard-calendar-panel{
@@ -7835,15 +7813,22 @@ return `
         line-height:1.3;
         color:var(--muted);
       }
-      .dashboard-calendar-side{
-        display:grid;
-        gap:12px;
-        align-content:start;
-      }
       .dashboard-calendar-panel{
         padding:12px;
         display:grid;
         gap:10px;
+      }
+      .dashboard-calendar-detail-head{
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-start;
+        gap:12px;
+        flex-wrap:wrap;
+      }
+      .dashboard-calendar-pager{
+        display:flex;
+        align-items:center;
+        gap:8px;
       }
       .dashboard-calendar-panel-title{
         font-size:14px;
@@ -7868,9 +7853,6 @@ return `
         text-decoration:none;
         color:inherit;
       }
-      .dashboard-calendar-item.compact{
-        padding:8px 10px;
-      }
       .dashboard-calendar-item:hover{
         border-color:rgba(15,23,42,.18);
         background:#fbfdff;
@@ -7881,18 +7863,10 @@ return `
         color:var(--text);
         line-height:1.35;
       }
-      .dashboard-calendar-item-meta,
-      .dashboard-calendar-weeklabel{
+      .dashboard-calendar-item-meta{
         font-size:12px;
         color:var(--muted);
         line-height:1.35;
-      }
-      .dashboard-calendar-weekgroup{
-        display:grid;
-        gap:6px;
-      }
-      .dashboard-calendar-weeklabel{
-        font-weight:700;
       }
       .activity-item{
         display:grid;
@@ -8017,9 +7991,6 @@ return `
         }
         .quick-links-grid{
           grid-template-columns: 1fr;
-        }
-        .dashboard-calendar{
-          grid-template-columns:1fr;
         }
         .messages-layout{
           grid-template-columns:1fr;
@@ -10682,9 +10653,12 @@ return `
         if (!tile || !dataEl) return;
         var buttons = Array.prototype.slice.call(tile.querySelectorAll('[data-calendar-day]'));
         var dayList = document.getElementById('dashboardCalendarDayList');
-        var weekList = document.getElementById('dashboardCalendarWeekList');
         var selectedLabel = document.getElementById('dashboardCalendarSelectedLabel');
-        if (!buttons.length || !dayList || !weekList || !selectedLabel) return;
+        var pager = document.getElementById('dashboardCalendarPager');
+        var pageLabel = document.getElementById('dashboardCalendarPageLabel');
+        var prevBtn = tile.querySelector('[data-calendar-page="prev"]');
+        var nextBtn = tile.querySelector('[data-calendar-page="next"]');
+        if (!buttons.length || !dayList || !selectedLabel) return;
 
         var payload = null;
         try {
@@ -10705,39 +10679,29 @@ return `
           });
         }
 
-        function formatShortDate(ymd){
-          var d = new Date(String(ymd) + 'T12:00:00Z');
-          if (isNaN(d.getTime())) return ymd;
-          return d.toLocaleDateString('en-US', {
-            weekday: 'short',
-            month: 'short',
-            day: 'numeric',
-            timeZone: 'UTC'
-          });
-        }
-
-        function addDays(ymd, delta){
-          var d = new Date(String(ymd) + 'T12:00:00Z');
-          if (isNaN(d.getTime())) return ymd;
-          d.setUTCDate(d.getUTCDate() + delta);
-          return d.toISOString().slice(0, 10);
-        }
-
-        function startOfWeek(ymd){
-          var d = new Date(String(ymd) + 'T12:00:00Z');
-          if (isNaN(d.getTime())) return ymd;
-          d.setUTCDate(d.getUTCDate() - d.getUTCDay());
-          return d.toISOString().slice(0, 10);
-        }
+        var currentDay = payload.selectedDayYmd || buttons[0].getAttribute('data-calendar-day');
+        var currentPage = 1;
+        var pageSize = 5;
 
         function renderDayItems(ymd){
           var items = Array.isArray(payload.agendaByDay[ymd]) ? payload.agendaByDay[ymd] : [];
           selectedLabel.textContent = formatLongDate(ymd);
           if (!items.length) {
+            currentPage = 1;
+            if (pager) pager.style.display = 'none';
             dayList.innerHTML = '<div class="muted">No events on this day.</div>';
             return;
           }
-          dayList.innerHTML = items.map(function(item){
+          var totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+          if (currentPage > totalPages) currentPage = totalPages;
+          if (currentPage < 1) currentPage = 1;
+          var start = (currentPage - 1) * pageSize;
+          var visible = items.slice(start, start + pageSize);
+          if (pager) pager.style.display = totalPages > 1 ? '' : 'none';
+          if (pageLabel) pageLabel.textContent = 'Page ' + currentPage + ' / ' + totalPages;
+          if (prevBtn) prevBtn.disabled = currentPage <= 1;
+          if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+          dayList.innerHTML = visible.map(function(item){
             var meta = item.timeLabel || 'All day';
             if (item.location) meta += ' · ' + item.location;
             return '<a class="dashboard-calendar-item" href="' + item.href + '">' +
@@ -10747,33 +10711,13 @@ return `
           }).join('');
         }
 
-        function renderWeekItems(ymd){
-          var weekStart = startOfWeek(ymd);
-          var html = '';
-          for (var i = 0; i < 7; i++) {
-            var dayKey = addDays(weekStart, i);
-            var items = Array.isArray(payload.agendaByDay[dayKey]) ? payload.agendaByDay[dayKey] : [];
-            html += '<div class="dashboard-calendar-weekgroup">' +
-              '<div class="dashboard-calendar-weeklabel">' + formatShortDate(dayKey) + '</div>' +
-              (items.length
-                ? items.slice(0, 3).map(function(item){
-                    return '<a class="dashboard-calendar-item compact" href="' + item.href + '">' +
-                      '<div class="dashboard-calendar-item-title">' + item.title + '</div>' +
-                      '<div class="dashboard-calendar-item-meta">' + (item.timeLabel || 'All day') + '</div>' +
-                    '</a>';
-                  }).join('')
-                : '<div class="muted small">No events</div>') +
-            '</div>';
-          }
-          weekList.innerHTML = html;
-        }
-
         function activate(ymd){
+          currentDay = ymd;
+          currentPage = 1;
           buttons.forEach(function(btn){
             btn.classList.toggle('is-selected', btn.getAttribute('data-calendar-day') === ymd);
           });
           renderDayItems(ymd);
-          renderWeekItems(ymd);
         }
 
         buttons.forEach(function(btn){
@@ -10782,7 +10726,20 @@ return `
           });
         });
 
-        activate(payload.selectedDayYmd || buttons[0].getAttribute('data-calendar-day'));
+        if (prevBtn) {
+          prevBtn.addEventListener('click', function(){
+            currentPage -= 1;
+            renderDayItems(currentDay);
+          });
+        }
+        if (nextBtn) {
+          nextBtn.addEventListener('click', function(){
+            currentPage += 1;
+            renderDayItems(currentDay);
+          });
+        }
+
+        activate(currentDay);
       })();
 
       // ---- dashboard drag + drop layout ----
