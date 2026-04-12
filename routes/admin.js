@@ -2853,7 +2853,7 @@ return `
     let totalOccurrences = 0;
     try {
       const occRows = await all(
-        `SELECT id, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
+        `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
          FROM events
          ${dashWhereSql}`,
         dashParams
@@ -2972,7 +2972,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.55");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.56");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2986,6 +2986,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-11", text: "Dashboard calendar now carries real event titles into the selected-day list instead of falling back to untitled placeholders" });
     releaseLogItems.push({ date: "2026-04-11", text: "Dashboard calendar now gives the month view more room by moving selected-day events underneath it and paging long event days" });
     releaseLogItems.push({ date: "2026-04-11", text: "Dashboard now includes a calendar tile so you can preview what events are happening on a selected day and across that week at a glance" });
     releaseLogItems.push({ date: "2026-04-11", text: "Dashboard activity now always keeps recent event posts represented in the 5-item feed, including your own latest event when available" });
