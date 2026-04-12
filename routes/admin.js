@@ -2972,7 +2972,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.60");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.61");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -2986,6 +2986,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar day counts now follow the actual event occurrence date instead of spreading one event across every day in its date range" });
     releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics now uses matching vertical gap spacing across both columns" });
     releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics row spacing is now tuned a little looser between the chart and leaderboard" });
     releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics now has a little more breathing room between the chart row and leaderboard row" });
@@ -3215,8 +3216,16 @@ return `
         dayMap.set(ymd, []);
       }
 
+      const dayEntryKeys = new Map();
       const pushEventToDay = (ymd, entry) => {
         if (!dayMap.has(ymd)) return;
+        const dedupeKey = String(entry?.dedupeKey || "");
+        if (dedupeKey) {
+          if (!dayEntryKeys.has(ymd)) dayEntryKeys.set(ymd, new Set());
+          const dayKeys = dayEntryKeys.get(ymd);
+          if (dayKeys.has(dedupeKey)) return;
+          dayKeys.add(dedupeKey);
+        }
         dayMap.get(ymd).push(entry);
       };
 
@@ -3236,9 +3245,9 @@ return `
 
         for (const occ of occurrences) {
           const startIso = String(occ?.startDateTime || row?.startDateTime || "").trim();
-          const endIso = String(occ?.endDateTime || row?.endDateTime || startIso).trim() || startIso;
-          const spanDays = enumerateDateRangeYmd(startIso, endIso);
           const startParts = parseIsoParts(startIso);
+          const dayKey = String(occ?.occurrenceDate || (startParts ? toYmd(startParts) : "")).trim();
+          if (!dayKey) continue;
           const timeLabel = startParts
             ? new Date(Date.UTC(startParts.year, startParts.month - 1, startParts.day, startParts.hour, startParts.minute, 0)).toLocaleTimeString("en-US", {
                 hour: "numeric",
@@ -3253,10 +3262,9 @@ return `
             href,
             timeLabel,
             sortKey: startIso,
+            dedupeKey: `${row?.id || title}|${dayKey}|${startIso}`,
           };
-          for (const dayKey of spanDays) {
-            pushEventToDay(dayKey, entry);
-          }
+          pushEventToDay(dayKey, entry);
         }
       }
 
