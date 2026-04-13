@@ -2988,7 +2988,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.68");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.69");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3002,6 +3002,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar day detail now uses the selected date itself as the header without the extra Selected day label" });
     releaseLogItems.push({ date: "2026-04-12", text: "Calendar day selection now restores your scroll position after reload instead of jumping back to the top" });
     releaseLogItems.push({ date: "2026-04-12", text: "Pagination now restores your scroll position after reload so paged views do not jump back to the top" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar month arrows and selected-day list now stay synchronized through server-rendered navigation" });
@@ -3413,8 +3414,7 @@ return `
           <div class="dashboard-calendar-panel dashboard-calendar-detail">
             <div class="dashboard-calendar-detail-head">
               <div>
-                <div class="dashboard-calendar-panel-title">Selected day</div>
-                <div class="dashboard-calendar-panel-sub">${esc(selectedDayLabel)}</div>
+                <div class="dashboard-calendar-panel-title">${esc(selectedDayLabel)}</div>
               </div>
               <div class="dashboard-calendar-pager"${selectedDayTotalPages > 1 ? "" : ` style="display:none;"`}>
                 <a class="btn${selectedDayPage <= 1 ? " is-disabled" : ""}" ${selectedDayPage <= 1 ? `aria-disabled="true"` : `href="${esc(buildCalendarHref({ calMonth: requestedMonthYmd, calDay: selectedDayYmd, calPage: selectedDayPage - 1 }))}"`}>Prev</a>
