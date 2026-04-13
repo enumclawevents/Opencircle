@@ -2988,7 +2988,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.72");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.73");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3002,6 +3002,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar header is now simplified into a cleaner month, scope, and popularity layout" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now lets organizers and developers compare My Events against All Events in one place" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar heat-scale contrast is now stronger so busy days stand out more clearly" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now uses a color intensity scale to show which days are busiest, with a legend for quick scanning" });
@@ -3436,33 +3437,34 @@ return `
           <div class="dashboard-calendar-main">
             <div class="dashboard-calendar-head">
               <div class="dashboard-calendar-head-top">
-                <div>
+                <div class="dashboard-calendar-head-left">
                   <div class="dashboard-calendar-month-row">
                     <a class="dashboard-calendar-nav" href="${esc(prevMonthHref)}" aria-label="Previous month">‹</a>
                     <div class="dashboard-calendar-month">${esc(monthLabel)}</div>
                     <a class="dashboard-calendar-nav" href="${esc(nextMonthHref)}" aria-label="Next month">›</a>
                   </div>
-                  <div class="dashboard-calendar-sub">Tap a day to preview what is happening on that day.</div>
-                  ${canCompareCalendarScopes ? `
-                    <div class="dashboard-calendar-scope-toggle" role="tablist" aria-label="Calendar event scope">
-                      <a class="dashboard-calendar-scope-btn${calendarScope === "my" ? " active" : ""}" href="${esc(myEventsHref)}">My Events</a>
-                      <a class="dashboard-calendar-scope-btn${calendarScope === "all" ? " active" : ""}" href="${esc(allEventsHref)}">All Events</a>
-                    </div>
-                  ` : ``}
-                  <div class="dashboard-calendar-legend" aria-label="Calendar event density legend">
-                    <span class="dashboard-calendar-legend-label">Popularity</span>
-                    <span class="dashboard-calendar-legend-scale">
-                      <span class="dashboard-calendar-legend-swatch level-1"></span>
-                      <span class="dashboard-calendar-legend-swatch level-2"></span>
-                      <span class="dashboard-calendar-legend-swatch level-3"></span>
-                      <span class="dashboard-calendar-legend-swatch level-4"></span>
-                    </span>
-                    <span class="dashboard-calendar-legend-range">Less to more events</span>
-                  </div>
                 </div>
                 <div class="dashboard-calendar-total">
                   <span class="dashboard-calendar-total-label">Month total</span>
                   <span class="dashboard-calendar-total-value">${monthTotalCount.toLocaleString("en-US")}</span>
+                </div>
+              </div>
+              <div class="dashboard-calendar-toolbar">
+                ${canCompareCalendarScopes ? `
+                  <div class="dashboard-calendar-scope-toggle" role="tablist" aria-label="Calendar event scope">
+                    <a class="dashboard-calendar-scope-btn${calendarScope === "my" ? " active" : ""}" href="${esc(myEventsHref)}">My Events</a>
+                    <a class="dashboard-calendar-scope-btn${calendarScope === "all" ? " active" : ""}" href="${esc(allEventsHref)}">All Events</a>
+                  </div>
+                ` : `<div></div>`}
+                <div class="dashboard-calendar-legend" aria-label="Calendar event density legend">
+                  <span class="dashboard-calendar-legend-label">Popularity</span>
+                  <span class="dashboard-calendar-legend-scale">
+                    <span class="dashboard-calendar-legend-swatch level-1"></span>
+                    <span class="dashboard-calendar-legend-swatch level-2"></span>
+                    <span class="dashboard-calendar-legend-swatch level-3"></span>
+                    <span class="dashboard-calendar-legend-swatch level-4"></span>
+                  </span>
+                  <span class="dashboard-calendar-legend-range">Less to more events</span>
                 </div>
               </div>
             </div>
@@ -7931,14 +7933,17 @@ return `
       }
       .dashboard-calendar-head{
         display:grid;
-        gap:2px;
+        gap:10px;
         margin-bottom:12px;
       }
       .dashboard-calendar-head-top{
         display:flex;
         justify-content:space-between;
-        align-items:flex-start;
+        align-items:center;
         gap:16px;
+      }
+      .dashboard-calendar-head-left{
+        min-width:0;
       }
       .dashboard-calendar-month-row{
         display:flex;
@@ -7977,7 +7982,7 @@ return `
         display:flex;
         flex-direction:column;
         align-items:flex-end;
-        gap:2px;
+        gap:4px;
         text-align:right;
         flex:0 0 auto;
       }
@@ -7994,25 +7999,31 @@ return `
         line-height:1;
         color:var(--text);
       }
-      .dashboard-calendar-sub{
-        font-size:13px;
-        color:var(--muted);
+      .dashboard-calendar-toolbar{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:16px;
+        flex-wrap:wrap;
       }
       .dashboard-calendar-scope-toggle{
         display:inline-flex;
         align-items:center;
-        gap:8px;
-        margin-top:8px;
+        gap:0;
+        padding:4px;
+        border:1px solid var(--line);
+        border-radius:999px;
+        background:#fff;
       }
       .dashboard-calendar-scope-btn{
         display:inline-flex;
         align-items:center;
         justify-content:center;
-        min-height:32px;
-        padding:0 12px;
+        min-height:30px;
+        padding:0 14px;
         border-radius:999px;
-        border:1px solid var(--line);
-        background:#fff;
+        border:0;
+        background:transparent;
         color:var(--muted);
         text-decoration:none;
         font-size:13px;
@@ -8021,16 +8032,15 @@ return `
       .dashboard-calendar-scope-btn.active{
         color:#0f7a64;
         background:rgba(0,192,139,.1);
-        border-color:rgba(0,192,139,.28);
       }
       .dashboard-calendar-legend{
         display:flex;
         align-items:center;
         flex-wrap:wrap;
         gap:8px;
-        margin-top:8px;
         font-size:12px;
         color:var(--muted);
+        justify-content:flex-end;
       }
       .dashboard-calendar-legend-label,
       .dashboard-calendar-legend-range{
