@@ -2988,7 +2988,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.70");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.71");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3002,6 +3002,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar heat-scale contrast is now stronger so busy days stand out more clearly" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now uses a color intensity scale to show which days are busiest, with a legend for quick scanning" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar day detail now uses the selected date itself as the header without the extra Selected day label" });
     releaseLogItems.push({ date: "2026-04-12", text: "Calendar day selection now restores your scroll position after reload instead of jumping back to the top" });
@@ -7982,16 +7983,16 @@ return `
         background:#f8fbfa;
       }
       .dashboard-calendar-legend-swatch.level-1{
-        background:rgba(0,192,139,.08);
+        background:rgba(0,192,139,.06);
       }
       .dashboard-calendar-legend-swatch.level-2{
-        background:rgba(0,192,139,.14);
+        background:rgba(0,192,139,.16);
       }
       .dashboard-calendar-legend-swatch.level-3{
-        background:rgba(0,192,139,.22);
+        background:rgba(0,192,139,.3);
       }
       .dashboard-calendar-legend-swatch.level-4{
-        background:rgba(0,192,139,.32);
+        background:rgba(0,192,139,.48);
       }
       .dashboard-calendar-weekdays{
         display:grid;
@@ -8028,16 +8029,16 @@ return `
         background:#fbfdff;
       }
       .dashboard-calendar-day.heat-1{
-        background:rgba(0,192,139,.05);
+        background:rgba(0,192,139,.04);
       }
       .dashboard-calendar-day.heat-2{
-        background:rgba(0,192,139,.1);
+        background:rgba(0,192,139,.14);
       }
       .dashboard-calendar-day.heat-3{
-        background:rgba(0,192,139,.16);
+        background:rgba(0,192,139,.26);
       }
       .dashboard-calendar-day.heat-4{
-        background:rgba(0,192,139,.24);
+        background:rgba(0,192,139,.42);
       }
       .dashboard-calendar-day.is-selected{
         border-color:rgba(0,192,139,.35);
