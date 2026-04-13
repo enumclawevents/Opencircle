@@ -2988,7 +2988,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.73");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.74");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3002,6 +3002,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar scope toggle now uses the same neutral and green color language as the rest of the UI" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar header is now simplified into a cleaner month, scope, and popularity layout" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now lets organizers and developers compare My Events against All Events in one place" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar heat-scale contrast is now stronger so busy days stand out more clearly" });
@@ -8024,14 +8025,24 @@ return `
         border-radius:999px;
         border:0;
         background:transparent;
-        color:var(--muted);
+        color:var(--text);
         text-decoration:none;
         font-size:13px;
         font-weight:700;
       }
+      .dashboard-calendar-scope-btn:visited{
+        color:var(--text);
+      }
+      .dashboard-calendar-scope-btn:hover{
+        color:var(--text);
+      }
       .dashboard-calendar-scope-btn.active{
         color:#0f7a64;
         background:rgba(0,192,139,.1);
+      }
+      .dashboard-calendar-scope-btn.active:visited,
+      .dashboard-calendar-scope-btn.active:hover{
+        color:#0f7a64;
       }
       .dashboard-calendar-legend{
         display:flex;
