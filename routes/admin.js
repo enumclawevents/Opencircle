@@ -2988,7 +2988,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.67");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.68");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3002,6 +3002,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-12", text: "Calendar day selection now restores your scroll position after reload instead of jumping back to the top" });
     releaseLogItems.push({ date: "2026-04-12", text: "Pagination now restores your scroll position after reload so paged views do not jump back to the top" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar month arrows and selected-day list now stay synchronized through server-rendered navigation" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar month navigation now safely falls back to the current month instead of zeroing out the grid" });
@@ -10841,7 +10842,7 @@ return `
         } catch (_) {}
 
         document.addEventListener('click', function(e){
-          var link = e.target.closest('.pager a[href], .dashboard-calendar-pager a[href], .dashboard-calendar-month-row a[href]');
+          var link = e.target.closest('.pager a[href], .dashboard-calendar-pager a[href], .dashboard-calendar-month-row a[href], .dashboard-calendar-grid a[href]');
           if (!link) return;
           var href = String(link.getAttribute('href') || '');
           if (!href || href.charAt(0) === '#') return;
