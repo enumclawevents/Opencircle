@@ -2988,7 +2988,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.71");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.72");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3002,6 +3002,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now lets organizers and developers compare My Events against All Events in one place" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar heat-scale contrast is now stronger so busy days stand out more clearly" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now uses a color intensity scale to show which days are busiest, with a legend for quick scanning" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar day detail now uses the selected date itself as the header without the extra Selected day label" });
@@ -3227,6 +3228,12 @@ return `
     let dashboardCalendarHtml = `<div class="muted">No events found for this calendar view.</div>`;
     try {
       const calendarPageSize = 5;
+      const canCompareCalendarScopes = hasDeveloperAccess || isOrganizerUser;
+      const requestedCalendarScope = String(req.query.calScope || "").trim();
+      const defaultCalendarScope = isOrganizerUser ? "my" : "all";
+      const calendarScope = canCompareCalendarScopes
+        ? (requestedCalendarScope === "my" || requestedCalendarScope === "all" ? requestedCalendarScope : defaultCalendarScope)
+        : "all";
       const nowParts = getZonedDateParts(new Date(), DEFAULT_TZ);
       const fallbackTodayYmd = new Date().toISOString().slice(0, 10);
       const todayYmd = nowParts?.ymd || fallbackTodayYmd;
@@ -3248,6 +3255,32 @@ return `
       const windowStartMs = gridStartYmd ? Date.parse(`${gridStartYmd}T00:00:00-08:00`) : 0;
       const windowEndMs = gridEndYmd ? Date.parse(`${gridEndYmd}T23:59:59-07:00`) : 0;
       const dayMap = new Map();
+      const calendarWhereParts = [];
+      const calendarWhereParams = [];
+      if (selectedCity) {
+        calendarWhereParts.push("city = ?");
+        calendarWhereParams.push(selectedCity);
+      }
+      if (calendarScope === "my") {
+        if (isOrganizerUser && organizerOwnerClause) {
+          calendarWhereParts.push(organizerOwnerClause.sql);
+          calendarWhereParams.push(...organizerOwnerClause.params);
+        } else if (hasDeveloperAccess && currentUser?.id) {
+          calendarWhereParts.push("createdByUserId = ?");
+          calendarWhereParams.push(Number(currentUser.id));
+        }
+      }
+      const calendarWhereSql = calendarWhereParts.length ? `WHERE ${calendarWhereParts.join(" AND ")}` : "";
+      let calendarEventRows = dashboardEventRows;
+      try {
+        const calendarRows = await all(
+          `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate, createdByUserId
+           FROM events
+           ${calendarWhereSql ? `${calendarWhereSql} ` : ""}`,
+          calendarWhereParams
+        );
+        calendarEventRows = (calendarRows || []).map((row) => normalizeRowTimes(row));
+      } catch (_) {}
       const totalGridDays = gridStartYmd && gridEndYmd
         ? Math.max(0, Math.round((Date.parse(`${gridEndYmd}T12:00:00Z`) - Date.parse(`${gridStartYmd}T12:00:00Z`)) / 86400000)) + 1
         : 0;
@@ -3270,7 +3303,7 @@ return `
         dayMap.get(ymd).push(entry);
       };
 
-      for (const row of dashboardEventRows) {
+      for (const row of calendarEventRows) {
         const title = String(row?.title || "Untitled event");
         const location = String(row?.location || row?.organizer || selectedCity || "").trim();
         const slugOrId = row?.slug || row?.title || row?.id;
@@ -3392,6 +3425,8 @@ return `
       const nextMonthYmd = requestedMonthYmd ? addMonthsToYmd(requestedMonthYmd, 1) : "";
       const prevMonthHref = buildCalendarHref({ calMonth: prevMonthYmd, calDay: prevMonthYmd, calPage: null });
       const nextMonthHref = buildCalendarHref({ calMonth: nextMonthYmd, calDay: nextMonthYmd, calPage: null });
+      const allEventsHref = buildCalendarHref({ calScope: "all", calPage: null });
+      const myEventsHref = buildCalendarHref({ calScope: "my", calPage: null });
       const selectedDayLabel = /^\d{4}-\d{2}-\d{2}$/.test(String(selectedDayYmd || ""))
         ? new Date(`${selectedDayYmd}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" })
         : "No day selected";
@@ -3408,6 +3443,12 @@ return `
                     <a class="dashboard-calendar-nav" href="${esc(nextMonthHref)}" aria-label="Next month">›</a>
                   </div>
                   <div class="dashboard-calendar-sub">Tap a day to preview what is happening on that day.</div>
+                  ${canCompareCalendarScopes ? `
+                    <div class="dashboard-calendar-scope-toggle" role="tablist" aria-label="Calendar event scope">
+                      <a class="dashboard-calendar-scope-btn${calendarScope === "my" ? " active" : ""}" href="${esc(myEventsHref)}">My Events</a>
+                      <a class="dashboard-calendar-scope-btn${calendarScope === "all" ? " active" : ""}" href="${esc(allEventsHref)}">All Events</a>
+                    </div>
+                  ` : ``}
                   <div class="dashboard-calendar-legend" aria-label="Calendar event density legend">
                     <span class="dashboard-calendar-legend-label">Popularity</span>
                     <span class="dashboard-calendar-legend-scale">
@@ -7957,6 +7998,31 @@ return `
         font-size:13px;
         color:var(--muted);
       }
+      .dashboard-calendar-scope-toggle{
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        margin-top:8px;
+      }
+      .dashboard-calendar-scope-btn{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        min-height:32px;
+        padding:0 12px;
+        border-radius:999px;
+        border:1px solid var(--line);
+        background:#fff;
+        color:var(--muted);
+        text-decoration:none;
+        font-size:13px;
+        font-weight:700;
+      }
+      .dashboard-calendar-scope-btn.active{
+        color:#0f7a64;
+        background:rgba(0,192,139,.1);
+        border-color:rgba(0,192,139,.28);
+      }
       .dashboard-calendar-legend{
         display:flex;
         align-items:center;
@@ -10920,7 +10986,7 @@ return `
         } catch (_) {}
 
         document.addEventListener('click', function(e){
-          var link = e.target.closest('.pager a[href], .dashboard-calendar-pager a[href], .dashboard-calendar-month-row a[href], .dashboard-calendar-grid a[href]');
+          var link = e.target.closest('.pager a[href], .dashboard-calendar-pager a[href], .dashboard-calendar-month-row a[href], .dashboard-calendar-grid a[href], .dashboard-calendar-scope-toggle a[href]');
           if (!link) return;
           var href = String(link.getAttribute('href') || '');
           if (!href || href.charAt(0) === '#') return;
