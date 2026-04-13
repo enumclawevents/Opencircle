@@ -2052,6 +2052,22 @@ function formatRoleLabel(role) {
   }
 }
 
+function isLiveRole(role) {
+  const normalized = normalizeRoleValue(role);
+  return normalized === "admin" || normalized === "organizer";
+}
+
+function liveRoleOptionsMarkup(selectedRole, { includeLegacySelected = false } = {}) {
+  const normalized = normalizeRoleValue(selectedRole || "organizer");
+  let legacyOption = "";
+  if (includeLegacySelected && normalized && !isLiveRole(normalized)) {
+    legacyOption = `<option value="${esc(normalized)}" selected>${esc(`${formatRoleLabel(normalized)} (Legacy)`)}</option>`;
+  }
+  return `${legacyOption}
+    <option value="organizer" ${normalized === "organizer" ? "selected" : ""}>Organizer</option>
+    <option value="admin" ${normalized === "admin" ? "selected" : ""}>Developer</option>`;
+}
+
 function normalizeOrganizerIdentity(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -2988,7 +3004,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.74");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.75");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3002,6 +3018,8 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-13", text: "Live role management now only exposes Developer and Organizer while leaving older role records intact" });
+    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now uses a single server-rendered navigation path so month arrows and selected-day details stay in sync" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar scope toggle now uses the same neutral and green color language as the rest of the UI" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar header is now simplified into a cleaner month, scope, and popularity layout" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now lets organizers and developers compare My Events against All Events in one place" });
@@ -4590,11 +4608,7 @@ return `
                       </form>
                       <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role">
                         <select name="role" class="ctrl" style="min-width:140px;">
-                          <option value="creator" ${u.role === "creator" ? "selected" : ""}>Creator</option>
-                          <option value="editor" ${u.role === "editor" ? "selected" : ""}>Editor</option>
-                          <option value="organizer" ${u.role === "organizer" ? "selected" : ""}>Organizer</option>
-                          <option value="area_manager" ${u.role === "area_manager" ? "selected" : ""}>Area Manager</option>
-                          <option value="admin" ${u.role === "admin" ? "selected" : ""}>Developer</option>
+                          ${liveRoleOptionsMarkup(u.role, { includeLegacySelected: true })}
                         </select>
                         <select name="city" class="ctrl" style="min-width:140px;">
                           <option value="Enumclaw" ${u.city === "Enumclaw" ? "selected" : ""}>Enumclaw</option>
@@ -9139,11 +9153,7 @@ return `
             <div class="field">
               <label>Role</label>
               <select name="role">
-                <option value="creator">Creator</option>
-                <option value="editor">Editor</option>
-                <option value="organizer">Organizer</option>
-                <option value="area_manager">Area Manager</option>
-                <option value="admin">Developer</option>
+                ${liveRoleOptionsMarkup("organizer")}
               </select>
             </div>
             <div class="field">
@@ -11019,246 +11029,6 @@ return `
             }));
           } catch (_) {}
         });
-      })();
-
-      // ---- dashboard calendar ----
-      (function(){
-        var tile = document.getElementById('dashboardCalendarTile');
-        var dataEl = document.getElementById('dashboardCalendarData');
-        if (!tile || !dataEl) return;
-        var grid = document.getElementById('dashboardCalendarGrid');
-        var monthLabelEl = document.getElementById('dashboardCalendarMonthLabel');
-        var monthTotalEl = document.getElementById('dashboardCalendarMonthTotal');
-        var monthPrevBtn = tile.querySelector('[data-calendar-month-nav="prev"]');
-        var monthNextBtn = tile.querySelector('[data-calendar-month-nav="next"]');
-        var dayList = document.getElementById('dashboardCalendarDayList');
-        var selectedLabel = document.getElementById('dashboardCalendarSelectedLabel');
-        var pager = document.getElementById('dashboardCalendarPager');
-        var pageLabel = document.getElementById('dashboardCalendarPageLabel');
-        var prevBtn = tile.querySelector('[data-calendar-page="prev"]');
-        var nextBtn = tile.querySelector('[data-calendar-page="next"]');
-        if (!grid || !dayList || !selectedLabel || !monthLabelEl || !monthTotalEl) return;
-
-        var payload = null;
-        try {
-          payload = JSON.parse(dataEl.textContent || '{}');
-        } catch (_) {
-          payload = null;
-        }
-        if (!payload || !payload.agendaByDay) return;
-
-        function isValidYmd(value){
-          return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
-        }
-
-        function clampMonthYmd(monthYmd){
-          var safe = isValidYmd(monthYmd) ? String(monthYmd).slice(0, 7) + '-01' : '';
-          var min = isValidYmd(payload.minMonthYmd) ? String(payload.minMonthYmd).slice(0, 7) + '-01' : '';
-          var max = isValidYmd(payload.maxMonthYmd) ? String(payload.maxMonthYmd).slice(0, 7) + '-01' : '';
-          if (!safe) return '';
-          if (min && safe < min) return min;
-          if (max && safe > max) return max;
-          return safe;
-        }
-
-        function pad2(n){
-          return String(n).padStart(2, '0');
-        }
-
-        function addDaysYmd(ymd, delta){
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || ''))) return '';
-          var parts = String(ymd).split('-').map(Number);
-          var d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
-          d.setUTCDate(d.getUTCDate() + Number(delta || 0));
-          return [d.getUTCFullYear(), pad2(d.getUTCMonth() + 1), pad2(d.getUTCDate())].join('-');
-        }
-
-        function addMonthsYmd(ymd, delta){
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || ''))) return '';
-          var parts = String(ymd).split('-').map(Number);
-          var d = new Date(Date.UTC(parts[0], parts[1] - 1, 1, 12, 0, 0));
-          d.setUTCMonth(d.getUTCMonth() + Number(delta || 0));
-          var year = d.getUTCFullYear();
-          var month = d.getUTCMonth() + 1;
-          var maxDay = new Date(Date.UTC(year, month, 0, 12, 0, 0)).getUTCDate();
-          var day = Math.min(parts[2], maxDay);
-          return [year, pad2(month), pad2(day)].join('-');
-        }
-
-        function startOfWeekYmd(ymd){
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || ''))) return '';
-          var parts = String(ymd).split('-').map(Number);
-          var d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
-          d.setUTCDate(d.getUTCDate() - d.getUTCDay());
-          return [d.getUTCFullYear(), pad2(d.getUTCMonth() + 1), pad2(d.getUTCDate())].join('-');
-        }
-
-        function formatLongDate(ymd){
-          var d = new Date(String(ymd) + 'T12:00:00Z');
-          if (isNaN(d.getTime())) return ymd;
-          return d.toLocaleDateString('en-US', {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric',
-            timeZone: 'UTC'
-          });
-        }
-
-        function formatMonthLabel(monthYmd){
-          var d = new Date(String(monthYmd) + 'T12:00:00Z');
-          if (isNaN(d.getTime())) return monthYmd;
-          return d.toLocaleDateString('en-US', {
-            month: 'long',
-            year: 'numeric',
-            timeZone: 'UTC'
-          });
-        }
-
-        function buildMonthDays(monthYmd){
-          if (!isValidYmd(monthYmd)) return [];
-          var targetMonth = String(monthYmd || '').slice(5, 7);
-          var gridStart = startOfWeekYmd(monthYmd);
-          if (!isValidYmd(gridStart)) return [];
-          var days = [];
-          for (var i = 0; i < 42; i++) {
-            var ymd = addDaysYmd(gridStart, i);
-            if (!isValidYmd(ymd)) continue;
-            var items = Array.isArray(payload.agendaByDay[ymd]) ? payload.agendaByDay[ymd] : [];
-            days.push({
-              ymd: ymd,
-              day: Number(String(ymd).slice(8, 10)),
-              inMonth: String(ymd).slice(5, 7) === targetMonth,
-              isToday: ymd === payload.todayYmd,
-              isPast: payload.todayYmd ? ymd < payload.todayYmd : false,
-              count: items.length
-            });
-          }
-          return days;
-        }
-
-        var agendaKeys = Object.keys(payload.agendaByDay || {}).filter(isValidYmd).sort();
-        var fallbackToday = isValidYmd(payload.todayYmd)
-          ? payload.todayYmd
-          : (agendaKeys[0] || new Date().toISOString().slice(0, 10));
-        var currentDay = isValidYmd(payload.selectedDayYmd)
-          ? payload.selectedDayYmd
-          : fallbackToday;
-        var currentMonth = clampMonthYmd(payload.currentMonthYmd || (currentDay ? String(currentDay).slice(0, 7) + '-01' : '')) || clampMonthYmd(fallbackToday);
-        var currentPage = 1;
-        var pageSize = 5;
-
-        function renderDayItems(ymd){
-          if (!isValidYmd(ymd)) {
-            selectedLabel.textContent = 'No day selected';
-            currentPage = 1;
-            if (pager) pager.style.display = 'none';
-            dayList.innerHTML = '<div class="muted">No events on this day.</div>';
-            return;
-          }
-          var items = Array.isArray(payload.agendaByDay[ymd]) ? payload.agendaByDay[ymd] : [];
-          selectedLabel.textContent = formatLongDate(ymd);
-          if (!items.length) {
-            currentPage = 1;
-            if (pager) pager.style.display = 'none';
-            dayList.innerHTML = '<div class="muted">No events on this day.</div>';
-            return;
-          }
-          var totalPages = Math.max(1, Math.ceil(items.length / pageSize));
-          if (currentPage > totalPages) currentPage = totalPages;
-          if (currentPage < 1) currentPage = 1;
-          var start = (currentPage - 1) * pageSize;
-          var visible = items.slice(start, start + pageSize);
-          if (pager) pager.style.display = totalPages > 1 ? '' : 'none';
-          if (pageLabel) pageLabel.textContent = 'Page ' + currentPage + ' / ' + totalPages;
-          if (prevBtn) prevBtn.disabled = currentPage <= 1;
-          if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
-          dayList.innerHTML = visible.map(function(item){
-            var meta = item.timeLabel || 'All day';
-            if (item.location) meta += ' · ' + item.location;
-            return '<a class="dashboard-calendar-item" href="' + item.href + '">' +
-              '<div class="dashboard-calendar-item-title">' + item.title + '</div>' +
-              '<div class="dashboard-calendar-item-meta">' + meta + '</div>' +
-            '</a>';
-          }).join('');
-        }
-
-        function activate(ymd){
-          currentDay = ymd;
-          currentPage = 1;
-          renderMonth(currentMonth);
-          renderDayItems(ymd);
-        }
-
-        function renderMonth(monthYmd){
-          var safeMonth = clampMonthYmd(monthYmd) || clampMonthYmd(fallbackToday);
-          currentMonth = safeMonth;
-          var days = buildMonthDays(safeMonth);
-          if (!days.length) return;
-          var monthTotal = days.reduce(function(sum, day){
-            return sum + (day.inMonth ? Number(day.count || 0) : 0);
-          }, 0);
-          monthLabelEl.textContent = formatMonthLabel(safeMonth);
-          monthTotalEl.textContent = monthTotal.toLocaleString('en-US');
-          grid.innerHTML = days.map(function(day){
-            var className = 'dashboard-calendar-day' +
-              (day.inMonth ? '' : ' is-outside') +
-              (day.isToday ? ' is-today' : '') +
-              (day.isPast ? ' is-past' : '') +
-              (day.ymd === currentDay ? ' is-selected' : '');
-            var countLabel = day.count ? (day.count + ' event' + (day.count === 1 ? '' : 's')) : 'No events';
-            return '<button type="button" class="' + className + '" data-calendar-day="' + day.ymd + '">' +
-              '<span class="dashboard-calendar-daynum">' + day.day + '</span>' +
-              '<span class="dashboard-calendar-daycount">' + countLabel + '</span>' +
-            '</button>';
-          }).join('');
-          Array.prototype.slice.call(grid.querySelectorAll('[data-calendar-day]')).forEach(function(btn){
-            btn.addEventListener('click', function(){
-              activate(btn.getAttribute('data-calendar-day'));
-            });
-          });
-          if (monthPrevBtn) monthPrevBtn.disabled = !!payload.minMonthYmd && safeMonth <= clampMonthYmd(payload.minMonthYmd);
-          if (monthNextBtn) monthNextBtn.disabled = !!payload.maxMonthYmd && safeMonth >= clampMonthYmd(payload.maxMonthYmd);
-        }
-
-        function activateMonth(monthYmd){
-          var safeMonth = clampMonthYmd(monthYmd) || clampMonthYmd(fallbackToday);
-          currentMonth = safeMonth;
-          var preferredDay = (isValidYmd(payload.todayYmd) && payload.todayYmd.slice(0, 7) + '-01' === safeMonth)
-            ? payload.todayYmd
-            : safeMonth;
-          currentDay = preferredDay;
-          currentPage = 1;
-          renderMonth(safeMonth);
-          renderDayItems(currentDay);
-        }
-
-        if (monthPrevBtn) {
-          monthPrevBtn.addEventListener('click', function(){
-            if (payload.minMonthYmd && currentMonth <= payload.minMonthYmd) return;
-            activateMonth(addMonthsYmd(currentMonth, -1));
-          });
-        }
-        if (monthNextBtn) {
-          monthNextBtn.addEventListener('click', function(){
-            if (payload.maxMonthYmd && currentMonth >= payload.maxMonthYmd) return;
-            activateMonth(addMonthsYmd(currentMonth, 1));
-          });
-        }
-
-        if (prevBtn) {
-          prevBtn.addEventListener('click', function(){
-            currentPage -= 1;
-            renderDayItems(currentDay);
-          });
-        }
-        if (nextBtn) {
-          nextBtn.addEventListener('click', function(){
-            currentPage += 1;
-            renderDayItems(currentDay);
-          });
-        }
-
-        activateMonth(currentMonth);
       })();
 
       // ---- dashboard drag + drop layout ----
@@ -13481,10 +13251,10 @@ router.post("/invites", async (req, res) => {
     if (!hasDeveloperAccessRole(userRole)) return res.status(403).send("Forbidden");
     const sessionUser = await resolveSessionUser(req);
     const email = String(req.body?.email || "").trim().toLowerCase() || null;
-    const role = normalizeRoleValue(req.body?.role || "creator");
+    const role = normalizeRoleValue(req.body?.role || "organizer");
     const city = String(req.body?.city || req.query.city || "Enumclaw");
     const days = Math.max(1, Math.min(30, parseInt(req.body?.days || "7", 10)));
-    if (!["creator", "editor", "organizer", "area_manager", "admin"].includes(role)) {
+    if (!isLiveRole(role)) {
       return res.status(400).send("Invalid role.");
     }
     if (isAreaManagerRole(userRole) && sessionUser?.id) {
@@ -13586,8 +13356,8 @@ router.post("/users/:id/role", async (req, res) => {
     if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/users");
-    const newRole = normalizeRoleValue(req.body?.role || "creator");
-    if (!["creator", "editor", "organizer", "area_manager", "admin"].includes(newRole)) {
+    const newRole = normalizeRoleValue(req.body?.role || "organizer");
+    if (!isLiveRole(newRole)) {
       return res.redirect("/admin/users");
     }
     const newCity = String(req.body?.city || "Enumclaw");
