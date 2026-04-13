@@ -2988,7 +2988,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.69");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.70");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3002,6 +3002,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now uses a color intensity scale to show which days are busiest, with a legend for quick scanning" });
     releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar day detail now uses the selected date itself as the header without the extra Selected day label" });
     releaseLogItems.push({ date: "2026-04-12", text: "Calendar day selection now restores your scroll position after reload instead of jumping back to the top" });
     releaseLogItems.push({ date: "2026-04-12", text: "Pagination now restores your scroll position after reload so paged views do not jump back to the top" });
@@ -3338,7 +3339,24 @@ return `
           count: entries.length,
         };
       });
-      const monthTotalCount = calendarDays.reduce((sum, day) => sum + (day.inMonth ? Number(day.count || 0) : 0), 0);
+      const inMonthDays = calendarDays.filter((day) => day.inMonth);
+      const monthMaxCount = inMonthDays.reduce((max, day) => Math.max(max, Number(day.count || 0)), 0);
+      const calendarDaysWithHeat = calendarDays.map((day) => {
+        const count = Number(day.count || 0);
+        let heatLevel = 0;
+        if (day.inMonth && monthMaxCount > 0 && count > 0) {
+          const ratio = count / monthMaxCount;
+          if (ratio >= 0.85) heatLevel = 4;
+          else if (ratio >= 0.6) heatLevel = 3;
+          else if (ratio >= 0.35) heatLevel = 2;
+          else heatLevel = 1;
+        }
+        return {
+          ...day,
+          heatLevel,
+        };
+      });
+      const monthTotalCount = calendarDaysWithHeat.reduce((sum, day) => sum + (day.inMonth ? Number(day.count || 0) : 0), 0);
       const calendarAgenda = {};
       for (const [ymd, entries] of dayMap.entries()) {
         calendarAgenda[ymd] = entries
@@ -3389,6 +3407,16 @@ return `
                     <a class="dashboard-calendar-nav" href="${esc(nextMonthHref)}" aria-label="Next month">›</a>
                   </div>
                   <div class="dashboard-calendar-sub">Tap a day to preview what is happening on that day.</div>
+                  <div class="dashboard-calendar-legend" aria-label="Calendar event density legend">
+                    <span class="dashboard-calendar-legend-label">Popularity</span>
+                    <span class="dashboard-calendar-legend-scale">
+                      <span class="dashboard-calendar-legend-swatch level-1"></span>
+                      <span class="dashboard-calendar-legend-swatch level-2"></span>
+                      <span class="dashboard-calendar-legend-swatch level-3"></span>
+                      <span class="dashboard-calendar-legend-swatch level-4"></span>
+                    </span>
+                    <span class="dashboard-calendar-legend-range">Less to more events</span>
+                  </div>
                 </div>
                 <div class="dashboard-calendar-total">
                   <span class="dashboard-calendar-total-label">Month total</span>
@@ -3400,10 +3428,10 @@ return `
               ${weekdayLabels.map((label) => `<div>${esc(label)}</div>`).join("")}
             </div>
             <div class="dashboard-calendar-grid">
-              ${calendarDays.map((day) => `
+              ${calendarDaysWithHeat.map((day) => `
                 <a
                   href="${esc(buildCalendarHref({ calMonth: `${String(day.ymd).slice(0, 7)}-01`, calDay: day.ymd, calPage: null }))}"
-                  class="dashboard-calendar-day${day.inMonth ? "" : " is-outside"}${day.isToday ? " is-today" : ""}${day.isPast ? " is-past" : ""}${day.ymd === selectedDayYmd ? " is-selected" : ""}"
+                  class="dashboard-calendar-day${day.inMonth ? "" : " is-outside"}${day.isToday ? " is-today" : ""}${day.isPast ? " is-past" : ""}${day.ymd === selectedDayYmd ? " is-selected" : ""}${day.heatLevel ? ` heat-${day.heatLevel}` : ""}"
                 >
                   <span class="dashboard-calendar-daynum">${esc(day.day)}</span>
                   <span class="dashboard-calendar-daycount">${day.count ? `${esc(day.count)} event${day.count === 1 ? "" : "s"}` : "No events"}</span>
@@ -7928,6 +7956,43 @@ return `
         font-size:13px;
         color:var(--muted);
       }
+      .dashboard-calendar-legend{
+        display:flex;
+        align-items:center;
+        flex-wrap:wrap;
+        gap:8px;
+        margin-top:8px;
+        font-size:12px;
+        color:var(--muted);
+      }
+      .dashboard-calendar-legend-label,
+      .dashboard-calendar-legend-range{
+        font-weight:600;
+      }
+      .dashboard-calendar-legend-scale{
+        display:inline-flex;
+        align-items:center;
+        gap:4px;
+      }
+      .dashboard-calendar-legend-swatch{
+        width:16px;
+        height:10px;
+        border-radius:999px;
+        border:1px solid rgba(0,192,139,.18);
+        background:#f8fbfa;
+      }
+      .dashboard-calendar-legend-swatch.level-1{
+        background:rgba(0,192,139,.08);
+      }
+      .dashboard-calendar-legend-swatch.level-2{
+        background:rgba(0,192,139,.14);
+      }
+      .dashboard-calendar-legend-swatch.level-3{
+        background:rgba(0,192,139,.22);
+      }
+      .dashboard-calendar-legend-swatch.level-4{
+        background:rgba(0,192,139,.32);
+      }
       .dashboard-calendar-weekdays{
         display:grid;
         grid-template-columns:repeat(7,minmax(0,1fr));
@@ -7961,6 +8026,18 @@ return `
       .dashboard-calendar-day:hover{
         border-color:rgba(15,23,42,.18);
         background:#fbfdff;
+      }
+      .dashboard-calendar-day.heat-1{
+        background:rgba(0,192,139,.05);
+      }
+      .dashboard-calendar-day.heat-2{
+        background:rgba(0,192,139,.1);
+      }
+      .dashboard-calendar-day.heat-3{
+        background:rgba(0,192,139,.16);
+      }
+      .dashboard-calendar-day.heat-4{
+        background:rgba(0,192,139,.24);
       }
       .dashboard-calendar-day.is-selected{
         border-color:rgba(0,192,139,.35);
