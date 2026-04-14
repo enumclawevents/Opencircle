@@ -3004,7 +3004,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.75");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.76");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3018,6 +3018,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar arrows and event-scope controls now use the same neutral button text styling as the rest of the UI" });
     releaseLogItems.push({ date: "2026-04-13", text: "Live role management now only exposes Developer and Organizer while leaving older role records intact" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now uses a single server-rendered navigation path so month arrows and selected-day details stay in sync" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar scope toggle now uses the same neutral and green color language as the rest of the UI" });
@@ -7974,13 +7975,16 @@ return `
         justify-content:center;
         padding:0;
         background:#fff;
-        color:var(--text);
+        color:var(--muted);
         font-size:20px;
         font-weight:700;
         line-height:1;
         cursor:pointer;
         text-decoration:none;
         border:1px solid var(--line);
+      }
+      .dashboard-calendar-nav:hover{
+        color:var(--text);
       }
       .dashboard-calendar-nav.is-disabled,
       .dashboard-calendar-nav[aria-disabled="true"]{
@@ -8039,24 +8043,24 @@ return `
         border-radius:999px;
         border:0;
         background:transparent;
-        color:var(--text);
+        color:var(--muted);
         text-decoration:none;
         font-size:13px;
         font-weight:700;
       }
       .dashboard-calendar-scope-btn:visited{
-        color:var(--text);
+        color:var(--muted);
       }
       .dashboard-calendar-scope-btn:hover{
         color:var(--text);
       }
       .dashboard-calendar-scope-btn.active{
-        color:#0f7a64;
+        color:var(--text);
         background:rgba(0,192,139,.1);
       }
       .dashboard-calendar-scope-btn.active:visited,
       .dashboard-calendar-scope-btn.active:hover{
-        color:#0f7a64;
+        color:var(--text);
       }
       .dashboard-calendar-legend{
         display:flex;
