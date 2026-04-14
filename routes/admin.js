@@ -3037,7 +3037,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.80");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.81");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3051,6 +3051,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now uses a true circular trigger with a cleaner account dropdown layer for Preferences, status controls, and logout" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now opens an account menu with Preferences, availability status controls, and a logout shortcut" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now includes a small online-status badge anchored to the bottom-left of the avatar" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar scope links and month arrows now fully override the generic anchor styling so both active and inactive states keep the intended neutral control colors" });
@@ -6317,6 +6318,7 @@ return `
       .header{
         display:flex; align-items:center; justify-content:space-between; gap:14px;
         margin-bottom:18px;
+        overflow:visible;
       }
       .h-left{
         display:flex;
@@ -6358,6 +6360,7 @@ return `
         display:flex;
         align-items:center;
         gap:12px;
+        overflow:visible;
       }
       .header-icon-btn{
         position:relative;
@@ -6371,8 +6374,20 @@ return `
         align-items:center;
         justify-content:center;
         text-decoration:none;
+        padding:0;
+        overflow:hidden;
+        appearance:none;
+        -webkit-appearance:none;
         box-shadow: none;
         transition: color .14s ease, border-color .14s ease, background-color .14s ease;
+      }
+      .header-icon-btn:focus{
+        outline:none;
+      }
+      .header-icon-btn:focus-visible{
+        outline:none;
+        box-shadow:0 0 0 3px rgba(14,165,233,.16);
+        border-color:rgba(14,165,233,.28);
       }
       .header-icon-btn:hover{
         color: var(--text);
@@ -6430,9 +6445,11 @@ return `
       }
       .header-account-menu{
         position:relative;
+        z-index:150;
       }
       .header-account-trigger{
         cursor:pointer;
+        flex:0 0 auto;
       }
       .header-account-dropdown{
         position:absolute;
