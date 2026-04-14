@@ -6377,8 +6377,15 @@ return `
         background:rgba(15,23,42,.42);
         z-index:70;
       }
-      .h-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-      .h-right{ flex:0 0 auto; justify-content:flex-end; }
+      .h-right{
+        display:flex;
+        align-items:center;
+        gap:10px;
+        flex-wrap:wrap;
+        flex:0 0 auto;
+        justify-content:flex-end;
+        position:relative;
+      }
       .header-tools{
         display:flex;
         align-items:center;
@@ -6468,7 +6475,7 @@ return `
         color:#0ea5e9;
       }
       .header-account-menu{
-        position:relative;
+        position:static;
         z-index:150;
         width:40px;
         height:40px;
@@ -6501,7 +6508,7 @@ return `
       .header-account-dropdown{
         position:absolute;
         top:calc(100% + 10px);
-        right:-24px;
+        right:0;
         width:280px;
         padding:10px;
         border:1px solid var(--line);
