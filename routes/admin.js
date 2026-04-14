@@ -3004,7 +3004,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.77");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.78");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3018,7 +3018,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
-    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar arrows and event-scope links now override generic link styling so they keep the same neutral control colors as the rest of the UI" });
+    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar scope links and month arrows now fully override the generic anchor styling so both active and inactive states keep the intended neutral control colors" });
     releaseLogItems.push({ date: "2026-04-13", text: "Live role management now only exposes Developer and Organizer while leaving older role records intact" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now uses a single server-rendered navigation path so month arrows and selected-day details stay in sync" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar scope toggle now uses the same neutral and green color language as the rest of the UI" });
@@ -7966,7 +7966,7 @@ return `
         align-items:center;
         gap:10px;
       }
-      .dashboard-calendar .dashboard-calendar-nav{
+      .dashboard-calendar a.dashboard-calendar-nav:not(.btn){
         width:32px;
         height:32px;
         border-radius:999px;
@@ -7983,15 +7983,15 @@ return `
         text-decoration:none;
         border:1px solid var(--line);
       }
-      .dashboard-calendar .dashboard-calendar-nav:visited{
+      .dashboard-calendar a.dashboard-calendar-nav:not(.btn):visited{
         color:var(--muted);
       }
-      .dashboard-calendar .dashboard-calendar-nav:hover{
+      .dashboard-calendar a.dashboard-calendar-nav:not(.btn):hover{
         color:var(--text);
         text-decoration:none;
       }
-      .dashboard-calendar .dashboard-calendar-nav.is-disabled,
-      .dashboard-calendar .dashboard-calendar-nav[aria-disabled="true"]{
+      .dashboard-calendar a.dashboard-calendar-nav.is-disabled:not(.btn),
+      .dashboard-calendar a.dashboard-calendar-nav[aria-disabled="true"]:not(.btn){
         opacity:.45;
         cursor:not-allowed;
         pointer-events:none;
@@ -8038,7 +8038,7 @@ return `
         border-radius:999px;
         background:#fff;
       }
-      .dashboard-calendar .dashboard-calendar-scope-btn{
+      .dashboard-calendar a.dashboard-calendar-scope-btn:not(.btn){
         display:inline-flex;
         align-items:center;
         justify-content:center;
@@ -8052,19 +8052,19 @@ return `
         font-size:13px;
         font-weight:700;
       }
-      .dashboard-calendar .dashboard-calendar-scope-btn:visited{
+      .dashboard-calendar a.dashboard-calendar-scope-btn:not(.btn):visited{
         color:var(--muted);
       }
-      .dashboard-calendar .dashboard-calendar-scope-btn:hover{
+      .dashboard-calendar a.dashboard-calendar-scope-btn:not(.btn):hover{
         color:var(--text);
         text-decoration:none;
       }
-      .dashboard-calendar .dashboard-calendar-scope-btn.active{
+      .dashboard-calendar a.dashboard-calendar-scope-btn.active:not(.btn){
         color:var(--text);
         background:rgba(0,192,139,.1);
       }
-      .dashboard-calendar .dashboard-calendar-scope-btn.active:visited,
-      .dashboard-calendar .dashboard-calendar-scope-btn.active:hover{
+      .dashboard-calendar a.dashboard-calendar-scope-btn.active:not(.btn):visited,
+      .dashboard-calendar a.dashboard-calendar-scope-btn.active:not(.btn):hover{
         color:var(--text);
         text-decoration:none;
       }
