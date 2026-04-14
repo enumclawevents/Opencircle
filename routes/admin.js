@@ -3055,7 +3055,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.84");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.86");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3069,6 +3069,8 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-14", text: "Profile status badge now hangs outside the avatar circle instead of sitting inside the crop" });
+    releaseLogItems.push({ date: "2026-04-14", text: "Insights tabs now use the same rounded pill style as the calendar scope toggle" });
     releaseLogItems.push({ date: "2026-04-14", text: "Account dropdown action icons now use inline SVG and status rows no longer show helper text" });
     releaseLogItems.push({ date: "2026-04-14", text: "Account dropdown status rows now show only the label and the menu icons use stronger icon glyphs" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile avatar now matches the other top-bar circles and the account dropdown opens reliably" });
@@ -6396,7 +6398,7 @@ return `
         justify-content:center;
         text-decoration:none;
         padding:0;
-        overflow:hidden;
+        overflow:visible;
         appearance:none;
         -webkit-appearance:none;
         box-shadow: none;
@@ -6447,14 +6449,15 @@ return `
       }
       .header-icon-btn .header-status-badge{
         position:absolute;
-        left:2px;
-        bottom:2px;
-        width:14px;
-        height:14px;
+        left:-3px;
+        bottom:-3px;
+        width:15px;
+        height:15px;
         border-radius:999px;
         border:2px solid #fff;
         box-shadow:0 0 0 1px rgba(148,163,184,.25);
         pointer-events:none;
+        z-index:2;
       }
       .header-icon-btn .header-status-badge.is-available,
       .header-icon-btn .header-status-badge.is-online{ background:#22c55e; }
@@ -6485,6 +6488,7 @@ return `
         appearance:none;
         -webkit-appearance:none;
         -webkit-tap-highlight-color: transparent;
+        overflow:visible;
       }
       .header-account-trigger,
       .header-account-trigger:hover,
@@ -8115,25 +8119,40 @@ return `
         gap:0;
       }
       .insights-switcher{
-        display:flex;
-        gap:8px;
+        display:inline-flex;
+        align-items:center;
+        gap:0;
+        padding:4px;
+        border:1px solid var(--line);
+        border-radius:999px;
+        background:#fff;
         flex-wrap:wrap;
         margin-bottom:12px;
       }
       .insights-switcher button{
-        height:34px;
-        padding:0 12px;
-        border-radius:var(--radius-inner);
-        border:1px solid var(--line);
-        background:#fff;
+        min-height:30px;
+        padding:0 14px;
+        border-radius:999px;
+        border:0;
+        background:transparent;
         color:var(--muted);
+        text-decoration:none;
         font-weight:650;
         cursor:pointer;
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
       }
       .insights-switcher button.is-active{
-        color:#065f46;
-        border-color:rgba(0,192,139,.35);
-        background:rgba(0,192,139,.08);
+        color:#111827;
+        background:rgba(0,192,139,.10);
+        font-weight:700;
+      }
+      .insights-switcher button:hover{
+        color:var(--text);
+      }
+      .insights-switcher button:visited{
+        color:var(--muted);
       }
       .insight-panel{
         display:none;
