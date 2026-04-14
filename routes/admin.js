@@ -6497,7 +6497,7 @@ return `
       .header-account-dropdown{
         position:absolute;
         top:calc(100% + 10px);
-        right:0;
+        right:-24px;
         width:280px;
         padding:10px;
         border:1px solid var(--line);
