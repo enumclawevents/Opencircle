@@ -2047,6 +2047,24 @@ function safeAdminRedirectPath(input, fallback = "/admin/preferences") {
   return raw;
 }
 
+function renderInlineIcon(name) {
+  if (name === "gear") {
+    return `
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96c-.5-.4-1.05-.73-1.63-.96l-.36-2.52a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.52c-.58.23-1.13.56-1.63.96l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.46a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94L2.83 14.14a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.73 1.63.96l.36 2.52a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.52c.58-.23 1.13-.56 1.63-.96l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/>
+      </svg>
+    `;
+  }
+  if (name === "logout") {
+    return `
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M10 17.25a.75.75 0 0 1-.75.75H6.5A2.5 2.5 0 0 1 4 15.5v-7A2.5 2.5 0 0 1 6.5 6h2.75a.75.75 0 0 1 0 1.5H6.5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2.75a.75.75 0 0 1 .75.75Zm8.78-5.78-3.5-3.5a.75.75 0 0 0-1.06 1.06L16.44 11.25H9.75a.75.75 0 0 0 0 1.5h6.69l-2.22 2.22a.75.75 0 1 0 1.06 1.06l3.5-3.5a.75.75 0 0 0 0-1.06Z"/>
+      </svg>
+    `;
+  }
+  return "";
+}
+
 const AREA_MANAGER_INVITE_LIMIT = 5;
 
 function normalizeRoleValue(value) {
@@ -3037,7 +3055,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.83");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.84");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3051,6 +3069,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-14", text: "Account dropdown action icons now use inline SVG and status rows no longer show helper text" });
     releaseLogItems.push({ date: "2026-04-14", text: "Account dropdown status rows now show only the label and the menu icons use stronger icon glyphs" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile avatar now matches the other top-bar circles and the account dropdown opens reliably" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now uses a true circular trigger with a cleaner account dropdown layer for Preferences, status controls, and logout" });
@@ -6506,6 +6525,16 @@ return `
         text-decoration:none !important;
         font-weight:700;
       }
+      .account-menu-icon{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        flex:0 0 auto;
+        color:var(--muted);
+      }
+      .account-menu-icon svg{
+        display:block;
+      }
       .account-menu-link:hover{
         border-color:rgba(15,23,42,.18);
         background:#f8fafc;
@@ -8803,7 +8832,7 @@ return `
                   <div class="account-menu-group">
                     <a class="account-menu-link" href="/admin/preferences">
                       <span>Preferences</span>
-                      <i class="fa-solid fa-gear" aria-hidden="true"></i>
+                      <span class="account-menu-icon" aria-hidden="true">${renderInlineIcon("gear")}</span>
                     </a>
                   </div>
                   <div class="account-menu-divider"></div>
@@ -8832,7 +8861,7 @@ return `
                   <div class="account-menu-group">
                     <a class="account-menu-link" href="/logout">
                       <span>Log Out</span>
-                      <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
+                      <span class="account-menu-icon" aria-hidden="true">${renderInlineIcon("logout")}</span>
                     </a>
                   </div>
                 </div>
