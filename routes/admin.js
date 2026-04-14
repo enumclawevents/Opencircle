@@ -3037,7 +3037,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.82");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.83");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3051,6 +3051,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-14", text: "Account dropdown status rows now show only the label and the menu icons use stronger icon glyphs" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile avatar now matches the other top-bar circles and the account dropdown opens reliably" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now uses a true circular trigger with a cleaner account dropdown layer for Preferences, status controls, and logout" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now opens an account menu with Preferences, availability status controls, and a logout shortcut" });
@@ -8802,7 +8803,7 @@ return `
                   <div class="account-menu-group">
                     <a class="account-menu-link" href="/admin/preferences">
                       <span>Preferences</span>
-                      <i class="fa-regular fa-sliders" aria-hidden="true"></i>
+                      <i class="fa-solid fa-gear" aria-hidden="true"></i>
                     </a>
                   </div>
                   <div class="account-menu-divider"></div>
@@ -8810,9 +8811,9 @@ return `
                     <div class="account-menu-section-label">Status</div>
                     <div class="account-status-grid">
                       ${[
-                        { value: "available", label: "Available", help: "Green = Available" },
-                        { value: "away", label: "Away", help: "Yellow = Away" },
-                        { value: "dnd", label: "Do Not Disturb", help: "Red = Do Not Disturb" },
+                        { value: "available", label: "Available" },
+                        { value: "away", label: "Away" },
+                        { value: "dnd", label: "Do Not Disturb" },
                       ].map((statusOption) => `
                         <form class="account-status-form" method="POST" action="/admin/preferences/status">
                           <input type="hidden" name="status" value="${statusOption.value}" />
@@ -8822,7 +8823,6 @@ return `
                               <span class="account-status-dot is-${statusOption.value}"></span>
                               <span>${statusOption.label}</span>
                             </span>
-                            <span class="account-status-help">${statusOption.help}</span>
                           </button>
                         </form>
                       `).join("")}
@@ -8832,7 +8832,7 @@ return `
                   <div class="account-menu-group">
                     <a class="account-menu-link" href="/logout">
                       <span>Log Out</span>
-                      <i class="fa-regular fa-arrow-right-from-bracket" aria-hidden="true"></i>
+                      <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
                     </a>
                   </div>
                 </div>
