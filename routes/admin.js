@@ -6386,8 +6386,8 @@ return `
       }
       .header-icon-btn:focus-visible{
         outline:none;
-        box-shadow:0 0 0 3px rgba(14,165,233,.16);
-        border-color:rgba(14,165,233,.28);
+        box-shadow:none;
+        border-color:var(--line);
       }
       .header-icon-btn:hover{
         color: var(--text);
