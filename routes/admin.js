@@ -3037,7 +3037,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.81");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.82");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3051,6 +3051,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-13", text: "The header profile avatar now matches the other top-bar circles and the account dropdown opens reliably" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now uses a true circular trigger with a cleaner account dropdown layer for Preferences, status controls, and logout" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now opens an account menu with Preferences, availability status controls, and a logout shortcut" });
     releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now includes a small online-status badge anchored to the bottom-left of the avatar" });
@@ -6446,10 +6447,32 @@ return `
       .header-account-menu{
         position:relative;
         z-index:150;
+        width:40px;
+        height:40px;
+        flex:0 0 40px;
       }
       .header-account-trigger{
         cursor:pointer;
-        flex:0 0 auto;
+        flex:0 0 40px;
+        width:40px;
+        height:40px;
+        min-width:40px;
+        min-height:40px;
+        margin:0;
+        padding:0;
+        border-radius:999px;
+        background:#fff;
+        appearance:none;
+        -webkit-appearance:none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .header-account-trigger,
+      .header-account-trigger:hover,
+      .header-account-trigger:active,
+      .header-account-trigger:focus,
+      .header-account-trigger:focus-visible{
+        outline:none !important;
+        box-shadow:none !important;
       }
       .header-account-dropdown{
         position:absolute;
@@ -8657,35 +8680,6 @@ return `
             </div>
           </div>
         </div>
-
-        <script>
-        (function(){
-          var menu = document.querySelector('[data-account-menu]');
-          if (!menu) return;
-          var trigger = menu.querySelector('[data-account-trigger]');
-          var dropdown = menu.querySelector('[data-account-dropdown]');
-          if (!trigger || !dropdown) return;
-
-          function setOpen(next){
-            menu.classList.toggle('is-open', !!next);
-            trigger.setAttribute('aria-expanded', next ? 'true' : 'false');
-          }
-
-          trigger.addEventListener('click', function(event){
-            event.preventDefault();
-            event.stopPropagation();
-            setOpen(!menu.classList.contains('is-open'));
-          });
-
-          document.addEventListener('click', function(event){
-            if (!menu.contains(event.target)) setOpen(false);
-          });
-
-          document.addEventListener('keydown', function(event){
-            if (event.key === 'Escape') setOpen(false);
-          });
-        })();
-        </script>
 
         <nav class="nav">
           ${(hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser) ? `
@@ -13320,6 +13314,33 @@ return `
   initOrganizerChart();
   initVenueChart();
   initAdChart();
+
+  (function initHeaderAccountMenu(){
+    var menu = document.querySelector('[data-account-menu]');
+    if (!menu) return;
+    var trigger = menu.querySelector('[data-account-trigger]');
+    var dropdown = menu.querySelector('[data-account-dropdown]');
+    if (!trigger || !dropdown) return;
+
+    function setOpen(next){
+      menu.classList.toggle('is-open', !!next);
+      trigger.setAttribute('aria-expanded', next ? 'true' : 'false');
+    }
+
+    trigger.addEventListener('click', function(event){
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(!menu.classList.contains('is-open'));
+    });
+
+    document.addEventListener('click', function(event){
+      if (!menu.contains(event.target)) setOpen(false);
+    });
+
+    document.addEventListener('keydown', function(event){
+      if (event.key === 'Escape') setOpen(false);
+    });
+  })();
 })();</script>
   </body>
 </html>`);
