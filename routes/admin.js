@@ -1867,6 +1867,7 @@ async function ensureUserProfileSchema() {
       phone TEXT,
       photoUrl TEXT,
       bio TEXT,
+      presenceStatus TEXT,
       lastSeenAt TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT
@@ -1885,6 +1886,7 @@ async function ensureUserProfileSchema() {
   await addCol("phone", "ALTER TABLE users ADD COLUMN phone TEXT");
   await addCol("photoUrl", "ALTER TABLE users ADD COLUMN photoUrl TEXT");
   await addCol("bio", "ALTER TABLE users ADD COLUMN bio TEXT");
+  await addCol("presenceStatus", "ALTER TABLE users ADD COLUMN presenceStatus TEXT");
   await addCol("lastSeenAt", "ALTER TABLE users ADD COLUMN lastSeenAt TEXT");
   await addCol("updatedAt", "ALTER TABLE users ADD COLUMN updatedAt TEXT");
 
@@ -1939,7 +1941,7 @@ async function resolveSessionUser(req) {
 
   for (const key of candidates) {
     const row = await get(
-      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
       [key, key]
     );
     if (row?.id) return row;
@@ -1947,7 +1949,7 @@ async function resolveSessionUser(req) {
 
   if (role === "admin") {
     let adminRow = await get(
-      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(role,'')) = 'admin' ORDER BY id ASC LIMIT 1"
+      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(role,'')) = 'admin' ORDER BY id ASC LIMIT 1"
     );
     if (adminRow?.id) return adminRow;
 
@@ -1958,7 +1960,7 @@ async function resolveSessionUser(req) {
       [email, username, "", city]
     );
     adminRow = await get(
-      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
       [username, email || username]
     );
     if (adminRow?.id) return adminRow;
@@ -1981,22 +1983,22 @@ async function resolveSupportCircleUser() {
     let row = null;
     if (candidate.displayName) {
       row = await get(
-        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(displayName,'')) = lower(?) LIMIT 1",
+        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(displayName,'')) = lower(?) LIMIT 1",
         [candidate.displayName]
       );
     } else if (candidate.username) {
       row = await get(
-        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) LIMIT 1",
+        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) LIMIT 1",
         [candidate.username]
       );
     } else if (candidate.email) {
       row = await get(
-        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(email,'')) = lower(?) LIMIT 1",
         [candidate.email]
       );
     } else if (candidate.role) {
       row = await get(
-        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(role,'')) = lower(?) ORDER BY id ASC LIMIT 1",
+        "SELECT id, email, username, role, city, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(role,'')) = lower(?) ORDER BY id ASC LIMIT 1",
         [candidate.role]
       );
     }
@@ -2016,6 +2018,33 @@ function isUserOnline(lastSeenAt) {
 function onlineStatusMarkup(lastSeenAt, label = "User status") {
   const online = isUserOnline(lastSeenAt);
   return `<span class="online-dot ${online ? "is-online" : "is-offline"}" title="${esc(online ? `${label}: online` : `${label}: offline`)}" aria-label="${esc(online ? `${label}: online` : `${label}: offline`)}"></span>`;
+}
+
+function normalizePresenceStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["available", "away", "dnd"].includes(normalized) ? normalized : "available";
+}
+
+function formatPresenceStatusLabel(value) {
+  const normalized = normalizePresenceStatus(value);
+  if (normalized === "away") return "Away";
+  if (normalized === "dnd") return "Do Not Disturb";
+  return "Available";
+}
+
+function getPresenceStatusClass(value, isOnline = true) {
+  if (!isOnline) return "is-offline";
+  const normalized = normalizePresenceStatus(value);
+  if (normalized === "away") return "is-away";
+  if (normalized === "dnd") return "is-dnd";
+  return "is-available";
+}
+
+function safeAdminRedirectPath(input, fallback = "/admin/preferences") {
+  const raw = String(input || "").trim();
+  if (!raw.startsWith("/")) return fallback;
+  if (raw.startsWith("//")) return fallback;
+  return raw;
 }
 
 const AREA_MANAGER_INVITE_LIMIT = 5;
@@ -2167,6 +2196,10 @@ let whereParams = [];
     const organizerAccessValues = isOrganizerUser ? getOrganizerAccessValues(currentUser, req) : [];
     const organizerPrimaryName = isOrganizerUser ? getOrganizerPrimaryName(currentUser, req) : "";
     const organizerOwnerClause = isOrganizerUser ? buildOrganizerOwnerClause("organizer", organizerAccessValues) : null;
+    const currentPresenceStatus = normalizePresenceStatus(currentUser?.presenceStatus);
+    const currentPresenceLabel = formatPresenceStatusLabel(currentPresenceStatus);
+    const currentPresenceClass = getPresenceStatusClass(currentPresenceStatus, !!currentUser?.id);
+    const currentAdminPath = safeAdminRedirectPath(req.originalUrl || "/admin", "/admin");
 
     // City (from URL unless locked)
     const userCity = String(req.user?.city || "Enumclaw");
@@ -3004,7 +3037,7 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.78");
+    const appVersion = String(process.env.APP_VERSION || "v0.1.80");
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3018,6 +3051,8 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now opens an account menu with Preferences, availability status controls, and a logout shortcut" });
+    releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now includes a small online-status badge anchored to the bottom-left of the avatar" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar scope links and month arrows now fully override the generic anchor styling so both active and inactive states keep the intended neutral control colors" });
     releaseLogItems.push({ date: "2026-04-13", text: "Live role management now only exposes Developer and Organizer while leaving older role records intact" });
     releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now uses a single server-rendered navigation path so month arrows and selected-day details stay in sync" });
@@ -4432,6 +4467,8 @@ return `
     const prefNoticeHtml = prefNotice
       ? (prefNotice === "profile_saved"
           ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Profile updated.</div>`
+          : prefNotice === "status_saved"
+          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Status updated.</div>`
           : prefNotice === "password_saved"
           ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Password updated.</div>`
           : prefNotice === "password_mismatch"
@@ -6372,8 +6409,133 @@ return `
         justify-content:center;
         border:2px solid #fff;
       }
+      .header-icon-btn .header-status-badge{
+        position:absolute;
+        left:2px;
+        bottom:2px;
+        width:14px;
+        height:14px;
+        border-radius:999px;
+        border:2px solid #fff;
+        box-shadow:0 0 0 1px rgba(148,163,184,.25);
+        pointer-events:none;
+      }
+      .header-icon-btn .header-status-badge.is-available,
+      .header-icon-btn .header-status-badge.is-online{ background:#22c55e; }
+      .header-icon-btn .header-status-badge.is-away{ background:#facc15; }
+      .header-icon-btn .header-status-badge.is-dnd{ background:#ef4444; }
+      .header-icon-btn .header-status-badge.is-offline{ background:#cbd5e1; }
       .header-icon-btn.header-message-icon{
         color:#0ea5e9;
+      }
+      .header-account-menu{
+        position:relative;
+      }
+      .header-account-trigger{
+        cursor:pointer;
+      }
+      .header-account-dropdown{
+        position:absolute;
+        top:calc(100% + 10px);
+        right:0;
+        width:280px;
+        padding:10px;
+        border:1px solid var(--line);
+        border-radius:16px;
+        background:#fff;
+        box-shadow:0 18px 42px rgba(15,23,42,.14);
+        display:none;
+        z-index:120;
+      }
+      .header-account-menu.is-open .header-account-dropdown{
+        display:block;
+      }
+      .account-menu-link{
+        width:100%;
+        min-height:44px;
+        border:1px solid var(--line);
+        border-radius:12px;
+        background:#fff;
+        color:var(--text) !important;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        padding:0 14px;
+        text-decoration:none !important;
+        font-weight:700;
+      }
+      .account-menu-link:hover{
+        border-color:rgba(15,23,42,.18);
+        background:#f8fafc;
+      }
+      .account-menu-group{
+        display:grid;
+        gap:8px;
+      }
+      .account-menu-divider{
+        height:1px;
+        background:var(--line);
+        margin:10px 2px;
+      }
+      .account-menu-section-label{
+        color:var(--muted);
+        font-size:12px;
+        font-weight:800;
+        letter-spacing:.08em;
+        text-transform:uppercase;
+        padding:0 4px;
+      }
+      .account-status-grid{
+        display:grid;
+        gap:8px;
+      }
+      .account-status-form{
+        margin:0;
+      }
+      .account-status-btn{
+        width:100%;
+        min-height:42px;
+        border:1px solid var(--line);
+        border-radius:12px;
+        background:#fff;
+        color:var(--text);
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        padding:0 14px;
+        font-weight:700;
+        cursor:pointer;
+      }
+      .account-status-btn:hover{
+        border-color:rgba(15,23,42,.18);
+        background:#f8fafc;
+      }
+      .account-status-btn.active{
+        border-color:rgba(16,185,129,.35);
+        background:#ecfdf5;
+      }
+      .account-status-meta{
+        display:flex;
+        align-items:center;
+        gap:10px;
+        min-width:0;
+      }
+      .account-status-dot{
+        width:12px;
+        height:12px;
+        border-radius:999px;
+        flex:0 0 auto;
+        box-shadow:0 0 0 2px #fff, 0 0 0 3px rgba(148,163,184,.25);
+      }
+      .account-status-dot.is-available{ background:#22c55e; }
+      .account-status-dot.is-away{ background:#facc15; }
+      .account-status-dot.is-dnd{ background:#ef4444; }
+      .account-status-help{
+        color:var(--muted);
+        font-size:12px;
+        font-weight:600;
       }
       .online-dot{
         width:10px;
@@ -6384,7 +6546,10 @@ return `
         border:2px solid #fff;
         box-shadow:0 0 0 1px rgba(148,163,184,.25);
       }
+      .online-dot.is-available,
       .online-dot.is-online{ background:#22c55e; }
+      .online-dot.is-away{ background:#facc15; }
+      .online-dot.is-dnd{ background:#ef4444; }
       .online-dot.is-offline{ background:#cbd5e1; }
       .user-line{
         display:flex;
@@ -8476,6 +8641,35 @@ return `
           </div>
         </div>
 
+        <script>
+        (function(){
+          var menu = document.querySelector('[data-account-menu]');
+          if (!menu) return;
+          var trigger = menu.querySelector('[data-account-trigger]');
+          var dropdown = menu.querySelector('[data-account-dropdown]');
+          if (!trigger || !dropdown) return;
+
+          function setOpen(next){
+            menu.classList.toggle('is-open', !!next);
+            trigger.setAttribute('aria-expanded', next ? 'true' : 'false');
+          }
+
+          trigger.addEventListener('click', function(event){
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(!menu.classList.contains('is-open'));
+          });
+
+          document.addEventListener('click', function(event){
+            if (!menu.contains(event.target)) setOpen(false);
+          });
+
+          document.addEventListener('keydown', function(event){
+            if (event.key === 'Escape') setOpen(false);
+          });
+        })();
+        </script>
+
         <nav class="nav">
           ${(hasDeveloperAccess || isCityEditor || isCityViewer || isOrganizerUser) ? `
           <div class="nav-group nav-collapsible ${showDashboard ? "is-open" : ""}" data-nav-group>
@@ -8586,11 +8780,52 @@ return `
 
           <div class="h-right">
             <div class="header-tools">
-              <a class="header-icon-btn" href="/admin/preferences" title="Account" aria-label="Account">
-                ${currentUser?.photoUrl
-                  ? `<img class="header-avatar" src="${esc(currentUser.photoUrl)}" alt="${esc(currentUser.displayName || currentUser.username || "User")}" />`
-                  : `<i class="fa-regular fa-user" aria-hidden="true"></i>`}
-              </a>
+              <div class="header-account-menu" data-account-menu>
+                <button type="button" class="header-icon-btn header-account-trigger" data-account-trigger title="Account" aria-label="Account" aria-expanded="false" aria-haspopup="true">
+                  ${currentUser?.photoUrl
+                    ? `<img class="header-avatar" src="${esc(currentUser.photoUrl)}" alt="${esc(currentUser.displayName || currentUser.username || "User")}" />`
+                    : `<i class="fa-regular fa-user" aria-hidden="true"></i>`}
+                  ${currentUser?.id ? `<span class="header-status-badge ${esc(currentPresenceClass)}" title="${esc(currentPresenceLabel)}" aria-label="${esc(currentPresenceLabel)}"></span>` : ``}
+                </button>
+                <div class="header-account-dropdown" data-account-dropdown>
+                  <div class="account-menu-group">
+                    <a class="account-menu-link" href="/admin/preferences">
+                      <span>Preferences</span>
+                      <i class="fa-regular fa-sliders" aria-hidden="true"></i>
+                    </a>
+                  </div>
+                  <div class="account-menu-divider"></div>
+                  <div class="account-menu-group">
+                    <div class="account-menu-section-label">Status</div>
+                    <div class="account-status-grid">
+                      ${[
+                        { value: "available", label: "Available", help: "Green = Available" },
+                        { value: "away", label: "Away", help: "Yellow = Away" },
+                        { value: "dnd", label: "Do Not Disturb", help: "Red = Do Not Disturb" },
+                      ].map((statusOption) => `
+                        <form class="account-status-form" method="POST" action="/admin/preferences/status">
+                          <input type="hidden" name="status" value="${statusOption.value}" />
+                          <input type="hidden" name="redirectTo" value="${esc(currentAdminPath)}" />
+                          <button class="account-status-btn ${currentPresenceStatus === statusOption.value ? "active" : ""}" type="submit">
+                            <span class="account-status-meta">
+                              <span class="account-status-dot is-${statusOption.value}"></span>
+                              <span>${statusOption.label}</span>
+                            </span>
+                            <span class="account-status-help">${statusOption.help}</span>
+                          </button>
+                        </form>
+                      `).join("")}
+                    </div>
+                  </div>
+                  <div class="account-menu-divider"></div>
+                  <div class="account-menu-group">
+                    <a class="account-menu-link" href="/logout">
+                      <span>Log Out</span>
+                      <i class="fa-regular fa-arrow-right-from-bracket" aria-hidden="true"></i>
+                    </a>
+                  </div>
+                </div>
+              </div>
               ${canUseMessages ? `<a class="header-icon-btn header-message-icon" href="/admin/messages${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" title="Messages" aria-label="Messages">
                 <i class="fa-regular fa-envelope" aria-hidden="true"></i>
                 ${unreadMessagesCount > 0 ? `<span class="icon-badge">${unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}</span>` : ``}
@@ -9389,7 +9624,14 @@ return `
                     ? `<img src="${esc(currentUser.photoUrl)}" alt="Profile photo" style="width:160px; height:160px; border-radius:999px; object-fit:cover; border:1px solid var(--line);" />`
                     : `<div style="width:160px; height:160px; border-radius:999px; border:1px dashed var(--line); display:flex; align-items:center; justify-content:center; color:var(--muted);">No photo</div>`}
                 </div>
-                <div class="note" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${onlineStatusMarkup(currentUser.lastSeenAt, "Your status")}<span>Status: <strong style="color:var(--text);">${isUserOnline(currentUser.lastSeenAt) ? "Online" : "Offline"}</strong></span><span>·</span><span>Role: <strong style="color:var(--text);">${esc(formatRoleLabel(currentUser.role || "creator"))}</strong></span><span>·</span><span>City: <strong style="color:var(--text);">${esc(currentUser.city || selectedCity)}</strong></span></div>
+                <div class="note" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                  <span class="online-dot ${esc(currentPresenceClass)}" title="${esc(currentPresenceLabel)}" aria-label="${esc(currentPresenceLabel)}"></span>
+                  <span>Status: <strong style="color:var(--text);">${esc(currentPresenceLabel)}</strong></span>
+                  <span>·</span>
+                  <span>Role: <strong style="color:var(--text);">${esc(formatRoleLabel(currentUser.role || "creator"))}</strong></span>
+                  <span>·</span>
+                  <span>City: <strong style="color:var(--text);">${esc(currentUser.city || selectedCity)}</strong></span>
+                </div>
               </div>
             </div>
 
@@ -13313,6 +13555,29 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to update preferences.");
+  }
+});
+
+router.post("/preferences/status", async (req, res) => {
+  try {
+    const role = normalizeRoleValue(req.user?.role || "creator");
+    if (!(hasDeveloperAccessRole(role) || role === "editor" || role === "creator" || role === "organizer")) {
+      return res.status(403).send("Forbidden");
+    }
+    const u = await resolveSessionUser(req);
+    const redirectTo = safeAdminRedirectPath(req.body?.redirectTo || req.get("referer") || "/admin/preferences", "/admin/preferences");
+    if (!u?.id) return res.redirect("/admin/preferences?notice=user_not_found");
+
+    const presenceStatus = normalizePresenceStatus(req.body?.status);
+    await run(
+      "UPDATE users SET presenceStatus = ?, updatedAt = datetime('now') WHERE id = ?",
+      [presenceStatus, u.id]
+    );
+    const separator = redirectTo.includes("?") ? "&" : "?";
+    return res.redirect(`${redirectTo}${separator}notice=status_saved`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to update status.");
   }
 });
 

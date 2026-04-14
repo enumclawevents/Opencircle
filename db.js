@@ -207,6 +207,7 @@ async function initDB() {
       passwordHash TEXT,
       role TEXT DEFAULT 'creator',
       city TEXT DEFAULT 'Enumclaw',
+      presenceStatus TEXT,
       createdAt TEXT DEFAULT (datetime('now'))
     );
   `);
@@ -221,6 +222,7 @@ async function initDB() {
   await addUserCol("passwordHash", `ALTER TABLE users ADD COLUMN passwordHash TEXT;`);
   await addUserCol("role", `ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'creator';`);
   await addUserCol("city", `ALTER TABLE users ADD COLUMN city TEXT DEFAULT 'Enumclaw';`);
+  await addUserCol("presenceStatus", `ALTER TABLE users ADD COLUMN presenceStatus TEXT;`);
   await addUserCol("createdAt", `ALTER TABLE users ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
   await addUserCol("lastSeenAt", `ALTER TABLE users ADD COLUMN lastSeenAt TEXT;`);
 
