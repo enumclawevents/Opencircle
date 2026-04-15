@@ -142,7 +142,7 @@ function parseCookies(cookieHeader) {
   return out;
 }
 
-function createSession(user, role = "creator", city = "Enumclaw") {
+function createSession(user, role = "organizer", city = "Enumclaw") {
   const token = crypto.randomUUID();
   sessions.set(token, { user, role, city, exp: Date.now() + SESSION_TTL_MS });
   return token;
@@ -294,11 +294,11 @@ app.post("/login", async (req, res) => {
 
   if (user && pass) {
     const row = await get(
-      "SELECT id, username, email, passwordHash, role, city FROM users WHERE username = ? OR email = ? LIMIT 1",
+      "SELECT id, username, email, passwordHash, role, city, permissionsJson FROM users WHERE username = ? OR email = ? LIMIT 1",
       [user, user]
     );
     if (row && verifyPassword(pass, row.passwordHash)) {
-      const token = createSession(row.username || row.email || "user", row.role || "creator", row.city || "Enumclaw");
+      const token = createSession(row.username || row.email || "user", row.role || "organizer", row.city || "Enumclaw");
       res.cookie("oc_auth", token, {
         httpOnly: true,
         sameSite: "lax",
@@ -311,7 +311,7 @@ app.post("/login", async (req, res) => {
   }
 
   if (user === ADMIN_USER && pass === ADMIN_PASS) {
-    const token = createSession(user, "admin", "Enumclaw");
+    const token = createSession(user, "developer", "Enumclaw");
     res.cookie("oc_auth", token, {
       httpOnly: true,
       sameSite: "lax",
@@ -460,8 +460,16 @@ app.post("/invite", async (req, res) => {
 
   const passwordHash = hashPassword(password);
   await run(
-    "INSERT INTO users (email, username, passwordHash, role, city, createdAt) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-    [email, username, passwordHash, invite.role || "creator", invite.city || "Enumclaw"]
+    "INSERT INTO users (email, username, passwordHash, role, city, permissionsJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+    [
+      email,
+      username,
+      passwordHash,
+      invite.role || "organizer",
+      invite.city || "Enumclaw",
+      invite.permissionsJson ||
+        JSON.stringify({ events: true, venues: false, jobs: false, ads: false }),
+    ]
   );
   await run("UPDATE invites SET usedAt = datetime('now') WHERE id = ?", [invite.id]);
 

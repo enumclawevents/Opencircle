@@ -205,8 +205,9 @@ async function initDB() {
       email TEXT UNIQUE,
       username TEXT UNIQUE,
       passwordHash TEXT,
-      role TEXT DEFAULT 'creator',
+      role TEXT DEFAULT 'organizer',
       city TEXT DEFAULT 'Enumclaw',
+      permissionsJson TEXT,
       presenceStatus TEXT,
       createdAt TEXT DEFAULT (datetime('now'))
     );
@@ -220,8 +221,9 @@ async function initDB() {
   await addUserCol("email", `ALTER TABLE users ADD COLUMN email TEXT;`);
   await addUserCol("username", `ALTER TABLE users ADD COLUMN username TEXT;`);
   await addUserCol("passwordHash", `ALTER TABLE users ADD COLUMN passwordHash TEXT;`);
-  await addUserCol("role", `ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'creator';`);
+  await addUserCol("role", `ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'organizer';`);
   await addUserCol("city", `ALTER TABLE users ADD COLUMN city TEXT DEFAULT 'Enumclaw';`);
+  await addUserCol("permissionsJson", `ALTER TABLE users ADD COLUMN permissionsJson TEXT;`);
   await addUserCol("presenceStatus", `ALTER TABLE users ADD COLUMN presenceStatus TEXT;`);
   await addUserCol("createdAt", `ALTER TABLE users ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
   await addUserCol("lastSeenAt", `ALTER TABLE users ADD COLUMN lastSeenAt TEXT;`);
@@ -258,8 +260,9 @@ async function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT,
       tokenHash TEXT,
-      role TEXT DEFAULT 'creator',
+      role TEXT DEFAULT 'organizer',
       city TEXT DEFAULT 'Enumclaw',
+      permissionsJson TEXT,
       expiresAt TEXT,
       usedAt TEXT,
       createdAt TEXT DEFAULT (datetime('now'))
@@ -270,15 +273,48 @@ async function initDB() {
     const cols = await tableInfo("invites");
     if (!cols.some((c) => c.name === name)) await tryExec(defSql);
   };
-  await addInviteCol("role", `ALTER TABLE invites ADD COLUMN role TEXT DEFAULT 'creator';`);
+  await addInviteCol("role", `ALTER TABLE invites ADD COLUMN role TEXT DEFAULT 'organizer';`);
   await addInviteCol("city", `ALTER TABLE invites ADD COLUMN city TEXT DEFAULT 'Enumclaw';`);
+  await addInviteCol("permissionsJson", `ALTER TABLE invites ADD COLUMN permissionsJson TEXT;`);
   await addInviteCol("createdByUserId", `ALTER TABLE invites ADD COLUMN createdByUserId INTEGER;`);
 
-  // Migrate legacy role values
-  await tryExec(`UPDATE users SET role = 'creator' WHERE role = 'city_viewer' OR role IS NULL OR role = '';`);
-  await tryExec(`UPDATE users SET role = 'editor' WHERE role = 'city_editor';`);
-  await tryExec(`UPDATE invites SET role = 'creator' WHERE role = 'city_viewer' OR role IS NULL OR role = '';`);
-  await tryExec(`UPDATE invites SET role = 'editor' WHERE role = 'city_editor';`);
+  // Keep the live role model simple: developer or organizer.
+  await tryExec(`UPDATE users SET role = 'developer' WHERE lower(COALESCE(role,'')) IN ('admin','developer','area_manager');`);
+  await tryExec(`UPDATE users SET role = 'organizer' WHERE lower(COALESCE(role,'')) NOT IN ('developer') OR role IS NULL OR role = '';`);
+  await tryExec(`UPDATE invites SET role = 'developer' WHERE lower(COALESCE(role,'')) IN ('admin','developer','area_manager');`);
+  await tryExec(`UPDATE invites SET role = 'organizer' WHERE lower(COALESCE(role,'')) NOT IN ('developer') OR role IS NULL OR role = '';`);
+
+  const organizerAllPermissions = JSON.stringify({
+    events: true,
+    venues: true,
+    jobs: true,
+    ads: true,
+  });
+  const newOrganizerPermissions = JSON.stringify({
+    events: true,
+    venues: false,
+    jobs: false,
+    ads: false,
+  });
+
+  try {
+    await run(
+      `UPDATE users
+          SET permissionsJson = ?
+        WHERE lower(COALESCE(role,'')) = 'organizer'
+          AND (permissionsJson IS NULL OR trim(permissionsJson) = '')`,
+      [organizerAllPermissions]
+    );
+  } catch (_) {}
+  try {
+    await run(
+      `UPDATE invites
+          SET permissionsJson = ?
+        WHERE lower(COALESCE(role,'')) = 'organizer'
+          AND (permissionsJson IS NULL OR trim(permissionsJson) = '')`,
+      [newOrganizerPermissions]
+    );
+  } catch (_) {}
 
   // Password resets
   await tryExec(`
