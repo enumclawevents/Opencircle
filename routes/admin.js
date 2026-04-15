@@ -4724,7 +4724,7 @@ return `
                           </div>
                         </div>
                       </form>
-                      <div style="display:flex; flex-direction:column; gap:8px; min-width:170px; justify-content:space-between; align-self:stretch;">
+                      <div style="display:flex; flex-direction:column; gap:8px; min-width:170px; justify-content:space-between; align-self:stretch; padding-top:26px;">
                         <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');">
                           <button class="btn" type="submit" style="width:100%;">Resend invite</button>
                         </form>
