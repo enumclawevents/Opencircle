@@ -4712,7 +4712,7 @@ return `
                           </div>
                           <button class="btn" type="submit">Update</button>
                         </div>
-                        <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
+                        <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none; margin-top:-4px;"}">
                           <div class="muted" style="margin-bottom:6px;">Section access</div>
                           <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px 12px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
                             ${ORGANIZER_SECTION_KEYS.map((section) => `
@@ -4724,11 +4724,11 @@ return `
                           </div>
                         </div>
                       </form>
-                      <div style="display:flex; flex-direction:column; gap:8px; min-width:170px; justify-content:space-between; align-self:stretch; padding-top:26px;">
+                      <div style="display:flex; flex-direction:column; gap:8px; min-width:170px; justify-content:flex-start; align-self:stretch; padding-top:26px;">
                         <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');">
                           <button class="btn" type="submit" style="width:100%;">Resend invite</button>
                         </form>
-                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');" style="margin-top:auto;">
+                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');">
                           <button class="btn" type="submit" style="width:100%;">Reset Password</button>
                         </form>
                         <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');">
