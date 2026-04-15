@@ -4712,11 +4712,11 @@ return `
                           </div>
                           <button class="btn" type="submit">Update</button>
                         </div>
-                        <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none; margin-top:-4px;"}">
+                        <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none; margin-top:-8px;"}">
                           <div class="muted" style="margin-bottom:6px;">Section access</div>
-                          <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px 12px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
+                          <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px 12px; padding:8px 12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
                             ${ORGANIZER_SECTION_KEYS.map((section) => `
-                              <label style="display:flex; align-items:center; gap:10px; color:var(--text); font-weight:600; min-height:34px; line-height:1.2; padding:4px 6px; border-radius:10px;">
+                              <label style="display:flex; align-items:center; gap:10px; color:var(--text); font-weight:600; min-height:30px; line-height:1.2; padding:2px 6px; border-radius:10px;">
                                 <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} />
                                 <span>${esc(section.charAt(0).toUpperCase() + section.slice(1))}</span>
                               </label>
@@ -4724,7 +4724,7 @@ return `
                           </div>
                         </div>
                       </form>
-                      <div style="display:flex; flex-direction:column; gap:8px; min-width:170px; justify-content:flex-start; align-self:stretch; padding-top:26px;">
+                      <div style="display:flex; flex-direction:column; gap:8px; min-width:170px; justify-content:flex-start; align-self:stretch; padding-top:22px;">
                         <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');">
                           <button class="btn" type="submit" style="width:100%;">Resend invite</button>
                         </form>
