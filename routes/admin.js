@@ -4686,51 +4686,55 @@ return `
               const userPerms = getUserSectionPermissions(u);
               return `
                 <div class="mini" style="margin-bottom:10px;">
-                  <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
-                    <div class="muted" style="min-width:0;">
+                  <div style="display:grid; grid-template-columns:minmax(240px, 320px) minmax(0, 1fr); gap:18px; align-items:start;">
+                    <div class="muted" style="min-width:0; padding-top:4px;">
                       <div class="user-line" style="font-weight:700; color:#0f172a;">${onlineStatusMarkup(u.lastSeenAt, `${u.username || u.email || "User"} status`)}<span>${esc(u.username || u.email || "User")}</span></div>
                       <div>Email: ${esc(u.email || "—")}</div>
                       <div>Role: ${esc(labelRole)}</div>
                       <div>City: ${esc(u.city || "Enumclaw")}</div>
                       <div>Created: ${esc(fmtPendingDate(u.createdAt))}</div>
                     </div>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');">
-                        <button class="btn" type="submit">Resend invite</button>
-                      </form>
-                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');">
-                        <button class="btn" type="submit">Reset Password</button>
-                      </form>
-                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-                        <div>
-                          <div class="muted" style="margin-bottom:4px;">Role</div>
-                          <select name="role" class="ctrl" style="min-width:140px;" data-organizer-role-select>
-                            ${liveRoleOptionsMarkup(normalizedUserRole, { includeLegacySelected: true })}
-                          </select>
-                        </div>
-                        <div>
-                          <div class="muted" style="margin-bottom:4px;">City</div>
-                          <select name="city" class="ctrl" style="min-width:140px;">
-                            <option value="Enumclaw" ${u.city === "Enumclaw" ? "selected" : ""}>Enumclaw</option>
-                            <option value="Buckley" ${u.city === "Buckley" ? "selected" : ""}>Buckley</option>
-                          </select>
+                    <div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:14px; align-items:start; min-width:0;">
+                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:flex; flex-direction:column; gap:12px; min-width:0;">
+                        <div style="display:grid; grid-template-columns:repeat(2,minmax(150px,1fr)) auto; gap:10px; align-items:end;">
+                          <div>
+                            <div class="muted" style="margin-bottom:4px;">Role</div>
+                            <select name="role" class="ctrl" style="width:100%;" data-organizer-role-select>
+                              ${liveRoleOptionsMarkup(normalizedUserRole, { includeLegacySelected: true })}
+                            </select>
+                          </div>
+                          <div>
+                            <div class="muted" style="margin-bottom:4px;">City</div>
+                            <select name="city" class="ctrl" style="width:100%;">
+                              <option value="Enumclaw" ${u.city === "Enumclaw" ? "selected" : ""}>Enumclaw</option>
+                              <option value="Buckley" ${u.city === "Buckley" ? "selected" : ""}>Buckley</option>
+                            </select>
+                          </div>
+                          <button class="btn" type="submit">Update</button>
                         </div>
                         <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
-                          <div class="muted" style="margin-bottom:4px;">Access</div>
-                          <div style="display:grid; grid-template-columns:repeat(2,minmax(110px,1fr)); gap:6px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff; min-width:260px;">
+                          <div class="muted" style="margin-bottom:6px;">Section access</div>
+                          <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
                             ${ORGANIZER_SECTION_KEYS.map((section) => `
-                              <label style="display:flex; align-items:center; gap:8px; color:var(--text); font-weight:600;">
+                              <label style="display:flex; align-items:center; gap:8px; color:var(--text); font-weight:600; min-height:36px;">
                                 <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} />
                                 <span>${esc(section.charAt(0).toUpperCase() + section.slice(1))}</span>
                               </label>
                             `).join("")}
                           </div>
                         </div>
-                        <button class="btn" type="submit">Update</button>
                       </form>
-                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');">
-                        <button class="btn danger" type="submit">Delete</button>
-                      </form>
+                      <div style="display:flex; flex-direction:column; gap:8px; min-width:170px;">
+                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');">
+                          <button class="btn" type="submit" style="width:100%;">Resend invite</button>
+                        </form>
+                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');">
+                          <button class="btn" type="submit" style="width:100%;">Reset Password</button>
+                        </form>
+                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');">
+                          <button class="btn danger" type="submit" style="width:100%;">Delete</button>
+                        </form>
+                      </div>
                     </div>
                   </div>
                 </div>
