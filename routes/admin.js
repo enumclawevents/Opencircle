@@ -4714,9 +4714,9 @@ return `
                         </div>
                         <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
                           <div class="muted" style="margin-bottom:6px;">Section access</div>
-                          <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
+                          <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px 12px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
                             ${ORGANIZER_SECTION_KEYS.map((section) => `
-                              <label style="display:flex; align-items:center; gap:8px; color:var(--text); font-weight:600; min-height:36px;">
+                              <label style="display:flex; align-items:center; gap:8px; color:var(--text); font-weight:600; min-height:28px; line-height:1.2;">
                                 <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} />
                                 <span>${esc(section.charAt(0).toUpperCase() + section.slice(1))}</span>
                               </label>
