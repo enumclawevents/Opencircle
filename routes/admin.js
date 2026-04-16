@@ -13,6 +13,7 @@ const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { sendEmail } = require("../mailer");
 const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const crypto = require("crypto");
+const packageMeta = require("../package.json");
 const PASSWORD_ITER = 120000;
 const DEFAULT_TZ = "America/Los_Angeles";
 
@@ -2029,11 +2030,6 @@ function isUserOnline(lastSeenAt) {
   return (Date.now() - ts) <= 5 * 60 * 1000;
 }
 
-function onlineStatusMarkup(lastSeenAt, label = "User status") {
-  const online = isUserOnline(lastSeenAt);
-  return `<span class="online-dot ${online ? "is-online" : "is-offline"}" title="${esc(online ? `${label}: online` : `${label}: offline`)}" aria-label="${esc(online ? `${label}: online` : `${label}: offline`)}"></span>`;
-}
-
 function normalizePresenceStatus(value) {
   const normalized = String(value || "").trim().toLowerCase();
   return ["available", "away", "dnd"].includes(normalized) ? normalized : "available";
@@ -2052,6 +2048,26 @@ function getPresenceStatusClass(value, isOnline = true) {
   if (normalized === "away") return "is-away";
   if (normalized === "dnd") return "is-dnd";
   return "is-available";
+}
+
+function getPresenceState(presenceStatus, lastSeenAt) {
+  const online = isUserOnline(lastSeenAt);
+  return {
+    online,
+    className: getPresenceStatusClass(presenceStatus, online),
+    label: online ? formatPresenceStatusLabel(presenceStatus) : "Offline",
+  };
+}
+
+function onlineStatusMarkup(lastSeenAtOrOptions, label = "User status") {
+  const options = lastSeenAtOrOptions && typeof lastSeenAtOrOptions === "object" && !Array.isArray(lastSeenAtOrOptions)
+    ? lastSeenAtOrOptions
+    : { lastSeenAt: lastSeenAtOrOptions, label };
+  const userId = Number(options.userId || 0);
+  const state = getPresenceState(options.presenceStatus, options.lastSeenAt);
+  const finalLabel = String(options.label || label || "User status");
+  const userAttr = userId ? ` data-presence-user-id="${userId}"` : "";
+  return `<span class="online-dot ${state.className}" data-presence-dot${userAttr} title="${esc(`${finalLabel}: ${state.label}`)}" aria-label="${esc(`${finalLabel}: ${state.label}`)}"></span>`;
 }
 
 function safeAdminRedirectPath(input, fallback = "/admin/preferences") {
@@ -2209,6 +2225,17 @@ function organizerOwnsEvent(row, organizerValues) {
   return !!row && !!normalizeOrganizerIdentity(row.organizer) && (organizerValues || []).includes(normalizeOrganizerIdentity(row.organizer));
 }
 
+function buildCreatedByOwnerClause(userId) {
+  const normalizedId = Number(userId || 0);
+  if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
+    return { sql: "1=0", params: [] };
+  }
+  return {
+    sql: "createdByUserId = ?",
+    params: [normalizedId],
+  };
+}
+
 // GET /admin
 async function renderAdmin(req, res, view) {
   try {
@@ -2257,6 +2284,7 @@ let whereParams = [];
     const organizerAccessValues = isOrganizerUser ? getOrganizerAccessValues(currentUser, req) : [];
     const organizerPrimaryName = isOrganizerUser ? getOrganizerPrimaryName(currentUser, req) : "";
     const organizerOwnerClause = isOrganizerUser ? buildOrganizerOwnerClause("organizer", organizerAccessValues) : null;
+    const organizerVenueOwnerClause = isOrganizerUser ? buildCreatedByOwnerClause(currentUser?.id) : null;
     const currentPresenceStatus = normalizePresenceStatus(currentUser?.presenceStatus);
     const currentPresenceLabel = formatPresenceStatusLabel(currentPresenceStatus);
     const currentPresenceClass = getPresenceStatusClass(currentPresenceStatus, !!currentUser?.id);
@@ -3098,7 +3126,8 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const appVersion = String(process.env.APP_VERSION || "v0.1.86");
+    const packageVersion = String(packageMeta?.version || "").trim();
+    const appVersion = String(process.env.APP_VERSION || (packageVersion ? `v${packageVersion}` : "v0.0.0"));
     let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
     try {
       const st = fs.statSync(__filename);
@@ -3112,6 +3141,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-16", text: "Organizer venue access is now limited to each organizer's own venues, and the dashboard app version now follows package.json automatically" });
     releaseLogItems.push({ date: "2026-04-14", text: "Profile status badge now hangs outside the avatar circle instead of sitting inside the crop" });
     releaseLogItems.push({ date: "2026-04-14", text: "Insights tabs now use the same rounded pill style as the calendar scope toggle" });
     releaseLogItems.push({ date: "2026-04-14", text: "Account dropdown action icons now use inline SVG and status rows no longer show helper text" });
@@ -3639,6 +3669,10 @@ return `
     if (selectedCity) {
       venueDashWhere.push("city = ?");
       venueDashParams.push(selectedCity);
+    }
+    if (isOrganizerUser && organizerVenueOwnerClause) {
+      venueDashWhere.push(organizerVenueOwnerClause.sql);
+      venueDashParams.push(...organizerVenueOwnerClause.params);
     }
     const venueDashWhereSql = venueDashWhere.length ? `WHERE ${venueDashWhere.join(" AND ")}` : "";
     const venueTotalRowDash = await get(`SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}`, venueDashParams);
@@ -4746,8 +4780,8 @@ return `
               }
               .users-modal-panel{
                 position:relative; z-index:1; width:min(760px, calc(100vw - 32px));
-                border:1px solid var(--line); border-radius:24px; background:#fff;
-                box-shadow:0 24px 60px rgba(15,23,42,.18); padding:22px;
+                border:1px solid var(--line); border-radius:16px; background:#fff;
+                box-shadow:0 24px 60px rgba(15,23,42,.18); padding:18px;
                 display:grid; gap:18px;
               }
               .users-modal-top{
@@ -4761,11 +4795,11 @@ return `
               }
               .users-modal-grid{
                 display:grid; grid-template-columns:minmax(0,1fr) minmax(210px, 240px); gap:18px;
-                align-items:start;
+                align-items:stretch;
               }
-              .users-modal-main{ display:grid; gap:18px; }
+              .users-modal-main{ display:grid; gap:18px; align-self:stretch; }
               .users-modal-card{
-                border:1px solid var(--line); border-radius:18px; background:#fff; padding:18px;
+                border:1px solid var(--line); border-radius:14px; background:#fff; padding:16px;
               }
               .users-modal-label{ color:var(--muted); font-weight:700; margin-bottom:8px; }
               .users-field-row{ display:grid; grid-template-columns:minmax(0,1fr) 140px; gap:14px; align-items:end; }
@@ -4776,11 +4810,22 @@ return `
                 display:flex; align-items:center; gap:10px; min-height:40px; font-weight:700; color:var(--text);
               }
               .users-access-item input{ width:18px; height:18px; margin:0; }
-              .users-side-actions{ display:grid; gap:12px; }
+              .users-side-actions{
+                display:grid;
+                gap:14px;
+                align-self:stretch;
+                grid-template-rows:repeat(3, minmax(0, 1fr));
+              }
               .users-side-actions form,
               .users-modal-main form{ margin:0; }
+              .users-side-actions form{ display:flex; }
               .users-side-actions .btn,
               .users-modal-main .btn{ width:100%; }
+              .users-side-actions .btn{
+                min-height:72px;
+                height:100%;
+                border-radius:12px;
+              }
               .users-empty{
                 border:1px solid var(--line);
                 border-radius:var(--radius);
@@ -5157,15 +5202,21 @@ return `
           const venueCreatorSelect = venueActivityCols.has("createdByUserId")
             ? "u.displayName, u.username, u.email"
             : "NULL AS displayName, NULL AS username, NULL AS email";
+          const venueActivityWhere = ["v.city = ?"];
+          const venueActivityParams = [selectedCity];
+          if (isOrganizerUser && organizerVenueOwnerClause) {
+            venueActivityWhere.push(`v.${organizerVenueOwnerClause.sql}`);
+            venueActivityParams.push(...organizerVenueOwnerClause.params);
+          }
           const rows = await all(
             `SELECT v.id, v.slug, v.name, v.address, v.createdAt,
                     ${venueCreatorSelect}
                FROM venues v
                ${venueCreatorJoin}
-              WHERE v.city = ?
+              WHERE ${venueActivityWhere.join(" AND ")}
               ORDER BY datetime(COALESCE(v.createdAt, '1970-01-01')) DESC, v.id DESC
               LIMIT 6`,
-            [selectedCity]
+            venueActivityParams
           );
           rows.forEach((row) => {
             activityItems.push({
@@ -5305,7 +5356,13 @@ return `
     if (showVenueCreate && req.query.edit) {
       const venueId = parseInt(String(req.query.edit), 10);
       if (!Number.isNaN(venueId)) {
-        editVenue = await get("SELECT * FROM venues WHERE id = ?", [venueId]);
+        const editVenueWhereParts = ["id = ?"];
+        const editVenueParams = [venueId];
+        if (isOrganizerUser && organizerVenueOwnerClause) {
+          editVenueWhereParts.push(organizerVenueOwnerClause.sql);
+          editVenueParams.push(...organizerVenueOwnerClause.params);
+        }
+        editVenue = await get(`SELECT * FROM venues WHERE ${editVenueWhereParts.join(" AND ")}`, editVenueParams);
       }
     }
     if (showAdsCreate) {
@@ -5727,6 +5784,10 @@ return `
       if (selectedCity) {
         venueWhere.push("city = ?");
         venueParams.push(selectedCity);
+      }
+      if (isOrganizerUser && organizerVenueOwnerClause) {
+        venueWhere.push(organizerVenueOwnerClause.sql);
+        venueParams.push(...organizerVenueOwnerClause.params);
       }
       if (q) {
         const like = `%${q}%`;
@@ -14095,6 +14156,7 @@ router.post("/venues", upload.fields([{ name: "venueImageFile", maxCount: 1 }, {
   try {
     const role = normalizeRoleValue(req.user?.role || "organizer");
     const sessionUser = await resolveSessionUser(req);
+    const isOrganizerUser = role === "organizer";
     const sectionPermissions = getUserSectionPermissions(sessionUser || { role });
     if (!(hasDeveloperAccessRole(role) || sectionPermissions.venues)) {
       return res.status(403).send("Forbidden");
@@ -14178,6 +14240,11 @@ router.post("/venues", upload.fields([{ name: "venueImageFile", maxCount: 1 }, {
     const slug = await ensureUniqueVenueSlug(baseSlug, isUpdate ? id : null);
 
     if (isUpdate) {
+      const existingVenue = await get("SELECT id, createdByUserId FROM venues WHERE id = ? LIMIT 1", [id]);
+      if (!existingVenue?.id) return res.status(404).send("Venue not found.");
+      if (isOrganizerUser && Number(existingVenue.createdByUserId || 0) !== Number(sessionUser?.id || 0)) {
+        return res.status(403).send("Forbidden");
+      }
       await run(
         `UPDATE venues
             SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, imageUrl = ?, galleryJson = ?, categoriesJson = ?, socialJson = ?, hoursJson = ?, seoTitle = ?, metaDescription = ?, focusKeyphrase = ?, imageAlt = ?, description = ?, createdByUserId = COALESCE(createdByUserId, ?), updatedAt = datetime('now')
@@ -14208,6 +14275,7 @@ router.post("/venues/:id/delete", async (req, res) => {
   try {
     const role = normalizeRoleValue(req.user?.role || "organizer");
     const sessionUser = await resolveSessionUser(req);
+    const isOrganizerUser = role === "organizer";
     const sectionPermissions = getUserSectionPermissions(sessionUser || { role });
     if (!(hasDeveloperAccessRole(role) || sectionPermissions.venues)) {
       return res.status(403).send("Forbidden");
@@ -14216,6 +14284,12 @@ router.post("/venues/:id/delete", async (req, res) => {
 
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
+
+    const existingVenue = await get("SELECT id, createdByUserId FROM venues WHERE id = ? LIMIT 1", [id]);
+    if (!existingVenue?.id) return res.status(404).send("Venue not found.");
+    if (isOrganizerUser && Number(existingVenue.createdByUserId || 0) !== Number(sessionUser?.id || 0)) {
+      return res.status(403).send("Forbidden");
+    }
 
     await run("DELETE FROM venues WHERE id = ?", [id]);
 
