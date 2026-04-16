@@ -289,12 +289,14 @@ async function initDB() {
     venues: true,
     jobs: true,
     ads: true,
+    featureEvents: false,
   });
   const newOrganizerPermissions = JSON.stringify({
     events: true,
     venues: false,
     jobs: false,
     ads: false,
+    featureEvents: false,
   });
 
   try {

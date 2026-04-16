@@ -1901,7 +1901,7 @@ async function ensureUserProfileSchema() {
           SET permissionsJson = ?
         WHERE lower(COALESCE(role,'')) = 'organizer'
           AND (permissionsJson IS NULL OR trim(permissionsJson) = '')`,
-      [JSON.stringify({ events: true, venues: true, jobs: true, ads: true })]
+      [JSON.stringify({ events: true, venues: true, jobs: true, ads: true, featureEvents: false })]
     );
   } catch (_) {}
 
@@ -2095,19 +2095,26 @@ function renderInlineIcon(name) {
   return "";
 }
 
-const ORGANIZER_SECTION_KEYS = ["events", "venues", "jobs", "ads"];
+const ORGANIZER_SECTION_KEYS = ["events", "venues", "jobs", "ads", "featureEvents"];
 const DEFAULT_ORGANIZER_PERMISSIONS = Object.freeze({
   events: true,
   venues: false,
   jobs: false,
   ads: false,
+  featureEvents: false,
 });
 const EXISTING_ORGANIZER_PERMISSIONS = Object.freeze({
   events: true,
   venues: true,
   jobs: true,
   ads: true,
+  featureEvents: false,
 });
+
+function formatOrganizerPermissionLabel(key) {
+  if (key === "featureEvents") return "Feature Events";
+  return String(key || "").charAt(0).toUpperCase() + String(key || "").slice(1);
+}
 
 function normalizeRoleValue(value) {
   const normalized = String(value || "organizer").trim().toLowerCase();
@@ -2168,7 +2175,7 @@ function stringifyOrganizerPermissions(value, fallback = DEFAULT_ORGANIZER_PERMI
 
 function getUserSectionPermissions(user) {
   if (isDeveloperRole(user?.role)) {
-    return { events: true, venues: true, jobs: true, ads: true };
+    return { events: true, venues: true, jobs: true, ads: true, featureEvents: true };
   }
   return normalizeOrganizerPermissions(user?.permissionsJson, EXISTING_ORGANIZER_PERMISSIONS);
 }
@@ -2746,6 +2753,7 @@ try {
     const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
     const isFeatured = Number(editEvent?.featured || 0) === 1;
     const isEddiesPick = Number(editEvent?.eddiesPick || 0) === 1;
+    const canFeatureEvents = hasDeveloperAccess || !!sectionPermissions.featureEvents;
     const canCurateEventPromotions = hasDeveloperAccess;
     const organizerFormValue = isOrganizerUser
       ? (organizerPrimaryName || String(editEvent?.organizer || ""))
@@ -4879,7 +4887,7 @@ return `
               const statusTone = u.lastSeenAt ? "Active" : "Inactive";
               const statusColor = u.lastSeenAt ? "#22c55e" : "#ef4444";
               const accessSummary = normalizedUserRole === "organizer"
-                ? ["Events", userPerms.venues ? "Venues" : "", userPerms.jobs ? "Jobs" : "", userPerms.ads ? "Ads" : ""].filter(Boolean).join(", ")
+                ? ["Events", userPerms.venues ? "Venues" : "", userPerms.jobs ? "Jobs" : "", userPerms.ads ? "Ads" : "", userPerms.featureEvents ? "Feature Events" : ""].filter(Boolean).join(", ")
                 : "Full";
               return `
                 <div class="users-row">
@@ -4939,7 +4947,7 @@ return `
                                     ${ORGANIZER_SECTION_KEYS.map((section) => `
                                       <label class="users-access-item">
                                         <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} form="${userFormId}" />
-                                        <span>${esc(section.charAt(0).toUpperCase() + section.slice(1))}</span>
+                                        <span>${esc(formatOrganizerPermissionLabel(section))}</span>
                                       </label>
                                     `).join("")}
                                   </div>
@@ -10158,18 +10166,20 @@ return `
 
               <div class="event-type-shell ${inferredEventType ? "is-visible" : ""}" id="eventTypeShell">
 
-              ${canCurateEventPromotions ? `
+              ${canFeatureEvents ? `
               <div class="rec-box">
                 <div class="checkbox">
                   <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
                   <label for="featured" style="margin:0;font-size:12px;font-weight:650;">Featured event</label>
                 </div>
                 <div class="note">Featured events show a badge on the event card and event page.</div>
+                ${canCurateEventPromotions ? `
                 <div class="checkbox" style="margin-top:10px;">
                   <input type="checkbox" id="eddiesPick" name="eddiesPick" value="1" ${isEddiesPick ? "checked" : ""} />
                   <label for="eddiesPick" style="margin:0;font-size:12px;font-weight:650;">Eddie's Pick</label>
                 </div>
                 <div class="note">Shows this event as Eddie's Pick in weekend emails.</div>
+                ` : ``}
               </div>
               ` : ""}
 
@@ -14099,6 +14109,7 @@ router.post("/users/:id/role", async (req, res) => {
           venues: String(req.body?.perm_venues || "") === "1",
           jobs: String(req.body?.perm_jobs || "") === "1",
           ads: String(req.body?.perm_ads || "") === "1",
+          featureEvents: String(req.body?.perm_featureEvents || "") === "1",
         }, DEFAULT_ORGANIZER_PERMISSIONS)
       : null;
     await run("UPDATE users SET role = ?, city = ?, permissionsJson = ? WHERE id = ?", [newRole, newCity, permissionsJson, id]);
@@ -14696,8 +14707,9 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       return res.status(400).send("End time must be after start time.");
     }
 
+    const canFeatureEvents = hasDeveloperAccessRole(role) || !!sectionPermissions.featureEvents;
     const canCurateEventPromotions = hasDeveloperAccessRole(role);
-    const featuredFlag = canCurateEventPromotions ? (String(featured || "") === "1" ? 1 : 0) : 0;
+    const featuredFlag = canFeatureEvents ? (String(featured || "") === "1" ? 1 : 0) : 0;
     const eddiesPickFlag = canCurateEventPromotions ? (String(eddiesPick || "") === "1" ? 1 : 0) : 0;
 
     // Slug
@@ -15156,7 +15168,7 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
         ].filter(Boolean);
         const imageAssetName = normalizeAssetKey(getCsvValue(row, ["imageFile", "imageFilename", "image"]));
         const categories = normalizeCategories(categoriesRaw);
-        const featuredFlag = hasDeveloperAccessRole(role)
+        const featuredFlag = (hasDeveloperAccessRole(role) || !!sectionPermissions.featureEvents)
           ? (parseCsvBoolean(getCsvValue(row, ["featured"])) ? 1 : 0)
           : 0;
         const eddiesPickFlag = hasDeveloperAccessRole(role)
