@@ -4707,8 +4707,8 @@ return `
                         </form>
                       </div>
                     </div>
-                    <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:flex; flex-direction:column; gap:12px;">
-                      <div style="display:grid; grid-template-columns:repeat(2,minmax(180px,1fr)) auto; gap:12px; align-items:end;">
+                    <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:flex; flex-direction:column; gap:12px; max-width:1240px;">
+                      <div style="display:grid; grid-template-columns:minmax(220px,420px) minmax(220px,420px) auto; gap:12px; align-items:end;">
                         <div>
                           <div class="muted" style="margin-bottom:4px;">Role</div>
                           <select name="role" class="ctrl" style="width:100%;" data-organizer-role-select>
@@ -4726,7 +4726,7 @@ return `
                       </div>
                       <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
                         <div class="muted" style="margin-bottom:6px;">Section access</div>
-                        <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px 12px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
+                        <div style="display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:8px 12px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff; max-width:1000px;">
                           ${ORGANIZER_SECTION_KEYS.map((section) => `
                             <label style="display:flex; align-items:center; gap:10px; color:var(--text); font-weight:600; min-height:32px; line-height:1.2; padding:4px 8px; border-radius:10px; justify-self:stretch;">
                               <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} style="margin:0; width:18px; height:18px; flex:0 0 auto; align-self:center;" />
