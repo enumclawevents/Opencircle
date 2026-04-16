@@ -4713,31 +4713,20 @@ return `
                 border:1px solid var(--line);
                 border-radius:var(--radius);
                 background:#fff;
-                box-shadow:0 1px 2px rgba(15,23,42,.03);
                 overflow:hidden;
-              }
-              .users-intro{
-                padding:18px 22px 0;
-                color:var(--muted);
-                font-size:13px;
-                font-weight:600;
               }
               .users-list{
                 display:grid;
-                gap:10px;
-                padding:14px;
+                gap:0;
               }
               .users-row{
                 display:grid;
-                gap:14px;
-                padding:18px;
-                border:1px solid rgba(148,163,184,.18);
-                border-radius:18px;
-                background:linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+                gap:12px;
+                padding:18px 20px;
+                background:#fff;
               }
-              .users-row:hover{
-                border-color:rgba(148,163,184,.28);
-                box-shadow:0 10px 24px rgba(15,23,42,.05);
+              .users-row + .users-row{
+                border-top:1px solid var(--line);
               }
               .users-topline{
                 display:flex;
@@ -4747,34 +4736,30 @@ return `
               }
               .users-name{ display:flex; gap:14px; align-items:flex-start; min-width:0; }
               .users-avatar{
-                width:50px; height:50px; border-radius:999px; flex:0 0 50px;
-                background:linear-gradient(180deg, #e7eef8 0%, #dbe7f6 100%);
+                width:44px; height:44px; border-radius:999px; flex:0 0 44px;
+                background:#e7eef8;
                 color:#52627a; display:grid; place-items:center; font-weight:800;
                 overflow:hidden;
-                box-shadow:inset 0 0 0 1px rgba(255,255,255,.8);
               }
               .users-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
               .users-copy{ min-width:0; }
-              .users-primary{ font-weight:800; color:var(--text); line-height:1.2; display:flex; align-items:center; gap:8px; font-size:28px; }
-              .users-secondary{ color:#6b7280; margin-top:4px; word-break:break-word; font-size:15px; }
+              .users-primary{ font-weight:800; color:var(--text); line-height:1.2; display:flex; align-items:center; gap:8px; font-size:18px; }
+              .users-secondary{ color:#6b7280; margin-top:4px; word-break:break-word; font-size:14px; }
               .users-meta{
                 display:flex;
                 flex-wrap:wrap;
-                gap:10px;
+                gap:14px;
+                padding-left:58px;
               }
-              .users-meta-chip{
+              .users-meta-item{
                 display:inline-flex;
                 align-items:center;
                 gap:8px;
-                min-height:38px;
-                padding:0 14px;
-                border-radius:999px;
-                border:1px solid rgba(148,163,184,.22);
-                background:#fff;
                 color:#50627b;
                 font-weight:700;
+                font-size:14px;
               }
-              .users-meta-chip strong{
+              .users-meta-item strong{
                 color:var(--text);
                 font-weight:800;
               }
@@ -4797,9 +4782,8 @@ return `
               }
               .users-actions-trigger{
                 display:inline-flex; align-items:center; justify-content:center;
-                min-height:44px; border:1px solid rgba(148,163,184,.22); border-radius:12px; background:#fff;
-                color:#29557a; font-weight:800; text-decoration:none; cursor:pointer; padding:0 16px;
-                box-shadow:0 1px 2px rgba(15,23,42,.03);
+                min-height:38px; border:1px solid var(--line); border-radius:10px; background:#fff;
+                color:#29557a; font-weight:800; text-decoration:none; cursor:pointer; padding:0 14px;
               }
               .users-actions-trigger:hover{ background:#f3f7fb; border-color:rgba(41,85,122,.18); }
               .users-modal{
@@ -4812,7 +4796,7 @@ return `
               }
               .users-modal-panel{
                 position:relative; z-index:1; width:min(760px, calc(100vw - 32px));
-                border:1px solid var(--line); border-radius:18px; background:#fff;
+                border:1px solid var(--line); border-radius:14px; background:#fff;
                 box-shadow:0 24px 60px rgba(15,23,42,.18); padding:18px;
                 display:grid; gap:18px;
               }
@@ -4868,17 +4852,17 @@ return `
               @media (max-width: 980px){
                 .users-topline{
                   display:grid;
-                  gap:14px;
+                  gap:12px;
                 }
-                .users-primary{ font-size:24px; }
+                .users-primary{ font-size:17px; }
                 .users-actions{ justify-content:flex-start; }
+                .users-meta{ padding-left:0; }
                 .users-modal-grid,
                 .users-field-row,
                 .users-access-grid{ grid-template-columns:1fr; }
               }
             </style>
             <div class="users-panel">
-              <div class="users-intro">Developer and organizer accounts, permissions, and city access in one place.</div>
               <div class="users-list">` +
           rows
             .map((u) => {
@@ -4911,10 +4895,10 @@ return `
                     <div class="users-actions"><button class="users-actions-trigger" type="button" data-open-user-modal="${modalId}">Actions</button></div>
                   </div>
                   <div class="users-meta">
-                    <div class="users-meta-chip"><span class="users-status"><span class="users-status-dot" style="background:${statusColor};"></span><span>${statusTone}</span></span></div>
-                    <div class="users-meta-chip"><span>Role</span><strong><span class="users-pill ${normalizedUserRole === "developer" ? "role-dev" : "role-org"}">${esc(labelRole)}</span></strong></div>
-                    <div class="users-meta-chip"><span>City</span><strong>${cityLabel}</strong></div>
-                    <div class="users-meta-chip"><span>Access</span><strong>${esc(accessSummary)}</strong></div>
+                    <div class="users-meta-item"><span class="users-status"><span class="users-status-dot" style="background:${statusColor};"></span><span>${statusTone}</span></span></div>
+                    <div class="users-meta-item"><span>Role:</span><strong>${esc(labelRole)}</strong></div>
+                    <div class="users-meta-item"><span>City:</span><strong>${cityLabel}</strong></div>
+                    <div class="users-meta-item"><span>Access:</span><strong>${esc(accessSummary)}</strong></div>
                   </div>
 
                   <div class="users-modal" id="${modalId}" aria-hidden="true">
