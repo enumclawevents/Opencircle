@@ -4694,9 +4694,9 @@ return `
                       <div>City: ${esc(u.city || "Enumclaw")}</div>
                       <div>Created: ${esc(fmtPendingDate(u.createdAt))}</div>
                     </div>
-                    <div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:14px; align-items:stretch; min-width:0;">
+                    <div style="display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:12px; align-items:start; min-width:0;">
                       <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:flex; flex-direction:column; gap:12px; min-width:0;">
-                        <div style="display:grid; grid-template-columns:repeat(2,minmax(150px,1fr)) auto; gap:10px; align-items:end;">
+                        <div style="display:grid; grid-template-columns:repeat(2,minmax(150px,1fr)) auto; gap:12px; align-items:end;">
                           <div>
                             <div class="muted" style="margin-bottom:4px;">Role</div>
                             <select name="role" class="ctrl" style="width:100%;" data-organizer-role-select>
@@ -4712,11 +4712,11 @@ return `
                           </div>
                           <button class="btn" type="submit">Update</button>
                         </div>
-                        <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none; margin-top:-8px;"}">
+                        <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
                           <div class="muted" style="margin-bottom:6px;">Section access</div>
-                          <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px 12px; padding:8px 12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
+                          <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px 12px; padding:12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
                             ${ORGANIZER_SECTION_KEYS.map((section) => `
-                              <label style="display:flex; align-items:center; gap:10px; color:var(--text); font-weight:600; min-height:30px; line-height:1.2; padding:2px 6px; border-radius:10px;">
+                              <label style="display:flex; align-items:center; gap:10px; color:var(--text); font-weight:600; min-height:32px; line-height:1.2; padding:4px 8px; border-radius:10px;">
                                 <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} />
                                 <span>${esc(section.charAt(0).toUpperCase() + section.slice(1))}</span>
                               </label>
@@ -4724,14 +4724,14 @@ return `
                           </div>
                         </div>
                       </form>
-                      <div style="display:flex; flex-direction:column; gap:8px; min-width:170px; justify-content:flex-start; align-self:stretch; padding-top:22px;">
-                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');">
+                      <div style="display:grid; grid-template-rows:auto auto auto; gap:12px; min-width:0; align-self:start; padding-top:40px;">
+                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');" style="margin:0;">
                           <button class="btn" type="submit" style="width:100%;">Resend invite</button>
                         </form>
-                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');">
+                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');" style="margin:0;">
                           <button class="btn" type="submit" style="width:100%;">Reset Password</button>
                         </form>
-                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');">
+                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');" style="margin:0;">
                           <button class="btn danger" type="submit" style="width:100%;">Delete</button>
                         </form>
                       </div>
