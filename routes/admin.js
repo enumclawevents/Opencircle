@@ -4684,58 +4684,57 @@ return `
               const normalizedUserRole = normalizeRoleValue(u.role);
               const labelRole = formatRoleLabel(normalizedUserRole);
               const userPerms = getUserSectionPermissions(u);
+              const userFormId = `user-role-${encodeURIComponent(u.id)}`;
               return `
                 <div class="mini" style="margin-bottom:10px;">
-                  <div style="display:flex; flex-direction:column; gap:16px;">
-                    <div style="display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap;">
-                      <div class="muted" style="min-width:280px; padding-top:4px;">
+                  <div data-user-card style="display:grid; grid-template-columns:minmax(260px, 340px) minmax(0, 1fr); gap:16px; align-items:start;">
+                    <div class="muted" style="min-width:0; padding-top:4px;">
                       <div class="user-line" style="font-weight:700; color:#0f172a;">${onlineStatusMarkup(u.lastSeenAt, `${u.username || u.email || "User"} status`)}<span>${esc(u.username || u.email || "User")}</span></div>
                       <div>Email: ${esc(u.email || "—")}</div>
                       <div>Role: ${esc(labelRole)}</div>
                       <div>City: ${esc(u.city || "Enumclaw")}</div>
                       <div>Created: ${esc(fmtPendingDate(u.createdAt))}</div>
-                      </div>
-                      <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
-                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');" style="margin:0;">
-                          <button class="btn" type="submit">Resend invite</button>
-                        </form>
-                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');" style="margin:0;">
-                          <button class="btn" type="submit">Reset Password</button>
-                        </form>
-                        <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');" style="margin:0;">
-                          <button class="btn danger" type="submit">Delete</button>
-                        </form>
-                      </div>
                     </div>
-                    <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:flex; flex-direction:column; gap:12px; max-width:1240px;">
-                      <div style="display:grid; grid-template-columns:minmax(220px,420px) minmax(220px,420px) auto; gap:12px; align-items:end;">
-                        <div>
-                          <div class="muted" style="margin-bottom:4px;">Role</div>
-                          <select name="role" class="ctrl" style="width:100%;" data-organizer-role-select>
-                            ${liveRoleOptionsMarkup(normalizedUserRole, { includeLegacySelected: true })}
-                          </select>
-                        </div>
-                        <div>
-                          <div class="muted" style="margin-bottom:4px;">City</div>
-                          <select name="city" class="ctrl" style="width:100%;">
-                            <option value="Enumclaw" ${u.city === "Enumclaw" ? "selected" : ""}>Enumclaw</option>
-                            <option value="Buckley" ${u.city === "Buckley" ? "selected" : ""}>Buckley</option>
-                          </select>
-                        </div>
-                        <button class="btn" type="submit">Update</button>
-                      </div>
-                      <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
+                    <div style="display:grid; grid-template-columns:minmax(220px, 260px) minmax(220px, 1fr) 140px; gap:16px; align-items:stretch;">
+                      <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"} grid-column:1; grid-row:1 / span 2;">
                         <div class="muted" style="margin-bottom:6px;">Section access</div>
-                        <div style="display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:8px 12px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff; max-width:1000px;">
+                        <div style="display:grid; gap:8px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff; align-content:start;">
                           ${ORGANIZER_SECTION_KEYS.map((section) => `
-                            <label style="display:flex; align-items:center; gap:10px; color:var(--text); font-weight:600; min-height:32px; line-height:1.2; padding:4px 8px; border-radius:10px; justify-self:stretch;">
-                              <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} style="margin:0; width:18px; height:18px; flex:0 0 auto; align-self:center;" />
+                            <label style="display:flex; align-items:center; gap:10px; color:var(--text); font-weight:600; min-height:30px; line-height:1.2; padding:2px 0;">
+                              <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} form="${userFormId}" style="margin:0; width:18px; height:18px; flex:0 0 auto;" />
                               <span>${esc(section.charAt(0).toUpperCase() + section.slice(1))}</span>
                             </label>
                           `).join("")}
                         </div>
                       </div>
-                    </form>
+                      <form id="${userFormId}" method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:contents;">
+                        <div style="grid-column:${normalizedUserRole === "organizer" ? "2 / span 2" : "1 / span 3"}; min-width:0;">
+                          <div class="muted" style="margin-bottom:6px;">Permission level</div>
+                          <select name="role" class="ctrl" style="width:100%;" data-organizer-role-select>
+                            ${liveRoleOptionsMarkup(normalizedUserRole, { includeLegacySelected: true })}
+                          </select>
+                        </div>
+                        <div style="grid-column:${normalizedUserRole === "organizer" ? "2" : "1 / span 2"}; min-width:0;">
+                          <div class="muted" style="margin-bottom:6px;">City</div>
+                          <select name="city" class="ctrl" style="width:100%;">
+                            <option value="Enumclaw" ${u.city === "Enumclaw" ? "selected" : ""}>Enumclaw</option>
+                            <option value="Buckley" ${u.city === "Buckley" ? "selected" : ""}>Buckley</option>
+                          </select>
+                        </div>
+                        <div style="grid-column:3; align-self:end;">
+                          <button class="btn" type="submit" style="width:100%;">Update</button>
+                        </div>
+                      </form>
+                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');" style="margin:0; grid-column:1; ${normalizedUserRole === "organizer" ? "grid-row:3;" : "grid-row:2;"}">
+                        <button class="btn" type="submit" style="width:100%;">Resend invite</button>
+                      </form>
+                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');" style="margin:0; grid-column:${normalizedUserRole === "organizer" ? "2" : "1"}; ${normalizedUserRole === "organizer" ? "grid-row:3;" : "grid-row:3;"}">
+                        <button class="btn" type="submit" style="width:100%;">Reset Password</button>
+                      </form>
+                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');" style="margin:0; grid-column:${normalizedUserRole === "organizer" ? "3" : "2"}; ${normalizedUserRole === "organizer" ? "grid-row:3;" : "grid-row:3;"}">
+                        <button class="btn danger" type="submit" style="width:100%;">Delete</button>
+                      </form>
+                    </div>
                   </div>
                 </div>
               `;
@@ -4745,7 +4744,8 @@ return `
       usersHtml += `<script>
         document.querySelectorAll('[data-organizer-role-select]').forEach(function(select){
           function sync(){
-            var permissions = select.form && select.form.querySelector('[data-organizer-permissions]');
+            var card = select.closest('[data-user-card]');
+            var permissions = card && card.querySelector('[data-organizer-permissions]');
             if (!permissions) return;
             permissions.style.display = String(select.value || '').toLowerCase() === 'organizer' ? '' : 'none';
           }
