@@ -4724,15 +4724,15 @@ return `
                           </div>
                         </div>
                       </form>
-                      <div style="display:grid; grid-template-rows:auto auto auto; gap:12px; min-width:0; align-self:start; padding-top:32px;">
+                      <div style="display:grid; grid-template-rows:auto auto auto; gap:12px; min-width:0; align-self:start; margin-top:26px;">
                         <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');" style="margin:0;">
-                          <button class="btn" type="submit" style="width:100%;">Resend invite</button>
+                          <button class="btn" type="submit" style="width:100%; min-height:52px;">Resend invite</button>
                         </form>
                         <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');" style="margin:0;">
-                          <button class="btn" type="submit" style="width:100%;">Reset Password</button>
+                          <button class="btn" type="submit" style="width:100%; min-height:52px;">Reset Password</button>
                         </form>
                         <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');" style="margin:0;">
-                          <button class="btn danger" type="submit" style="width:100%;">Delete</button>
+                          <button class="btn danger" type="submit" style="width:100%; min-height:52px;">Delete</button>
                         </form>
                       </div>
                     </div>
