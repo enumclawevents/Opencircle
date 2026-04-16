@@ -3688,10 +3688,6 @@ return `
       `SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}${venueDashWhereSql ? " AND " : "WHERE "}hoursJson IS NOT NULL AND trim(hoursJson) <> ''`,
       venueDashParams
     );
-    const venueWithWebsiteRow = await get(
-      `SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}${venueDashWhereSql ? " AND " : "WHERE "}website IS NOT NULL AND trim(website) <> ''`,
-      venueDashParams
-    );
     const venueWithGalleryRow = await get(
       `SELECT COUNT(*) AS n FROM venues ${venueDashWhereSql}${venueDashWhereSql ? " AND " : "WHERE "}galleryJson IS NOT NULL AND trim(galleryJson) <> ''`,
       venueDashParams
@@ -3735,7 +3731,6 @@ return `
     const venueWithImageCount = Number(venueWithImageRow?.n || 0);
     const venueWithSocialCount = Number(venueWithSocialRow?.n || 0);
     const venueWithHoursCount = Number(venueWithHoursRow?.n || 0);
-    const venueWithWebsiteCount = Number(venueWithWebsiteRow?.n || 0);
     const venueWithGalleryCount = Number(venueWithGalleryRow?.n || 0);
     const venueViewsCount = Number(venueViewsRow?.n || 0);
     const venuePhoneClicksCount = Number(venuePhoneClicksRow?.n || 0);
@@ -3753,7 +3748,6 @@ return `
       withImage: fmt(venueWithImageCount),
       withSocial: fmt(venueWithSocialCount),
       withHours: fmt(venueWithHoursCount),
-      withWebsite: fmt(venueWithWebsiteCount),
       withGallery: fmt(venueWithGalleryCount),
       views: fmt(venueViewsCount),
       phoneClicks: fmt(venuePhoneClicksCount),
@@ -3765,7 +3759,6 @@ return `
       withImagePct: pctVenue(venueWithImageCount),
       withSocialPct: pctVenue(venueWithSocialCount),
       withHoursPct: pctVenue(venueWithHoursCount),
-      withWebsitePct: pctVenue(venueWithWebsiteCount),
       withGalleryPct: pctVenue(venueWithGalleryCount),
       topByViews: (venueTopViewsRows || []).map((r) => ({
         id: Number(r.id || 0),
@@ -9348,7 +9341,6 @@ return `
                   <div class="release-meta">
                     <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
                     <div class="release-row"><div class="label">Latest update</div><div class="value">${esc(latestRelease.date)}</div></div>
-                    <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.releaseUpdatedAt)}</div></div>
                   </div>
                   <div style="margin-top:12px; display:grid; gap:8px;">
                     <div class="release-latest">
@@ -9426,7 +9418,6 @@ return `
                   <div class="insight-row"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
                   <div class="insight-row"><div class="label">Views</div><div class="value">${esc(venueStats.views)}</div></div>
                   <div class="insight-row"><div class="label">Total Link Clicks</div><div class="value">${esc(venueStats.totalClicks)}</div></div>
-                  <div class="insight-row"><div class="label">With Website</div><div class="value">${esc(venueStats.withWebsite)} (${esc(venueStats.withWebsitePct)})</div></div>
                 </div></div>` : ``}
                 ${canSeeAdsAnalytics ? `<div class="insight-panel ${(!canSeeEventsAnalytics && !canSeeVenueAnalytics) ? "is-active" : ""}" data-insight-panel="ads"><div class="insight-list">
                   <div class="insight-row"><div class="label">Ads</div><div class="value">${esc(adAnalyticsStats.total)}</div></div>
@@ -10048,7 +10039,6 @@ return `
               <div class="release-meta" style="margin-bottom:14px;">
                 <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
                 <div class="release-row"><div class="label">Most recent update</div><div class="value">${esc(latestRelease.text)}</div></div>
-                <div class="release-row"><div class="label">Updated at</div><div class="value">${esc(stats.releaseUpdatedAt)}</div></div>
               </div>
               ${releaseLogItems.map((item) => `
                 <div class="insight-row" style="padding:12px 0;">
