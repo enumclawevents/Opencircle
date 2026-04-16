@@ -5261,15 +5261,21 @@ return `
           const jobCreatorSelect = jobActivityCols.has("createdByUserId")
             ? "u.displayName, u.username, u.email"
             : "NULL AS displayName, NULL AS username, NULL AS email";
+          const jobActivityWhere = ["j.city = ?"];
+          const jobActivityParams = [selectedCity];
+          if (isOrganizerUser && organizerVenueOwnerClause) {
+            jobActivityWhere.push(`j.${organizerVenueOwnerClause.sql}`);
+            jobActivityParams.push(...organizerVenueOwnerClause.params);
+          }
           const rows = await all(
             `SELECT j.id, j.slug, j.title, j.company, j.createdAt,
                     ${jobCreatorSelect}
                FROM jobs j
                ${jobCreatorJoin}
-              WHERE j.city = ?
+              WHERE ${jobActivityWhere.join(" AND ")}
               ORDER BY datetime(COALESCE(j.createdAt, '1970-01-01')) DESC, j.id DESC
               LIMIT 6`,
-            [selectedCity]
+            jobActivityParams
           );
           rows.forEach((row) => {
             activityItems.push({
@@ -5365,7 +5371,13 @@ return `
     if (showJobsCreate && req.query.edit) {
       const jobId = parseInt(String(req.query.edit), 10);
       if (!Number.isNaN(jobId)) {
-        editJob = await get("SELECT * FROM jobs WHERE id = ?", [jobId]);
+        const editJobWhereParts = ["id = ?"];
+        const editJobParams = [jobId];
+        if (isOrganizerUser && organizerVenueOwnerClause) {
+          editJobWhereParts.push(organizerVenueOwnerClause.sql);
+          editJobParams.push(...organizerVenueOwnerClause.params);
+        }
+        editJob = await get(`SELECT * FROM jobs WHERE ${editJobWhereParts.join(" AND ")}`, editJobParams);
       }
     }
     const editJobEmploymentTypes = getJobEmploymentTypesForEdit(editJob);
@@ -5500,6 +5512,10 @@ return `
         jobWhere.push("city = ?");
         jobParams.push(selectedCity);
       }
+      if (isOrganizerUser && organizerVenueOwnerClause) {
+        jobWhere.push(organizerVenueOwnerClause.sql);
+        jobParams.push(...organizerVenueOwnerClause.params);
+      }
       if (q) {
         const like = "%" + q + "%";
         jobWhere.push("(title LIKE ? OR company LIKE ? OR slug LIKE ? OR location LIKE ? OR CAST(id AS TEXT) LIKE ?)");
@@ -5552,6 +5568,10 @@ return `
         applicantWhere.push("j.city = ?");
         applicantParams.push(selectedCity);
       }
+      if (isOrganizerUser && organizerVenueOwnerClause) {
+        applicantWhere.push(`j.${organizerVenueOwnerClause.sql}`);
+        applicantParams.push(...organizerVenueOwnerClause.params);
+      }
       if (q) {
         const like = "%" + q + "%";
         applicantWhere.push("(a.firstName LIKE ? OR a.lastName LIKE ? OR a.email LIKE ? OR a.phone LIKE ? OR j.title LIKE ? OR j.company LIKE ? OR CAST(a.id AS TEXT) LIKE ?)");
@@ -5603,6 +5623,10 @@ return `
         jobCityWhere.push("city = ?");
         jobCityParams.push(selectedCity);
       }
+      if (isOrganizerUser && organizerVenueOwnerClause) {
+        jobCityWhere.push(organizerVenueOwnerClause.sql);
+        jobCityParams.push(...organizerVenueOwnerClause.params);
+      }
       const jobCityWhereSql = jobCityWhere.length ? ("WHERE " + jobCityWhere.join(" AND ")) : "";
       const row = await get(
         "SELECT " +
@@ -5638,6 +5662,16 @@ return `
       );
 
       if (!showJobsApplicants) {
+        const jobApplicantWhere = [];
+        const jobApplicantParams = [];
+        if (selectedCity) {
+          jobApplicantWhere.push("j.city = ?");
+          jobApplicantParams.push(selectedCity);
+        }
+        if (isOrganizerUser && organizerVenueOwnerClause) {
+          jobApplicantWhere.push(`j.${organizerVenueOwnerClause.sql}`);
+          jobApplicantParams.push(...organizerVenueOwnerClause.params);
+        }
         const applicantStatsRow = await get(
           "SELECT " +
           "COUNT(*) AS total, " +
@@ -5647,8 +5681,8 @@ return `
           "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'hired' THEN 1 ELSE 0 END),0) AS hiredCount, " +
           "COALESCE(SUM(CASE WHEN lower(COALESCE(a.status,'')) = 'rejected' THEN 1 ELSE 0 END),0) AS rejectedCount " +
           "FROM job_applicants a LEFT JOIN jobs j ON j.id = a.jobId " +
-          (selectedCity ? "WHERE j.city = ?" : ""),
-          selectedCity ? [selectedCity] : []
+          (jobApplicantWhere.length ? "WHERE " + jobApplicantWhere.join(" AND ") : ""),
+          jobApplicantParams
         );
         jobApplicantStats = {
           total: Number(applicantStatsRow?.total || 0),
@@ -14326,6 +14360,7 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
   try {
     const role = normalizeRoleValue(req.user?.role || "organizer");
     const sessionUser = await resolveSessionUser(req);
+    const isOrganizerUser = role === "organizer";
     const sectionPermissions = getUserSectionPermissions(sessionUser || { role });
     if (!(hasDeveloperAccessRole(role) || sectionPermissions.jobs)) {
       return res.status(403).send("Forbidden");
@@ -14377,6 +14412,11 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
     const slug = await ensureUniqueJobSlug(baseSlug, isUpdate ? id : null);
 
     if (isUpdate) {
+      const existingJob = await get("SELECT id, createdByUserId FROM jobs WHERE id = ? LIMIT 1", [id]);
+      if (!existingJob?.id) return res.status(404).send("Job not found.");
+      if (isOrganizerUser && Number(existingJob.createdByUserId || 0) !== Number(sessionUser?.id || 0)) {
+        return res.status(403).send("Forbidden");
+      }
       await run(
         `UPDATE jobs
             SET city = ?, slug = ?, title = ?, company = ?, location = ?, employmentType = ?, employmentTypesJson = ?, salaryRange = ?, applyUrl = ?, imageUrl = ?, description = ?, status = ?, applicationMode = ?, applicationFieldsJson = ?, createdByUserId = COALESCE(createdByUserId, ?), updatedAt = datetime('now')
@@ -14407,6 +14447,7 @@ router.post("/jobs/:id/delete", async (req, res) => {
   try {
     const role = normalizeRoleValue(req.user?.role || "organizer");
     const sessionUser = await resolveSessionUser(req);
+    const isOrganizerUser = role === "organizer";
     const sectionPermissions = getUserSectionPermissions(sessionUser || { role });
     if (!(hasDeveloperAccessRole(role) || sectionPermissions.jobs)) {
       return res.status(403).send("Forbidden");
@@ -14415,6 +14456,12 @@ router.post("/jobs/:id/delete", async (req, res) => {
 
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
+
+    const existingJob = await get("SELECT id, createdByUserId FROM jobs WHERE id = ? LIMIT 1", [id]);
+    if (!existingJob?.id) return res.status(404).send("Job not found.");
+    if (isOrganizerUser && Number(existingJob.createdByUserId || 0) !== Number(sessionUser?.id || 0)) {
+      return res.status(403).send("Forbidden");
+    }
 
     await run("DELETE FROM jobs WHERE id = ?", [id]);
 
