@@ -4656,6 +4656,7 @@ return `
       : `<div class="muted">No pending approvals.</div>`;
 
     let invitesHtml = "";
+    let inviteLimitNoticeHtml = "";
     if (showInvites) {
       const inviteRows = await all(
         "SELECT id, email, role, city, expiresAt, usedAt, createdAt FROM invites ORDER BY datetime(createdAt) DESC"
