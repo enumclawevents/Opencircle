@@ -4714,17 +4714,17 @@ return `
                         </div>
                         <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
                           <div class="muted" style="margin-bottom:6px;">Section access</div>
-                          <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px 12px; padding:12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
+                          <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px 12px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff;">
                             ${ORGANIZER_SECTION_KEYS.map((section) => `
                               <label style="display:flex; align-items:center; gap:10px; color:var(--text); font-weight:600; min-height:32px; line-height:1.2; padding:4px 8px; border-radius:10px; justify-self:stretch;">
-                                <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} style="margin:0; flex:0 0 auto; align-self:center;" />
+                                <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} style="margin:0; width:18px; height:18px; flex:0 0 auto; align-self:center;" />
                                 <span>${esc(section.charAt(0).toUpperCase() + section.slice(1))}</span>
                               </label>
                             `).join("")}
                           </div>
                         </div>
                       </form>
-                      <div style="display:grid; grid-template-rows:auto auto auto; gap:12px; min-width:0; align-self:start; padding-top:40px;">
+                      <div style="display:grid; grid-template-rows:auto auto auto; gap:12px; min-width:0; align-self:start; padding-top:32px;">
                         <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');" style="margin:0;">
                           <button class="btn" type="submit" style="width:100%;">Resend invite</button>
                         </form>
