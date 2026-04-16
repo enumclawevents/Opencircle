@@ -4709,43 +4709,76 @@ return `
           `<div class="users-shell">
             <style>
               .users-shell{ display:grid; gap:14px; }
-              .users-table{
+              .users-panel{
                 border:1px solid var(--line);
                 border-radius:var(--radius);
-                overflow:hidden;
                 background:#fff;
+                box-shadow:0 1px 2px rgba(15,23,42,.03);
+                overflow:hidden;
               }
-              .users-head,
+              .users-intro{
+                padding:18px 22px 0;
+                color:var(--muted);
+                font-size:13px;
+                font-weight:600;
+              }
+              .users-list{
+                display:grid;
+                gap:10px;
+                padding:14px;
+              }
               .users-row{
                 display:grid;
-                grid-template-columns:minmax(280px, 1.9fr) minmax(120px, .8fr) minmax(160px, .95fr) minmax(120px, .8fr) 110px;
-                gap:18px;
-                align-items:center;
-                padding:18px 24px;
+                gap:14px;
+                padding:18px;
+                border:1px solid rgba(148,163,184,.18);
+                border-radius:18px;
+                background:linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
               }
-              .users-head{
-                background:#fff;
-                border-bottom:1px solid var(--line);
-                color:#5b6b81;
-                font-weight:700;
+              .users-row:hover{
+                border-color:rgba(148,163,184,.28);
+                box-shadow:0 10px 24px rgba(15,23,42,.05);
               }
-              .users-row{
-                border-top:1px solid var(--line);
-                background:#fff;
+              .users-topline{
+                display:flex;
+                justify-content:space-between;
+                gap:16px;
+                align-items:flex-start;
               }
-              .users-row:hover{ background:#fbfdff; }
-              .users-row:first-of-type{ border-top:0; }
-              .users-name{ display:flex; gap:12px; align-items:flex-start; min-width:0; }
+              .users-name{ display:flex; gap:14px; align-items:flex-start; min-width:0; }
               .users-avatar{
-                width:42px; height:42px; border-radius:999px; flex:0 0 42px;
-                background:#e7eef8; color:#5b6b81; display:grid; place-items:center; font-weight:800;
+                width:50px; height:50px; border-radius:999px; flex:0 0 50px;
+                background:linear-gradient(180deg, #e7eef8 0%, #dbe7f6 100%);
+                color:#52627a; display:grid; place-items:center; font-weight:800;
                 overflow:hidden;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.8);
               }
               .users-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
               .users-copy{ min-width:0; }
-              .users-primary{ font-weight:800; color:var(--text); line-height:1.2; display:flex; align-items:center; gap:8px; }
-              .users-secondary{ color:#6b7280; margin-top:2px; word-break:break-word; }
-              .users-status{ display:flex; align-items:center; gap:10px; font-weight:600; color:var(--text); }
+              .users-primary{ font-weight:800; color:var(--text); line-height:1.2; display:flex; align-items:center; gap:8px; font-size:28px; }
+              .users-secondary{ color:#6b7280; margin-top:4px; word-break:break-word; font-size:15px; }
+              .users-meta{
+                display:flex;
+                flex-wrap:wrap;
+                gap:10px;
+              }
+              .users-meta-chip{
+                display:inline-flex;
+                align-items:center;
+                gap:8px;
+                min-height:38px;
+                padding:0 14px;
+                border-radius:999px;
+                border:1px solid rgba(148,163,184,.22);
+                background:#fff;
+                color:#50627b;
+                font-weight:700;
+              }
+              .users-meta-chip strong{
+                color:var(--text);
+                font-weight:800;
+              }
+              .users-status{ display:inline-flex; align-items:center; gap:10px; font-weight:700; color:var(--text); }
               .users-status-dot{
                 width:12px; height:12px; border-radius:999px; flex:0 0 12px;
                 background:#22c55e;
@@ -4756,13 +4789,19 @@ return `
               }
               .users-pill.role-dev{ background:#eef2ff; color:#42526b; }
               .users-pill.role-org{ background:#e7f7ef; color:#166534; }
-              .users-city{ color:#5b6b81; font-weight:600; }
-              .users-actions-trigger{
-                display:inline-flex; align-items:center; justify-content:center; width:100%;
-                min-height:42px; border:0; border-radius:12px; background:transparent;
-                color:#29557a; font-weight:800; text-decoration:none; cursor:pointer;
+              .users-actions{
+                display:flex;
+                align-items:center;
+                justify-content:flex-end;
+                flex:0 0 auto;
               }
-              .users-actions-trigger:hover{ background:#f3f7fb; }
+              .users-actions-trigger{
+                display:inline-flex; align-items:center; justify-content:center;
+                min-height:44px; border:1px solid rgba(148,163,184,.22); border-radius:12px; background:#fff;
+                color:#29557a; font-weight:800; text-decoration:none; cursor:pointer; padding:0 16px;
+                box-shadow:0 1px 2px rgba(15,23,42,.03);
+              }
+              .users-actions-trigger:hover{ background:#f3f7fb; border-color:rgba(41,85,122,.18); }
               .users-modal{
                 position:fixed; inset:0; z-index:80; display:none; align-items:center; justify-content:center;
                 padding:24px;
@@ -4773,7 +4812,7 @@ return `
               }
               .users-modal-panel{
                 position:relative; z-index:1; width:min(760px, calc(100vw - 32px));
-                border:1px solid var(--line); border-radius:16px; background:#fff;
+                border:1px solid var(--line); border-radius:18px; background:#fff;
                 box-shadow:0 24px 60px rgba(15,23,42,.18); padding:18px;
                 display:grid; gap:18px;
               }
@@ -4827,25 +4866,20 @@ return `
                 color:#6b7280;
               }
               @media (max-width: 980px){
-                .users-head, .users-row{
-                  grid-template-columns:minmax(0,1fr);
-                  gap:10px;
+                .users-topline{
+                  display:grid;
+                  gap:14px;
                 }
-                .users-head{ display:none; }
-                .users-row{ padding:18px; }
+                .users-primary{ font-size:24px; }
+                .users-actions{ justify-content:flex-start; }
                 .users-modal-grid,
                 .users-field-row,
                 .users-access-grid{ grid-template-columns:1fr; }
               }
             </style>
-            <div class="users-table">
-              <div class="users-head">
-                <div>Name / Email</div>
-                <div>Status</div>
-                <div>Role</div>
-                <div>City</div>
-                <div style="text-align:right;">Actions</div>
-              </div>` +
+            <div class="users-panel">
+              <div class="users-intro">Developer and organizer accounts, permissions, and city access in one place.</div>
+              <div class="users-list">` +
           rows
             .map((u) => {
               const normalizedUserRole = normalizeRoleValue(u.role);
@@ -4859,21 +4893,29 @@ return `
               const initials = esc(String(u.username || u.email || "U").trim().slice(0, 2).toUpperCase());
               const statusTone = u.lastSeenAt ? "Active" : "Inactive";
               const statusColor = u.lastSeenAt ? "#22c55e" : "#ef4444";
+              const accessSummary = normalizedUserRole === "organizer"
+                ? ["Events", userPerms.venues ? "Venues" : "", userPerms.jobs ? "Jobs" : "", userPerms.ads ? "Ads" : ""].filter(Boolean).join(", ")
+                : "Full";
               return `
                 <div class="users-row">
-                  <div class="users-name">
-                    <div class="users-avatar">
-                      ${u.photoUrl ? `<img src="${esc(u.photoUrl)}" alt="${displayName}" />` : `<span>${initials}</span>`}
+                  <div class="users-topline">
+                    <div class="users-name">
+                      <div class="users-avatar">
+                        ${u.photoUrl ? `<img src="${esc(u.photoUrl)}" alt="${displayName}" />` : `<span>${initials}</span>`}
+                      </div>
+                      <div class="users-copy">
+                        <div class="users-primary">${onlineStatusMarkup(u.lastSeenAt, `${u.username || u.email || "User"} status`)}<span>${displayName}</span></div>
+                        <div class="users-secondary">${emailLabel}</div>
+                      </div>
                     </div>
-                    <div class="users-copy">
-                      <div class="users-primary">${onlineStatusMarkup(u.lastSeenAt, `${u.username || u.email || "User"} status`)}<span>${displayName}</span></div>
-                      <div class="users-secondary">${emailLabel}</div>
-                    </div>
+                    <div class="users-actions"><button class="users-actions-trigger" type="button" data-open-user-modal="${modalId}">Actions</button></div>
                   </div>
-                  <div class="users-status"><span class="users-status-dot" style="background:${statusColor};"></span><span>${statusTone}</span></div>
-                  <div><span class="users-pill ${normalizedUserRole === "developer" ? "role-dev" : "role-org"}">${esc(labelRole)}</span></div>
-                  <div class="users-city">${cityLabel}</div>
-                  <div><button class="users-actions-trigger" type="button" data-open-user-modal="${modalId}">Actions</button></div>
+                  <div class="users-meta">
+                    <div class="users-meta-chip"><span class="users-status"><span class="users-status-dot" style="background:${statusColor};"></span><span>${statusTone}</span></span></div>
+                    <div class="users-meta-chip"><span>Role</span><strong><span class="users-pill ${normalizedUserRole === "developer" ? "role-dev" : "role-org"}">${esc(labelRole)}</span></strong></div>
+                    <div class="users-meta-chip"><span>City</span><strong>${cityLabel}</strong></div>
+                    <div class="users-meta-chip"><span>Access</span><strong>${esc(accessSummary)}</strong></div>
+                  </div>
 
                   <div class="users-modal" id="${modalId}" aria-hidden="true">
                     <div class="users-modal-backdrop" data-close-user-modal="${modalId}"></div>
