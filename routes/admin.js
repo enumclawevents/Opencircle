@@ -4679,73 +4679,261 @@ return `
           : "";
       usersHtml = rows.length
         ? noticeHtml +
+          `<div class="users-shell">
+            <style>
+              .users-shell{ display:grid; gap:14px; }
+              .users-table{
+                border:1px solid var(--line);
+                border-radius:var(--radius);
+                overflow:hidden;
+                background:#fff;
+              }
+              .users-head,
+              .users-row{
+                display:grid;
+                grid-template-columns:minmax(280px, 1.9fr) minmax(120px, .8fr) minmax(160px, .95fr) minmax(120px, .8fr) 110px;
+                gap:18px;
+                align-items:center;
+                padding:18px 24px;
+              }
+              .users-head{
+                background:#fff;
+                border-bottom:1px solid var(--line);
+                color:#5b6b81;
+                font-weight:700;
+              }
+              .users-row{
+                border-top:1px solid var(--line);
+                background:#fff;
+              }
+              .users-row:hover{ background:#fbfdff; }
+              .users-row:first-of-type{ border-top:0; }
+              .users-name{ display:flex; gap:12px; align-items:flex-start; min-width:0; }
+              .users-avatar{
+                width:42px; height:42px; border-radius:999px; flex:0 0 42px;
+                background:#e7eef8; color:#5b6b81; display:grid; place-items:center; font-weight:800;
+                overflow:hidden;
+              }
+              .users-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
+              .users-copy{ min-width:0; }
+              .users-primary{ font-weight:800; color:var(--text); line-height:1.2; display:flex; align-items:center; gap:8px; }
+              .users-secondary{ color:#6b7280; margin-top:2px; word-break:break-word; }
+              .users-status{ display:flex; align-items:center; gap:10px; font-weight:600; color:var(--text); }
+              .users-status-dot{
+                width:12px; height:12px; border-radius:999px; flex:0 0 12px;
+                background:#22c55e;
+              }
+              .users-pill{
+                display:inline-flex; align-items:center; min-height:32px; padding:0 14px;
+                border-radius:999px; font-weight:700; border:1px solid transparent;
+              }
+              .users-pill.role-dev{ background:#eef2ff; color:#42526b; }
+              .users-pill.role-org{ background:#e7f7ef; color:#166534; }
+              .users-city{ color:#5b6b81; font-weight:600; }
+              .users-actions-trigger{
+                display:inline-flex; align-items:center; justify-content:center; width:100%;
+                min-height:42px; border:0; border-radius:12px; background:transparent;
+                color:#29557a; font-weight:800; text-decoration:none; cursor:pointer;
+              }
+              .users-actions-trigger:hover{ background:#f3f7fb; }
+              .users-modal{
+                position:fixed; inset:0; z-index:80; display:none; align-items:center; justify-content:center;
+                padding:24px;
+              }
+              .users-modal.open{ display:flex; }
+              .users-modal-backdrop{
+                position:absolute; inset:0; background:rgba(15,23,42,.42); backdrop-filter:blur(3px);
+              }
+              .users-modal-panel{
+                position:relative; z-index:1; width:min(760px, calc(100vw - 32px));
+                border:1px solid var(--line); border-radius:24px; background:#fff;
+                box-shadow:0 24px 60px rgba(15,23,42,.18); padding:22px;
+                display:grid; gap:18px;
+              }
+              .users-modal-top{
+                display:flex; justify-content:space-between; gap:16px; align-items:flex-start;
+              }
+              .users-modal-title{ font-size:30px; line-height:1.1; margin:0; }
+              .users-modal-sub{ color:var(--muted); margin-top:6px; }
+              .users-modal-close{
+                width:42px; height:42px; border-radius:999px; border:1px solid var(--line);
+                background:#fff; cursor:pointer; font-size:24px; line-height:1; color:var(--muted);
+              }
+              .users-modal-grid{
+                display:grid; grid-template-columns:minmax(0,1fr) minmax(210px, 240px); gap:18px;
+                align-items:start;
+              }
+              .users-modal-main{ display:grid; gap:18px; }
+              .users-modal-card{
+                border:1px solid var(--line); border-radius:18px; background:#fff; padding:18px;
+              }
+              .users-modal-label{ color:var(--muted); font-weight:700; margin-bottom:8px; }
+              .users-field-row{ display:grid; grid-template-columns:minmax(0,1fr) 140px; gap:14px; align-items:end; }
+              .users-access-grid{
+                display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px 16px;
+              }
+              .users-access-item{
+                display:flex; align-items:center; gap:10px; min-height:40px; font-weight:700; color:var(--text);
+              }
+              .users-access-item input{ width:18px; height:18px; margin:0; }
+              .users-side-actions{ display:grid; gap:12px; }
+              .users-side-actions form,
+              .users-modal-main form{ margin:0; }
+              .users-side-actions .btn,
+              .users-modal-main .btn{ width:100%; }
+              .users-empty{
+                border:1px solid var(--line);
+                border-radius:var(--radius);
+                background:#fff;
+                padding:24px;
+                color:#6b7280;
+              }
+              @media (max-width: 980px){
+                .users-head, .users-row{
+                  grid-template-columns:minmax(0,1fr);
+                  gap:10px;
+                }
+                .users-head{ display:none; }
+                .users-row{ padding:18px; }
+                .users-modal-grid,
+                .users-field-row,
+                .users-access-grid{ grid-template-columns:1fr; }
+              }
+            </style>
+            <div class="users-table">
+              <div class="users-head">
+                <div>Name / Email</div>
+                <div>Status</div>
+                <div>Role</div>
+                <div>City</div>
+                <div style="text-align:right;">Actions</div>
+              </div>` +
           rows
             .map((u) => {
               const normalizedUserRole = normalizeRoleValue(u.role);
               const labelRole = formatRoleLabel(normalizedUserRole);
               const userPerms = getUserSectionPermissions(u);
               const userFormId = `user-role-${encodeURIComponent(u.id)}`;
+              const modalId = `user-modal-${encodeURIComponent(u.id)}`;
+              const displayName = esc(u.username || u.email || "User");
+              const emailLabel = esc(u.email || "—");
+              const cityLabel = esc(u.city || "Enumclaw");
+              const initials = esc(String(u.username || u.email || "U").trim().slice(0, 2).toUpperCase());
+              const statusTone = u.lastSeenAt ? "Active" : "Inactive";
+              const statusColor = u.lastSeenAt ? "#22c55e" : "#ef4444";
               return `
-                <div class="mini" style="margin-bottom:10px;">
-                  <div data-user-card style="display:grid; grid-template-columns:minmax(260px, 340px) minmax(0, 1fr); gap:16px; align-items:start;">
-                    <div class="muted" style="min-width:0; padding-top:4px;">
-                      <div class="user-line" style="font-weight:700; color:#0f172a;">${onlineStatusMarkup(u.lastSeenAt, `${u.username || u.email || "User"} status`)}<span>${esc(u.username || u.email || "User")}</span></div>
-                      <div>Email: ${esc(u.email || "—")}</div>
-                      <div>Role: ${esc(labelRole)}</div>
-                      <div>City: ${esc(u.city || "Enumclaw")}</div>
-                      <div>Created: ${esc(fmtPendingDate(u.createdAt))}</div>
+                <div class="users-row">
+                  <div class="users-name">
+                    <div class="users-avatar">
+                      ${u.photoUrl ? `<img src="${esc(u.photoUrl)}" alt="${displayName}" />` : `<span>${initials}</span>`}
                     </div>
-                    <div style="display:grid; grid-template-columns:minmax(220px, 260px) minmax(220px, 1fr) 140px; gap:16px; align-items:stretch;">
-                      <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"} grid-column:1; grid-row:1 / span 2;">
-                        <div class="muted" style="margin-bottom:6px;">Section access</div>
-                        <div style="display:grid; gap:8px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius-inner); background:#fff; align-content:start;">
-                          ${ORGANIZER_SECTION_KEYS.map((section) => `
-                            <label style="display:flex; align-items:center; gap:10px; color:var(--text); font-weight:600; min-height:30px; line-height:1.2; padding:2px 0;">
-                              <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} form="${userFormId}" style="margin:0; width:18px; height:18px; flex:0 0 auto;" />
-                              <span>${esc(section.charAt(0).toUpperCase() + section.slice(1))}</span>
-                            </label>
-                          `).join("")}
+                    <div class="users-copy">
+                      <div class="users-primary">${onlineStatusMarkup(u.lastSeenAt, `${u.username || u.email || "User"} status`)}<span>${displayName}</span></div>
+                      <div class="users-secondary">${emailLabel}</div>
+                    </div>
+                  </div>
+                  <div class="users-status"><span class="users-status-dot" style="background:${statusColor};"></span><span>${statusTone}</span></div>
+                  <div><span class="users-pill ${normalizedUserRole === "developer" ? "role-dev" : "role-org"}">${esc(labelRole)}</span></div>
+                  <div class="users-city">${cityLabel}</div>
+                  <div><button class="users-actions-trigger" type="button" data-open-user-modal="${modalId}">Actions</button></div>
+
+                  <div class="users-modal" id="${modalId}" aria-hidden="true">
+                    <div class="users-modal-backdrop" data-close-user-modal="${modalId}"></div>
+                    <div class="users-modal-panel" role="dialog" aria-modal="true" aria-labelledby="${modalId}-title">
+                      <div class="users-modal-top">
+                        <div>
+                          <h3 class="users-modal-title" id="${modalId}-title">${displayName}</h3>
+                          <div class="users-modal-sub">${emailLabel}</div>
+                        </div>
+                        <button class="users-modal-close" type="button" aria-label="Close" data-close-user-modal="${modalId}">&times;</button>
+                      </div>
+                      <div class="users-modal-grid">
+                        <div class="users-modal-main">
+                          <div class="users-modal-card">
+                            <div class="users-modal-label">Permission level</div>
+                            <form id="${userFormId}" method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:grid; gap:14px;">
+                              <select name="role" class="ctrl" style="width:100%;" data-organizer-role-select>
+                                ${liveRoleOptionsMarkup(normalizedUserRole, { includeLegacySelected: true })}
+                              </select>
+                              <div class="users-field-row">
+                                <div>
+                                  <div class="users-modal-label" style="margin-bottom:6px;">City</div>
+                                  <select name="city" class="ctrl" style="width:100%;">
+                                    <option value="Enumclaw" ${u.city === "Enumclaw" ? "selected" : ""}>Enumclaw</option>
+                                    <option value="Buckley" ${u.city === "Buckley" ? "selected" : ""}>Buckley</option>
+                                  </select>
+                                </div>
+                                <div style="align-self:end;">
+                                  <button class="btn" type="submit">Update</button>
+                                </div>
+                              </div>
+                              <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
+                                <div class="users-modal-label">Section access</div>
+                                <div class="users-modal-card" style="padding:14px 16px;">
+                                  <div class="users-access-grid">
+                                    ${ORGANIZER_SECTION_KEYS.map((section) => `
+                                      <label class="users-access-item">
+                                        <input type="checkbox" name="perm_${section}" value="1" ${userPerms[section] ? "checked" : ""} form="${userFormId}" />
+                                        <span>${esc(section.charAt(0).toUpperCase() + section.slice(1))}</span>
+                                      </label>
+                                    `).join("")}
+                                  </div>
+                                </div>
+                              </div>
+                            </form>
+                          </div>
+                        </div>
+                        <div class="users-side-actions">
+                          <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');">
+                            <button class="btn" type="submit">Resend invite</button>
+                          </form>
+                          <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');">
+                            <button class="btn" type="submit">Reset Password</button>
+                          </form>
+                          <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');">
+                            <button class="btn danger" type="submit">Delete</button>
+                          </form>
                         </div>
                       </div>
-                      <form id="${userFormId}" method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:contents;">
-                        <div style="grid-column:${normalizedUserRole === "organizer" ? "2 / span 2" : "1 / span 3"}; min-width:0;">
-                          <div class="muted" style="margin-bottom:6px;">Permission level</div>
-                          <select name="role" class="ctrl" style="width:100%;" data-organizer-role-select>
-                            ${liveRoleOptionsMarkup(normalizedUserRole, { includeLegacySelected: true })}
-                          </select>
-                        </div>
-                        <div style="grid-column:${normalizedUserRole === "organizer" ? "2" : "1 / span 2"}; min-width:0;">
-                          <div class="muted" style="margin-bottom:6px;">City</div>
-                          <select name="city" class="ctrl" style="width:100%;">
-                            <option value="Enumclaw" ${u.city === "Enumclaw" ? "selected" : ""}>Enumclaw</option>
-                            <option value="Buckley" ${u.city === "Buckley" ? "selected" : ""}>Buckley</option>
-                          </select>
-                        </div>
-                        <div style="grid-column:3; align-self:end;">
-                          <button class="btn" type="submit" style="width:100%;">Update</button>
-                        </div>
-                      </form>
-                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/resend-invite" onsubmit="return confirm('Resend invite email to this user?');" style="margin:0; grid-column:1; ${normalizedUserRole === "organizer" ? "grid-row:3;" : "grid-row:2;"}">
-                        <button class="btn" type="submit" style="width:100%;">Resend invite</button>
-                      </form>
-                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/reset" onsubmit="return confirm('Send a password reset email to this user?');" style="margin:0; grid-column:${normalizedUserRole === "organizer" ? "2" : "1"}; ${normalizedUserRole === "organizer" ? "grid-row:3;" : "grid-row:3;"}">
-                        <button class="btn" type="submit" style="width:100%;">Reset Password</button>
-                      </form>
-                      <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');" style="margin:0; grid-column:${normalizedUserRole === "organizer" ? "3" : "2"}; ${normalizedUserRole === "organizer" ? "grid-row:3;" : "grid-row:3;"}">
-                        <button class="btn danger" type="submit" style="width:100%;">Delete</button>
-                      </form>
                     </div>
                   </div>
                 </div>
               `;
             })
-            .join("")
-        : `<div class="muted">No users yet.</div>`;
+            .join("") +
+          `</div></div>`
+        : `<div class="users-empty">No users yet.</div>`;
       usersHtml += `<script>
+        document.querySelectorAll('[data-open-user-modal]').forEach(function(button){
+          button.addEventListener('click', function(){
+            var modal = document.getElementById(button.getAttribute('data-open-user-modal'));
+            if (!modal) return;
+            modal.classList.add('open');
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.style.overflow = 'hidden';
+          });
+        });
+        document.querySelectorAll('[data-close-user-modal]').forEach(function(button){
+          button.addEventListener('click', function(){
+            var modal = document.getElementById(button.getAttribute('data-close-user-modal'));
+            if (!modal) return;
+            modal.classList.remove('open');
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.style.overflow = '';
+          });
+        });
+        document.addEventListener('keydown', function(event){
+          if (event.key !== 'Escape') return;
+          var openModal = document.querySelector('.users-modal.open');
+          if (!openModal) return;
+          openModal.classList.remove('open');
+          openModal.setAttribute('aria-hidden', 'true');
+          document.body.style.overflow = '';
+        });
         document.querySelectorAll('[data-organizer-role-select]').forEach(function(select){
           function sync(){
-            var card = select.closest('[data-user-card]');
-            var permissions = card && card.querySelector('[data-organizer-permissions]');
+            var modal = select.closest('.users-modal-panel');
+            var permissions = modal && modal.querySelector('[data-organizer-permissions]');
             if (!permissions) return;
             permissions.style.display = String(select.value || '').toLowerCase() === 'organizer' ? '' : 'none';
           }
