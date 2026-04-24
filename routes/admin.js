@@ -2831,6 +2831,12 @@ try {
       return one ? [one] : ["MO"];
     })();
     const recurrenceInterval = rule.interval ? String(rule.interval) : "1";
+    const showRecurringOptions = hasRecurrence;
+    const showWeeklyOptions = hasRecurrence && ruleType === "weekly";
+    const showMonthlyOptions = hasRecurrence && ruleType === "monthly";
+    const showCustomOptions = hasRecurrence && ruleType === "custom";
+    const showMonthdayOptions = showMonthlyOptions && monthlyMode === "monthday";
+    const showNthWeekdayOptions = showMonthlyOptions && monthlyMode === "nthweekday";
 
     const categorySelect = (idx) => {
       const current = selectedCats[idx] || "";
@@ -10271,14 +10277,14 @@ return `
                     </select>
                   </div>
 
-                  <div id="intervalRow">
+                  <div id="intervalRow" style="${showRecurringOptions ? "" : "display:none;"}">
                     <div class="rec-label">Interval</div>
                     <input class="ctrl" type="number" min="1" name="recurrenceInterval" value="${esc(recurrenceInterval)}" />
                     <div class="rec-help">Example: every 1 week, every 2 weeks, every 1 month, etc.</div>
                   </div>
                 </div>
 
-                <div id="weeklyBox" style="margin-top:14px;">
+                <div id="weeklyBox" style="margin-top:14px;${showWeeklyOptions ? "" : "display:none;"}">
                   <div class="rec-label">Days of Week</div>
                   <div class="dow">
                     <label class="dow-pill"><input type="checkbox" name="weeklyByDay" value="SU" ${isChecked(weeklyByDay, "SU")} />Sun</label>
@@ -10292,7 +10298,7 @@ return `
                   <div class="rec-help">Pick one or more days.</div>
                 </div>
 
-                <div id="monthlyBox" style="margin-top:14px;">
+                <div id="monthlyBox" style="margin-top:14px;${showMonthlyOptions ? "" : "display:none;"}">
                   <div class="rec-grid">
                     <div>
                       <div class="rec-label">Monthly Mode</div>
@@ -10304,12 +10310,12 @@ return `
                     <div></div>
                   </div>
 
-                  <div id="monthdayBox" style="margin-top:12px;">
+                  <div id="monthdayBox" style="margin-top:12px;${showMonthdayOptions ? "" : "display:none;"}">
                     <div class="rec-label">Day of Month (1–31)</div>
                     <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(byMonthday)}" />
                   </div>
 
-                  <div id="nthweekdayBox" style="margin-top:12px;">
+                  <div id="nthweekdayBox" style="margin-top:12px;${showNthWeekdayOptions ? "" : "display:none;"}">
                     <div class="rec-grid">
                       <div>
                         <div class="rec-label">Which Week</div>
@@ -10338,7 +10344,7 @@ return `
                   </div>
                 </div>
 
-                <div id="customBox" style="margin-top:14px;">
+                <div id="customBox" style="margin-top:14px;${showCustomOptions ? "" : "display:none;"}">
                   <div class="rec-label">Custom Dates</div>
                   <div class="rec-help">Add specific dates and set start/end time for each date.</div>
 
