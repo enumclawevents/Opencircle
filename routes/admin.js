@@ -12061,9 +12061,16 @@ return `
 
         function parseLocalDateTime(value){
           var s = String(value || "").trim();
-          var m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+          var m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
           if (!m) return null;
-          return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]), hour: Number(m[4]), minute: Number(m[5]) };
+          return {
+            year: Number(m[1]),
+            month: Number(m[2]),
+            day: Number(m[3]),
+            hour: Number(m[4]),
+            minute: Number(m[5]),
+            second: Number(m[6] || 0),
+          };
         }
         function pad(n){ return String(n).padStart(2, "0"); }
         function toDateKey(parts){ return parts.year + "-" + pad(parts.month) + "-" + pad(parts.day); }
