@@ -12062,6 +12062,7 @@ return `
         var startEl = document.getElementById("startDateTime");
         var endEl = document.getElementById("endDateTime");
         var typeChoice = document.getElementById("eventTypeChoice");
+        var shell = document.getElementById("multiDayScheduleShell");
         if (!wrap || !hidden || !startEl || !endEl || !typeChoice) return;
 
         function parseLocalDateTime(value){
@@ -12120,8 +12121,13 @@ return `
             return {};
           }
         }
+        function isMultiDaySelected(){
+          var selected = String(typeChoice.value || "").trim().toLowerCase();
+          if (selected === "multi-day") return true;
+          return !!(shell && shell.classList.contains("is-visible"));
+        }
         function render(){
-          if (String(typeChoice.value || "") !== "multi-day") return;
+          if (!isMultiDaySelected()) return;
           var startParts = parseLocalDateTime(startEl.value);
           var endParts = parseLocalDateTime(endEl.value);
           if (!startParts || !endParts) {
