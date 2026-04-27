@@ -8188,20 +8188,28 @@ return `
       }
       .multi-day-shell{ display:none; }
       .multi-day-shell.is-visible{ display:block; }
+      .multi-day-list{
+        display:grid;
+        gap:12px;
+      }
       .multi-day-row{
         display:grid;
-        grid-template-columns: 160px 1fr 1fr;
-        gap:12px;
-        align-items:end;
-        padding:12px 0;
-        border-top:1px solid var(--line);
+        grid-template-columns: minmax(180px, 1.3fr) minmax(140px, 1fr) minmax(140px, 1fr);
+        gap:10px;
+        align-items:center;
+        padding:12px;
+        border:1px solid var(--line);
+        border-radius: var(--radius-inner);
+        background: var(--panel);
       }
-      .multi-day-row:first-child{ border-top:0; padding-top:0; }
-      .multi-day-date{
-        font-size:13px;
+      .multi-day-date-label{
+        font-size:12px;
         font-weight:650;
-        color:var(--text);
-        padding-bottom:10px;
+        color:var(--muted);
+        margin-bottom:6px;
+      }
+      .multi-day-date-input{
+        background:#fff;
       }
       .multi-day-empty{
         color:var(--muted);
@@ -8211,9 +8219,6 @@ return `
       @media (max-width: 900px){
         .multi-day-row{
           grid-template-columns: 1fr;
-        }
-        .multi-day-date{
-          padding-bottom:0;
         }
       }
       .rec-label{ font-weight:650; font-size: 12px; margin-bottom: 8px; color: var(--text); letter-spacing: .2px; }
@@ -10246,11 +10251,11 @@ return `
               </div>
 
               <div class="rec-box multi-day-shell ${inferredEventType === "multi-day" ? "is-visible" : ""}" id="multiDayScheduleShell" style="margin-top:14px;">
-                <div style="font-weight:650; margin-bottom:6px;">Daily Time Ranges</div>
-                <div class="note">For multi-day events, you can override the start and end time for each day. The overall Start and End fields above still define the event's first and last day.</div>
+                <div style="font-weight:650; margin-bottom:6px;">Daily Schedule</div>
+                <div class="note">For multi-day events, each day in the selected range gets its own row so you can set different hours. The overall Start and End fields above still define the event's first and last day.</div>
                 <input type="hidden" name="multiDayScheduleJson" id="multiDayScheduleJson" value='${esc(JSON.stringify(multiDaySchedule || []))}' />
                 <div id="multiDayScheduleWrap" style="margin-top:12px;">
-                  <div class="multi-day-empty">Choose a multi-day start and end range to set hours for each day.</div>
+                  <div class="multi-day-empty">Choose a multi-day start and end range to build the daily schedule.</div>
                 </div>
               </div>
 
@@ -12080,6 +12085,11 @@ return `
           if (isNaN(d.getTime())) return dateKey;
           return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
         }
+        function toInputDateValue(dateKey){
+          var d = new Date(dateKey + "T12:00:00");
+          if (isNaN(d.getTime())) return "";
+          return pad(d.getMonth() + 1) + "/" + pad(d.getDate()) + "/" + d.getFullYear();
+        }
         function enumerateDates(startKey, endKey){
           var out = [];
           var cur = new Date(startKey + "T12:00:00");
@@ -12115,30 +12125,33 @@ return `
           var startParts = parseLocalDateTime(startEl.value);
           var endParts = parseLocalDateTime(endEl.value);
           if (!startParts || !endParts) {
-            wrap.innerHTML = '<div class="multi-day-empty">Choose a multi-day start and end range to set hours for each day.</div>';
+            wrap.innerHTML = '<div class="multi-day-empty">Choose a multi-day start and end range to build the daily schedule.</div>';
             return;
           }
           var startKey = toDateKey(startParts);
           var endKey = toDateKey(endParts);
           var dateKeys = enumerateDates(startKey, endKey);
           if (!dateKeys.length || (dateKeys.length === 1 && startKey === endKey)) {
-            wrap.innerHTML = '<div class="multi-day-empty">Choose a start and end date on different days to add daily time ranges.</div>';
+            wrap.innerHTML = '<div class="multi-day-empty">Choose a start and end date on different days to add one row per day.</div>';
             return;
           }
           var existing = parseExisting();
           var defaultStart = toTimeValue(startParts);
           var defaultEnd = toTimeValue(endParts);
-          wrap.innerHTML = dateKeys.map(function(dateKey){
+          wrap.innerHTML = '<div class="multi-day-list">' + dateKeys.map(function(dateKey){
             var saved = existing[dateKey] || {};
             var startVal = saved.startTime || defaultStart;
             var endVal = saved.endTime || defaultEnd;
             return '' +
               '<div class="multi-day-row" data-multi-day-row="1" data-date="' + dateKey + '">' +
-                '<div class="multi-day-date">' + formatDateLabel(dateKey) + '</div>' +
+                '<div>' +
+                  '<div class="multi-day-date-label">' + formatDateLabel(dateKey) + '</div>' +
+                  '<input class="ctrl multi-day-date-input" type="text" value="' + toInputDateValue(dateKey) + '" readonly />' +
+                '</div>' +
                 '<div><label style="margin-top:0;">Start time</label><input class="ctrl" type="time" name="multiDayStart" value="' + startVal + '" /></div>' +
                 '<div><label style="margin-top:0;">End time</label><input class="ctrl" type="time" name="multiDayEnd" value="' + endVal + '" /></div>' +
               '</div>';
-          }).join("");
+          }).join("") + '</div>';
         }
 
         startEl.addEventListener("change", render);
