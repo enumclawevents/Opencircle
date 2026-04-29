@@ -85,6 +85,19 @@ async function hasColumn(table, col) {
   return cols.some((c) => c.name === col);
 }
 
+function createAddColumnHelper(table) {
+  let cachedColumns = null;
+  return async (name, sql) => {
+    if (!cachedColumns) {
+      const cols = await tableInfo(table);
+      cachedColumns = new Set((cols || []).map((col) => col.name));
+    }
+    if (cachedColumns.has(name)) return;
+    await tryExec(sql);
+    cachedColumns.add(name);
+  };
+}
+
 // --------------------
 // initDB (server.js expects this name)
 // --------------------
@@ -214,10 +227,7 @@ async function initDB() {
   `);
 
   // Users: safe migrations
-  const addUserCol = async (name, defSql) => {
-    const cols = await tableInfo("users");
-    if (!cols.some((c) => c.name === name)) await tryExec(defSql);
-  };
+  const addUserCol = createAddColumnHelper("users");
   await addUserCol("email", `ALTER TABLE users ADD COLUMN email TEXT;`);
   await addUserCol("username", `ALTER TABLE users ADD COLUMN username TEXT;`);
   await addUserCol("passwordHash", `ALTER TABLE users ADD COLUMN passwordHash TEXT;`);
@@ -269,10 +279,7 @@ async function initDB() {
     );
   `);
 
-  const addInviteCol = async (name, defSql) => {
-    const cols = await tableInfo("invites");
-    if (!cols.some((c) => c.name === name)) await tryExec(defSql);
-  };
+  const addInviteCol = createAddColumnHelper("invites");
   await addInviteCol("role", `ALTER TABLE invites ADD COLUMN role TEXT DEFAULT 'organizer';`);
   await addInviteCol("city", `ALTER TABLE invites ADD COLUMN city TEXT DEFAULT 'Enumclaw';`);
   await addInviteCol("permissionsJson", `ALTER TABLE invites ADD COLUMN permissionsJson TEXT;`);
@@ -331,10 +338,7 @@ async function initDB() {
   `);
 
   // Pending submissions: safe migrations
-  const addPendingCol = async (name, defSql) => {
-    const cols = await tableInfo("pending_events");
-    if (!cols.some((c) => c.name === name)) await tryExec(defSql);
-  };
+  const addPendingCol = createAddColumnHelper("pending_events");
 
   await addPendingCol("eventLink", `ALTER TABLE pending_events ADD COLUMN eventLink TEXT;`);
   await addPendingCol("approvalNotes", `ALTER TABLE pending_events ADD COLUMN approvalNotes TEXT;`);
@@ -365,9 +369,7 @@ async function initDB() {
   }
 
   // Add common columns if missing
-  const addCol = async (name, defSql) => {
-    if (!(await hasColumn("events", name))) await tryExec(defSql);
-  };
+  const addCol = createAddColumnHelper("events");
 
   await addCol("slug", `ALTER TABLE events ADD COLUMN slug TEXT;`);
   await addCol("eventDetails", `ALTER TABLE events ADD COLUMN eventDetails TEXT;`);

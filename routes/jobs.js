@@ -7,64 +7,16 @@ const multer = require("multer");
 const { S3Client } = require("@aws-sdk/client-s3");
 const multerS3 = require("multer-s3");
 const { all, get, run } = require("../db");
+const { safeParseJson } = require("../lib/json");
+const {
+  JOB_APPLICATION_FIELDS,
+  formatEmploymentTypeDisplay,
+  normalizeJobApplicationFields,
+  normalizeJobApplicationMode,
+  normalizeJobEmploymentTypes,
+} = require("../lib/job-utils");
 
 const router = express.Router();
-
-const JOB_APPLICATION_FIELDS = [
-  { key: "firstName", label: "First name" },
-  { key: "lastName", label: "Last name" },
-  { key: "email", label: "Email" },
-  { key: "phone", label: "Phone" },
-  { key: "coverLetter", label: "Cover letter" },
-  { key: "resume", label: "Resume upload" },
-];
-
-function normalizeEmploymentTypeLabel(input) {
-  const value = String(input || "").trim().toLowerCase();
-  if (!value) return "";
-  if (value === "part-time" || value === "part time" || value === "parttime") return "Part-Time";
-  if (value === "full-time" || value === "full time" || value === "fulltime") return "Full-Time";
-  return "";
-}
-
-function collectEmploymentTypeCandidates(input) {
-  if (Array.isArray(input)) {
-    return input.flatMap((item) => collectEmploymentTypeCandidates(item));
-  }
-  if (input && typeof input === "object") {
-    const out = [];
-    if (input.partTime === true || String(input.partTime || "").trim() === "1" || String(input.partTime || "").trim().toLowerCase() === "true") {
-      out.push("Part-Time");
-    }
-    if (input.fullTime === true || String(input.fullTime || "").trim() === "1" || String(input.fullTime || "").trim().toLowerCase() === "true") {
-      out.push("Full-Time");
-    }
-    if (Array.isArray(input.employmentTypes)) out.push(...collectEmploymentTypeCandidates(input.employmentTypes));
-    if (input.employmentType) out.push(...collectEmploymentTypeCandidates(input.employmentType));
-    return out;
-  }
-  const raw = String(input || "").trim();
-  if (!raw) return [];
-  return raw.split(/[\/,|&]+/g).map((part) => part.trim()).filter(Boolean);
-}
-
-function normalizeJobEmploymentTypes(input) {
-  const arr = collectEmploymentTypeCandidates(input);
-  const out = [];
-  for (const item of arr) {
-    const label = normalizeEmploymentTypeLabel(item);
-    if (!label || out.includes(label)) continue;
-    out.push(label);
-  }
-  return out;
-}
-
-function formatEmploymentTypeDisplay(employmentTypes) {
-  const normalized = normalizeJobEmploymentTypes(employmentTypes);
-  if (normalized.length === 2) return "Part-Time / Full-Time";
-  if (normalized.length === 1) return normalized[0];
-  return "";
-}
 
 function getCanonicalEmploymentTypes(row) {
   const parsed = safeParseJson(row?.employmentTypesJson, null);
@@ -154,43 +106,6 @@ function normalizeHttpUrl(input) {
   } catch (_) {
     return "";
   }
-}
-
-function defaultJobApplicationFields() {
-  return {
-    firstName: "required",
-    lastName: "required",
-    email: "required",
-    phone: "optional",
-    coverLetter: "optional",
-    resume: "optional",
-  };
-}
-
-function normalizeJobApplicationMode(input) {
-  const mode = String(input || "external").trim().toLowerCase();
-  return ["external", "website", "both"].includes(mode) ? mode : "external";
-}
-
-function safeParseJson(value, fallback) {
-  if (value === null || value === undefined || value === "") return fallback;
-  if (typeof value === "object") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
-}
-
-function normalizeJobApplicationFields(input) {
-  const defaults = defaultJobApplicationFields();
-  const raw = (input && typeof input === "object") ? input : {};
-  const out = {};
-  for (const field of JOB_APPLICATION_FIELDS) {
-    const value = String(raw[field.key] || defaults[field.key] || "optional").trim().toLowerCase();
-    out[field.key] = ["off", "optional", "required"].includes(value) ? value : defaults[field.key];
-  }
-  return out;
 }
 
 function getBaseUrl(req) {

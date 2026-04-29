@@ -3,6 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const { all, get, run } = require("../db");
+const { safeParseJson } = require("../lib/json");
 
 let _schemaEnsured = false;
 let _colsCache = null;
@@ -23,16 +24,6 @@ function normalizeHttpUrl(input) {
     return u.toString();
   } catch (_) {
     return "";
-  }
-}
-
-function safeParseJson(val, fallback) {
-  if (val === null || val === undefined || val === "") return fallback;
-  if (typeof val === "object") return val;
-  try {
-    return JSON.parse(val);
-  } catch (_) {
-    return fallback;
   }
 }
 

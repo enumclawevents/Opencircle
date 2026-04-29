@@ -1,11 +1,13 @@
 "use strict";
 
 const path = require("path");
-const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
 const { sendEmail } = require("./mailer");
+const { hashPassword, hashToken, verifyPassword } = require("./lib/auth");
+const { esc } = require("./lib/html");
+const { UPLOAD_DIR } = require("./lib/uploads");
 
 const { initDB, archiveExpiredEvents, get, run } = require("./db");
 
@@ -21,20 +23,10 @@ app.locals.reqTimes = [];
 // If behind Render proxy, this helps req.protocol be correct
 app.set("trust proxy", 1);
 
-// --------------------
-// Persistent uploads
-// --------------------
-const UPLOADS_DIR =
-  process.env.UPLOADS_DIR ||
-  (process.env.RENDER_DISK_PATH
-    ? path.join(process.env.RENDER_DISK_PATH, "uploads")
-    : path.join(process.cwd(), "uploads"));
-
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-console.log("[UPLOADS] Using folder:", UPLOADS_DIR);
+console.log("[UPLOADS] Using folder:", UPLOAD_DIR);
 
 // Host uploads publicly
-app.use("/uploads", express.static(UPLOADS_DIR));
+app.use("/uploads", express.static(UPLOAD_DIR));
 
 // Static assets
 app.use("/assets", express.static(path.join(__dirname, "public")));
@@ -89,41 +81,19 @@ const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "opencircle";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const sessions = new Map();
-const PASSWORD_ITER = 120000;
 const INVITE_TTL_HOURS = 7 * 24;
 const RESET_TTL_HOURS = 1;
-
-function esc(str) {
-  return String(str || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto
-    .pbkdf2Sync(password, salt, PASSWORD_ITER, 32, "sha256")
-    .toString("hex");
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password, stored) {
-  if (!stored) return false;
-  const [salt, hash] = String(stored).split(":");
-  if (!salt || !hash) return false;
-  const test = crypto
-    .pbkdf2Sync(password, salt, PASSWORD_ITER, 32, "sha256")
-    .toString("hex");
-  return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(test, "hex"));
-}
-
-function hashToken(token) {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
+const PUBLIC_PATHS = new Set(["/login", "/signup", "/invite", "/forgot", "/health"]);
+const PUBLIC_PREFIXES = [
+  "/events/submit",
+  "/events/feature",
+  "/events",
+  "/venues",
+  "/ads",
+  "/jobs",
+  "/uploads",
+  "/assets",
+];
 
 
 function parseCookies(cookieHeader) {
@@ -159,6 +129,11 @@ function getSession(token) {
   return sess;
 }
 
+function isPublicPath(pathname) {
+  if (PUBLIC_PATHS.has(pathname)) return true;
+  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 function requireLogin(req, res, next) {
   // Parse session first so public endpoints can still see req.user when logged in.
   const cookies = parseCookies(req.headers.cookie || "");
@@ -176,22 +151,7 @@ function requireLogin(req, res, next) {
   }
 
   // allow login + public endpoints
-  if (
-    req.path === "/login" ||
-    req.path === "/signup" ||
-    req.path === "/invite" ||
-    req.path === "/forgot" ||
-    req.path === "/health" ||
-    req.path.startsWith("/events/submit") ||
-    req.path.startsWith("/events/feature") ||
-    req.path.startsWith("/events") ||
-    req.path.startsWith("/venues") ||
-    req.path.startsWith("/ads") ||
-    req.path.startsWith("/jobs") ||
-
-    req.path.startsWith("/uploads") ||
-    req.path.startsWith("/assets")
-  ) {
+  if (isPublicPath(req.path)) {
     return next();
   }
 
@@ -608,15 +568,13 @@ app.post("/reset", async (req, res) => {
   return res.redirect("/login");
 });
 
-app.post("/logout", (req, res) => {
+function clearAuthAndRedirect(res) {
   res.setHeader("Set-Cookie", "oc_auth=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
   return res.redirect("/login");
-});
+}
 
-app.get("/logout", (req, res) => {
-  res.setHeader("Set-Cookie", "oc_auth=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
-  return res.redirect("/login");
-});
+app.post("/logout", (_req, res) => clearAuthAndRedirect(res));
+app.get("/logout", (_req, res) => clearAuthAndRedirect(res));
 
 // Home test route
 app.get("/", (req, res) => {
@@ -628,7 +586,6 @@ app.get("/", (req, res) => {
 });
 
 app.get("/health", (req, res) => res.status(200).send("ok"));
-app.use(express.json());
 app.use(express.text({ type: "text/plain" })); // for sendBeacon payloads
 
 // Routes
@@ -677,4 +634,4 @@ initDB()
   });
 
 // Export for routers if needed
-module.exports = { UPLOADS_DIR };
+module.exports = { UPLOADS_DIR: UPLOAD_DIR };

@@ -3,19 +3,11 @@
 const express = require("express");
 const router = express.Router();
 const { all, get, run } = require("../db");
+const { safeParseJson } = require("../lib/json");
 
 let _schemaEnsured = false;
 let _colsCache = null;
 let _eventColsCache = null;
-
-function safeParseJson(v, fallback) {
-  try {
-    const out = typeof v === "string" ? JSON.parse(v) : v;
-    return out == null ? fallback : out;
-  } catch (_) {
-    return fallback;
-  }
-}
 
 function normalizeVenueCategories(input) {
   const out = [];

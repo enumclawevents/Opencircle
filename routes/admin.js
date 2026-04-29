@@ -7,257 +7,23 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 const { execSync, execFileSync } = require("child_process");
-const multer = require("multer");
-const sharp = require("sharp");
-const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { sendEmail } = require("../mailer");
 const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const crypto = require("crypto");
 const packageMeta = require("../package.json");
-const PASSWORD_ITER = 120000;
-const DEFAULT_TZ = "America/Los_Angeles";
-
-function hashToken(token) {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
-
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto
-    .pbkdf2Sync(String(password || ""), salt, PASSWORD_ITER, 32, "sha256")
-    .toString("hex");
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password, stored) {
-  const [salt, hash] = String(stored || "").split(":");
-  if (!salt || !hash) return false;
-  const test = crypto
-    .pbkdf2Sync(String(password || ""), salt, PASSWORD_ITER, 32, "sha256")
-    .toString("hex");
-  try {
-    return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(test, "hex"));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Fixed category list (12 total)
- * Admin must choose from these; max 3 per event.
- */
-const ALLOWED_CATEGORIES = [
-  "Music",
-  "Food & Drink",
-  "Arts & Culture",
-  "Games & Trivia",
-  "Community",
-  "Family & Kids",
-  "Sports & Fitness",
-  "Nightlife",
-  "Markets & Shopping",
-  "Classes & Workshops",
-  "Outdoors",
-  "Business & Networking",
-  "Charity & Fundraising",
-  "Seasonal & Holiday",
-];
-
-const ALLOWED_VENUE_CATEGORIES = [
-  "Bars & Breweries",
-  "Restaurants & Cafés",
-  "Wineries & Tasting Rooms",
-  "Live Music Venues",
-  "Theaters & Performance Spaces",
-  "Event Centers & Banquet Halls",
-  "Expo & Fairgrounds",
-  "Community & Civic Spaces",
-  "Parks & Outdoor Spaces",
-  "Schools & Campus Venues",
-  "Churches & Faith Centers",
-  "Nonprofits & Community Orgs",
-];
-
-// --- Uploads (R2 preferred; fallback to local disk) ---
-const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || "";
-const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || "";
-const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || "";
-const R2_BUCKET = process.env.R2_BUCKET || "";
-const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || "";
-
-const useR2 =
-  R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET && R2_PUBLIC_URL;
-
-const UPLOAD_DIR =
-  process.env.UPLOADS_DIR ||
-  (process.env.RENDER_DISK_PATH
-    ? path.join(process.env.RENDER_DISK_PATH, "uploads")
-    : path.join(process.cwd(), "uploads"));
-const TEMP_UPLOAD_DIR = path.join(os.tmpdir(), "opencircle-upload-tmp");
-
-if (!useR2) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
-fs.mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
-
-const r2Client = useR2
-  ? new S3Client({
-      region: "auto",
-      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-      credentials: {
-        accessKeyId: R2_ACCESS_KEY_ID,
-        secretAccessKey: R2_SECRET_ACCESS_KEY,
-      },
-      forcePathStyle: true,
-    })
-  : null;
-
-function buildUploadBaseName(inputName, fallback = "image") {
-  const ext = path.extname(inputName || "").toLowerCase();
-  const base = path
-    .basename(inputName || fallback, ext)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  return base || fallback;
-}
-
-function buildTempUploadKey(file) {
-  const base = buildUploadBaseName(file?.originalname || "", "upload");
-  return `${base}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function buildStoredImageKey(inputName, fallback = "image") {
-  const base = buildUploadBaseName(inputName, fallback);
-  return `${base}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.webp`;
-}
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, TEMP_UPLOAD_DIR),
-  filename: (_req, file, cb) => cb(null, buildTempUploadKey(file)),
-});
-
-function fileFilter(req, file, cb) {
-  const ok = /^image\//i.test(file.mimetype || "");
-  cb(ok ? null : new Error("Only image files are allowed."), ok);
-}
-
-const upload = multer({
-  storage,
-  fileFilter,
-});
-
-const bulkImportUpload = multer({
-  storage: multer.memoryStorage(),
-  fileFilter: (_req, file, cb) => {
-    const name = String(file.originalname || "").toLowerCase();
-    const mime = String(file.mimetype || "").toLowerCase();
-    let ok = false;
-    if (file.fieldname === "eventsCsv") {
-      ok = name.endsWith(".csv") || mime === "text/csv" || mime === "application/vnd.ms-excel";
-    } else if (file.fieldname === "imageZip") {
-      ok = name.endsWith(".zip") || mime === "application/zip" || mime === "application/x-zip-compressed" || mime === "multipart/x-zip";
-    }
-    cb(ok ? null : new Error("Only CSV files are allowed."), ok);
-  },
-  limits: { fileSize: 25 * 1024 * 1024 },
-});
-
-const JOB_APPLICATION_FIELDS = [
-  { key: "firstName", label: "First name" },
-  { key: "lastName", label: "Last name" },
-  { key: "email", label: "Email" },
-  { key: "phone", label: "Phone" },
-  { key: "coverLetter", label: "Cover letter" },
-  { key: "resume", label: "Resume upload" },
-];
-
-const JOB_EMPLOYMENT_TYPE_OPTIONS = ["Part-Time", "Full-Time"];
-
-function normalizeEmploymentTypeLabel(input) {
-  const value = String(input || "").trim().toLowerCase();
-  if (!value) return "";
-  if (value === "part-time" || value === "part time" || value === "parttime") return "Part-Time";
-  if (value === "full-time" || value === "full time" || value === "fulltime") return "Full-Time";
-  return "";
-}
-
-function collectEmploymentTypeCandidates(input) {
-  if (Array.isArray(input)) {
-    return input.flatMap((item) => collectEmploymentTypeCandidates(item));
-  }
-  if (input && typeof input === "object") {
-    const out = [];
-    if (input.partTime === true || String(input.partTime || "").trim() === "1" || String(input.partTime || "").trim().toLowerCase() === "true") {
-      out.push("Part-Time");
-    }
-    if (input.fullTime === true || String(input.fullTime || "").trim() === "1" || String(input.fullTime || "").trim().toLowerCase() === "true") {
-      out.push("Full-Time");
-    }
-    if (Array.isArray(input.employmentTypes)) out.push(...collectEmploymentTypeCandidates(input.employmentTypes));
-    if (input.employmentType) out.push(...collectEmploymentTypeCandidates(input.employmentType));
-    return out;
-  }
-  const raw = String(input || "").trim();
-  if (!raw) return [];
-  return raw.split(/[\/,|&]+/g).map((part) => part.trim()).filter(Boolean);
-}
-
-function normalizeJobEmploymentTypes(input) {
-  const arr = collectEmploymentTypeCandidates(input);
-  const out = [];
-  for (const item of arr) {
-    const label = normalizeEmploymentTypeLabel(item);
-    if (!label || out.includes(label)) continue;
-    out.push(label);
-  }
-  return out;
-}
-
-function getJobEmploymentTypesForEdit(job) {
-  const parsed = safeParseJson(job?.employmentTypesJson, null);
-  const normalized = normalizeJobEmploymentTypes({
-    employmentTypes: parsed,
-    employmentType: job?.employmentType || "",
-    partTime: job?.partTime,
-    fullTime: job?.fullTime,
-  });
-  return normalized.length ? normalized : ["Full-Time"];
-}
-
-function formatEmploymentTypeDisplay(employmentTypes, fallback = "") {
-  const normalized = normalizeJobEmploymentTypes(employmentTypes);
-  if (normalized.length === 2) return "Part-Time / Full-Time";
-  if (normalized.length === 1) return normalized[0];
-  return String(fallback || "").trim();
-}
-
-function defaultJobApplicationFields() {
-  return {
-    firstName: "required",
-    lastName: "required",
-    email: "required",
-    phone: "optional",
-    coverLetter: "optional",
-    resume: "optional",
-  };
-}
-
-function normalizeJobApplicationMode(input) {
-  const mode = String(input || "external").trim().toLowerCase();
-  return ["external", "website", "both"].includes(mode) ? mode : "external";
-}
-
-function normalizeJobApplicationFields(input) {
-  const defaults = defaultJobApplicationFields();
-  const raw = (input && typeof input === "object") ? input : {};
-  const out = {};
-  for (const field of JOB_APPLICATION_FIELDS) {
-    const value = String(raw[field.key] || defaults[field.key] || "optional").trim().toLowerCase();
-    out[field.key] = ["off", "optional", "required"].includes(value) ? value : defaults[field.key];
-  }
-  return out;
-}
+const { hashPassword, hashToken, verifyPassword } = require("../lib/auth");
+const { esc } = require("../lib/html");
+const { safeParseJson } = require("../lib/json");
+const { ALLOWED_CATEGORIES, ALLOWED_VENUE_CATEGORIES, DEFAULT_TZ } = require("../lib/admin-constants");
+const {
+  JOB_APPLICATION_FIELDS,
+  JOB_EMPLOYMENT_TYPE_OPTIONS,
+  formatEmploymentTypeDisplay,
+  getJobEmploymentTypesForEdit,
+  normalizeJobApplicationFields,
+  normalizeJobApplicationMode,
+} = require("../lib/job-utils");
+const { bulkImportUpload, persistImportedImage, persistUploadedImage, upload } = require("../lib/uploads");
 
 function normalizeCategories(input) {
   let arr = [];
@@ -397,56 +163,6 @@ function buildZipImageMap(zipBuffer) {
   return { imageMap, cleanup: () => { try { fs.rmSync(baseDir, { recursive: true, force: true }); } catch (_) {} } };
 }
 
-async function persistImportedImage(localPath, req) {
-  if (!localPath || !fs.existsSync(localPath)) return "";
-  return await processAndPersistImage(localPath, path.basename(localPath), req);
-}
-
-function buildLocalUploadUrl(fileName, req) {
-  const proto = req.headers["x-forwarded-proto"] || req.protocol;
-  const host = req.headers["x-forwarded-host"] || req.get("host");
-  return `${proto}://${host}/uploads/${fileName}`;
-}
-
-async function processAndPersistImage(inputPath, sourceName, req) {
-  const outputKey = buildStoredImageKey(sourceName, "image");
-  const imageBuffer = await sharp(inputPath)
-    .rotate()
-    .resize(1920, 1080, {
-      fit: "contain",
-      position: "centre",
-      background: { r: 229, g: 231, b: 235, alpha: 1 },
-    })
-    .withMetadata({ density: 72 })
-    .webp({ quality: 85 })
-    .toBuffer();
-
-  if (useR2) {
-    await r2Client.send(new PutObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: outputKey,
-      Body: imageBuffer,
-      ContentType: "image/webp",
-      CacheControl: "public, max-age=31536000, immutable",
-    }));
-    const base = String(R2_PUBLIC_URL || "").replace(/\/$/, "");
-    return `${base}/${outputKey}`;
-  }
-
-  const destPath = path.join(UPLOAD_DIR, outputKey);
-  fs.writeFileSync(destPath, imageBuffer);
-  return buildLocalUploadUrl(outputKey, req);
-}
-
-async function persistUploadedImage(file, req) {
-  if (!file?.path) return "";
-  try {
-    return await processAndPersistImage(file.path, file.originalname || file.filename || "image", req);
-  } finally {
-    try { fs.rmSync(file.path, { force: true }); } catch (_) {}
-  }
-}
-
 function normalizeVenueCategories(input) {
   const arr = Array.isArray(input) ? input : [input];
   const uniq = [];
@@ -493,16 +209,6 @@ function normalizeHttpUrl(input) {
     return u.toString();
   } catch (_) {
     return "";
-  }
-}
-
-function safeParseJson(val, fallback) {
-  if (val === null || val === undefined || val === "") return fallback;
-  if (typeof val === "object") return val;
-  try {
-    return JSON.parse(val);
-  } catch {
-    return fallback;
   }
 }
 
@@ -1291,14 +997,6 @@ async function insertEventFromPending(p) {
   );
 
   return ins?.lastID || null;
-}
-
-function esc(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
 
 function buildHiddenAdminFormInputs(payload) {

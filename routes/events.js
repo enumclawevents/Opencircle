@@ -5,6 +5,7 @@ const router = express.Router();
 const { all, get, run } = require("../db");
 const crypto = require("crypto");
 const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
+const { safeParseJson } = require("../lib/json");
 const PAST_EVENTS_LIMIT = 24;
 const PAST_EVENTS_CACHE_MS = 5 * 60 * 1000;
 const pastEventsCache = new Map();
@@ -517,16 +518,6 @@ function buildOccurrencesUpcomingFromRule(event) {
   // If you later support weekly/monthly RRULE generation server-side,
   // you'd add it here. For now, fall back to any precomputed occurrencesUpcoming on the row if you store it.
   return [];
-}
-
-function safeParseJson(val, fallback) {
-  if (val === null || val === undefined || val === "") return fallback;
-  if (typeof val === "object") return val;
-  try {
-    return JSON.parse(val);
-  } catch {
-    return fallback;
-  }
 }
 
 function readFeatured(row) {
