@@ -1484,7 +1484,7 @@ router.get("/slug/:slug", async (req, res) => {
       recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),
       featured: readFeaturedActive(rowFixed),
       eddiesPick: readEddiesPick(rowFixed),
-      eddiesPick: readEddiesPick(rowFixed),
+      ticketClickCount: Number(rowFixed.ticketClickCount || 0),
 
       // pass through (these columns exist in DB)
       recurrenceStartDate: rowFixed.recurrenceStartDate || null,
@@ -2019,6 +2019,75 @@ router.post("/:idOrSlug/view", async (req, res) => {
   } catch (err) {
     console.error("[view] error:", err);
     return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /events/:idOrSlug/ticket-click
+router.post("/:idOrSlug/ticket-click", async (req, res) => {
+  try {
+    const raw = String(req.params.idOrSlug || "").trim();
+    if (!raw) return res.status(400).json({ error: "Missing id/slug" });
+
+    const asId = Number(raw);
+    const isId = Number.isInteger(asId) && asId > 0;
+
+    const row = isId
+      ? await get("SELECT id, ticketUrl, ticketClickCount FROM events WHERE id = ? LIMIT 1", [asId])
+      : await get("SELECT id, ticketUrl, ticketClickCount FROM events WHERE LOWER(slug) = LOWER(?) LIMIT 1", [raw.toLowerCase()]);
+
+    if (!row) return res.status(404).json({ error: "Event not found" });
+    if (!String(row.ticketUrl || "").trim()) return res.status(400).json({ error: "No ticket URL configured" });
+
+    await run(
+      `UPDATE events
+          SET ticketClickCount = COALESCE(ticketClickCount, 0) + 1,
+              updatedAt = datetime('now')
+        WHERE id = ?`,
+      [row.id]
+    );
+
+    const updated = await get("SELECT ticketClickCount FROM events WHERE id = ?", [row.id]);
+    return res.json({
+      ok: true,
+      ticketUrl: String(row.ticketUrl || "").trim(),
+      ticketClickCount: Number(updated?.ticketClickCount || 0),
+    });
+  } catch (err) {
+    console.error("[ticket-click] error:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /events/:idOrSlug/tickets
+router.get("/:idOrSlug/tickets", async (req, res) => {
+  try {
+    const raw = String(req.params.idOrSlug || "").trim();
+    if (!raw) return res.status(400).send("Missing id/slug");
+
+    const asId = Number(raw);
+    const isId = Number.isInteger(asId) && asId > 0;
+
+    const row = isId
+      ? await get("SELECT id, ticketUrl FROM events WHERE id = ? LIMIT 1", [asId])
+      : await get("SELECT id, ticketUrl FROM events WHERE LOWER(slug) = LOWER(?) LIMIT 1", [raw.toLowerCase()]);
+
+    if (!row) return res.status(404).send("Event not found");
+
+    const ticketUrl = String(row.ticketUrl || "").trim();
+    if (!ticketUrl) return res.status(400).send("No ticket URL configured");
+
+    await run(
+      `UPDATE events
+          SET ticketClickCount = COALESCE(ticketClickCount, 0) + 1,
+              updatedAt = datetime('now')
+        WHERE id = ?`,
+      [row.id]
+    );
+
+    return res.redirect(ticketUrl);
+  } catch (err) {
+    console.error("[tickets redirect] error:", err);
+    return res.status(500).send("Server error");
   }
 });
 

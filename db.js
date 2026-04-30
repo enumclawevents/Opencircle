@@ -154,6 +154,7 @@ async function initDB() {
       -- Analytics
       viewCount INTEGER NOT NULL DEFAULT 0,
       uniqueViewCount INTEGER NOT NULL DEFAULT 0,
+      ticketClickCount INTEGER NOT NULL DEFAULT 0,
       lastViewedAt TEXT,
       goingCount INTEGER NOT NULL DEFAULT 0,
       interestedCount INTEGER NOT NULL DEFAULT 0,
@@ -401,6 +402,7 @@ async function initDB() {
 
   await addCol("viewCount", `ALTER TABLE events ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0;`);
   await addCol("uniqueViewCount", `ALTER TABLE events ADD COLUMN uniqueViewCount INTEGER NOT NULL DEFAULT 0;`);
+  await addCol("ticketClickCount", `ALTER TABLE events ADD COLUMN ticketClickCount INTEGER NOT NULL DEFAULT 0;`);
   await addCol("lastViewedAt", `ALTER TABLE events ADD COLUMN lastViewedAt TEXT;`);
   await addCol("goingCount", `ALTER TABLE events ADD COLUMN goingCount INTEGER NOT NULL DEFAULT 0;`);
   await addCol("interestedCount", `ALTER TABLE events ADD COLUMN interestedCount INTEGER NOT NULL DEFAULT 0;`);

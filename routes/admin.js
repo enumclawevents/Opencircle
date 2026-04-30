@@ -2853,6 +2853,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "Individual event insights now include a ticket-click counter, and events expose tracked ticket click endpoints for ticket button analytics" });
     releaseLogItems.push({ date: "2026-04-30", text: "Top event dashboard cards now rank all events by view activity during today, this week, this month, and this year instead of filtering by the event date itself" });
     releaseLogItems.push({ date: "2026-04-30", text: "All admin form fields now use the same sans-serif typeface, including the SEO inputs and textareas" });
     releaseLogItems.push({ date: "2026-04-16", text: "Organizer venue access is now limited to each organizer's own venues, and the dashboard app version now follows package.json automatically" });
@@ -3936,7 +3937,7 @@ return `
     if (requestedEventId) {
       const selectedEventRow = await get(
         `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule,
-                recurrenceDates, recurrenceStartDate, recurrenceUntilDate, featured, viewCount, uniqueViewCount,
+                recurrenceDates, recurrenceStartDate, recurrenceUntilDate, featured, viewCount, uniqueViewCount, ticketClickCount,
                 goingCount, interestedCount
          FROM events
          WHERE id = ?
@@ -4111,6 +4112,7 @@ return `
           featured: Number(eventRow.featured || 0) === 1 ? 1 : 0,
           lifetimeViews: Number(eventRow.viewCount || 0),
           uniqueViews: Number(eventRow.uniqueViewCount || 0),
+          ticketClicks: Number(eventRow.ticketClickCount || 0),
           going: Number(eventRow.goingCount || 0),
           interested: Number(eventRow.interestedCount || 0),
           ...sourceSummary,
@@ -4125,6 +4127,7 @@ return `
             </div>
             ${selectedEventAnalytics.location ? `<div class="muted" style="margin-bottom:6px;">${esc(selectedEventAnalytics.location)}</div>` : ``}
             ${selectedEventAnalytics.organizer ? `<div class="muted" style="margin-bottom:12px;">Organizer: ${esc(selectedEventAnalytics.organizer)}</div>` : ``}
+            <div class="kv"><div class="k">Tickets</div><div class="v">${selectedEventAnalytics.ticketClicks.toLocaleString("en-US")}</div></div>
             <div class="kv"><div class="k">Going</div><div class="v">${selectedEventAnalytics.going.toLocaleString("en-US")}</div></div>
             <div class="kv"><div class="k">Interested</div><div class="v">${selectedEventAnalytics.interested.toLocaleString("en-US")}</div></div>
           </div>
