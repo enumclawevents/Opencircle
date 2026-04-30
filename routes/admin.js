@@ -7105,6 +7105,8 @@ return `
         border-radius: var(--radius-inner);
         background: #ffffff;
         color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        font-weight: 500;
         font-size: 14px;
         outline: none;
         height: var(--ctrl-h);
@@ -7135,6 +7137,7 @@ return `
         border-radius: var(--radius-inner);
         background: var(--panel2);
         color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
         font-size: 14px;
         height: 60px;
         line-height: 1;
@@ -7146,6 +7149,7 @@ return `
         border: 1px solid var(--line);
         background: #ffffff;
         color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
         font-weight:600;
         cursor:pointer;
       }
@@ -7219,6 +7223,7 @@ return `
         border:1px solid var(--line);
         background: var(--panel);
         color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
         padding:0 16px;
         border-radius: var(--radius-inner);
         font-weight:600;
@@ -7233,6 +7238,7 @@ return `
         border:1px solid var(--line);
         background: var(--panel);
         color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
         padding:0 16px;
         border-radius: var(--radius-inner);
         font-weight:600;
