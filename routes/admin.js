@@ -2853,6 +2853,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "All admin form fields now use the same sans-serif typeface, including the SEO inputs and textareas" });
     releaseLogItems.push({ date: "2026-04-16", text: "Organizer venue access is now limited to each organizer's own venues, and the dashboard app version now follows package.json automatically" });
     releaseLogItems.push({ date: "2026-04-14", text: "Profile status badge now hangs outside the avatar circle instead of sitting inside the crop" });
     releaseLogItems.push({ date: "2026-04-14", text: "Insights tabs now use the same rounded pill style as the calendar scope toggle" });
