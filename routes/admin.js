@@ -2853,6 +2853,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "Top event dashboard cards now rank all events by view activity during today, this week, this month, and this year instead of filtering by the event date itself" });
     releaseLogItems.push({ date: "2026-04-30", text: "All admin form fields now use the same sans-serif typeface, including the SEO inputs and textareas" });
     releaseLogItems.push({ date: "2026-04-16", text: "Organizer venue access is now limited to each organizer's own venues, and the dashboard app version now follows package.json automatically" });
     releaseLogItems.push({ date: "2026-04-14", text: "Profile status badge now hangs outside the avatar circle instead of sitting inside the crop" });
@@ -3588,68 +3589,58 @@ return `
     // Top events by views (today / week / month / year)
     const hasViews = cols.has("viewCount");
     const topEventsFallback = `<div class="muted">Views not tracked.</div>`;
-    async function topEventsHtml(whereClause) {
-      if (!hasViews) return topEventsFallback;
-      const rows = await all(
-        `SELECT id, title, viewCount
-         FROM events
-         ${whereClause}
-         ORDER BY viewCount DESC, id DESC
-         LIMIT 5`
-      , dashParams);
-      if (!rows || rows.length === 0) return `<div class="muted">No events.</div>`;
+    function renderTopEventsByViewRows(rows, emptyMessage) {
+      if (!rows || rows.length === 0) return `<div class="muted">${emptyMessage}</div>`;
       return rows
         .map((r) => {
           const label = `<a href="${esc(buildEventAnalyticsHref(r.id))}">${esc(String(r.title || ""))}</a>`;
-          const count = Number(r.viewCount || 0);
+          const count = Number(r.periodViews || r.todayViews || 0);
           return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
         })
         .join("");
     }
 
-    async function topEventsTodayByViewsHtml() {
+    async function topEventsByViewWindowHtml(dateClauseSql, emptyMessage) {
       if (!hasSourceTrackingTable) return topEventsFallback;
-      const todayWhere = [];
-      const todayParams = [];
+      const periodWhere = [];
+      const periodParams = [];
       if (selectedCity) {
-        todayWhere.push("LOWER(e.city) = LOWER(?)");
-        todayParams.push(selectedCity);
+        periodWhere.push("LOWER(e.city) = LOWER(?)");
+        periodParams.push(selectedCity);
       }
       if (organizerOwnerClause) {
-        todayWhere.push(organizerOwnerClause.sql.replace(/organizer/g, "e.organizer"));
-        todayParams.push(...organizerOwnerClause.params);
+        periodWhere.push(organizerOwnerClause.sql.replace(/organizer/g, "e.organizer"));
+        periodParams.push(...organizerOwnerClause.params);
       }
-      const todayWhereSql = todayWhere.length ? ` AND ${todayWhere.join(" AND ")}` : "";
+      const periodWhereSql = periodWhere.length ? ` AND ${periodWhere.join(" AND ")}` : "";
       const rows = await all(
-        `SELECT e.id, e.title, COUNT(*) AS todayViews
+        `SELECT e.id, e.title, COUNT(*) AS periodViews
          FROM event_views ev
          JOIN events e ON e.id = ev.eventId
-         WHERE date(ev.viewedAt) = date('now')${todayWhereSql}
+         WHERE ${dateClauseSql}${periodWhereSql}
          GROUP BY e.id, e.title
-         ORDER BY todayViews DESC, e.id DESC
+         ORDER BY periodViews DESC, e.id DESC
          LIMIT 5`,
-        todayParams
+        periodParams
       );
-      if (!rows || rows.length === 0) return `<div class="muted">No views today.</div>`;
-      return rows
-        .map((r) => {
-          const label = `<a href="${esc(buildEventAnalyticsHref(r.id))}">${esc(String(r.title || ""))}</a>`;
-          const count = Number(r.todayViews || 0);
-          return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
-        })
-        .join("");
+      return renderTopEventsByViewRows(rows, emptyMessage);
     }
 
-    const withDashAnd = (clause) => `${dashWhere ? dashWhere + " AND " : "WHERE "}${clause}`;
-    const topTodayHtml = await topEventsTodayByViewsHtml();
-    const topWeekHtml = await topEventsHtml(
-      withDashAnd(`date(startDateTime) >= date('now','-6 day') AND date(startDateTime) <= date('now')`)
+    const topTodayHtml = await topEventsByViewWindowHtml(
+      `date(ev.viewedAt) = date('now')`,
+      "No views today."
     );
-    const topMonthHtml = await topEventsHtml(
-      withDashAnd(`date(startDateTime) >= date('now','start of month') AND date(startDateTime) <= date('now')`)
+    const topWeekHtml = await topEventsByViewWindowHtml(
+      `date(ev.viewedAt) >= date('now','-6 day') AND date(ev.viewedAt) <= date('now')`,
+      "No views this week."
     );
-    const topYearHtml = await topEventsHtml(
-      withDashAnd(`date(startDateTime) >= date('now','start of year') AND date(startDateTime) <= date('now')`)
+    const topMonthHtml = await topEventsByViewWindowHtml(
+      `date(ev.viewedAt) >= date('now','start of month') AND date(ev.viewedAt) <= date('now')`,
+      "No views this month."
+    );
+    const topYearHtml = await topEventsByViewWindowHtml(
+      `date(ev.viewedAt) >= date('now','start of year') AND date(ev.viewedAt) <= date('now')`,
+      "No views this year."
     );
 
     // Top organizers
