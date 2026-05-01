@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now submit as a real GET form so sort options like Newest ID first reliably reach the server" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now preserve and apply the selected sort option again, including Newest ID first" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event schedules now build correctly even when the start and end fields are using localized 12-hour date/time values" });
     releaseLogItems.push({ date: "2026-04-30", text: "Top event dashboard cards now use Pacific-time day, week, month, and year boundaries so today and this month no longer flip early on UTC" });
@@ -10279,14 +10280,19 @@ return `
 	                <a class="btn ${statusMode === "archived" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=archived${recurringOnly ? `&recurring=1` : ``}">Archived</a>
 	                <a class="btn btn-wide ${recurringOnly ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=${encodeURIComponent(statusMode)}${recurringOnly ? `` : `&recurring=1`}">${recurringOnly ? "Recurring On" : "Recurring Only"}</a>
 	              </div>
-	              <div class="listSearchRow">
+                <form class="listSearchRow" method="GET" action="/admin/existing-events">
+                  <input type="hidden" name="pg" value="1" />
+                  <input type="hidden" name="limit" value="${esc(String(limit))}" />
+                  <input type="hidden" name="status" value="${esc(String(statusMode))}" />
+                  ${recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``}
+                  ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
 	                <div class="filterField">
 	                  <label for="eventSearch">Search</label>
-	                  <input id="eventSearch" class="ctrl" type="text" placeholder="Search title, slug, location, or ID" value="${esc(q)}" />
+	                  <input id="eventSearch" name="q" class="ctrl" type="text" placeholder="Search title, slug, location, or ID" value="${esc(q)}" />
 	                </div>
 	                <div class="filterField">
 	                  <label for="sortBy">Sort by</label>
-	                  <select id="sortBy" class="ctrl sortBy">
+	                  <select id="sortBy" name="sort" class="ctrl sortBy">
 	                    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Event date/time</option>
 	                    <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Alphabetical (A-Z)</option>
 	                    <option value="recent" ${sort === "recent" ? "selected" : ""}>Recently added</option>
@@ -10296,16 +10302,16 @@ return `
 	                <div class="filterField">
 	                  <label for="eventDateFrom">Date range</label>
 	                  <div class="dateRange">
-	                    <input id="eventDateFrom" class="ctrl dateCtrl" type="date" value="${esc(fromDate)}" />
+	                    <input id="eventDateFrom" name="from" class="ctrl dateCtrl" type="date" value="${esc(fromDate)}" />
 	                    <span class="dateRangeSep">to</span>
-	                    <input id="eventDateTo" class="ctrl dateCtrl" type="date" value="${esc(toDate)}" />
+	                    <input id="eventDateTo" name="to" class="ctrl dateCtrl" type="date" value="${esc(toDate)}" />
 	                  </div>
 	                </div>
 	                <div class="filterActions">
-	                  <button id="eventSearchApply" type="button" class="btn btn-primary">Apply</button>
+	                  <button id="eventSearchApply" type="submit" class="btn btn-primary">Apply</button>
 	                  <button id="eventSearchClear" type="button" class="btn">Reset</button>
 	                </div>
-	              </div>
+                </form>
 	            </div>
 
 	            ${pagerHtml}
@@ -12030,6 +12036,7 @@ return `
 
       // Server-side filter (applies across all pages)
       (function(){
+        var form = document.querySelector('.listSearchRow[action="/admin/existing-events"], form.listSearchRow[action="/admin/existing-events"]');
         var input = document.getElementById('eventSearch');
         var fromInput = document.getElementById('eventDateFrom');
         var toInput = document.getElementById('eventDateTo');
@@ -12042,17 +12049,10 @@ return `
           try {
             sessionStorage.setItem("oc_admin_scroll", String(window.scrollY || 0));
           } catch (_) {}
-          var q = String(input.value || '').trim();
-          var sp = new URLSearchParams(window.location.search || '');
-          var from = String((fromInput && fromInput.value) || '').trim();
-          var to = String((toInput && toInput.value) || '').trim();
-          var sort = String((sortInput && sortInput.value) || '').trim();
-          if (q) sp.set('q', q); else sp.delete('q');
-          if (from) sp.set('from', from); else sp.delete('from');
-          if (to) sp.set('to', to); else sp.delete('to');
-          if (sort) sp.set('sort', sort); else sp.delete('sort');
-          sp.set('pg', '1');
-          window.location.href = window.location.pathname + '?' + sp.toString();
+          if (form) {
+            form.submit();
+            return;
+          }
         }
 
         input.addEventListener('keydown', function(ev){
