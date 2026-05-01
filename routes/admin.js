@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "Event type cards now switch reliably again, and recurring or single-event options are no longer suppressed just because the start and end dates span multiple days" });
     releaseLogItems.push({ date: "2026-04-30", text: "Event type buttons now stay manually selectable again, and multi-day date ranges no longer force the form back into Multi-Day mode behind the scenes" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event day/time rows now initialize from the rendered start and end field values even when the browser does not expose a usable datetime-local value on load" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event editing now automatically shows the daily day/time schedule for date ranges across multiple days and hides recurring controls in that flow" });
@@ -11792,10 +11793,11 @@ return `
           emitChange(typeEl);
         }
 
-        buttons.forEach(function(btn){
-          btn.addEventListener("click", function(){
-            setSelection(btn.getAttribute("data-event-type") || "");
-          });
+        picker.addEventListener("click", function(ev){
+          var btn = ev.target && ev.target.closest ? ev.target.closest("[data-event-type]") : null;
+          if (!btn || !picker.contains(btn)) return;
+          ev.preventDefault();
+          setSelection(btn.getAttribute("data-event-type") || "");
         });
 
         if (typeEl) {
@@ -11964,42 +11966,17 @@ return `
         render();
       })();
 
-      // Keep recurring settings hidden while editing a multi-day range unless recurring is selected
+      // Keep recurring settings synced to the chosen event type
       (function(){
-        var startEl = document.getElementById("startDateTime");
-        var endEl = document.getElementById("endDateTime");
         var typeChoice = document.getElementById("eventTypeChoice");
         var recurrenceSettings = document.getElementById("recurrenceSettings");
-        if (!startEl || !endEl || !typeChoice || !recurrenceSettings) return;
-
-        function readDateTimeValue(el){
-          if (!el) return "";
-          var live = String(el.value || "").trim();
-          if (live) return live;
-          var attr = String(el.getAttribute("value") || "").trim();
-          if (attr) return attr;
-          return "";
-        }
-
-        function parseDateKey(value){
-          var s = String(value || "").trim();
-          var m = s.match(/^(\d{4})-(\d{2})-(\d{2})T/);
-          if (m) return m[1] + "-" + m[2] + "-" + m[3];
-          m = s.match(/^(\d{2})\/(\d{2})\/(\d{4}),?/);
-          if (m) return m[3] + "-" + m[1] + "-" + m[2];
-          return "";
-        }
+        if (!typeChoice || !recurrenceSettings) return;
 
         function sync(){
-          var startKey = parseDateKey(readDateTimeValue(startEl));
-          var endKey = parseDateKey(readDateTimeValue(endEl));
-          var isRange = !!startKey && !!endKey && startKey !== endKey;
           var selectedType = String(typeChoice.value || "").trim().toLowerCase();
-          recurrenceSettings.style.display = (selectedType === "recurring" && !isRange) ? "" : "none";
+          recurrenceSettings.style.display = selectedType === "recurring" ? "" : "none";
         }
 
-        startEl.addEventListener("change", sync);
-        endEl.addEventListener("change", sync);
         typeChoice.addEventListener("change", sync);
         sync();
       })();
