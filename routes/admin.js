@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "Recurring Custom Dates now immediately reveals its add-date and remove-past-dates controls from the dropdown and checkbox state itself" });
     releaseLogItems.push({ date: "2026-04-30", text: "Create Event event-type cards now open the matching form directly from the card click itself, even if another page script fails later" });
     releaseLogItems.push({ date: "2026-04-30", text: "Create Event event-type cards now reveal their matching form reliably again with a direct card-selection fallback on click" });
     releaseLogItems.push({ date: "2026-04-30", text: "Event type cards now switch reliably again, and recurring or single-event options are no longer suppressed just because the start and end dates span multiple days" });
@@ -10014,7 +10015,7 @@ return `
               <!-- Recurring Events -->
               <div class="rec-box recurrence" id="recurrenceSettings">
                 <div class="checkbox event-type-managed-rec-toggle">
-                  <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
+                  <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} onchange="window.__syncRecurringUi && window.__syncRecurringUi()" />
                   <label for="hasRecurrence" style="margin:0;font-size:12px;font-weight:650;">Recurring event</label>
                 </div>
                 <div class="note event-type-managed-rec-toggle">Weekly/monthly rule or custom dates list.</div>
@@ -10026,7 +10027,7 @@ return `
                 <div class="rec-grid" style="margin-top:12px;">
                   <div>
                     <div class="rec-label">Recurrence Type</div>
-                    <select id="recurrenceType" name="recurrenceType" class="ctrl">
+                    <select id="recurrenceType" name="recurrenceType" class="ctrl" onchange="window.__syncRecurringUi && window.__syncRecurringUi()">
                       <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
                       <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
                       <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
@@ -10059,7 +10060,7 @@ return `
                   <div class="rec-grid">
                     <div>
                       <div class="rec-label">Monthly Mode</div>
-                      <select id="monthlyMode" name="monthlyMode" class="ctrl">
+                      <select id="monthlyMode" name="monthlyMode" class="ctrl" onchange="window.__syncRecurringUi && window.__syncRecurringUi()">
                         <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
                         <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday</option>
                       </select>
@@ -12180,6 +12181,8 @@ return `
             show(nthweekdayBox, false);
           }
         }
+
+        window.__syncRecurringUi = sync;
 
         if(hasRecEl) hasRecEl.addEventListener("change", sync);
         if(typeEl) typeEl.addEventListener("change", sync);
