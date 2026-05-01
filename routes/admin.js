@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event editing now automatically shows the daily day/time schedule for date ranges across multiple days and hides recurring controls in that flow" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now submit as a real GET form so sort options like Newest ID first reliably reach the server" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now preserve and apply the selected sort option again, including Newest ID first" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event schedules now build correctly even when the start and end fields are using localized 12-hour date/time values" });
@@ -11903,10 +11904,21 @@ return `
           if (selected === "multi-day") return true;
           return !!(shell && shell.classList.contains("is-visible"));
         }
-        function render(){
-          if (!isMultiDaySelected()) return;
+        function spansMultipleDays(){
           var startParts = parseLocalDateTime(startEl.value);
           var endParts = parseLocalDateTime(endEl.value);
+          if (!startParts || !endParts) return false;
+          return toDateKey(startParts) !== toDateKey(endParts);
+        }
+        function render(){
+          var startParts = parseLocalDateTime(startEl.value);
+          var endParts = parseLocalDateTime(endEl.value);
+          var shouldShow = isMultiDaySelected() || spansMultipleDays();
+          if (shell) shell.classList.toggle("is-visible", shouldShow);
+          if (!shouldShow) {
+            wrap.innerHTML = '<div class="multi-day-empty">Choose a multi-day start and end range to build the daily schedule.</div>';
+            return;
+          }
           if (!startParts || !endParts) {
             wrap.innerHTML = '<div class="multi-day-empty">Choose a multi-day start and end range to build the daily schedule.</div>';
             return;
@@ -11941,6 +11953,41 @@ return `
         endEl.addEventListener("change", render);
         typeChoice.addEventListener("change", render);
         render();
+      })();
+
+      // Prefer multi-day schedule UI whenever the chosen range spans multiple days
+      (function(){
+        var startEl = document.getElementById("startDateTime");
+        var endEl = document.getElementById("endDateTime");
+        var typeChoice = document.getElementById("eventTypeChoice");
+        var recurrenceSettings = document.getElementById("recurrenceSettings");
+        if (!startEl || !endEl || !typeChoice || !recurrenceSettings) return;
+
+        function parseDateKey(value){
+          var s = String(value || "").trim();
+          var m = s.match(/^(\d{4})-(\d{2})-(\d{2})T/);
+          if (m) return m[1] + "-" + m[2] + "-" + m[3];
+          m = s.match(/^(\d{2})\/(\d{2})\/(\d{4}),?/);
+          if (m) return m[3] + "-" + m[1] + "-" + m[2];
+          return "";
+        }
+
+        function sync(){
+          var startKey = parseDateKey(startEl.value);
+          var endKey = parseDateKey(endEl.value);
+          var isRange = !!startKey && !!endKey && startKey !== endKey;
+          if (isRange && String(typeChoice.value || "") !== "multi-day") {
+            typeChoice.value = "multi-day";
+            typeChoice.dispatchEvent(new Event("change", { bubbles: true }));
+            return;
+          }
+          recurrenceSettings.style.display = isRange ? "none" : (String(typeChoice.value || "") === "recurring" ? "" : "none");
+        }
+
+        startEl.addEventListener("change", sync);
+        endEl.addEventListener("change", sync);
+        typeChoice.addEventListener("change", sync);
+        sync();
       })();
 
       // Auto-set End = Start + 2 hours (only if end is empty)
