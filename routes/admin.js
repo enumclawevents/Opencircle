@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now preserve and apply the selected sort option again, including Newest ID first" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event schedules now build correctly even when the start and end fields are using localized 12-hour date/time values" });
     releaseLogItems.push({ date: "2026-04-30", text: "Top event dashboard cards now use Pacific-time day, week, month, and year boundaries so today and this month no longer flip early on UTC" });
     releaseLogItems.push({ date: "2026-04-30", text: "Individual event insights now include a ticket-click counter, and events expose tracked ticket click endpoints for ticket button analytics" });
@@ -12032,6 +12033,7 @@ return `
         var input = document.getElementById('eventSearch');
         var fromInput = document.getElementById('eventDateFrom');
         var toInput = document.getElementById('eventDateTo');
+        var sortInput = document.getElementById('sortBy');
         var applyBtn = document.getElementById('eventSearchApply');
         var clearBtn = document.getElementById('eventSearchClear');
         if(!input) return;
@@ -12044,9 +12046,11 @@ return `
           var sp = new URLSearchParams(window.location.search || '');
           var from = String((fromInput && fromInput.value) || '').trim();
           var to = String((toInput && toInput.value) || '').trim();
+          var sort = String((sortInput && sortInput.value) || '').trim();
           if (q) sp.set('q', q); else sp.delete('q');
           if (from) sp.set('from', from); else sp.delete('from');
           if (to) sp.set('to', to); else sp.delete('to');
+          if (sort) sp.set('sort', sort); else sp.delete('sort');
           sp.set('pg', '1');
           window.location.href = window.location.pathname + '?' + sp.toString();
         }
@@ -12062,11 +12066,17 @@ return `
             go();
           });
         }
+        if(sortInput){
+          sortInput.addEventListener('change', function(){
+            go();
+          });
+        }
         if(clearBtn){
           clearBtn.addEventListener('click', function(){
             input.value = '';
             if (fromInput) fromInput.value = '';
             if (toInput) toInput.value = '';
+            if (sortInput) sortInput.value = 'datetime';
             go();
           });
         }
