@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event schedules now build correctly even when the start and end fields are using localized 12-hour date/time values" });
     releaseLogItems.push({ date: "2026-04-30", text: "Top event dashboard cards now use Pacific-time day, week, month, and year boundaries so today and this month no longer flip early on UTC" });
     releaseLogItems.push({ date: "2026-04-30", text: "Individual event insights now include a ticket-click counter, and events expose tracked ticket click endpoints for ticket button analytics" });
     releaseLogItems.push({ date: "2026-04-30", text: "Top event dashboard cards now rank all events by view activity during today, this week, this month, and this year instead of filtering by the event date itself" });
@@ -11811,15 +11812,41 @@ return `
         function parseLocalDateTime(value){
           var s = String(value || "").trim();
           var m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
-          if (!m) return null;
-          return {
-            year: Number(m[1]),
-            month: Number(m[2]),
-            day: Number(m[3]),
-            hour: Number(m[4]),
-            minute: Number(m[5]),
-            second: Number(m[6] || 0),
-          };
+          if (m) {
+            return {
+              year: Number(m[1]),
+              month: Number(m[2]),
+              day: Number(m[3]),
+              hour: Number(m[4]),
+              minute: Number(m[5]),
+              second: Number(m[6] || 0),
+            };
+          }
+          m = s.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/);
+          if (m) {
+            return {
+              year: Number(m[1]),
+              month: Number(m[2]),
+              day: Number(m[3]),
+              hour: Number(m[4]),
+              minute: Number(m[5]),
+              second: Number(m[6] || 0),
+            };
+          }
+          m = s.match(/^(\d{2})\/(\d{2})\/(\d{4}),?\s+(\d{1,2}):(\d{2})\s*([AP]M)$/i);
+          if (m) {
+            var hour12 = Number(m[4]) % 12;
+            var meridiem = String(m[6] || "").toUpperCase();
+            return {
+              year: Number(m[3]),
+              month: Number(m[1]),
+              day: Number(m[2]),
+              hour: meridiem === "PM" ? hour12 + 12 : hour12,
+              minute: Number(m[5]),
+              second: 0,
+            };
+          }
+          return null;
         }
         function pad(n){ return String(n).padStart(2, "0"); }
         function toDateKey(parts){ return parts.year + "-" + pad(parts.month) + "-" + pad(parts.day); }
