@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "Event type buttons now stay manually selectable again, and multi-day date ranges no longer force the form back into Multi-Day mode behind the scenes" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event day/time rows now initialize from the rendered start and end field values even when the browser does not expose a usable datetime-local value on load" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event editing now automatically shows the daily day/time schedule for date ranges across multiple days and hides recurring controls in that flow" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now submit as a real GET form so sort options like Newest ID first reliably reach the server" });
@@ -11910,8 +11911,7 @@ return `
         }
         function isMultiDaySelected(){
           var selected = String(typeChoice.value || "").trim().toLowerCase();
-          if (selected === "multi-day") return true;
-          return !!(shell && shell.classList.contains("is-visible"));
+          return selected === "multi-day";
         }
         function spansMultipleDays(){
           var startParts = parseLocalDateTime(readDateTimeValue(startEl));
@@ -11922,7 +11922,7 @@ return `
         function render(){
           var startParts = parseLocalDateTime(readDateTimeValue(startEl));
           var endParts = parseLocalDateTime(readDateTimeValue(endEl));
-          var shouldShow = isMultiDaySelected() || spansMultipleDays();
+          var shouldShow = isMultiDaySelected();
           if (shell) shell.classList.toggle("is-visible", shouldShow);
           if (!shouldShow) {
             wrap.innerHTML = '<div class="multi-day-empty">Choose a multi-day start and end range to build the daily schedule.</div>';
@@ -11964,7 +11964,7 @@ return `
         render();
       })();
 
-      // Prefer multi-day schedule UI whenever the chosen range spans multiple days
+      // Keep recurring settings hidden while editing a multi-day range unless recurring is selected
       (function(){
         var startEl = document.getElementById("startDateTime");
         var endEl = document.getElementById("endDateTime");
@@ -11994,12 +11994,8 @@ return `
           var startKey = parseDateKey(readDateTimeValue(startEl));
           var endKey = parseDateKey(readDateTimeValue(endEl));
           var isRange = !!startKey && !!endKey && startKey !== endKey;
-          if (isRange && String(typeChoice.value || "") !== "multi-day") {
-            typeChoice.value = "multi-day";
-            typeChoice.dispatchEvent(new Event("change", { bubbles: true }));
-            return;
-          }
-          recurrenceSettings.style.display = isRange ? "none" : (String(typeChoice.value || "") === "recurring" ? "" : "none");
+          var selectedType = String(typeChoice.value || "").trim().toLowerCase();
+          recurrenceSettings.style.display = (selectedType === "recurring" && !isRange) ? "" : "none";
         }
 
         startEl.addEventListener("change", sync);
