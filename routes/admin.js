@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "Create Event event-type cards now reveal their matching form reliably again with a direct card-selection fallback on click" });
     releaseLogItems.push({ date: "2026-04-30", text: "Event type cards now switch reliably again, and recurring or single-event options are no longer suppressed just because the start and end dates span multiple days" });
     releaseLogItems.push({ date: "2026-04-30", text: "Event type buttons now stay manually selectable again, and multi-day date ranges no longer force the form back into Multi-Day mode behind the scenes" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event day/time rows now initialize from the rendered start and end field values even when the browser does not expose a usable datetime-local value on load" });
@@ -9909,15 +9910,15 @@ return `
               <div class="rec-box">
                 <div style="font-weight:650; margin-bottom:6px;">Event Type</div>
                 <div class="event-type-picker" id="eventTypePicker">
-                  <button type="button" class="event-type-card ${inferredEventType === "single" ? "is-active" : ""}" data-event-type="single">
+                  <button type="button" class="event-type-card ${inferredEventType === "single" ? "is-active" : ""}" data-event-type="single" onclick="window.__selectEventType && window.__selectEventType('single')">
                     <span class="event-type-card-title">Single Event</span>
                     <span class="event-type-card-copy">One event with a single start and end time on the same day.</span>
                   </button>
-                  <button type="button" class="event-type-card ${inferredEventType === "multi-day" ? "is-active" : ""}" data-event-type="multi-day">
+                  <button type="button" class="event-type-card ${inferredEventType === "multi-day" ? "is-active" : ""}" data-event-type="multi-day" onclick="window.__selectEventType && window.__selectEventType('multi-day')">
                     <span class="event-type-card-title">Multi-Day Event</span>
                     <span class="event-type-card-copy">One event that spans across multiple days with one continuous date range.</span>
                   </button>
-                  <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring">
+                  <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring" onclick="window.__selectEventType && window.__selectEventType('recurring')">
                     <span class="event-type-card-title">Recurring Event</span>
                     <span class="event-type-card-copy">An event that repeats weekly, monthly, or on a custom schedule.</span>
                   </button>
@@ -11792,6 +11793,8 @@ return `
           }
           emitChange(typeEl);
         }
+
+        window.__selectEventType = setSelection;
 
         picker.addEventListener("click", function(ev){
           var btn = ev.target && ev.target.closest ? ev.target.closest("[data-event-type]") : null;
