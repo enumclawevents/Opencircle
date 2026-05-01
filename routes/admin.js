@@ -806,6 +806,39 @@ function getZonedDateParts(date = new Date(), tz = DEFAULT_TZ) {
   };
 }
 
+function getTimeZoneOffsetStringForInstant(date = new Date(), tz = DEFAULT_TZ) {
+  const dt = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(dt.getTime())) return "+00:00";
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      timeZoneName: "longOffset",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+    const tzName = fmt.formatToParts(dt).find((part) => part.type === "timeZoneName")?.value || "";
+    const match = tzName.match(/GMT([+-]\d{2}):(\d{2})$/);
+    if (match) return `${match[1]}:${match[2]}`;
+  } catch (_) {}
+  return "+00:00";
+}
+
+function zonedYmdBoundaryToUtcIso(ymd, boundary, tz = DEFAULT_TZ) {
+  const s = String(ymd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  const [year, month, day] = s.split("-").map(Number);
+  const hour = boundary === "end" ? 23 : 0;
+  const minute = boundary === "end" ? 59 : 0;
+  const second = boundary === "end" ? 59 : 0;
+  const offset = getTimeZoneOffsetStringForInstant(new Date(Date.UTC(year, month - 1, day, 12, 0, 0)), tz);
+  return partsToIso({ year, month, day, hour, minute, second, offset });
+}
+
 function addDaysToYmd(ymd, delta) {
   const s = String(ymd || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
@@ -2853,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "Top event dashboard cards now use Pacific-time day, week, month, and year boundaries so today and this month no longer flip early on UTC" });
     releaseLogItems.push({ date: "2026-04-30", text: "Individual event insights now include a ticket-click counter, and events expose tracked ticket click endpoints for ticket button analytics" });
     releaseLogItems.push({ date: "2026-04-30", text: "Top event dashboard cards now rank all events by view activity during today, this week, this month, and this year instead of filtering by the event date itself" });
     releaseLogItems.push({ date: "2026-04-30", text: "All admin form fields now use the same sans-serif typeface, including the SEO inputs and textareas" });
@@ -3601,7 +3635,7 @@ return `
         .join("");
     }
 
-    async function topEventsByViewWindowHtml(dateClauseSql, emptyMessage) {
+    async function topEventsByViewWindowHtml(windowStartIso, windowEndIso, emptyMessage) {
       if (!hasSourceTrackingTable) return topEventsFallback;
       const periodWhere = [];
       const periodParams = [];
@@ -3618,29 +3652,39 @@ return `
         `SELECT e.id, e.title, COUNT(*) AS periodViews
          FROM event_views ev
          JOIN events e ON e.id = ev.eventId
-         WHERE ${dateClauseSql}${periodWhereSql}
+         WHERE datetime(ev.viewedAt) >= datetime(?)
+           AND datetime(ev.viewedAt) < datetime(?)${periodWhereSql}
          GROUP BY e.id, e.title
          ORDER BY periodViews DESC, e.id DESC
          LIMIT 5`,
-        periodParams
+        [windowStartIso, windowEndIso, ...periodParams]
       );
       return renderTopEventsByViewRows(rows, emptyMessage);
     }
 
+    const pacificToday = getZonedDateParts(new Date(), DEFAULT_TZ);
+    const pacificTomorrowYmd = addDaysToYmd(pacificToday?.ymd || "", 1);
+    const pacificWeekStartYmd = addDaysToYmd(pacificToday?.ymd || "", -6);
+    const pacificMonthStartYmd = pacificToday ? `${pacificToday.year}-${pad2(pacificToday.month)}-01` : "";
+    const pacificYearStartYmd = pacificToday ? `${pacificToday.year}-01-01` : "";
     const topTodayHtml = await topEventsByViewWindowHtml(
-      `date(ev.viewedAt) = date('now')`,
+      zonedYmdBoundaryToUtcIso(pacificToday?.ymd || "", "start"),
+      zonedYmdBoundaryToUtcIso(pacificTomorrowYmd, "start"),
       "No views today."
     );
     const topWeekHtml = await topEventsByViewWindowHtml(
-      `date(ev.viewedAt) >= date('now','-6 day') AND date(ev.viewedAt) <= date('now')`,
+      zonedYmdBoundaryToUtcIso(pacificWeekStartYmd, "start"),
+      zonedYmdBoundaryToUtcIso(pacificTomorrowYmd, "start"),
       "No views this week."
     );
     const topMonthHtml = await topEventsByViewWindowHtml(
-      `date(ev.viewedAt) >= date('now','start of month') AND date(ev.viewedAt) <= date('now')`,
+      zonedYmdBoundaryToUtcIso(pacificMonthStartYmd, "start"),
+      zonedYmdBoundaryToUtcIso(pacificTomorrowYmd, "start"),
       "No views this month."
     );
     const topYearHtml = await topEventsByViewWindowHtml(
-      `date(ev.viewedAt) >= date('now','start of year') AND date(ev.viewedAt) <= date('now')`,
+      zonedYmdBoundaryToUtcIso(pacificYearStartYmd, "start"),
+      zonedYmdBoundaryToUtcIso(pacificTomorrowYmd, "start"),
       "No views this year."
     );
 
