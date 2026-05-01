@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event day/time rows now initialize from the rendered start and end field values even when the browser does not expose a usable datetime-local value on load" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event editing now automatically shows the daily day/time schedule for date ranges across multiple days and hides recurring controls in that flow" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now submit as a real GET form so sort options like Newest ID first reliably reach the server" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now preserve and apply the selected sort option again, including Newest ID first" });
@@ -11857,6 +11858,14 @@ return `
           return null;
         }
         function pad(n){ return String(n).padStart(2, "0"); }
+        function readDateTimeValue(el){
+          if (!el) return "";
+          var live = String(el.value || "").trim();
+          if (live) return live;
+          var attr = String(el.getAttribute("value") || "").trim();
+          if (attr) return attr;
+          return "";
+        }
         function toDateKey(parts){ return parts.year + "-" + pad(parts.month) + "-" + pad(parts.day); }
         function toTimeValue(parts){ return pad(parts.hour) + ":" + pad(parts.minute); }
         function formatDateLabel(dateKey){
@@ -11905,14 +11914,14 @@ return `
           return !!(shell && shell.classList.contains("is-visible"));
         }
         function spansMultipleDays(){
-          var startParts = parseLocalDateTime(startEl.value);
-          var endParts = parseLocalDateTime(endEl.value);
+          var startParts = parseLocalDateTime(readDateTimeValue(startEl));
+          var endParts = parseLocalDateTime(readDateTimeValue(endEl));
           if (!startParts || !endParts) return false;
           return toDateKey(startParts) !== toDateKey(endParts);
         }
         function render(){
-          var startParts = parseLocalDateTime(startEl.value);
-          var endParts = parseLocalDateTime(endEl.value);
+          var startParts = parseLocalDateTime(readDateTimeValue(startEl));
+          var endParts = parseLocalDateTime(readDateTimeValue(endEl));
           var shouldShow = isMultiDaySelected() || spansMultipleDays();
           if (shell) shell.classList.toggle("is-visible", shouldShow);
           if (!shouldShow) {
@@ -11963,6 +11972,15 @@ return `
         var recurrenceSettings = document.getElementById("recurrenceSettings");
         if (!startEl || !endEl || !typeChoice || !recurrenceSettings) return;
 
+        function readDateTimeValue(el){
+          if (!el) return "";
+          var live = String(el.value || "").trim();
+          if (live) return live;
+          var attr = String(el.getAttribute("value") || "").trim();
+          if (attr) return attr;
+          return "";
+        }
+
         function parseDateKey(value){
           var s = String(value || "").trim();
           var m = s.match(/^(\d{4})-(\d{2})-(\d{2})T/);
@@ -11973,8 +11991,8 @@ return `
         }
 
         function sync(){
-          var startKey = parseDateKey(startEl.value);
-          var endKey = parseDateKey(endEl.value);
+          var startKey = parseDateKey(readDateTimeValue(startEl));
+          var endKey = parseDateKey(readDateTimeValue(endEl));
           var isRange = !!startKey && !!endKey && startKey !== endKey;
           if (isRange && String(typeChoice.value || "") !== "multi-day") {
             typeChoice.value = "multi-day";
