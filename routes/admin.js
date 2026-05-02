@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-05-01", text: "Multi-Day events now use date-only Start and End fields, and the daily schedule rows become the place where each day's hours are entered" });
     releaseLogItems.push({ date: "2026-04-30", text: "Recurring Custom Dates now immediately reveals its add-date and remove-past-dates controls from the dropdown and checkbox state itself" });
     releaseLogItems.push({ date: "2026-04-30", text: "Create Event event-type cards now open the matching form directly from the card click itself, even if another page script fails later" });
     releaseLogItems.push({ date: "2026-04-30", text: "Create Event event-type cards now reveal their matching form reliably again with a direct card-selection fallback on click" });
@@ -9994,12 +9995,16 @@ return `
                 <div>
                   <label style="margin-top:0;">Start</label>
                   <input id="startDateTime" class="ctrl" type="datetime-local" name="startDateTime"
-                    value="${esc(displayEventStartLocalValue)}" required />
+                    value="${esc(displayEventStartLocalValue)}"
+                    data-datetime-value="${esc(displayEventStartLocalValue)}"
+                    data-date-value="${esc(toDateValue(editEvent?.startDateTime) || "")}" required />
                 </div>
                 <div>
                   <label style="margin-top:0;">End</label>
                   <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
-                    value="${esc(displayEventEndLocalValue)}" required />
+                    value="${esc(displayEventEndLocalValue)}"
+                    data-datetime-value="${esc(displayEventEndLocalValue)}"
+                    data-date-value="${esc(toDateValue(editEvent?.endDateTime) || "")}" required />
                 </div>
               </div>
 
@@ -11688,20 +11693,17 @@ return `
           } catch (_) {}
           var startLocal = (document.getElementById("startDateTime") || {}).value || "";
           var endLocal   = (document.getElementById("endDateTime") || {}).value || "";
-
           var startISO = toISOWithOffsetFromLocalInput(startLocal);
           var endISO   = toISOWithOffsetFromLocalInput(endLocal);
 
           var startHidden = document.getElementById("startDateTimeISO");
           var endHidden   = document.getElementById("endDateTimeISO");
-          if(startHidden) startHidden.value = startISO;
-          if(endHidden) endHidden.value = endISO;
 
           var multiDayHidden = document.getElementById("multiDayScheduleJson");
           var multiDayWrap = document.getElementById("multiDayScheduleWrap");
+          var dayItems = [];
           if (multiDayHidden && multiDayWrap) {
             var dayRows = multiDayWrap.querySelectorAll("[data-multi-day-row]");
-            var dayItems = [];
             for (var j = 0; j < dayRows.length; j++) {
               var row = dayRows[j];
               var date = String(row.getAttribute("data-date") || "").trim();
@@ -11712,6 +11714,20 @@ return `
             }
             multiDayHidden.value = JSON.stringify(dayItems);
           }
+
+          if (eventTypeChoice === "multi-day") {
+            if (!dayItems.length) {
+              ev.preventDefault();
+              return;
+            }
+            var firstDay = dayItems[0];
+            var lastDay = dayItems[dayItems.length - 1];
+            startISO = toISOWithOffsetFromLocalInput(firstDay.date + "T" + firstDay.startTime);
+            endISO = toISOWithOffsetFromLocalInput(lastDay.date + "T" + lastDay.endTime);
+          }
+
+          if(startHidden) startHidden.value = startISO;
+          if(endHidden) endHidden.value = endISO;
 
           var recHidden = document.getElementById("recurrenceDatesJson");
           var hasRec = !!((document.getElementById("hasRecurrence") || {}).checked);
@@ -11758,11 +11774,45 @@ return `
         var typeEl = document.getElementById("recurrenceType");
         var recurrenceSettings = document.getElementById("recurrenceSettings");
         var multiDayShell = document.getElementById("multiDayScheduleShell");
+        var startEl = document.getElementById("startDateTime");
+        var endEl = document.getElementById("endDateTime");
         var lastRecurringType = typeEl && typeEl.value && typeEl.value !== "none" ? String(typeEl.value) : "weekly";
 
         function emitChange(el){
           if (!el) return;
           el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+
+        function syncRangeInputMode(selected){
+          function applyMode(el, isMultiDay){
+            if (!el) return;
+            var current = String(el.value || "").trim();
+            if (el.type === "datetime-local" && current) {
+              el.dataset.datetimeValue = current;
+              el.dataset.dateValue = current.slice(0, 10);
+            } else if (el.type === "date" && current) {
+              el.dataset.dateValue = current;
+            }
+            if (isMultiDay) {
+              el.type = "date";
+              el.value = String(el.dataset.dateValue || (current ? current.slice(0, 10) : "") || "");
+            } else {
+              el.type = "datetime-local";
+              var fallbackDate = String(el.dataset.dateValue || current || "").trim();
+              var fallbackDateTime = String(el.dataset.datetimeValue || "").trim();
+              if (!fallbackDateTime && /^\d{4}-\d{2}-\d{2}$/.test(fallbackDate)) {
+                fallbackDateTime = fallbackDate + "T00:00";
+              }
+              el.value = fallbackDateTime;
+            }
+            try {
+              emitChange(el);
+            } catch (_) {}
+          }
+
+          var isMultiDay = selected === "multi-day";
+          applyMode(startEl, isMultiDay);
+          applyMode(endEl, isMultiDay);
         }
 
         function setSelection(nextType){
@@ -11772,6 +11822,7 @@ return `
           shell.classList.toggle("is-visible", !!selected);
           if (recurrenceSettings) recurrenceSettings.style.display = selected === "recurring" ? "" : "none";
           if (multiDayShell) multiDayShell.classList.toggle("is-visible", selected === "multi-day");
+          syncRangeInputMode(selected);
           buttons.forEach(function(btn){
             btn.classList.toggle("is-active", (btn.getAttribute("data-event-type") || "") === selected);
           });
@@ -11863,6 +11914,17 @@ return `
               second: 0,
             };
           }
+          m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (m) {
+            return {
+              year: Number(m[1]),
+              month: Number(m[2]),
+              day: Number(m[3]),
+              hour: 0,
+              minute: 0,
+              second: 0,
+            };
+          }
           return null;
         }
         function pad(n){ return String(n).padStart(2, "0"); }
@@ -11949,6 +12011,8 @@ return `
           var existing = parseExisting();
           var defaultStart = toTimeValue(startParts);
           var defaultEnd = toTimeValue(endParts);
+          if (defaultStart === "00:00") defaultStart = "09:00";
+          if (defaultEnd === "00:00") defaultEnd = "17:00";
           wrap.innerHTML = '<div class="multi-day-list">' + dateKeys.map(function(dateKey){
             var saved = existing[dateKey] || {};
             var startVal = saved.startTime || defaultStart;
