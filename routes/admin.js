@@ -2886,6 +2886,7 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-05-01", text: "Event type cards now fail safely again, so the matching form still opens even if the newer range-mode helper hits a browser-specific issue" });
     releaseLogItems.push({ date: "2026-05-01", text: "Multi-Day card clicks now run through the full event-type selector again so the date-only range mode and daily schedule behavior actually activate" });
     releaseLogItems.push({ date: "2026-05-01", text: "Multi-Day events now use date-only Start and End fields, and the daily schedule rows become the place where each day's hours are entered" });
     releaseLogItems.push({ date: "2026-04-30", text: "Recurring Custom Dates now immediately reveals its add-date and remove-past-dates controls from the dropdown and checkbox state itself" });
@@ -9914,15 +9915,15 @@ return `
               <div class="rec-box">
                 <div style="font-weight:650; margin-bottom:6px;">Event Type</div>
                 <div class="event-type-picker" id="eventTypePicker">
-                  <button type="button" class="event-type-card ${inferredEventType === "single" ? "is-active" : ""}" data-event-type="single" onclick="window.__selectEventType ? window.__selectEventType('single') : null">
+                  <button type="button" class="event-type-card ${inferredEventType === "single" ? "is-active" : ""}" data-event-type="single" onclick="try{if(window.__selectEventType){window.__selectEventType('single');}else{throw new Error('selector-missing');}}catch(_){var hidden=document.getElementById('eventTypeChoice');var shell=document.getElementById('eventTypeShell');var picker=document.getElementById('eventTypePicker');var rec=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='single';if(shell) shell.classList.add('is-visible');if(rec) rec.style.display='none';if(multi) multi.classList.remove('is-visible');if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active',el===this);},this);}}">
                     <span class="event-type-card-title">Single Event</span>
                     <span class="event-type-card-copy">One event with a single start and end time on the same day.</span>
                   </button>
-                  <button type="button" class="event-type-card ${inferredEventType === "multi-day" ? "is-active" : ""}" data-event-type="multi-day" onclick="window.__selectEventType ? window.__selectEventType('multi-day') : null">
+                  <button type="button" class="event-type-card ${inferredEventType === "multi-day" ? "is-active" : ""}" data-event-type="multi-day" onclick="try{if(window.__selectEventType){window.__selectEventType('multi-day');}else{throw new Error('selector-missing');}}catch(_){var hidden=document.getElementById('eventTypeChoice');var shell=document.getElementById('eventTypeShell');var picker=document.getElementById('eventTypePicker');var rec=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='multi-day';if(shell) shell.classList.add('is-visible');if(rec) rec.style.display='none';if(multi) multi.classList.add('is-visible');if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active',el===this);},this);}}">
                     <span class="event-type-card-title">Multi-Day Event</span>
                     <span class="event-type-card-copy">One event that spans across multiple days with one continuous date range.</span>
                   </button>
-                  <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring" onclick="window.__selectEventType ? window.__selectEventType('recurring') : null">
+                  <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring" onclick="try{if(window.__selectEventType){window.__selectEventType('recurring');}else{throw new Error('selector-missing');}}catch(_){var hidden=document.getElementById('eventTypeChoice');var shell=document.getElementById('eventTypeShell');var picker=document.getElementById('eventTypePicker');var rec=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='recurring';if(shell) shell.classList.add('is-visible');if(rec) rec.style.display='';if(multi) multi.classList.remove('is-visible');if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active',el===this);},this);}}">
                     <span class="event-type-card-title">Recurring Event</span>
                     <span class="event-type-card-copy">An event that repeats weekly, monthly, or on a custom schedule.</span>
                   </button>
@@ -11823,7 +11824,9 @@ return `
           shell.classList.toggle("is-visible", !!selected);
           if (recurrenceSettings) recurrenceSettings.style.display = selected === "recurring" ? "" : "none";
           if (multiDayShell) multiDayShell.classList.toggle("is-visible", selected === "multi-day");
-          syncRangeInputMode(selected);
+          try {
+            syncRangeInputMode(selected);
+          } catch (_) {}
           buttons.forEach(function(btn){
             btn.classList.toggle("is-active", (btn.getAttribute("data-event-type") || "") === selected);
           });
