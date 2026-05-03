@@ -2886,16 +2886,6 @@ return `
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const releaseLogItems = [];
-    releaseLogItems.push({ date: "2026-05-01", text: "Event type cards now fail safely again, so the matching form still opens even if the newer range-mode helper hits a browser-specific issue" });
-    releaseLogItems.push({ date: "2026-05-01", text: "Multi-Day card clicks now run through the full event-type selector again so the date-only range mode and daily schedule behavior actually activate" });
-    releaseLogItems.push({ date: "2026-05-01", text: "Multi-Day events now use date-only Start and End fields, and the daily schedule rows become the place where each day's hours are entered" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Recurring Custom Dates now immediately reveals its add-date and remove-past-dates controls from the dropdown and checkbox state itself" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Create Event event-type cards now open the matching form directly from the card click itself, even if another page script fails later" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Create Event event-type cards now reveal their matching form reliably again with a direct card-selection fallback on click" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Event type cards now switch reliably again, and recurring or single-event options are no longer suppressed just because the start and end dates span multiple days" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Event type buttons now stay manually selectable again, and multi-day date ranges no longer force the form back into Multi-Day mode behind the scenes" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event day/time rows now initialize from the rendered start and end field values even when the browser does not expose a usable datetime-local value on load" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event editing now automatically shows the daily day/time schedule for date ranges across multiple days and hides recurring controls in that flow" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now submit as a real GET form so sort options like Newest ID first reliably reach the server" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now preserve and apply the selected sort option again, including Newest ID first" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event schedules now build correctly even when the start and end fields are using localized 12-hour date/time values" });
@@ -9915,15 +9905,15 @@ return `
               <div class="rec-box">
                 <div style="font-weight:650; margin-bottom:6px;">Event Type</div>
                 <div class="event-type-picker" id="eventTypePicker">
-                  <button type="button" class="event-type-card ${inferredEventType === "single" ? "is-active" : ""}" data-event-type="single" onclick="try{if(window.__selectEventType){window.__selectEventType('single');}else{throw new Error('selector-missing');}}catch(_){var hidden=document.getElementById('eventTypeChoice');var shell=document.getElementById('eventTypeShell');var picker=document.getElementById('eventTypePicker');var rec=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='single';if(shell) shell.classList.add('is-visible');if(rec) rec.style.display='none';if(multi) multi.classList.remove('is-visible');if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active',el===this);},this);}}">
+                  <button type="button" class="event-type-card ${inferredEventType === "single" ? "is-active" : ""}" data-event-type="single">
                     <span class="event-type-card-title">Single Event</span>
                     <span class="event-type-card-copy">One event with a single start and end time on the same day.</span>
                   </button>
-                  <button type="button" class="event-type-card ${inferredEventType === "multi-day" ? "is-active" : ""}" data-event-type="multi-day" onclick="try{if(window.__selectEventType){window.__selectEventType('multi-day');}else{throw new Error('selector-missing');}}catch(_){var hidden=document.getElementById('eventTypeChoice');var shell=document.getElementById('eventTypeShell');var picker=document.getElementById('eventTypePicker');var rec=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='multi-day';if(shell) shell.classList.add('is-visible');if(rec) rec.style.display='none';if(multi) multi.classList.add('is-visible');if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active',el===this);},this);}}">
+                  <button type="button" class="event-type-card ${inferredEventType === "multi-day" ? "is-active" : ""}" data-event-type="multi-day">
                     <span class="event-type-card-title">Multi-Day Event</span>
                     <span class="event-type-card-copy">One event that spans across multiple days with one continuous date range.</span>
                   </button>
-                  <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring" onclick="try{if(window.__selectEventType){window.__selectEventType('recurring');}else{throw new Error('selector-missing');}}catch(_){var hidden=document.getElementById('eventTypeChoice');var shell=document.getElementById('eventTypeShell');var picker=document.getElementById('eventTypePicker');var rec=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='recurring';if(shell) shell.classList.add('is-visible');if(rec) rec.style.display='';if(multi) multi.classList.remove('is-visible');if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active',el===this);},this);}}">
+                  <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring">
                     <span class="event-type-card-title">Recurring Event</span>
                     <span class="event-type-card-copy">An event that repeats weekly, monthly, or on a custom schedule.</span>
                   </button>
@@ -9997,16 +9987,12 @@ return `
                 <div>
                   <label style="margin-top:0;">Start</label>
                   <input id="startDateTime" class="ctrl" type="datetime-local" name="startDateTime"
-                    value="${esc(displayEventStartLocalValue)}"
-                    data-datetime-value="${esc(displayEventStartLocalValue)}"
-                    data-date-value="${esc(toDateValue(editEvent?.startDateTime) || "")}" required />
+                    value="${esc(displayEventStartLocalValue)}" required />
                 </div>
                 <div>
                   <label style="margin-top:0;">End</label>
                   <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
-                    value="${esc(displayEventEndLocalValue)}"
-                    data-datetime-value="${esc(displayEventEndLocalValue)}"
-                    data-date-value="${esc(toDateValue(editEvent?.endDateTime) || "")}" required />
+                    value="${esc(displayEventEndLocalValue)}" required />
                 </div>
               </div>
 
@@ -10022,7 +10008,7 @@ return `
               <!-- Recurring Events -->
               <div class="rec-box recurrence" id="recurrenceSettings">
                 <div class="checkbox event-type-managed-rec-toggle">
-                  <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} onchange="window.__syncRecurringUi && window.__syncRecurringUi()" />
+                  <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
                   <label for="hasRecurrence" style="margin:0;font-size:12px;font-weight:650;">Recurring event</label>
                 </div>
                 <div class="note event-type-managed-rec-toggle">Weekly/monthly rule or custom dates list.</div>
@@ -10034,7 +10020,7 @@ return `
                 <div class="rec-grid" style="margin-top:12px;">
                   <div>
                     <div class="rec-label">Recurrence Type</div>
-                    <select id="recurrenceType" name="recurrenceType" class="ctrl" onchange="window.__syncRecurringUi && window.__syncRecurringUi()">
+                    <select id="recurrenceType" name="recurrenceType" class="ctrl">
                       <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
                       <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
                       <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
@@ -10067,7 +10053,7 @@ return `
                   <div class="rec-grid">
                     <div>
                       <div class="rec-label">Monthly Mode</div>
-                      <select id="monthlyMode" name="monthlyMode" class="ctrl" onchange="window.__syncRecurringUi && window.__syncRecurringUi()">
+                      <select id="monthlyMode" name="monthlyMode" class="ctrl">
                         <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
                         <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday</option>
                       </select>
@@ -11695,17 +11681,20 @@ return `
           } catch (_) {}
           var startLocal = (document.getElementById("startDateTime") || {}).value || "";
           var endLocal   = (document.getElementById("endDateTime") || {}).value || "";
+
           var startISO = toISOWithOffsetFromLocalInput(startLocal);
           var endISO   = toISOWithOffsetFromLocalInput(endLocal);
 
           var startHidden = document.getElementById("startDateTimeISO");
           var endHidden   = document.getElementById("endDateTimeISO");
+          if(startHidden) startHidden.value = startISO;
+          if(endHidden) endHidden.value = endISO;
 
           var multiDayHidden = document.getElementById("multiDayScheduleJson");
           var multiDayWrap = document.getElementById("multiDayScheduleWrap");
-          var dayItems = [];
           if (multiDayHidden && multiDayWrap) {
             var dayRows = multiDayWrap.querySelectorAll("[data-multi-day-row]");
+            var dayItems = [];
             for (var j = 0; j < dayRows.length; j++) {
               var row = dayRows[j];
               var date = String(row.getAttribute("data-date") || "").trim();
@@ -11716,20 +11705,6 @@ return `
             }
             multiDayHidden.value = JSON.stringify(dayItems);
           }
-
-          if (eventTypeChoice === "multi-day") {
-            if (!dayItems.length) {
-              ev.preventDefault();
-              return;
-            }
-            var firstDay = dayItems[0];
-            var lastDay = dayItems[dayItems.length - 1];
-            startISO = toISOWithOffsetFromLocalInput(firstDay.date + "T" + firstDay.startTime);
-            endISO = toISOWithOffsetFromLocalInput(lastDay.date + "T" + lastDay.endTime);
-          }
-
-          if(startHidden) startHidden.value = startISO;
-          if(endHidden) endHidden.value = endISO;
 
           var recHidden = document.getElementById("recurrenceDatesJson");
           var hasRec = !!((document.getElementById("hasRecurrence") || {}).checked);
@@ -11776,45 +11751,11 @@ return `
         var typeEl = document.getElementById("recurrenceType");
         var recurrenceSettings = document.getElementById("recurrenceSettings");
         var multiDayShell = document.getElementById("multiDayScheduleShell");
-        var startEl = document.getElementById("startDateTime");
-        var endEl = document.getElementById("endDateTime");
         var lastRecurringType = typeEl && typeEl.value && typeEl.value !== "none" ? String(typeEl.value) : "weekly";
 
         function emitChange(el){
           if (!el) return;
           el.dispatchEvent(new Event("change", { bubbles: true }));
-        }
-
-        function syncRangeInputMode(selected){
-          function applyMode(el, isMultiDay){
-            if (!el) return;
-            var current = String(el.value || "").trim();
-            if (el.type === "datetime-local" && current) {
-              el.dataset.datetimeValue = current;
-              el.dataset.dateValue = current.slice(0, 10);
-            } else if (el.type === "date" && current) {
-              el.dataset.dateValue = current;
-            }
-            if (isMultiDay) {
-              el.type = "date";
-              el.value = String(el.dataset.dateValue || (current ? current.slice(0, 10) : "") || "");
-            } else {
-              el.type = "datetime-local";
-              var fallbackDate = String(el.dataset.dateValue || current || "").trim();
-              var fallbackDateTime = String(el.dataset.datetimeValue || "").trim();
-              if (!fallbackDateTime && /^\d{4}-\d{2}-\d{2}$/.test(fallbackDate)) {
-                fallbackDateTime = fallbackDate + "T00:00";
-              }
-              el.value = fallbackDateTime;
-            }
-            try {
-              emitChange(el);
-            } catch (_) {}
-          }
-
-          var isMultiDay = selected === "multi-day";
-          applyMode(startEl, isMultiDay);
-          applyMode(endEl, isMultiDay);
         }
 
         function setSelection(nextType){
@@ -11824,9 +11765,6 @@ return `
           shell.classList.toggle("is-visible", !!selected);
           if (recurrenceSettings) recurrenceSettings.style.display = selected === "recurring" ? "" : "none";
           if (multiDayShell) multiDayShell.classList.toggle("is-visible", selected === "multi-day");
-          try {
-            syncRangeInputMode(selected);
-          } catch (_) {}
           buttons.forEach(function(btn){
             btn.classList.toggle("is-active", (btn.getAttribute("data-event-type") || "") === selected);
           });
@@ -11851,13 +11789,10 @@ return `
           emitChange(typeEl);
         }
 
-        window.__selectEventType = setSelection;
-
-        picker.addEventListener("click", function(ev){
-          var btn = ev.target && ev.target.closest ? ev.target.closest("[data-event-type]") : null;
-          if (!btn || !picker.contains(btn)) return;
-          ev.preventDefault();
-          setSelection(btn.getAttribute("data-event-type") || "");
+        buttons.forEach(function(btn){
+          btn.addEventListener("click", function(){
+            setSelection(btn.getAttribute("data-event-type") || "");
+          });
         });
 
         if (typeEl) {
@@ -11918,28 +11853,9 @@ return `
               second: 0,
             };
           }
-          m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-          if (m) {
-            return {
-              year: Number(m[1]),
-              month: Number(m[2]),
-              day: Number(m[3]),
-              hour: 0,
-              minute: 0,
-              second: 0,
-            };
-          }
           return null;
         }
         function pad(n){ return String(n).padStart(2, "0"); }
-        function readDateTimeValue(el){
-          if (!el) return "";
-          var live = String(el.value || "").trim();
-          if (live) return live;
-          var attr = String(el.getAttribute("value") || "").trim();
-          if (attr) return attr;
-          return "";
-        }
         function toDateKey(parts){ return parts.year + "-" + pad(parts.month) + "-" + pad(parts.day); }
         function toTimeValue(parts){ return pad(parts.hour) + ":" + pad(parts.minute); }
         function formatDateLabel(dateKey){
@@ -11984,23 +11900,13 @@ return `
         }
         function isMultiDaySelected(){
           var selected = String(typeChoice.value || "").trim().toLowerCase();
-          return selected === "multi-day";
-        }
-        function spansMultipleDays(){
-          var startParts = parseLocalDateTime(readDateTimeValue(startEl));
-          var endParts = parseLocalDateTime(readDateTimeValue(endEl));
-          if (!startParts || !endParts) return false;
-          return toDateKey(startParts) !== toDateKey(endParts);
+          if (selected === "multi-day") return true;
+          return !!(shell && shell.classList.contains("is-visible"));
         }
         function render(){
-          var startParts = parseLocalDateTime(readDateTimeValue(startEl));
-          var endParts = parseLocalDateTime(readDateTimeValue(endEl));
-          var shouldShow = isMultiDaySelected();
-          if (shell) shell.classList.toggle("is-visible", shouldShow);
-          if (!shouldShow) {
-            wrap.innerHTML = '<div class="multi-day-empty">Choose a multi-day start and end range to build the daily schedule.</div>';
-            return;
-          }
+          if (!isMultiDaySelected()) return;
+          var startParts = parseLocalDateTime(startEl.value);
+          var endParts = parseLocalDateTime(endEl.value);
           if (!startParts || !endParts) {
             wrap.innerHTML = '<div class="multi-day-empty">Choose a multi-day start and end range to build the daily schedule.</div>';
             return;
@@ -12015,8 +11921,6 @@ return `
           var existing = parseExisting();
           var defaultStart = toTimeValue(startParts);
           var defaultEnd = toTimeValue(endParts);
-          if (defaultStart === "00:00") defaultStart = "09:00";
-          if (defaultEnd === "00:00") defaultEnd = "17:00";
           wrap.innerHTML = '<div class="multi-day-list">' + dateKeys.map(function(dateKey){
             var saved = existing[dateKey] || {};
             var startVal = saved.startTime || defaultStart;
@@ -12037,21 +11941,6 @@ return `
         endEl.addEventListener("change", render);
         typeChoice.addEventListener("change", render);
         render();
-      })();
-
-      // Keep recurring settings synced to the chosen event type
-      (function(){
-        var typeChoice = document.getElementById("eventTypeChoice");
-        var recurrenceSettings = document.getElementById("recurrenceSettings");
-        if (!typeChoice || !recurrenceSettings) return;
-
-        function sync(){
-          var selectedType = String(typeChoice.value || "").trim().toLowerCase();
-          recurrenceSettings.style.display = selectedType === "recurring" ? "" : "none";
-        }
-
-        typeChoice.addEventListener("change", sync);
-        sync();
       })();
 
       // Auto-set End = Start + 2 hours (only if end is empty)
@@ -12249,8 +12138,6 @@ return `
             show(nthweekdayBox, false);
           }
         }
-
-        window.__syncRecurringUi = sync;
 
         if(hasRecEl) hasRecEl.addEventListener("change", sync);
         if(typeEl) typeEl.addEventListener("change", sync);
