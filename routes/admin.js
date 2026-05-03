@@ -8152,9 +8152,6 @@ return `
         min-width:0;
         width:100%;
       }
-      .dashboard-col[data-dashboard-column]{
-        min-height:120px;
-      }
       .dashboard-col-fill{
         display:grid;
         gap:var(--gap);
@@ -9040,8 +9037,8 @@ return `
         <!-- Dashboard Overview -->
         ${showDashboard ? `
         <section class="dashboard-shell" id="dashboard-overview">
-          <div class="dashboard-col dashboard-col-fill" data-dashboard-column="left">
-            <section class="card dashboard-card" id="dashboard-quick-links" data-dashboard-card="quick-links" data-collapsible-card data-collapsed="false">
+          <div class="dashboard-col dashboard-col-fill">
+            <section class="card dashboard-card" id="dashboard-quick-links" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
                 <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
                   <h2>Quick links</h2>
@@ -11413,7 +11410,6 @@ return `
           } catch (_) {}
         });
       })();
-
       // ---- sort dropdown (server-side) ----
       (function(){
         var sel = document.getElementById("sortBy");
