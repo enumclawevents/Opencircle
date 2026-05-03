@@ -3029,7 +3029,6 @@ return `
     releaseLogItems.push({ date: "2026-04-06", text: "Venue and ad charts now match the main events chart style" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics range label now stays on one line" });
     releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now uses a line legend instead of past and upcoming counts" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Dashboard cards now show a move cursor on hover instead of a visible drag icon" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics row height increased so top organizers fits without scrolling" });
     releaseLogItems.push({ date: "2026-04-06", text: "Top organizers list now shows only the top 5" });
     releaseLogItems.push({ date: "2026-04-06", text: "Top organizers card height now capped with internal scroll" });
@@ -3043,8 +3042,6 @@ return `
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics highlight dots now sit directly on the chart line" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics line charts now show point dots only on highlight" });
     releaseLogItems.push({ date: "2026-04-06", text: "Analytics charts now use a cleaner line-chart style" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections now include up and down reorder controls" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Dashboard sections can now be rearranged with drag and drop" });
     releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard headers now use even vertical padding" });
     releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard cards now shrink to content height" });
     releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note removed duplicate date label" });
@@ -8168,18 +8165,11 @@ return `
       .dashboard-card{
         position:relative;
       }
-      .dashboard-card[draggable="true"]{
-        cursor: move;
-      }
-      .dashboard-card[draggable="true"]:active{
-        cursor: move;
-      }
       .dashboard-card .sectionTitle{ margin-bottom: 14px; }
       .dashboard-card[data-collapsed="true"] .sectionTitle{ margin-bottom: 0; }
       .dashboard-card .sectionTitle h2{ margin:0; }
       .dashboard-card .card-toggle{
-        flex:1 1 auto;
-        min-width:0;
+        width:100%;
         border:0;
         background:transparent;
         padding:6px 0;
@@ -8195,34 +8185,6 @@ return `
         color: var(--muted);
         transition: transform .16s ease;
       }
-      .dashboard-card .card-controls{
-        display:flex;
-        align-items:center;
-        gap:6px;
-        width:100%;
-      }
-      .dashboard-card .card-move{
-        width:32px;
-        height:32px;
-        border:1px solid var(--line);
-        border-radius:var(--radius-inner);
-        background:var(--panel);
-        color:var(--muted);
-        display:inline-flex;
-        align-items:center;
-        justify-content:center;
-        cursor:pointer;
-        flex:0 0 32px;
-      }
-      .dashboard-card .card-move:hover{
-        background:#f8fafc;
-        color:var(--text);
-        border-color:rgba(15,23,42,.18);
-      }
-      .dashboard-card .card-move:disabled{
-        opacity:.4;
-        cursor:not-allowed;
-      }
       .dashboard-card[data-collapsed="true"] .card-toggle .card-caret{
         transform: rotate(-90deg);
       }
@@ -8231,14 +8193,6 @@ return `
       }
       .dashboard-card[data-collapsed="true"] .card-body{
         display:none;
-      }
-      .dashboard-card.dragging{
-        opacity:.58;
-      }
-      .dashboard-col.dashboard-drop-target{
-        outline:2px dashed rgba(0,192,139,.22);
-        outline-offset:6px;
-        border-radius:var(--radius);
       }
       .dashboard-insights{
         gap: var(--gap);
@@ -9089,14 +9043,10 @@ return `
           <div class="dashboard-col dashboard-col-fill" data-dashboard-column="left">
             <section class="card dashboard-card" id="dashboard-quick-links" data-dashboard-card="quick-links" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div class="card-controls">
-                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
-                    <h2>Quick links</h2>
-                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                  </button>
-                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
-                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
-                </div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
+                  <h2>Quick links</h2>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
               <div class="card-body" id="dashboard-quick-links-body">
                 <div class="quick-links-grid${isOrganizerUser ? ` is-organizer` : ``}">
@@ -9136,14 +9086,10 @@ return `
 
             <div class="card dashboard-card" id="dashboard-calendar-card" data-dashboard-card="calendar" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div class="card-controls">
-                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-calendar-body">
-                    <h2>Calendar</h2>
-                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                  </button>
-                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
-                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
-                </div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-calendar-body">
+                  <h2>Calendar</h2>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
               <div class="card-body" id="dashboard-calendar-body">
                 ${dashboardCalendarHtml}
@@ -9152,14 +9098,10 @@ return `
 
             <div class="card dashboard-card" id="dashboard-release-notes-card" data-dashboard-card="release-notes" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div class="card-controls">
-                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
-                    <h2>Release notes</h2>
-                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                  </button>
-                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
-                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
-                </div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
+                  <h2>Release notes</h2>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
               <div class="card-body" id="dashboard-release-notes-body">
                 <div class="mini">
@@ -9184,14 +9126,10 @@ return `
           <div class="dashboard-col dashboard-col-fill dashboard-insights" data-dashboard-column="right">
             ${canUseMessages ? `<div class="card dashboard-card" id="dashboard-messages-card" data-dashboard-card="messages" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div class="card-controls">
-                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-messages-body">
-                    <h2>Messages</h2>
-                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                  </button>
-                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
-                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
-                </div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-messages-body">
+                  <h2>Messages</h2>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
               <div class="card-body" id="dashboard-messages-body">
                 <div class="insight-list">${messagesDashboardHtml}</div>
@@ -9203,14 +9141,10 @@ return `
 
             <div class="card dashboard-card" id="dashboard-activity-card" data-dashboard-card="activity" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div class="card-controls">
-                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-activity-body">
-                    <h2>Activity</h2>
-                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                  </button>
-                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
-                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
-                </div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-activity-body">
+                  <h2>Activity</h2>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
               <div class="card-body" id="dashboard-activity-body">
                 <div class="activity-list">${activityDashboardHtml}</div>
@@ -9219,14 +9153,10 @@ return `
 
             ${(canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeAdsAnalytics) ? `<div class="card dashboard-card" id="dashboard-insights-card" data-dashboard-card="insights" data-collapsible-card data-collapsed="false">
               <div class="sectionTitle">
-                <div class="card-controls">
-                  <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-insights-body">
-                    <h2>Insights</h2>
-                    <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                  </button>
-                  <button type="button" class="card-move" data-card-move="up" aria-label="Move section up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
-                  <button type="button" class="card-move" data-card-move="down" aria-label="Move section down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
-                </div>
+                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-insights-body">
+                  <h2>Insights</h2>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </button>
               </div>
               <div class="card-body" id="dashboard-insights-body">
                 <div class="insights-switcher" id="dashboardInsightsSwitcher">
@@ -11481,156 +11411,6 @@ return `
               ts: Date.now(),
             }));
           } catch (_) {}
-        });
-      })();
-
-      // ---- dashboard drag + drop layout ----
-      (function(){
-        var board = document.getElementById('dashboard-overview');
-        if (!board) return;
-        var columns = Array.prototype.slice.call(board.querySelectorAll('[data-dashboard-column]'));
-        var cards = Array.prototype.slice.call(board.querySelectorAll('[data-dashboard-card]'));
-        if (!columns.length || !cards.length) return;
-
-        var storageKey = 'oc_dashboard_layout_v1';
-        var dragging = null;
-
-        cards.forEach(function(card){
-          card.setAttribute('draggable', 'true');
-        });
-
-        function refreshMoveButtons(){
-          columns.forEach(function(column){
-            var ordered = Array.prototype.slice.call(column.querySelectorAll('[data-dashboard-card]'));
-            ordered.forEach(function(card, index){
-              var up = card.querySelector('[data-card-move="up"]');
-              var down = card.querySelector('[data-card-move="down"]');
-              if (up) up.disabled = index === 0;
-              if (down) down.disabled = index === ordered.length - 1;
-            });
-          });
-        }
-
-        function saveLayout(){
-          try {
-            var layout = {};
-            columns.forEach(function(column){
-              var key = column.getAttribute('data-dashboard-column') || '';
-              layout[key] = Array.prototype.slice.call(column.querySelectorAll('[data-dashboard-card]')).map(function(card){
-                return card.getAttribute('data-dashboard-card');
-              });
-            });
-            localStorage.setItem(storageKey, JSON.stringify(layout));
-          } catch (_) {}
-        }
-
-        function applyLayout(layout){
-          if (!layout || typeof layout !== 'object') return;
-          var byId = {};
-          cards.forEach(function(card){
-            byId[card.getAttribute('data-dashboard-card')] = card;
-          });
-            columns.forEach(function(column){
-              var key = column.getAttribute('data-dashboard-column') || '';
-              var ids = Array.isArray(layout[key]) ? layout[key] : [];
-              ids.forEach(function(id){
-                if (byId[id]) column.appendChild(byId[id]);
-            });
-          });
-          columns[0] && cards.forEach(function(card){
-            if (!board.contains(card)) columns[0].appendChild(card);
-          });
-          refreshMoveButtons();
-        }
-
-        function getAfterElement(container, y){
-          var siblings = Array.prototype.slice.call(container.querySelectorAll('[data-dashboard-card]:not(.dragging)'));
-          var closest = null;
-          var closestOffset = Number.NEGATIVE_INFINITY;
-          siblings.forEach(function(child){
-            var rect = child.getBoundingClientRect();
-            var offset = y - rect.top - (rect.height / 2);
-            if (offset < 0 && offset > closestOffset) {
-              closestOffset = offset;
-              closest = child;
-            }
-          });
-          return closest;
-        }
-
-        try {
-          applyLayout(JSON.parse(localStorage.getItem(storageKey) || 'null'));
-        } catch (_) {}
-
-        refreshMoveButtons();
-
-        cards.forEach(function(card){
-          var upBtn = card.querySelector('[data-card-move="up"]');
-          var downBtn = card.querySelector('[data-card-move="down"]');
-          function moveCard(direction){
-            var parent = card.parentElement;
-            if (!parent) return;
-            if (direction === 'up') {
-              var prev = card.previousElementSibling;
-              if (prev) parent.insertBefore(card, prev);
-            } else {
-              var next = card.nextElementSibling;
-              if (next) parent.insertBefore(next, card);
-            }
-            refreshMoveButtons();
-            saveLayout();
-          }
-          if (upBtn) {
-            upBtn.addEventListener('click', function(e){
-              e.preventDefault();
-              e.stopPropagation();
-              moveCard('up');
-            });
-          }
-          if (downBtn) {
-            downBtn.addEventListener('click', function(e){
-              e.preventDefault();
-              e.stopPropagation();
-              moveCard('down');
-            });
-          }
-          card.addEventListener('dragstart', function(){
-            dragging = card;
-            card.classList.add('dragging');
-          });
-          card.addEventListener('dragend', function(){
-            card.classList.remove('dragging');
-            columns.forEach(function(column){ column.classList.remove('dashboard-drop-target'); });
-            dragging = null;
-            refreshMoveButtons();
-            saveLayout();
-          });
-        });
-
-        columns.forEach(function(column){
-          column.addEventListener('dragenter', function(){
-            if (!dragging) return;
-            column.classList.add('dashboard-drop-target');
-          });
-          column.addEventListener('dragover', function(e){
-            if (!dragging) return;
-            e.preventDefault();
-            var after = getAfterElement(column, e.clientY);
-            if (after) column.insertBefore(dragging, after);
-            else column.appendChild(dragging);
-          });
-          column.addEventListener('drop', function(e){
-            if (!dragging) return;
-            e.preventDefault();
-            column.classList.remove('dashboard-drop-target');
-            refreshMoveButtons();
-            saveLayout();
-          });
-          column.addEventListener('dragleave', function(e){
-            if (!column.contains(e.relatedTarget)) {
-              column.classList.remove('dashboard-drop-target');
-            }
-          });
         });
       })();
 
