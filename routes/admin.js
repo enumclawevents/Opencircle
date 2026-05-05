@@ -2885,7 +2885,19 @@ return `
     const hasJobsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'"));
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
+    const trackedEventWhereParts = [];
+    const trackedEventWhereParams = [];
+    if (selectedCity) {
+      trackedEventWhereParts.push("city = ?");
+      trackedEventWhereParams.push(selectedCity);
+    }
+    if (organizerOwnerClause) {
+      trackedEventWhereParts.push(organizerOwnerClause.sql);
+      trackedEventWhereParams.push(...organizerOwnerClause.params);
+    }
+    const trackedEventWhereSql = trackedEventWhereParts.length ? `WHERE ${trackedEventWhereParts.join(" AND ")}` : "";
     const releaseLogItems = [];
+    releaseLogItems.push({ date: "2026-05-05", text: "Events analytics charts now pull view-series activity from tracked event view data again and show a clear empty state when there is no recent activity" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now submit as a real GET form so sort options like Newest ID first reliably reach the server" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now preserve and apply the selected sort option again, including Newest ID first" });
     releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event schedules now build correctly even when the start and end fields are using localized 12-hour date/time values" });
@@ -3894,14 +3906,27 @@ return `
 
     const buildDaily = async (metric) => {
       if (metric === "events") return buildOccurrenceCounts("daily");
-      const rows = await all(
-        `SELECT date(startDateTime) AS d, ${viewsExpr} AS n
-         FROM events
-         ${dashAnd}date(startDateTime) >= date('now','-13 day')
-         GROUP BY d
-         ORDER BY d`,
-        dashParams
-      );
+      let rows = [];
+      if (hasSourceTrackingTable) {
+        rows = await all(
+          `SELECT date(ev.viewedAt) AS d, COUNT(*) AS n
+           FROM event_views ev
+           WHERE ev.eventId IN (SELECT id FROM events ${trackedEventWhereSql})
+             AND date(ev.viewedAt) >= date('now','-13 day')
+           GROUP BY d
+           ORDER BY d`,
+          trackedEventWhereParams
+        );
+      } else {
+        rows = await all(
+          `SELECT date(startDateTime) AS d, ${viewsExpr} AS n
+           FROM events
+           ${dashAnd}date(startDateTime) >= date('now','-13 day')
+           GROUP BY d
+           ORDER BY d`,
+          dashParams
+        );
+      }
       const byDay = new Map((rows || []).map((r) => [String(r.d), Number(r.n || 0)]));
       const { labels, keys } = makeDailyBuckets();
       return { labels, values: keys.map((key) => byDay.get(key) || 0) };
@@ -3909,14 +3934,27 @@ return `
 
     const buildWeekly = async (metric) => {
       if (metric === "events") return buildOccurrenceCounts("weekly");
-      const rows = await all(
-        `SELECT date(startDateTime, 'weekday 1', '-7 day') AS wk, ${viewsExpr} AS n
-         FROM events
-         ${dashAnd}date(startDateTime) >= date('now','-83 day')
-         GROUP BY wk
-         ORDER BY wk`,
-        dashParams
-      );
+      let rows = [];
+      if (hasSourceTrackingTable) {
+        rows = await all(
+          `SELECT date(ev.viewedAt, 'weekday 1', '-7 day') AS wk, COUNT(*) AS n
+           FROM event_views ev
+           WHERE ev.eventId IN (SELECT id FROM events ${trackedEventWhereSql})
+             AND date(ev.viewedAt) >= date('now','-83 day')
+           GROUP BY wk
+           ORDER BY wk`,
+          trackedEventWhereParams
+        );
+      } else {
+        rows = await all(
+          `SELECT date(startDateTime, 'weekday 1', '-7 day') AS wk, ${viewsExpr} AS n
+           FROM events
+           ${dashAnd}date(startDateTime) >= date('now','-83 day')
+           GROUP BY wk
+           ORDER BY wk`,
+          dashParams
+        );
+      }
       const byWk = new Map((rows || []).map((r) => [String(r.wk), Number(r.n || 0)]));
       const { labels, keys } = makeWeeklyBuckets();
       return { labels, values: keys.map((key) => byWk.get(key) || 0) };
@@ -3924,14 +3962,27 @@ return `
 
     const buildMonthly = async (metric) => {
       if (metric === "events") return buildOccurrenceCounts("monthly");
-      const rows = await all(
-        `SELECT strftime('%Y-%m', startDateTime) AS ym, ${viewsExpr} AS n
-         FROM events
-         ${dashAnd}date(startDateTime) >= date('now','start of month','-11 month')
-         GROUP BY ym
-         ORDER BY ym`,
-        dashParams
-      );
+      let rows = [];
+      if (hasSourceTrackingTable) {
+        rows = await all(
+          `SELECT strftime('%Y-%m', ev.viewedAt) AS ym, COUNT(*) AS n
+           FROM event_views ev
+           WHERE ev.eventId IN (SELECT id FROM events ${trackedEventWhereSql})
+             AND date(ev.viewedAt) >= date('now','start of month','-11 month')
+           GROUP BY ym
+           ORDER BY ym`,
+          trackedEventWhereParams
+        );
+      } else {
+        rows = await all(
+          `SELECT strftime('%Y-%m', startDateTime) AS ym, ${viewsExpr} AS n
+           FROM events
+           ${dashAnd}date(startDateTime) >= date('now','start of month','-11 month')
+           GROUP BY ym
+           ORDER BY ym`,
+          dashParams
+        );
+      }
       const byYm = new Map((rows || []).map((r) => [String(r.ym), Number(r.n || 0)]));
       const { labels, keys } = makeMonthlyBuckets();
       return { labels, values: keys.map((key) => byYm.get(key) || 0) };
@@ -3939,14 +3990,27 @@ return `
 
     const buildYearly = async (metric) => {
       if (metric === "events") return buildOccurrenceCounts("yearly");
-      const rows = await all(
-        `SELECT strftime('%Y', startDateTime) AS y, ${viewsExpr} AS n
-         FROM events
-         ${dashAnd}date(startDateTime) >= date('now','start of year','-4 year')
-         GROUP BY y
-         ORDER BY y`,
-        dashParams
-      );
+      let rows = [];
+      if (hasSourceTrackingTable) {
+        rows = await all(
+          `SELECT strftime('%Y', ev.viewedAt) AS y, COUNT(*) AS n
+           FROM event_views ev
+           WHERE ev.eventId IN (SELECT id FROM events ${trackedEventWhereSql})
+             AND date(ev.viewedAt) >= date('now','start of year','-4 year')
+           GROUP BY y
+           ORDER BY y`,
+          trackedEventWhereParams
+        );
+      } else {
+        rows = await all(
+          `SELECT strftime('%Y', startDateTime) AS y, ${viewsExpr} AS n
+           FROM events
+           ${dashAnd}date(startDateTime) >= date('now','start of year','-4 year')
+           GROUP BY y
+           ORDER BY y`,
+          dashParams
+        );
+      }
       const byY = new Map((rows || []).map((r) => [String(r.y), Number(r.n || 0)]));
       const { labels, keys } = makeYearlyBuckets();
       return { labels, values: keys.map((key) => byY.get(key) || 0) };
@@ -12295,10 +12359,11 @@ return `
     }
     ctx.clearRect(0,0,w,h);
 
-    if (!labels.length || !combinedValues.length){
+    const hasAnyValue = combinedValues.some((value) => Number(value || 0) > 0);
+    if (!labels.length || !hasAnyValue){
       ctx.fillStyle = "rgba(15,23,42,.75)";
       ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-      ctx.fillText("No recent events", 18, 90);
+      ctx.fillText("No recent activity", 18, 90);
       return;
     }
 
