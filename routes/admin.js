@@ -12466,6 +12466,7 @@ return `
 
       function render(){
         $svgHost.innerHTML = String(svgSets[mode] || svgSets.daily || "");
+        bindSvgPointHover();
       }
 
       function getModeSeries(metric) {
@@ -12497,6 +12498,80 @@ return `
           : 'No stats for this period.';
       }
 
+      function getInfoHtmlForIndex(index) {
+        const eventSet = getModeSeries("events");
+        const viewSet = getModeSeries("views");
+        const cityEventSet = getModeSeries("cityEvents");
+        const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
+        const eventValues = Array.isArray(eventSet.values) ? eventSet.values : [];
+        const viewValues = Array.isArray(viewSet.values) ? viewSet.values : [];
+        const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values : [];
+        const safeIndex = Math.max(0, Math.min(Number(index || 0), Math.max(0, labels.length - 1)));
+        const label = String(labels[safeIndex] || "");
+        if (!label) return "No stats for this period.";
+        const safeLabel = String(label).replace(/[&<>"]/g, function(ch){
+          return ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : '&quot;';
+        });
+        const parts = [
+          '<strong>' + safeLabel + '</strong>',
+          'Events: <strong>' + Number(eventValues[safeIndex] || 0).toLocaleString("en-US") + '</strong>'
+        ];
+        if (Number(cityEventValues[safeIndex] || 0) > 0) {
+          parts.push('City events: <strong>' + Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US") + '</strong>');
+        }
+        parts.push('Views: <strong>' + Number(viewValues[safeIndex] || 0).toLocaleString("en-US") + '</strong>');
+        return parts.join('<br>');
+      }
+
+      function hideTip() {
+        if ($tip) $tip.style.display = "none";
+      }
+
+      function showTipForIndex(index, evt) {
+        if (!$tip || !$wrap) return;
+        $tip.innerHTML = getInfoHtmlForIndex(index);
+        $tip.style.display = "block";
+        const wrapRect = $wrap.getBoundingClientRect();
+        const sourceRect = evt && evt.currentTarget && evt.currentTarget.getBoundingClientRect
+          ? evt.currentTarget.getBoundingClientRect()
+          : wrapRect;
+        const tipWidth = $tip.offsetWidth || 140;
+        const tipHeight = $tip.offsetHeight || 48;
+        let left = sourceRect.left - wrapRect.left + (sourceRect.width / 2) - (tipWidth / 2);
+        let top = sourceRect.top - wrapRect.top - tipHeight - 10;
+        left = Math.max(8, Math.min(left, Math.max(8, wrapRect.width - tipWidth - 8)));
+        if (top < 8) {
+          top = sourceRect.bottom - wrapRect.top + 10;
+          top = Math.min(top, Math.max(8, wrapRect.height - tipHeight - 8));
+        }
+        $tip.style.left = left + "px";
+        $tip.style.top = top + "px";
+      }
+
+      function bindSvgPointHover() {
+        if (!$svgHost) return;
+        const points = $svgHost.querySelectorAll("[data-chart-point]");
+        points.forEach(function(point, index){
+          point.setAttribute("data-chart-index", String(index % Math.max(1, (getModeSeries("events").labels || []).length)));
+          point.addEventListener("mouseenter", function(evt){
+            const pointIndex = Number(point.getAttribute("data-chart-index") || 0);
+            setInfoForIndex(pointIndex);
+            showTipForIndex(pointIndex, evt);
+          });
+          point.addEventListener("mousemove", function(evt){
+            const pointIndex = Number(point.getAttribute("data-chart-index") || 0);
+            showTipForIndex(pointIndex, evt);
+          });
+          point.addEventListener("mouseleave", hideTip);
+          point.addEventListener("blur", hideTip);
+          point.addEventListener("focus", function(evt){
+            const pointIndex = Number(point.getAttribute("data-chart-index") || 0);
+            setInfoForIndex(pointIndex);
+            showTipForIndex(pointIndex, evt);
+          });
+        });
+      }
+
       window.ocSetEventsChartView = function(nextMode){
         mode = String(nextMode || "daily");
         setActiveBtn();
@@ -12504,6 +12579,7 @@ return `
         syncLegend();
         render();
         setInfoForIndex((getModeSeries("events").labels || []).length - 1);
+        hideTip();
       };
 
       window.ocShowEventsChartInfoIndex = function(index){
@@ -12533,59 +12609,62 @@ return `
       if ($data) {
         const parsed = JSON.parse($data.getAttribute("data-chart") || "{}");
         if (parsed && typeof parsed === "object") {
+          const parsedEvents = parsed.events || {};
+          const parsedViews = parsed.views || {};
+          const parsedCityEvents = parsed.cityEvents || {};
           chartSets = {
             events: {
               daily: {
-                labels: Array.isArray(parsed.events?.daily?.labels) ? parsed.events.daily.labels : [],
-                values: Array.isArray(parsed.events?.daily?.values) ? parsed.events.daily.values : [],
+                labels: parsedEvents.daily && Array.isArray(parsedEvents.daily.labels) ? parsedEvents.daily.labels : [],
+                values: parsedEvents.daily && Array.isArray(parsedEvents.daily.values) ? parsedEvents.daily.values : [],
               },
               weekly: {
-                labels: Array.isArray(parsed.events?.weekly?.labels) ? parsed.events.weekly.labels : [],
-                values: Array.isArray(parsed.events?.weekly?.values) ? parsed.events.weekly.values : [],
+                labels: parsedEvents.weekly && Array.isArray(parsedEvents.weekly.labels) ? parsedEvents.weekly.labels : [],
+                values: parsedEvents.weekly && Array.isArray(parsedEvents.weekly.values) ? parsedEvents.weekly.values : [],
               },
               monthly: {
-                labels: Array.isArray(parsed.events?.monthly?.labels) ? parsed.events.monthly.labels : [],
-                values: Array.isArray(parsed.events?.monthly?.values) ? parsed.events.monthly.values : [],
+                labels: parsedEvents.monthly && Array.isArray(parsedEvents.monthly.labels) ? parsedEvents.monthly.labels : [],
+                values: parsedEvents.monthly && Array.isArray(parsedEvents.monthly.values) ? parsedEvents.monthly.values : [],
               },
               yearly: {
-                labels: Array.isArray(parsed.events?.yearly?.labels) ? parsed.events.yearly.labels : [],
-                values: Array.isArray(parsed.events?.yearly?.values) ? parsed.events.yearly.values : [],
+                labels: parsedEvents.yearly && Array.isArray(parsedEvents.yearly.labels) ? parsedEvents.yearly.labels : [],
+                values: parsedEvents.yearly && Array.isArray(parsedEvents.yearly.values) ? parsedEvents.yearly.values : [],
               },
             },
             views: {
               daily: {
-                labels: Array.isArray(parsed.views?.daily?.labels) ? parsed.views.daily.labels : [],
-                values: Array.isArray(parsed.views?.daily?.values) ? parsed.views.daily.values : [],
+                labels: parsedViews.daily && Array.isArray(parsedViews.daily.labels) ? parsedViews.daily.labels : [],
+                values: parsedViews.daily && Array.isArray(parsedViews.daily.values) ? parsedViews.daily.values : [],
               },
               weekly: {
-                labels: Array.isArray(parsed.views?.weekly?.labels) ? parsed.views.weekly.labels : [],
-                values: Array.isArray(parsed.views?.weekly?.values) ? parsed.views.weekly.values : [],
+                labels: parsedViews.weekly && Array.isArray(parsedViews.weekly.labels) ? parsedViews.weekly.labels : [],
+                values: parsedViews.weekly && Array.isArray(parsedViews.weekly.values) ? parsedViews.weekly.values : [],
               },
               monthly: {
-                labels: Array.isArray(parsed.views?.monthly?.labels) ? parsed.views.monthly.labels : [],
-                values: Array.isArray(parsed.views?.monthly?.values) ? parsed.views.monthly.values : [],
+                labels: parsedViews.monthly && Array.isArray(parsedViews.monthly.labels) ? parsedViews.monthly.labels : [],
+                values: parsedViews.monthly && Array.isArray(parsedViews.monthly.values) ? parsedViews.monthly.values : [],
               },
               yearly: {
-                labels: Array.isArray(parsed.views?.yearly?.labels) ? parsed.views.yearly.labels : [],
-                values: Array.isArray(parsed.views?.yearly?.values) ? parsed.views.yearly.values : [],
+                labels: parsedViews.yearly && Array.isArray(parsedViews.yearly.labels) ? parsedViews.yearly.labels : [],
+                values: parsedViews.yearly && Array.isArray(parsedViews.yearly.values) ? parsedViews.yearly.values : [],
               },
             },
             cityEvents: {
               daily: {
-                labels: Array.isArray(parsed.cityEvents?.daily?.labels) ? parsed.cityEvents.daily.labels : [],
-                values: Array.isArray(parsed.cityEvents?.daily?.values) ? parsed.cityEvents.daily.values : [],
+                labels: parsedCityEvents.daily && Array.isArray(parsedCityEvents.daily.labels) ? parsedCityEvents.daily.labels : [],
+                values: parsedCityEvents.daily && Array.isArray(parsedCityEvents.daily.values) ? parsedCityEvents.daily.values : [],
               },
               weekly: {
-                labels: Array.isArray(parsed.cityEvents?.weekly?.labels) ? parsed.cityEvents.weekly.labels : [],
-                values: Array.isArray(parsed.cityEvents?.weekly?.values) ? parsed.cityEvents.weekly.values : [],
+                labels: parsedCityEvents.weekly && Array.isArray(parsedCityEvents.weekly.labels) ? parsedCityEvents.weekly.labels : [],
+                values: parsedCityEvents.weekly && Array.isArray(parsedCityEvents.weekly.values) ? parsedCityEvents.weekly.values : [],
               },
               monthly: {
-                labels: Array.isArray(parsed.cityEvents?.monthly?.labels) ? parsed.cityEvents.monthly.labels : [],
-                values: Array.isArray(parsed.cityEvents?.monthly?.values) ? parsed.cityEvents.monthly.values : [],
+                labels: parsedCityEvents.monthly && Array.isArray(parsedCityEvents.monthly.labels) ? parsedCityEvents.monthly.labels : [],
+                values: parsedCityEvents.monthly && Array.isArray(parsedCityEvents.monthly.values) ? parsedCityEvents.monthly.values : [],
               },
               yearly: {
-                labels: Array.isArray(parsed.cityEvents?.yearly?.labels) ? parsed.cityEvents.yearly.labels : [],
-                values: Array.isArray(parsed.cityEvents?.yearly?.values) ? parsed.cityEvents.yearly.values : [],
+                labels: parsedCityEvents.yearly && Array.isArray(parsedCityEvents.yearly.labels) ? parsedCityEvents.yearly.labels : [],
+                values: parsedCityEvents.yearly && Array.isArray(parsedCityEvents.yearly.values) ? parsedCityEvents.yearly.values : [],
               },
             },
           };
@@ -12659,7 +12738,9 @@ return `
 
     function draw(){
       const primarySet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
-      const secondarySet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : chartSets.views?.daily;
+      const secondarySet = (chartSets.views && chartSets.views[mode])
+        ? chartSets.views[mode]
+        : ((chartSets.views && chartSets.views.daily) ? chartSets.views.daily : { labels: [], values: [] });
     const labels = (primarySet && primarySet.labels) ? primarySet.labels : [];
     const primaryValues = (primarySet && primarySet.values) ? primarySet.values : [];
     const secondaryValues = (secondarySet && secondarySet.values) ? secondarySet.values : [];
@@ -12810,7 +12891,9 @@ return `
     if (!$tip) return;
     const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
     const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : chartSets.views.daily;
-    const cityEventSet = (chartSets.cityEvents && chartSets.cityEvents[mode]) ? chartSets.cityEvents[mode] : chartSets.cityEvents?.daily;
+    const cityEventSet = (chartSets.cityEvents && chartSets.cityEvents[mode])
+      ? chartSets.cityEvents[mode]
+      : ((chartSets.cityEvents && chartSets.cityEvents.daily) ? chartSets.cityEvents.daily : { labels: [], values: [] });
     const labels = (eventSet && eventSet.labels) ? eventSet.labels : [];
     const eventValues = (eventSet && eventSet.values) ? eventSet.values : [];
     const viewValues = (viewSet && viewSet.values) ? viewSet.values : [];
@@ -12910,14 +12993,16 @@ return `
       if ($data) {
         const parsed = JSON.parse($data.getAttribute("data-chart") || "{}");
         if (parsed && typeof parsed === "object") {
+          const parsedEvents = parsed.events || {};
+          const parsedViews = parsed.views || {};
           chartSets = {
             events: {
-              labels: Array.isArray(parsed.events?.labels) ? parsed.events.labels : [],
-              values: Array.isArray(parsed.events?.values) ? parsed.events.values : [],
+              labels: Array.isArray(parsedEvents.labels) ? parsedEvents.labels : [],
+              values: Array.isArray(parsedEvents.values) ? parsedEvents.values : [],
             },
             views: {
-              labels: Array.isArray(parsed.views?.labels) ? parsed.views.labels : [],
-              values: Array.isArray(parsed.views?.values) ? parsed.views.values : [],
+              labels: Array.isArray(parsedViews.labels) ? parsedViews.labels : [],
+              values: Array.isArray(parsedViews.values) ? parsedViews.values : [],
             },
           };
         }
@@ -13146,14 +13231,16 @@ return `
       if ($data) {
         const parsed = JSON.parse($data.getAttribute("data-chart") || "{}");
         if (parsed && typeof parsed === "object") {
+          const parsedViews = parsed.views || {};
+          const parsedClicks = parsed.clicks || {};
           chartSets = {
             views: {
-              labels: Array.isArray(parsed.views?.labels) ? parsed.views.labels : [],
-              values: Array.isArray(parsed.views?.values) ? parsed.views.values : [],
+              labels: Array.isArray(parsedViews.labels) ? parsedViews.labels : [],
+              values: Array.isArray(parsedViews.values) ? parsedViews.values : [],
             },
             clicks: {
-              labels: Array.isArray(parsed.clicks?.labels) ? parsed.clicks.labels : [],
-              values: Array.isArray(parsed.clicks?.values) ? parsed.clicks.values : [],
+              labels: Array.isArray(parsedClicks.labels) ? parsedClicks.labels : [],
+              values: Array.isArray(parsedClicks.values) ? parsedClicks.values : [],
             },
           };
         }
@@ -13432,14 +13519,16 @@ return `
       if ($data) {
         const parsed = JSON.parse($data.getAttribute("data-chart") || "{}");
         if (parsed && typeof parsed === "object") {
+          const parsedViews = parsed.views || {};
+          const parsedClicks = parsed.clicks || {};
           chartSets = {
             views: {
-              labels: Array.isArray(parsed.views?.labels) ? parsed.views.labels : [],
-              values: Array.isArray(parsed.views?.values) ? parsed.views.values : [],
+              labels: Array.isArray(parsedViews.labels) ? parsedViews.labels : [],
+              values: Array.isArray(parsedViews.values) ? parsedViews.values : [],
             },
             clicks: {
-              labels: Array.isArray(parsed.clicks?.labels) ? parsed.clicks.labels : [],
-              values: Array.isArray(parsed.clicks?.values) ? parsed.clicks.values : [],
+              labels: Array.isArray(parsedClicks.labels) ? parsedClicks.labels : [],
+              values: Array.isArray(parsedClicks.values) ? parsedClicks.values : [],
             },
           };
         }
