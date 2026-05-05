@@ -4091,8 +4091,27 @@ return `
         views: Number(viewValues[index] || 0),
         cityEvents: Number(cityEventValues[index] || 0),
       }));
-      const eventPath = eventPoints.map((pt, index) => `${index === 0 ? "M" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ");
-      const viewPath = viewPoints.map((pt, index) => `${index === 0 ? "M" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ");
+      function buildSmoothSvgPath(points) {
+        if (!points.length) return "";
+        if (points.length === 1) {
+          return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+        }
+        let path = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+        for (let i = 0; i < points.length - 1; i++) {
+          const p0 = points[i - 1] || points[i];
+          const p1 = points[i];
+          const p2 = points[i + 1];
+          const p3 = points[i + 2] || p2;
+          const cp1x = p1.x + (p2.x - p0.x) / 6;
+          const cp1y = Math.max(padT, Math.min(padT + plotH, p1.y + (p2.y - p0.y) / 6));
+          const cp2x = p2.x - (p3.x - p1.x) / 6;
+          const cp2y = Math.max(padT, Math.min(padT + plotH, p2.y - (p3.y - p1.y) / 6));
+          path += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+        }
+        return path;
+      }
+      const eventPath = buildSmoothSvgPath(eventPoints);
+      const viewPath = buildSmoothSvgPath(viewPoints);
       const fillPath = eventPoints.length
         ? `M ${eventPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} ` +
           eventPoints.map((pt, index) => `${index === 0 ? "L" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ") +
@@ -4118,13 +4137,9 @@ return `
             const payload = encodeURIComponent(JSON.stringify(infoPayload[index] || {}));
             return `
               <circle cx="${eventPoints[index].x.toFixed(2)}" cy="${eventPoints[index].y.toFixed(2)}" r="8" fill="rgba(16,185,129,.18)" stroke="rgba(16,185,129,.88)" stroke-width="2"
-                data-info="${payload}"
-                onmouseenter="window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(this)"
-                onfocus="window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(this)"></circle>
+                data-info="${payload}" data-chart-point="1" tabindex="0"></circle>
               <circle cx="${viewPoints[index].x.toFixed(2)}" cy="${viewPoints[index].y.toFixed(2)}" r="7" fill="#ffffff" stroke="rgba(37,99,235,.78)" stroke-width="2"
-                data-info="${payload}"
-                onmouseenter="window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(this)"
-                onfocus="window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(this)"></circle>
+                data-info="${payload}" data-chart-point="1" tabindex="0"></circle>
             `;
           }).join("")}
           ${labels.map((label, index) => {
@@ -12407,6 +12422,14 @@ return `
 
       function render(){
         $svgHost.innerHTML = String(svgSets[mode] || svgSets.daily || "");
+        $svgHost.querySelectorAll("[data-chart-point]").forEach((node) => {
+          node.addEventListener("mouseenter", function(){
+            window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(node);
+          });
+          node.addEventListener("focus", function(){
+            window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(node);
+          });
+        });
       }
 
       window.ocSetEventsChartView = function(nextMode){
