@@ -4038,6 +4038,88 @@ return `
         yearly: buildOccurrenceCountsFromRows("yearly", cityEventChartRows),
       };
     }
+    function buildEventsChartSvgForMode(mode) {
+      const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : { labels: [], values: [] };
+      const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : { labels: [], values: [] };
+      const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
+      const eventValues = Array.isArray(eventSet.values) ? eventSet.values.map((v) => Number(v || 0)) : [];
+      const viewValues = Array.isArray(viewSet.values) ? viewSet.values.map((v) => Number(v || 0)) : [];
+      const allValues = eventValues.concat(viewValues).filter((v) => Number.isFinite(v));
+      const width = 1200;
+      const height = 260;
+      const padL = 56;
+      const padR = 18;
+      const padT = 18;
+      const padB = 42;
+      const plotW = width - padL - padR;
+      const plotH = height - padT - padB;
+      const textColor = "#475569";
+      const lineColor = "rgba(16,185,129,.82)";
+      const dashedColor = "rgba(37,99,235,.72)";
+
+      if (!labels.length || !allValues.some((v) => v > 0)) {
+        return `
+          <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Events chart">
+            <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+            <text x="18" y="90" fill="rgba(15,23,42,.75)" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No recent activity</text>
+          </svg>
+        `;
+      }
+
+      const maxValue = Math.max(1, ...allValues);
+      const tickCount = Math.min(6, maxValue);
+      const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
+      const yMax = tickStep * tickCount;
+      const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
+      const eventPoints = labels.map((label, index) => {
+        const value = Number(eventValues[index] || 0);
+        const x = padL + stepX * index;
+        const y = padT + plotH - ((value / yMax) * plotH);
+        return { x, y, value };
+      });
+      const viewPoints = labels.map((label, index) => {
+        const value = Number(viewValues[index] || 0);
+        const x = padL + stepX * index;
+        const y = padT + plotH - ((value / yMax) * plotH);
+        return { x, y, value };
+      });
+      const eventPath = eventPoints.map((pt, index) => `${index === 0 ? "M" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ");
+      const viewPath = viewPoints.map((pt, index) => `${index === 0 ? "M" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ");
+      const fillPath = eventPoints.length
+        ? `M ${eventPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} ` +
+          eventPoints.map((pt, index) => `${index === 0 ? "L" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ") +
+          ` L ${eventPoints[eventPoints.length - 1].x.toFixed(2)} ${(padT + plotH).toFixed(2)} Z`
+        : "";
+      const labelStep = labels.length <= 4 ? 1 : Math.ceil(labels.length / 4);
+
+      return `
+        <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Events chart">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+          ${Array.from({ length: tickCount + 1 }).map((_, i) => {
+            const value = i * tickStep;
+            const y = padT + plotH - ((value / yMax) * plotH);
+            return `
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="rgba(15,23,42,.08)" stroke-width="1"></line>
+              <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
+            `;
+          }).join("")}
+          ${fillPath ? `<path d="${fillPath}" fill="rgba(16,185,129,.10)"></path>` : ""}
+          ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${labels.map((label, index) => {
+            if (index !== labels.length - 1 && index % labelStep !== 0) return "";
+            const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
+            return `<text x="${eventPoints[index].x.toFixed(2)}" y="${(padT + plotH + 30).toFixed(2)}" text-anchor="${anchor}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(label || ""))}</text>`;
+          }).join("")}
+        </svg>
+      `;
+    }
+    const eventsChartSvgByMode = {
+      daily: buildEventsChartSvgForMode("daily"),
+      weekly: buildEventsChartSvgForMode("weekly"),
+      monthly: buildEventsChartSvgForMode("monthly"),
+      yearly: buildEventsChartSvgForMode("yearly"),
+    };
     let selectedEventAnalytics = null;
     let analyticsSideTitle = "Top organizers";
     let analyticsSideSub = "Most frequent organizers";
@@ -9367,7 +9449,8 @@ return `
             </div>
             <div class="chart-wrap" id="eventsChartWrap" style="min-height:96px;">
               <div id="eventsChartData" data-chart="${esc(chartDataJson)}" hidden></div>
-              <canvas id="eventsChart" style="width:100%; height:194px; display:block;"></canvas>
+              <div id="eventsChartSvgHost" data-svgs="${esc(JSON.stringify(eventsChartSvgByMode))}">${eventsChartSvgByMode.daily}</div>
+              <canvas id="eventsChart" style="width:100%; height:194px; display:none;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
           </div>
@@ -12259,6 +12342,69 @@ return `
     const $seg    = document.getElementById("chartViewSeg");
     const $range  = document.getElementById("chartRangeLabel");
     const $legend = document.getElementById("eventsChartLegend");
+    const $svgHost = document.getElementById("eventsChartSvgHost");
+
+    if ($svgHost) {
+      let svgSets = {};
+      try {
+        svgSets = JSON.parse($svgHost.getAttribute("data-svgs") || "{}") || {};
+      } catch (_) {}
+      let mode = "daily";
+
+      function setActiveBtn(){
+        if ($seg) {
+          $seg.querySelectorAll("[data-view]").forEach((b) => {
+            const on = (b.getAttribute("data-view") === mode);
+            b.classList.toggle("on", on);
+            b.setAttribute("aria-pressed", on ? "true" : "false");
+          });
+        }
+      }
+
+      function setRangeLabel(){
+        if (!$range) return;
+        const map = {
+          daily:  "Last 14 days (by start date)",
+          weekly: "Last 12 weeks (by start date)",
+          monthly:"Last 12 months (by start date)",
+          yearly: "Last 5 years (by start date)",
+        };
+        $range.textContent = map[mode] || map.daily;
+      }
+
+      function syncLegend(){
+        if (!$legend) return;
+        $legend.querySelectorAll("[data-legend-metric]").forEach((item) => {
+          const itemMetric = item.getAttribute("data-legend-metric") || "";
+          const line = item.querySelector(".chartLegendLine");
+          if (!line) return;
+          line.classList.toggle("is-dashed", itemMetric !== "events");
+        });
+      }
+
+      function render(){
+        $svgHost.innerHTML = String(svgSets[mode] || svgSets.daily || "");
+      }
+
+      if ($seg) {
+        $seg.addEventListener("click", (e) => {
+          const btn = e.target.closest("[data-view]");
+          if (!btn) return;
+          mode = btn.getAttribute("data-view") || "daily";
+          setActiveBtn();
+          setRangeLabel();
+          syncLegend();
+          render();
+        });
+      }
+
+      setActiveBtn();
+      setRangeLabel();
+      syncLegend();
+      render();
+      if ($tip) $tip.style.display = "none";
+      return;
+    }
 
     if (!$canvas || !$wrap) return;
     const ctx = $canvas.getContext("2d");
