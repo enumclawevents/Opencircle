@@ -4156,6 +4156,10 @@ return `
       monthly: buildEventsChartSvgForMode("monthly"),
       yearly: buildEventsChartSvgForMode("yearly"),
     };
+    const eventsChartSvgJsonForScript = JSON.stringify(eventsChartSvgByMode)
+      .replace(/</g, "\\u003c")
+      .replace(/>/g, "\\u003e")
+      .replace(/&/g, "\\u0026");
     let selectedEventAnalytics = null;
     let analyticsSideTitle = "Top organizers";
     let analyticsSideSub = "Most frequent organizers";
@@ -4361,6 +4365,10 @@ return `
       }
     }
     const chartDataJson = JSON.stringify(chartSets);
+    const chartDataJsonForScript = chartDataJson
+      .replace(/</g, "\\u003c")
+      .replace(/>/g, "\\u003e")
+      .replace(/&/g, "\\u0026");
     const adPlacementOptions = [
       "homepage-top",
       "homepage-bottom",
@@ -9484,8 +9492,8 @@ return `
               </div>
             </div>
             <div class="chart-wrap" id="eventsChartWrap" style="min-height:96px;">
-              <script id="eventsChartData" type="application/json">${esc(chartDataJson)}</script>
-              <script id="eventsChartSvgData" type="application/json">${esc(JSON.stringify(eventsChartSvgByMode))}</script>
+              <script id="eventsChartData" type="application/json">${chartDataJsonForScript}</script>
+              <script id="eventsChartSvgData" type="application/json">${eventsChartSvgJsonForScript}</script>
               <div id="eventsChartSvgHost">${eventsChartSvgByMode.daily}</div>
               <canvas id="eventsChart" style="width:100%; height:194px; display:none;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
