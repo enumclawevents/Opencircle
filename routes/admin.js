@@ -9485,7 +9485,8 @@ return `
             </div>
             <div class="chart-wrap" id="eventsChartWrap" style="min-height:96px;">
               <div id="eventsChartData" data-chart="${esc(chartDataJson)}" hidden></div>
-              <div id="eventsChartSvgHost" data-svgs="${esc(JSON.stringify(eventsChartSvgByMode))}">${eventsChartSvgByMode.daily}</div>
+              <script id="eventsChartSvgData" type="application/json">${esc(JSON.stringify(eventsChartSvgByMode))}</script>
+              <div id="eventsChartSvgHost">${eventsChartSvgByMode.daily}</div>
               <canvas id="eventsChart" style="width:100%; height:194px; display:none;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
@@ -12380,12 +12381,14 @@ return `
     const $range  = document.getElementById("chartRangeLabel");
     const $legend = document.getElementById("eventsChartLegend");
     const $svgHost = document.getElementById("eventsChartSvgHost");
+    const $svgData = document.getElementById("eventsChartSvgData");
     const $info = document.getElementById("eventsChartInfo");
 
     if ($svgHost) {
       let svgSets = {};
       try {
-        svgSets = JSON.parse($svgHost.getAttribute("data-svgs") || "{}") || {};
+        const rawSvgData = $svgData ? String($svgData.textContent || "").trim() : "{}";
+        svgSets = JSON.parse(rawSvgData || "{}") || {};
       } catch (_) {}
       let mode = "daily";
 
