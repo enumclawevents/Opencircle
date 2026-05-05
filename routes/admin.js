@@ -12386,9 +12386,18 @@ return `
 
     if ($svgHost) {
       let svgSets = {};
+      let chartInfoSets = { events: {}, views: {}, cityEvents: {} };
       try {
         const rawSvgData = $svgData ? String($svgData.textContent || "").trim() : "{}";
         svgSets = JSON.parse(rawSvgData || "{}") || {};
+      } catch (_) {}
+      try {
+        if ($data) {
+          const parsedChartInfo = JSON.parse($data.getAttribute("data-chart") || "{}");
+          if (parsedChartInfo && typeof parsedChartInfo === "object") {
+            chartInfoSets = parsedChartInfo;
+          }
+        }
       } catch (_) {}
       let mode = "daily";
 
@@ -12435,38 +12444,57 @@ return `
         });
       }
 
+      function getModeSeries(metric) {
+        const group = chartInfoSets && chartInfoSets[metric] ? chartInfoSets[metric] : {};
+        return group && group[mode] ? group[mode] : (group.daily || { labels: [], values: [] });
+      }
+
+      function setInfoForIndex(index) {
+        if (!$info) return;
+        const eventSet = getModeSeries("events");
+        const viewSet = getModeSeries("views");
+        const cityEventSet = getModeSeries("cityEvents");
+        const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
+        const eventValues = Array.isArray(eventSet.values) ? eventSet.values : [];
+        const viewValues = Array.isArray(viewSet.values) ? viewSet.values : [];
+        const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values : [];
+        const safeIndex = Math.max(0, Math.min(Number(index || 0), Math.max(0, labels.length - 1)));
+        const label = String(labels[safeIndex] || "");
+        const events = Number(eventValues[safeIndex] || 0).toLocaleString("en-US");
+        const views = Number(viewValues[safeIndex] || 0).toLocaleString("en-US");
+        const cityEvents = Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US");
+        $info.innerHTML = label
+          ? 'Period: <strong>' + String(label).replace(/[&<>"]/g, function(ch){
+              return ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : '&quot;';
+            }) + '</strong>' +
+            ' <span style="margin-left:14px;">Events: <strong>' + events + '</strong></span>' +
+            (Number(cityEventValues[safeIndex] || 0) > 0 ? ' <span style="margin-left:14px;">City events: <strong>' + cityEvents + '</strong></span>' : '') +
+            ' <span style="margin-left:14px;">Views: <strong>' + views + '</strong></span>'
+          : 'No stats for this period.';
+      }
+
       window.ocSetEventsChartView = function(nextMode){
         mode = String(nextMode || "daily");
         setActiveBtn();
         setRangeLabel();
         syncLegend();
         render();
+        setInfoForIndex((getModeSeries("events").labels || []).length - 1);
       };
 
       window.ocShowEventsChartInfo = function(node){
-        if (!$info || !node) return;
-        let payload = {};
-        try {
-          payload = JSON.parse(decodeURIComponent(String(node.getAttribute("data-info") || ""))) || {};
-        } catch (_) {
-          payload = {};
-        }
-        const label = String(payload.label || "");
-        const events = Number(payload.events || 0).toLocaleString("en-US");
-        const views = Number(payload.views || 0).toLocaleString("en-US");
-        const cityEvents = Number(payload.cityEvents || 0).toLocaleString("en-US");
-        $info.innerHTML = label
-          ? 'Period: <strong>' + label + '</strong>' +
-            ' <span style="margin-left:14px;">Events: <strong>' + events + '</strong></span>' +
-            (Number(payload.cityEvents || 0) > 0 ? ' <span style="margin-left:14px;">City events: <strong>' + cityEvents + '</strong></span>' : '') +
-            ' <span style="margin-left:14px;">Views: <strong>' + views + '</strong></span>'
-          : 'Hover a chart point to see the event and view counts for that period.';
+        if (!node) return;
+        const points = Array.prototype.slice.call($svgHost.querySelectorAll("[data-chart-point]"));
+        const idx = points.indexOf(node);
+        if (idx < 0) return;
+        setInfoForIndex(Math.floor(idx / 2));
       };
 
       setActiveBtn();
       setRangeLabel();
       syncLegend();
       render();
+      setInfoForIndex((getModeSeries("events").labels || []).length - 1);
       if ($tip) $tip.style.display = "none";
       return;
     }
