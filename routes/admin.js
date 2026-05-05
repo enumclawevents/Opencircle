@@ -12269,7 +12269,62 @@ return `
       if ($data) {
         const parsed = JSON.parse($data.getAttribute("data-chart") || "{}");
         if (parsed && typeof parsed === "object") {
-          chartSets = parsed;
+          chartSets = {
+            events: {
+              daily: {
+                labels: Array.isArray(parsed.events?.daily?.labels) ? parsed.events.daily.labels : [],
+                values: Array.isArray(parsed.events?.daily?.values) ? parsed.events.daily.values : [],
+              },
+              weekly: {
+                labels: Array.isArray(parsed.events?.weekly?.labels) ? parsed.events.weekly.labels : [],
+                values: Array.isArray(parsed.events?.weekly?.values) ? parsed.events.weekly.values : [],
+              },
+              monthly: {
+                labels: Array.isArray(parsed.events?.monthly?.labels) ? parsed.events.monthly.labels : [],
+                values: Array.isArray(parsed.events?.monthly?.values) ? parsed.events.monthly.values : [],
+              },
+              yearly: {
+                labels: Array.isArray(parsed.events?.yearly?.labels) ? parsed.events.yearly.labels : [],
+                values: Array.isArray(parsed.events?.yearly?.values) ? parsed.events.yearly.values : [],
+              },
+            },
+            views: {
+              daily: {
+                labels: Array.isArray(parsed.views?.daily?.labels) ? parsed.views.daily.labels : [],
+                values: Array.isArray(parsed.views?.daily?.values) ? parsed.views.daily.values : [],
+              },
+              weekly: {
+                labels: Array.isArray(parsed.views?.weekly?.labels) ? parsed.views.weekly.labels : [],
+                values: Array.isArray(parsed.views?.weekly?.values) ? parsed.views.weekly.values : [],
+              },
+              monthly: {
+                labels: Array.isArray(parsed.views?.monthly?.labels) ? parsed.views.monthly.labels : [],
+                values: Array.isArray(parsed.views?.monthly?.values) ? parsed.views.monthly.values : [],
+              },
+              yearly: {
+                labels: Array.isArray(parsed.views?.yearly?.labels) ? parsed.views.yearly.labels : [],
+                values: Array.isArray(parsed.views?.yearly?.values) ? parsed.views.yearly.values : [],
+              },
+            },
+            cityEvents: {
+              daily: {
+                labels: Array.isArray(parsed.cityEvents?.daily?.labels) ? parsed.cityEvents.daily.labels : [],
+                values: Array.isArray(parsed.cityEvents?.daily?.values) ? parsed.cityEvents.daily.values : [],
+              },
+              weekly: {
+                labels: Array.isArray(parsed.cityEvents?.weekly?.labels) ? parsed.cityEvents.weekly.labels : [],
+                values: Array.isArray(parsed.cityEvents?.weekly?.values) ? parsed.cityEvents.weekly.values : [],
+              },
+              monthly: {
+                labels: Array.isArray(parsed.cityEvents?.monthly?.labels) ? parsed.cityEvents.monthly.labels : [],
+                values: Array.isArray(parsed.cityEvents?.monthly?.values) ? parsed.cityEvents.monthly.values : [],
+              },
+              yearly: {
+                labels: Array.isArray(parsed.cityEvents?.yearly?.labels) ? parsed.cityEvents.yearly.labels : [],
+                values: Array.isArray(parsed.cityEvents?.yearly?.values) ? parsed.cityEvents.yearly.values : [],
+              },
+            },
+          };
         }
       }
     } catch (_) {}
@@ -12323,68 +12378,58 @@ return `
     });
   }
 
-  function sizeCanvas(){
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    // Some layouts briefly report 0 widths while CSS loads; fall back to bounding boxes.
-    let w = $wrap.clientWidth;
-    if (!w || w < 10) w = Math.floor($wrap.getBoundingClientRect().width || 0);
-    if (!w || w < 10) w = Math.floor(($canvas.parentElement ? $canvas.parentElement.getBoundingClientRect().width : 0) || 0);
-    w = Math.max(320, w);
+    function sizeCanvas(){
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      let w = $wrap.clientWidth || Math.floor($wrap.getBoundingClientRect().width || 0);
+      if (!w || w < 10) w = Math.floor(($canvas.parentElement ? $canvas.parentElement.getBoundingClientRect().width : 0) || 0);
+      w = Math.max(320, w || 320);
+      let h = $wrap.clientHeight || Math.floor($wrap.getBoundingClientRect().height || 0);
+      h = Math.max(220, h || 260);
+      $canvas.style.width  = w + "px";
+      $canvas.style.height = h + "px";
+      $canvas.width  = Math.floor(w * dpr);
+      $canvas.height = Math.floor(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { w, h };
+    }
 
-    let h = $wrap.clientHeight;
-    if (!h || h < 10) h = Math.floor($wrap.getBoundingClientRect().height || 0);
-    h = Math.max(96, h || 120);
-
-    $canvas.style.width  = w + "px";
-    $canvas.style.height = h + "px";
-    $canvas.width  = Math.floor(w * dpr);
-    $canvas.height = Math.floor(h * dpr);
-
-    ctx.setTransform(dpr,0,0,dpr,0,0); // draw in CSS pixels
-    return { w, h, ready: (w > 0 && h > 0) };
-  }
-
-  function draw(){
-    const primarySet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
-    const secondarySet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : chartSets.views?.daily;
+    function draw(){
+      const primarySet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
+      const secondarySet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : chartSets.views?.daily;
     const labels = (primarySet && primarySet.labels) ? primarySet.labels : [];
     const primaryValues = (primarySet && primarySet.values) ? primarySet.values : [];
     const secondaryValues = (secondarySet && secondarySet.values) ? secondarySet.values : [];
     const combinedValues = [...primaryValues, ...secondaryValues];
 
-    const { w, h, ready } = sizeCanvas();
-    if (!ready) {
-      window.requestAnimationFrame(draw);
-      return;
-    }
-    ctx.clearRect(0,0,w,h);
+      const { w, h } = sizeCanvas();
+      ctx.clearRect(0,0,w,h);
 
-    const hasAnyValue = combinedValues.some((value) => Number(value || 0) > 0);
-    if (!labels.length || !hasAnyValue){
-      ctx.fillStyle = "rgba(15,23,42,.75)";
+      const hasAnyValue = combinedValues.some((value) => Number(value || 0) > 0);
+      if (!labels.length || !hasAnyValue){
+        ctx.fillStyle = "rgba(15,23,42,.75)";
       ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
       ctx.fillText("No recent activity", 18, 90);
       return;
     }
 
-    const frame = getChartFrame(w, h);
-    const scale = getYScale(combinedValues);
-    const primaryPoints = getLinePoints(frame, primaryValues.map((value) => Number(value || 0) * (scale.yMax / getYScale(combinedValues).yMax))).map((point, index) => ({
-      ...point,
-      y: clamp(frame.padT + frame.gh - ((Number(primaryValues[index] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
-      chartMinY: frame.padT,
-      chartMaxY: frame.padT + frame.gh,
-    }));
-    const secondaryPoints = labels.length === secondaryValues.length
-      ? secondaryValues.map((value, index) => ({
-          x: primaryPoints[index] ? primaryPoints[index].x : (frame.padL + (labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1)) * index)),
-          y: clamp(frame.padT + frame.gh - ((Number(value || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
-          value: Number(value || 0),
-          index,
-          chartMinY: frame.padT,
-          chartMaxY: frame.padT + frame.gh,
-        }))
-      : [];
+      const frame = getChartFrame(w, h);
+      const scale = getYScale(combinedValues);
+      const primaryPoints = labels.map((label, index) => ({
+        x: frame.padL + (labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1)) * index),
+        y: clamp(frame.padT + frame.gh - ((Number(primaryValues[index] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
+        value: Number(primaryValues[index] || 0),
+        index,
+        chartMinY: frame.padT,
+        chartMaxY: frame.padT + frame.gh,
+      }));
+      const secondaryPoints = labels.length === secondaryValues.length ? labels.map((label, index) => ({
+            x: frame.padL + (labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1)) * index),
+            y: clamp(frame.padT + frame.gh - ((Number(secondaryValues[index] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
+            value: Number(secondaryValues[index] || 0),
+            index,
+            chartMinY: frame.padT,
+            chartMaxY: frame.padT + frame.gh,
+        })) : [];
 
     ctx.lineWidth = 1;
     ctx.strokeStyle = "rgba(15,23,42,.08)";
