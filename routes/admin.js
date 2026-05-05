@@ -4134,12 +4134,15 @@ return `
           ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${labels.map((label, index) => {
-            const payload = encodeURIComponent(JSON.stringify(infoPayload[index] || {}));
             return `
               <circle cx="${eventPoints[index].x.toFixed(2)}" cy="${eventPoints[index].y.toFixed(2)}" r="8" fill="rgba(16,185,129,.18)" stroke="rgba(16,185,129,.88)" stroke-width="2"
-                data-info="${payload}" data-chart-point="1" tabindex="0"></circle>
+                data-chart-point="1" tabindex="0"
+                onmouseenter="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"
+                onclick="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"></circle>
               <circle cx="${viewPoints[index].x.toFixed(2)}" cy="${viewPoints[index].y.toFixed(2)}" r="7" fill="#ffffff" stroke="rgba(37,99,235,.78)" stroke-width="2"
-                data-info="${payload}" data-chart-point="1" tabindex="0"></circle>
+                data-chart-point="1" tabindex="0"
+                onmouseenter="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"
+                onclick="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"></circle>
             `;
           }).join("")}
           ${labels.map((label, index) => {
@@ -4160,6 +4163,27 @@ return `
       .replace(/</g, "\\u003c")
       .replace(/>/g, "\\u003e")
       .replace(/&/g, "\\u0026");
+    function buildEventsChartInfoHtml(mode, index = null) {
+      const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : { labels: [], values: [] };
+      const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : { labels: [], values: [] };
+      const cityEventSet = (chartSets.cityEvents && chartSets.cityEvents[mode]) ? chartSets.cityEvents[mode] : { labels: [], values: [] };
+      const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
+      const eventValues = Array.isArray(eventSet.values) ? eventSet.values : [];
+      const viewValues = Array.isArray(viewSet.values) ? viewSet.values : [];
+      const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values : [];
+      if (!labels.length) return "No stats for this period.";
+      const safeIndex = index === null ? (labels.length - 1) : Math.max(0, Math.min(Number(index || 0), labels.length - 1));
+      const label = String(labels[safeIndex] || "");
+      const events = Number(eventValues[safeIndex] || 0).toLocaleString("en-US");
+      const views = Number(viewValues[safeIndex] || 0).toLocaleString("en-US");
+      const cityEvents = Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US");
+      const safeLabel = esc(label);
+      return 'Period: <strong>' + safeLabel + '</strong>' +
+        ' <span style="margin-left:14px;">Events: <strong>' + events + '</strong></span>' +
+        (Number(cityEventValues[safeIndex] || 0) > 0 ? ' <span style="margin-left:14px;">City events: <strong>' + cityEvents + '</strong></span>' : '') +
+        ' <span style="margin-left:14px;">Views: <strong>' + views + '</strong></span>';
+    }
+    const eventsChartInitialInfoHtml = buildEventsChartInfoHtml("daily");
     let selectedEventAnalytics = null;
     let analyticsSideTitle = "Top organizers";
     let analyticsSideSub = "Most frequent organizers";
@@ -9498,7 +9522,7 @@ return `
               <canvas id="eventsChart" style="width:100%; height:194px; display:none;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
-            <div id="eventsChartInfo" class="muted" style="margin-top:10px; font-weight:600;">Hover a chart point to see the event and view counts for that period.</div>
+            <div id="eventsChartInfo" class="muted" style="margin-top:10px; font-weight:600;">${eventsChartInitialInfoHtml}</div>
           </div>
 
           ${!isOrganizerUser ? `
@@ -12442,14 +12466,6 @@ return `
 
       function render(){
         $svgHost.innerHTML = String(svgSets[mode] || svgSets.daily || "");
-        $svgHost.querySelectorAll("[data-chart-point]").forEach((node) => {
-          node.addEventListener("mouseenter", function(){
-            window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(node);
-          });
-          node.addEventListener("focus", function(){
-            window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(node);
-          });
-        });
       }
 
       function getModeSeries(metric) {
@@ -12490,12 +12506,8 @@ return `
         setInfoForIndex((getModeSeries("events").labels || []).length - 1);
       };
 
-      window.ocShowEventsChartInfo = function(node){
-        if (!node) return;
-        const points = Array.prototype.slice.call($svgHost.querySelectorAll("[data-chart-point]"));
-        const idx = points.indexOf(node);
-        if (idx < 0) return;
-        setInfoForIndex(Math.floor(idx / 2));
+      window.ocShowEventsChartInfoIndex = function(index){
+        setInfoForIndex(index);
       };
 
       setActiveBtn();
