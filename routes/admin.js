@@ -9484,7 +9484,7 @@ return `
               </div>
             </div>
             <div class="chart-wrap" id="eventsChartWrap" style="min-height:96px;">
-              <div id="eventsChartData" data-chart="${esc(chartDataJson)}" hidden></div>
+              <script id="eventsChartData" type="application/json">${esc(chartDataJson)}</script>
               <script id="eventsChartSvgData" type="application/json">${esc(JSON.stringify(eventsChartSvgByMode))}</script>
               <div id="eventsChartSvgHost">${eventsChartSvgByMode.daily}</div>
               <canvas id="eventsChart" style="width:100%; height:194px; display:none;"></canvas>
@@ -12393,7 +12393,7 @@ return `
       } catch (_) {}
       try {
         if ($data) {
-          const parsedChartInfo = JSON.parse($data.getAttribute("data-chart") || "{}");
+          const parsedChartInfo = JSON.parse(String($data.textContent || "{}").trim() || "{}");
           if (parsedChartInfo && typeof parsedChartInfo === "object") {
             chartInfoSets = parsedChartInfo;
           }
@@ -12494,7 +12494,12 @@ return `
       setRangeLabel();
       syncLegend();
       render();
-      setInfoForIndex((getModeSeries("events").labels || []).length - 1);
+      const initialLabels = getModeSeries("events").labels || [];
+      if (initialLabels.length) {
+        setInfoForIndex(initialLabels.length - 1);
+      } else if ($info) {
+        $info.textContent = "No stats for this period.";
+      }
       if ($tip) $tip.style.display = "none";
       return;
     }
