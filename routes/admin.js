@@ -4041,9 +4041,11 @@ return `
     function buildEventsChartSvgForMode(mode) {
       const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : { labels: [], values: [] };
       const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : { labels: [], values: [] };
+      const cityEventSet = (chartSets.cityEvents && chartSets.cityEvents[mode]) ? chartSets.cityEvents[mode] : { labels: [], values: [] };
       const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
       const eventValues = Array.isArray(eventSet.values) ? eventSet.values.map((v) => Number(v || 0)) : [];
       const viewValues = Array.isArray(viewSet.values) ? viewSet.values.map((v) => Number(v || 0)) : [];
+      const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values.map((v) => Number(v || 0)) : [];
       const allValues = eventValues.concat(viewValues).filter((v) => Number.isFinite(v));
       const width = 1200;
       const height = 260;
@@ -4083,6 +4085,12 @@ return `
         const y = padT + plotH - ((value / yMax) * plotH);
         return { x, y, value };
       });
+      const infoPayload = labels.map((label, index) => ({
+        label: String(label || ""),
+        events: Number(eventValues[index] || 0),
+        views: Number(viewValues[index] || 0),
+        cityEvents: Number(cityEventValues[index] || 0),
+      }));
       const eventPath = eventPoints.map((pt, index) => `${index === 0 ? "M" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ");
       const viewPath = viewPoints.map((pt, index) => `${index === 0 ? "M" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ");
       const fillPath = eventPoints.length
@@ -4106,6 +4114,19 @@ return `
           ${fillPath ? `<path d="${fillPath}" fill="rgba(16,185,129,.10)"></path>` : ""}
           ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${labels.map((label, index) => {
+            const payload = encodeURIComponent(JSON.stringify(infoPayload[index] || {}));
+            return `
+              <circle cx="${eventPoints[index].x.toFixed(2)}" cy="${eventPoints[index].y.toFixed(2)}" r="8" fill="rgba(16,185,129,.18)" stroke="rgba(16,185,129,.88)" stroke-width="2"
+                data-info="${payload}"
+                onmouseenter="window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(this)"
+                onfocus="window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(this)"></circle>
+              <circle cx="${viewPoints[index].x.toFixed(2)}" cy="${viewPoints[index].y.toFixed(2)}" r="7" fill="#ffffff" stroke="rgba(37,99,235,.78)" stroke-width="2"
+                data-info="${payload}"
+                onmouseenter="window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(this)"
+                onfocus="window.ocShowEventsChartInfo && window.ocShowEventsChartInfo(this)"></circle>
+            `;
+          }).join("")}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
             const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
@@ -9440,10 +9461,10 @@ return `
               </div>
               <div class="right">
                 <div class="seg" id="chartViewSeg" aria-label="Chart view">
-                  <button type="button" data-view="daily" class="on">Daily</button>
-                  <button type="button" data-view="weekly">Weekly</button>
-                  <button type="button" data-view="monthly">Monthly</button>
-                  <button type="button" data-view="yearly">Yearly</button>
+                  <button type="button" data-view="daily" class="on" onclick="window.ocSetEventsChartView && window.ocSetEventsChartView('daily')">Daily</button>
+                  <button type="button" data-view="weekly" onclick="window.ocSetEventsChartView && window.ocSetEventsChartView('weekly')">Weekly</button>
+                  <button type="button" data-view="monthly" onclick="window.ocSetEventsChartView && window.ocSetEventsChartView('monthly')">Monthly</button>
+                  <button type="button" data-view="yearly" onclick="window.ocSetEventsChartView && window.ocSetEventsChartView('yearly')">Yearly</button>
                 </div>
               </div>
             </div>
@@ -9453,6 +9474,7 @@ return `
               <canvas id="eventsChart" style="width:100%; height:194px; display:none;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
+            <div id="eventsChartInfo" class="muted" style="margin-top:10px; font-weight:600;">Hover a chart point to see the event and view counts for that period.</div>
           </div>
 
           ${!isOrganizerUser ? `
@@ -12343,6 +12365,7 @@ return `
     const $range  = document.getElementById("chartRangeLabel");
     const $legend = document.getElementById("eventsChartLegend");
     const $svgHost = document.getElementById("eventsChartSvgHost");
+    const $info = document.getElementById("eventsChartInfo");
 
     if ($svgHost) {
       let svgSets = {};
@@ -12386,17 +12409,33 @@ return `
         $svgHost.innerHTML = String(svgSets[mode] || svgSets.daily || "");
       }
 
-      if ($seg) {
-        $seg.addEventListener("click", (e) => {
-          const btn = e.target.closest("[data-view]");
-          if (!btn) return;
-          mode = btn.getAttribute("data-view") || "daily";
-          setActiveBtn();
-          setRangeLabel();
-          syncLegend();
-          render();
-        });
-      }
+      window.ocSetEventsChartView = function(nextMode){
+        mode = String(nextMode || "daily");
+        setActiveBtn();
+        setRangeLabel();
+        syncLegend();
+        render();
+      };
+
+      window.ocShowEventsChartInfo = function(node){
+        if (!$info || !node) return;
+        let payload = {};
+        try {
+          payload = JSON.parse(decodeURIComponent(String(node.getAttribute("data-info") || ""))) || {};
+        } catch (_) {
+          payload = {};
+        }
+        const label = String(payload.label || "");
+        const events = Number(payload.events || 0).toLocaleString("en-US");
+        const views = Number(payload.views || 0).toLocaleString("en-US");
+        const cityEvents = Number(payload.cityEvents || 0).toLocaleString("en-US");
+        $info.innerHTML = label
+          ? 'Period: <strong>' + label + '</strong>' +
+            ' <span style="margin-left:14px;">Events: <strong>' + events + '</strong></span>' +
+            (Number(payload.cityEvents || 0) > 0 ? ' <span style="margin-left:14px;">City events: <strong>' + cityEvents + '</strong></span>' : '') +
+            ' <span style="margin-left:14px;">Views: <strong>' + views + '</strong></span>'
+          : 'Hover a chart point to see the event and view counts for that period.';
+      };
 
       setActiveBtn();
       setRangeLabel();
