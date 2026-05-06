@@ -2497,7 +2497,7 @@ try {
     const eventStartLocalValue = toDateTimeLocalValue(editEvent?.startDateTime);
     const eventEndLocalValue = toDateTimeLocalValue(editEvent?.endDateTime);
     const inferredEventType = (function(){
-      if (!editEvent) return "";
+      if (!editEvent) return "single";
       if (hasRecurrence) return "recurring";
       const startDate = String(eventStartLocalValue || "").slice(0, 10);
       const endDate = String(eventEndLocalValue || "").slice(0, 10);
