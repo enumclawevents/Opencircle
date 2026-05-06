@@ -12289,8 +12289,8 @@ return `
 
   function drawSmoothLine(ctx, points){
     if (!points.length) return;
-    const yMin = Math.min.apply(null, points.map((p) => p.chartMinY ?? p.y));
-    const yMax = Math.max.apply(null, points.map((p) => p.chartMaxY ?? p.y));
+    const yMin = Math.min.apply(null, points.map((p) => (typeof p.chartMinY !== "undefined" ? p.chartMinY : p.y)));
+    const yMax = Math.max.apply(null, points.map((p) => (typeof p.chartMaxY !== "undefined" ? p.chartMaxY : p.y)));
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
     if (points.length === 1) {
@@ -12908,9 +12908,9 @@ return `
     const rect = $canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
-    const eventValue = Number(eventValues[idx] ?? 0);
-    const viewValue = Number(viewValues[idx] ?? 0);
-    const cityEventValue = Number(cityEventValues[idx] ?? 0);
+    const eventValue = Number(typeof eventValues[idx] !== "undefined" ? eventValues[idx] : 0);
+    const viewValue = Number(typeof viewValues[idx] !== "undefined" ? viewValues[idx] : 0);
+    const cityEventValue = Number(typeof cityEventValues[idx] !== "undefined" ? cityEventValues[idx] : 0);
     const periodLabel = getPeriodLabel(labels[idx] || "");
     $tip.innerHTML =
       '<div style="font-weight:700; margin-bottom:4px;">' + periodLabel + '</div>' +
