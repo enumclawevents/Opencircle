@@ -4138,10 +4138,18 @@ return `
               <circle cx="${eventPoints[index].x.toFixed(2)}" cy="${eventPoints[index].y.toFixed(2)}" r="8" fill="rgba(16,185,129,.18)" stroke="rgba(16,185,129,.88)" stroke-width="2"
                 data-chart-point="1" tabindex="0"
                 onmouseenter="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"
+                onmousemove="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
+                onmouseleave="window.ocHideEventsChartTip && window.ocHideEventsChartTip()"
+                onfocus="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
+                onblur="window.ocHideEventsChartTip && window.ocHideEventsChartTip()"
                 onclick="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"></circle>
               <circle cx="${viewPoints[index].x.toFixed(2)}" cy="${viewPoints[index].y.toFixed(2)}" r="7" fill="#ffffff" stroke="rgba(37,99,235,.78)" stroke-width="2"
                 data-chart-point="1" tabindex="0"
                 onmouseenter="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"
+                onmousemove="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
+                onmouseleave="window.ocHideEventsChartTip && window.ocHideEventsChartTip()"
+                onfocus="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
+                onblur="window.ocHideEventsChartTip && window.ocHideEventsChartTip()"
                 onclick="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"></circle>
             `;
           }).join("")}
@@ -12466,7 +12474,6 @@ return `
 
       function render(){
         $svgHost.innerHTML = String(svgSets[mode] || svgSets.daily || "");
-        bindSvgPointHover();
       }
 
       function getModeSeries(metric) {
@@ -12548,30 +12555,6 @@ return `
         $tip.style.top = top + "px";
       }
 
-      function bindSvgPointHover() {
-        if (!$svgHost) return;
-        const points = $svgHost.querySelectorAll("[data-chart-point]");
-        points.forEach(function(point, index){
-          point.setAttribute("data-chart-index", String(index % Math.max(1, (getModeSeries("events").labels || []).length)));
-          point.addEventListener("mouseenter", function(evt){
-            const pointIndex = Number(point.getAttribute("data-chart-index") || 0);
-            setInfoForIndex(pointIndex);
-            showTipForIndex(pointIndex, evt);
-          });
-          point.addEventListener("mousemove", function(evt){
-            const pointIndex = Number(point.getAttribute("data-chart-index") || 0);
-            showTipForIndex(pointIndex, evt);
-          });
-          point.addEventListener("mouseleave", hideTip);
-          point.addEventListener("blur", hideTip);
-          point.addEventListener("focus", function(evt){
-            const pointIndex = Number(point.getAttribute("data-chart-index") || 0);
-            setInfoForIndex(pointIndex);
-            showTipForIndex(pointIndex, evt);
-          });
-        });
-      }
-
       window.ocSetEventsChartView = function(nextMode){
         mode = String(nextMode || "daily");
         setActiveBtn();
@@ -12585,6 +12568,23 @@ return `
       window.ocShowEventsChartInfoIndex = function(index){
         setInfoForIndex(index);
       };
+
+      window.ocShowEventsChartTipIndex = function(index, evt){
+        setInfoForIndex(index);
+        showTipForIndex(index, evt || null);
+      };
+
+      window.ocHideEventsChartTip = function(){
+        hideTip();
+      };
+
+      if ($seg) {
+        $seg.addEventListener("click", function(e){
+          var btn = e.target.closest("[data-view]");
+          if (!btn) return;
+          window.ocSetEventsChartView(btn.getAttribute("data-view") || "daily");
+        });
+      }
 
       setActiveBtn();
       setRangeLabel();
