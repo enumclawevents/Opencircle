@@ -11764,8 +11764,14 @@ return `
           hidden.value = selected;
           emitChange(hidden);
           shell.classList.toggle("is-visible", !!selected);
+          shell.hidden = !selected;
+          shell.style.display = selected ? "block" : "none";
           if (recurrenceSettings) recurrenceSettings.style.display = selected === "recurring" ? "" : "none";
-          if (multiDayShell) multiDayShell.classList.toggle("is-visible", selected === "multi-day");
+          if (multiDayShell) {
+            multiDayShell.classList.toggle("is-visible", selected === "multi-day");
+            multiDayShell.hidden = selected !== "multi-day";
+            multiDayShell.style.display = selected === "multi-day" ? "block" : "none";
+          }
           buttons.forEach(function(btn){
             btn.classList.toggle("is-active", (btn.getAttribute("data-event-type") || "") === selected);
           });
