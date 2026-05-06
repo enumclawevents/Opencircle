@@ -9379,9 +9379,9 @@ return `
               </div>
               <div class="card-body" id="dashboard-insights-body">
                 <div class="insights-switcher" id="dashboardInsightsSwitcher">
-                  ${canSeeEventsAnalytics ? `<button type="button" class="is-active" data-insight-target="events">Events</button>` : ``}
-                  ${canSeeVenueAnalytics ? `<button type="button" class="${canSeeEventsAnalytics ? "" : "is-active"}" data-insight-target="venues">Venues</button>` : ``}
-                  ${canSeeAdsAnalytics ? `<button type="button" class="${(!canSeeEventsAnalytics && !canSeeVenueAnalytics) ? "is-active" : ""}" data-insight-target="ads">Ads</button>` : ``}
+                  ${canSeeEventsAnalytics ? `<button type="button" class="is-active" data-insight-target="events" onclick="window.ocDashboardInsightActivate && window.ocDashboardInsightActivate('events')">Events</button>` : ``}
+                  ${canSeeVenueAnalytics ? `<button type="button" class="${canSeeEventsAnalytics ? "" : "is-active"}" data-insight-target="venues" onclick="window.ocDashboardInsightActivate && window.ocDashboardInsightActivate('venues')">Venues</button>` : ``}
+                  ${canSeeAdsAnalytics ? `<button type="button" class="${(!canSeeEventsAnalytics && !canSeeVenueAnalytics) ? "is-active" : ""}" data-insight-target="ads" onclick="window.ocDashboardInsightActivate && window.ocDashboardInsightActivate('ads')">Ads</button>` : ``}
                 </div>
                 ${canSeeEventsAnalytics ? `<div class="insight-panel is-active" data-insight-panel="events"><div class="insight-list">
                   <div class="insight-row"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
@@ -11596,6 +11596,7 @@ return `
             panel.classList.toggle('is-active', panel.getAttribute('data-insight-panel') === target);
           });
         }
+        window.ocDashboardInsightActivate = activate;
         buttons.forEach(function(btn){
           btn.addEventListener('click', function(){
             activate(btn.getAttribute('data-insight-target'));
