@@ -8384,8 +8384,14 @@ return `
       .dashboard-card{
         position:relative;
       }
-      .dashboard-card .sectionTitle{ margin-bottom: 14px; }
-      .dashboard-card[data-collapsed="true"] .sectionTitle{ margin-bottom: 0; }
+      .dashboard-card .sectionTitle{
+        margin-bottom: 14px;
+        list-style: none;
+      }
+      .dashboard-card .sectionTitle::-webkit-details-marker{
+        display:none;
+      }
+      .dashboard-card:not([open]) .sectionTitle{ margin-bottom: 0; }
       .dashboard-card .sectionTitle h2{ margin:0; }
       .dashboard-card .card-toggle{
         width:100%;
@@ -8404,13 +8410,13 @@ return `
         color: var(--muted);
         transition: transform .16s ease;
       }
-      .dashboard-card[data-collapsed="true"] .card-toggle .card-caret{
+      .dashboard-card:not([open]) .card-toggle .card-caret{
         transform: rotate(-90deg);
       }
       .dashboard-card .card-body{
         display:block;
       }
-      .dashboard-card[data-collapsed="true"] .card-body{
+      .dashboard-card:not([open]) .card-body{
         display:none;
       }
       .dashboard-insights{
@@ -9260,13 +9266,13 @@ return `
         ${showDashboard ? `
         <section class="dashboard-shell" id="dashboard-overview">
           <div class="dashboard-col dashboard-col-fill">
-            <section class="card dashboard-card" id="dashboard-quick-links" data-collapsible-card data-collapsed="false">
-              <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
+            <details class="card dashboard-card" id="dashboard-quick-links" data-collapsible-card open>
+              <summary class="sectionTitle">
+                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
                   <h2>Quick links</h2>
                   <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
-              </div>
+                </span>
+              </summary>
               <div class="card-body" id="dashboard-quick-links-body">
                 <div class="quick-links-grid${isOrganizerUser ? ` is-organizer` : ``}">
                   ${canManageEvents ? `<div class="quick-links-group">
@@ -9301,27 +9307,27 @@ return `
                   </div>` : ``}
                 </div>
               </div>
-            </section>
+            </details>
 
-            <div class="card dashboard-card" id="dashboard-calendar-card" data-dashboard-card="calendar" data-collapsible-card data-collapsed="false">
-              <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-calendar-body">
+            <details class="card dashboard-card" id="dashboard-calendar-card" data-dashboard-card="calendar" data-collapsible-card open>
+              <summary class="sectionTitle">
+                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-calendar-body">
                   <h2>Calendar</h2>
                   <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
-              </div>
+                </span>
+              </summary>
               <div class="card-body" id="dashboard-calendar-body">
                 ${dashboardCalendarHtml}
               </div>
-            </div>
+            </details>
 
-            <div class="card dashboard-card" id="dashboard-release-notes-card" data-dashboard-card="release-notes" data-collapsible-card data-collapsed="false">
-              <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
+            <details class="card dashboard-card" id="dashboard-release-notes-card" data-dashboard-card="release-notes" data-collapsible-card open>
+              <summary class="sectionTitle">
+                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
                   <h2>Release notes</h2>
                   <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
-              </div>
+                </span>
+              </summary>
               <div class="card-body" id="dashboard-release-notes-body">
                 <div class="mini">
                   <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
@@ -9339,44 +9345,44 @@ return `
                   </div>
                 </div>
               </div>
-            </div>
+            </details>
           </div>
 
           <div class="dashboard-col dashboard-col-fill dashboard-insights" data-dashboard-column="right">
-            ${canUseMessages ? `<div class="card dashboard-card" id="dashboard-messages-card" data-dashboard-card="messages" data-collapsible-card data-collapsed="false">
-              <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-messages-body">
+            ${canUseMessages ? `<details class="card dashboard-card" id="dashboard-messages-card" data-dashboard-card="messages" data-collapsible-card open>
+              <summary class="sectionTitle">
+                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-messages-body">
                   <h2>Messages</h2>
                   <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
-              </div>
+                </span>
+              </summary>
               <div class="card-body" id="dashboard-messages-body">
                 <div class="insight-list">${messagesDashboardHtml}</div>
                 <div style="margin-top:12px;">
                   <a class="btn" href="/admin/messages${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Open messages</a>
                 </div>
               </div>
-            </div>` : ``}
+            </details>` : ``}
 
-            <div class="card dashboard-card" id="dashboard-activity-card" data-dashboard-card="activity" data-collapsible-card data-collapsed="false">
-              <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-activity-body">
+            <details class="card dashboard-card" id="dashboard-activity-card" data-dashboard-card="activity" data-collapsible-card open>
+              <summary class="sectionTitle">
+                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-activity-body">
                   <h2>Activity</h2>
                   <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
-              </div>
+                </span>
+              </summary>
               <div class="card-body" id="dashboard-activity-body">
                 <div class="activity-list">${activityDashboardHtml}</div>
               </div>
-            </div>
+            </details>
 
-            ${(canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeAdsAnalytics) ? `<div class="card dashboard-card" id="dashboard-insights-card" data-dashboard-card="insights" data-collapsible-card data-collapsed="false">
-              <div class="sectionTitle">
-                <button type="button" class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-insights-body">
+            ${(canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeAdsAnalytics) ? `<details class="card dashboard-card" id="dashboard-insights-card" data-dashboard-card="insights" data-collapsible-card open>
+              <summary class="sectionTitle">
+                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-insights-body">
                   <h2>Insights</h2>
                   <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </button>
-              </div>
+                </span>
+              </summary>
               <div class="card-body" id="dashboard-insights-body">
                 <div class="insights-switcher" id="dashboardInsightsSwitcher">
                   ${canSeeEventsAnalytics ? `<button type="button" class="is-active" data-insight-target="events" onclick="(function(btn){var wrap=btn.parentNode;Array.prototype.forEach.call(wrap.querySelectorAll('[data-insight-target]'),function(el){el.classList.toggle('is-active',el===btn);});Array.prototype.forEach.call(document.querySelectorAll('[data-insight-panel]'),function(panel){panel.classList.toggle('is-active',panel.getAttribute('data-insight-panel')==='events');});if(window.ocDashboardInsightActivate) window.ocDashboardInsightActivate('events');})(this)">Events</button>` : ``}
@@ -9402,7 +9408,7 @@ return `
                 </div></div>` : ``}
                 </div>
               </div>
-            </div>` : ``}
+            </details>` : ``}
           </div>
         </section>
         ` : ``}
@@ -11574,6 +11580,14 @@ return `
         cards.forEach(function(card){
           var btn = card.querySelector('[data-card-toggle]');
           if (!btn) return;
+          if (card.tagName === 'DETAILS') {
+            var sync = function(){
+              btn.setAttribute('aria-expanded', card.open ? 'true' : 'false');
+            };
+            card.addEventListener('toggle', sync);
+            sync();
+            return;
+          }
           btn.addEventListener('click', function(){
             var collapsed = card.getAttribute('data-collapsed') === 'true';
             card.setAttribute('data-collapsed', collapsed ? 'false' : 'true');
