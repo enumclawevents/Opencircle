@@ -240,6 +240,18 @@ async function initDB() {
   await addUserCol("lastSeenAt", `ALTER TABLE users ADD COLUMN lastSeenAt TEXT;`);
 
   await tryExec(`
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      tokenHash TEXT PRIMARY KEY,
+      user TEXT NOT NULL,
+      role TEXT DEFAULT 'organizer',
+      city TEXT DEFAULT 'Enumclaw',
+      exp INTEGER NOT NULL,
+      createdAt TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_auth_sessions_exp ON auth_sessions(exp);`);
+
+  await tryExec(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       city TEXT NOT NULL DEFAULT 'Enumclaw',

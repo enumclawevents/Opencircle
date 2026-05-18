@@ -81,6 +81,7 @@ const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "opencircle";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const sessions = new Map();
+let lastSessionPruneAt = 0;
 const INVITE_TTL_HOURS = 7 * 24;
 const RESET_TTL_HOURS = 1;
 const PUBLIC_PATHS = new Set(["/login", "/signup", "/invite", "/forgot", "/health"]);
@@ -112,21 +113,67 @@ function parseCookies(cookieHeader) {
   return out;
 }
 
-function createSession(user, role = "organizer", city = "Enumclaw") {
+async function createSession(user, role = "organizer", city = "Enumclaw") {
   const token = crypto.randomUUID();
-  sessions.set(token, { user, role, city, exp: Date.now() + SESSION_TTL_MS });
+  const exp = Date.now() + SESSION_TTL_MS;
+  const session = { user, role, city, exp };
+  sessions.set(token, session);
+  await run(
+    "INSERT OR REPLACE INTO auth_sessions (tokenHash, user, role, city, exp, createdAt) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+    [hashToken(token), user, role, city, exp]
+  );
   return token;
 }
 
-function getSession(token) {
+async function pruneExpiredSessions(now = Date.now()) {
+  for (const [token, sess] of sessions.entries()) {
+    if (!sess || !Number.isFinite(sess.exp) || now > sess.exp) {
+      sessions.delete(token);
+    }
+  }
+  try {
+    await run("DELETE FROM auth_sessions WHERE exp IS NULL OR exp <= ?", [now]);
+  } catch (_) {}
+  lastSessionPruneAt = now;
+}
+
+async function getSession(token) {
   if (!token) return null;
   const sess = sessions.get(token);
-  if (!sess) return null;
-  if (Date.now() > sess.exp) {
+  const now = Date.now();
+  if (sess && now <= sess.exp) {
+    return sess;
+  }
+  if (sess) {
     sessions.delete(token);
+  }
+  const row = await get(
+    "SELECT user, role, city, exp FROM auth_sessions WHERE tokenHash = ? LIMIT 1",
+    [hashToken(token)]
+  );
+  if (!row) return null;
+  if (!Number.isFinite(row.exp) || now > row.exp) {
+    try {
+      await run("DELETE FROM auth_sessions WHERE tokenHash = ?", [hashToken(token)]);
+    } catch (_) {}
     return null;
   }
-  return sess;
+  const restored = {
+    user: row.user,
+    role: row.role || "organizer",
+    city: row.city || "Enumclaw",
+    exp: row.exp,
+  };
+  sessions.set(token, restored);
+  return restored;
+}
+
+async function destroySession(token) {
+  if (!token) return;
+  sessions.delete(token);
+  try {
+    await run("DELETE FROM auth_sessions WHERE tokenHash = ?", [hashToken(token)]);
+  } catch (_) {}
 }
 
 function isPublicPath(pathname) {
@@ -134,11 +181,15 @@ function isPublicPath(pathname) {
   return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
-function requireLogin(req, res, next) {
+async function requireLogin(req, res, next) {
+  const now = Date.now();
+  if ((now - lastSessionPruneAt) > (30 * 60 * 1000)) {
+    await pruneExpiredSessions(now);
+  }
   // Parse session first so public endpoints can still see req.user when logged in.
   const cookies = parseCookies(req.headers.cookie || "");
   const token = cookies.oc_auth;
-  const sess = getSession(token);
+  const sess = await getSession(token);
   if (sess) {
     req.user = sess;
     const sessionKey = String(sess.user || "").trim();
@@ -258,7 +309,7 @@ app.post("/login", async (req, res) => {
       [user, user]
     );
     if (row && verifyPassword(pass, row.passwordHash)) {
-      const token = createSession(row.username || row.email || "user", row.role || "organizer", row.city || "Enumclaw");
+      const token = await createSession(row.username || row.email || "user", row.role || "organizer", row.city || "Enumclaw");
       res.cookie("oc_auth", token, {
         httpOnly: true,
         sameSite: "lax",
@@ -271,7 +322,7 @@ app.post("/login", async (req, res) => {
   }
 
   if (user === ADMIN_USER && pass === ADMIN_PASS) {
-    const token = createSession(user, "developer", "Enumclaw");
+    const token = await createSession(user, "developer", "Enumclaw");
     res.cookie("oc_auth", token, {
       httpOnly: true,
       sameSite: "lax",
@@ -344,7 +395,7 @@ app.get("/invite", async (req, res) => {
   if (!token) return res.status(400).send("Missing invite token.");
 
   const invite = await get(
-    "SELECT id, email, role, city, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
+    "SELECT id, email, role, city, permissionsJson, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
     [hashToken(token)]
   );
   if (!invite) return res.status(404).send("Invite not found.");
@@ -395,7 +446,7 @@ app.post("/invite", async (req, res) => {
   if (!token) return res.status(400).send("Missing invite token.");
 
   const invite = await get(
-    "SELECT id, email, role, city, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
+    "SELECT id, email, role, city, permissionsJson, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
     [hashToken(token)]
   );
   if (!invite) return res.status(404).send("Invite not found.");
@@ -535,7 +586,7 @@ app.get("/reset", async (req, res) => {
         <div class="subtitle">Enter a new password.</div>
         ${valid ? `
           <form method="POST" action="/reset">
-            <input type="hidden" name="token" value="${token}" />
+            <input type="hidden" name="token" value="${esc(token)}" />
             <label>New password</label>
             <input name="password" type="password" required />
             <button type="submit">Update password</button>
@@ -568,22 +619,19 @@ app.post("/reset", async (req, res) => {
   return res.redirect("/login");
 });
 
-function clearAuthAndRedirect(res) {
-  res.setHeader("Set-Cookie", "oc_auth=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
+async function clearAuthAndRedirect(req, res) {
+  const cookies = parseCookies(req.headers.cookie || "");
+  await destroySession(cookies.oc_auth);
+  const secure = String(process.env.NODE_ENV || "").toLowerCase() === "production";
+  res.setHeader(
+    "Set-Cookie",
+    `oc_auth=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`
+  );
   return res.redirect("/login");
 }
 
-app.post("/logout", (_req, res) => clearAuthAndRedirect(res));
-app.get("/logout", (_req, res) => clearAuthAndRedirect(res));
-
-// Home test route
-app.get("/", (req, res) => {
-  res.json({
-    name: "OpenCircle API",
-    status: "ok",
-    endpoints: ["/events", "/events/:id", "/venues", "/venues/:id-or-slug", "/ads/serve", "/ads/:id/click", "/admin", "/uploads/*", "/assets/brand/*"],
-  });
-});
+app.post("/logout", (req, res) => clearAuthAndRedirect(req, res));
+app.get("/logout", (req, res) => clearAuthAndRedirect(req, res));
 
 app.get("/health", (req, res) => res.status(200).send("ok"));
 app.use(express.text({ type: "text/plain" })); // for sendBeacon payloads
@@ -623,6 +671,10 @@ initDB()
         })
         .catch((e) => console.error("[ARCHIVE] Interval failed:", e));
     }, 15 * 60 * 1000);
+
+    setInterval(() => {
+      pruneExpiredSessions().catch(() => {});
+    }, 30 * 60 * 1000);
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`OpenCircle API running on port ${PORT}`);

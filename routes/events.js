@@ -1051,7 +1051,8 @@ router.get("/", async (req, res) => {
     const status = ["upcoming", "past", "archived", "all"].includes(statusRaw)
       ? statusRaw
       : "upcoming";
-    if (status === "archived" && String(req.user?.role || "") !== "admin") {
+    const userRole = String(req.user?.role || "").trim().toLowerCase();
+    if (status === "archived" && !["admin", "developer"].includes(userRole)) {
       return res.status(403).json({ error: "Forbidden" });
     }
     if (status === "archived") setNoIndexHeader(res);
