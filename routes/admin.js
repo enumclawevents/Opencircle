@@ -9530,9 +9530,7 @@ return `
               </div>
             </div>
             <div class="chart-wrap" id="eventsChartWrap" style="min-height:96px;">
-              <script id="eventsChartData" type="application/json">${chartDataJsonForScript}</script>
-              <script id="eventsChartSvgData" type="application/json">${eventsChartSvgJsonForScript}</script>
-              <div id="eventsChartSvgHost" style="display:none;">${eventsChartSvgByMode.daily}</div>
+              <div id="eventsChartData" data-chart="${esc(chartDataJson)}" hidden></div>
               <canvas id="eventsChart" style="width:100%; height:194px; display:block;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
@@ -12441,11 +12439,7 @@ return `
     const $seg    = document.getElementById("chartViewSeg");
     const $range  = document.getElementById("chartRangeLabel");
     const $legend = document.getElementById("eventsChartLegend");
-    const $svgHost = document.getElementById("eventsChartSvgHost");
-    const $svgData = document.getElementById("eventsChartSvgData");
     const $info = document.getElementById("eventsChartInfo");
-    if ($svgHost) $svgHost.style.display = "none";
-    if ($svgData) $svgData.textContent = "";
     if ($canvas) $canvas.style.display = "block";
     if ($info) $info.style.display = "none";
 
@@ -12456,7 +12450,7 @@ return `
     let chartSets = { events: {}, views: {} };
     try {
       if ($data) {
-        const rawChartJson = (($data.textContent || "").trim() || $data.getAttribute("data-chart") || "{}");
+        const rawChartJson = ($data.getAttribute("data-chart") || ($data.textContent || "").trim() || "{}");
         const parsed = JSON.parse(rawChartJson);
         if (parsed && typeof parsed === "object") {
           const parsedEvents = parsed.events || {};
