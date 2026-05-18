@@ -3632,6 +3632,107 @@ return `
         values: venueMonthlyHistory.map((row) => Number(row.totalClicks || 0)),
       },
     });
+    function buildVenueChartSvg(metric = "views") {
+      const labels = venueMonthlyHistory.map((row) => String(row.label || ""));
+      const primaryValues = venueMonthlyHistory.map((row) =>
+        Number(metric === "clicks" ? row.totalClicks || 0 : row.views || 0)
+      );
+      const secondaryValues = venueMonthlyHistory.map((row) =>
+        Number(metric === "clicks" ? row.views || 0 : row.totalClicks || 0)
+      );
+      const allValues = primaryValues.concat(secondaryValues).filter((v) => Number.isFinite(v));
+      const width = 1200;
+      const height = 260;
+      const padL = 56;
+      const padR = 18;
+      const padT = 18;
+      const padB = 42;
+      const plotW = width - padL - padR;
+      const plotH = height - padT - padB;
+      const textColor = "#475569";
+      const viewsColor = "rgba(16,185,129,.82)";
+      const clicksColor = "rgba(37,99,235,.72)";
+      const primaryColor = metric === "views" ? viewsColor : clicksColor;
+      const secondaryColor = metric === "views" ? clicksColor : viewsColor;
+
+      if (!labels.length || !allValues.some((v) => v > 0)) {
+        return `
+          <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Venue chart">
+            <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+            <text x="18" y="90" fill="rgba(15,23,42,.75)" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No monthly venue history yet</text>
+          </svg>
+        `;
+      }
+
+      const maxValue = Math.max(1, ...allValues);
+      const tickCount = Math.min(6, maxValue);
+      const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
+      const yMax = tickStep * tickCount;
+      const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
+      const primaryPoints = labels.map((label, index) => {
+        const value = Number(primaryValues[index] || 0);
+        const x = padL + stepX * index;
+        const y = padT + plotH - ((value / yMax) * plotH);
+        return { x, y, value };
+      });
+      const secondaryPoints = labels.map((label, index) => {
+        const value = Number(secondaryValues[index] || 0);
+        const x = padL + stepX * index;
+        const y = padT + plotH - ((value / yMax) * plotH);
+        return { x, y, value };
+      });
+      function buildSmoothSvgPath(points) {
+        if (!points.length) return "";
+        if (points.length === 1) {
+          return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+        }
+        let path = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+        for (let i = 0; i < points.length - 1; i++) {
+          const p0 = points[i - 1] || points[i];
+          const p1 = points[i];
+          const p2 = points[i + 1];
+          const p3 = points[i + 2] || p2;
+          const cp1x = p1.x + (p2.x - p0.x) / 6;
+          const cp1y = Math.max(padT, Math.min(padT + plotH, p1.y + (p2.y - p0.y) / 6));
+          const cp2x = p2.x - (p3.x - p1.x) / 6;
+          const cp2y = Math.max(padT, Math.min(padT + plotH, p2.y - (p3.y - p1.y) / 6));
+          path += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+        }
+        return path;
+      }
+      const primaryPath = buildSmoothSvgPath(primaryPoints);
+      const secondaryPath = buildSmoothSvgPath(secondaryPoints);
+      const fillPath = primaryPoints.length
+        ? `M ${primaryPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} ` +
+          primaryPoints.map((pt) => `L ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ") +
+          ` L ${primaryPoints[primaryPoints.length - 1].x.toFixed(2)} ${(padT + plotH).toFixed(2)} Z`
+        : "";
+      const labelStep = labels.length <= 4 ? 1 : Math.ceil(labels.length / 4);
+
+      return `
+        <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Venue chart">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+          ${Array.from({ length: tickCount + 1 }).map((_, i) => {
+            const value = i * tickStep;
+            const y = padT + plotH - ((value / yMax) * plotH);
+            return `
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="rgba(15,23,42,.08)" stroke-width="1"></line>
+              <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
+            `;
+          }).join("")}
+          ${fillPath ? `<path d="${fillPath}" fill="${metric === "views" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)"}"></path>` : ""}
+          ${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${labels.map((label, index) => {
+            if (index !== labels.length - 1 && index % labelStep !== 0) return "";
+            const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
+            return `<text x="${primaryPoints[index].x.toFixed(2)}" y="${(padT + plotH + 30).toFixed(2)}" text-anchor="${anchor}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(label || ""))}</text>`;
+          }).join("")}
+        </svg>
+      `;
+    }
+    const venueChartSvgViews = buildVenueChartSvg("views");
+    const venueChartSvgClicks = buildVenueChartSvg("clicks");
 
     const selectedEventIdRaw = parseInt(String(req.query.event || ""), 10);
     const requestedEventId = Number.isInteger(selectedEventIdRaw) && selectedEventIdRaw > 0
@@ -10971,7 +11072,10 @@ return `
 		                    </div>
 		                    <div class="chart-wrap" id="venueChartWrap" style="min-height:320px;">
 		                      <div id="venueChartData" data-chart="${esc(venueChartDataJson)}" hidden></div>
-		                      <canvas id="venueChart" style="width:100%; height:260px; display:block;"></canvas>
+		                      <div id="venueChartSvgHost" data-active-metric="views">${venueChartSvgViews}</div>
+		                      <div id="venueChartSvgViews" hidden>${venueChartSvgViews}</div>
+		                      <div id="venueChartSvgClicks" hidden>${venueChartSvgClicks}</div>
+		                      <canvas id="venueChart" style="position:absolute; inset:0; width:100%; height:260px; display:block;"></canvas>
 		                      <div id="venueChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
 		                    </div>
 		                  </div>
@@ -13292,10 +13396,24 @@ return `
     const $tip = document.getElementById("venueChartTip");
     const $metricSeg = document.getElementById("venueChartMetricSeg");
     const $legend = document.getElementById("venueChartLegend");
-    if (!$canvas || !$wrap || !$metricSeg) return;
+    const $svgHost = document.getElementById("venueChartSvgHost");
+    const $svgViews = document.getElementById("venueChartSvgViews");
+    const $svgClicks = document.getElementById("venueChartSvgClicks");
+    if (!$wrap || !$metricSeg) return;
 
-    const ctx = $canvas.getContext("2d");
-    if (!ctx) return;
+    function syncSvgFallback(nextMetric){
+      if (!$svgHost) return;
+      const targetMetric = nextMetric === "clicks" ? "clicks" : "views";
+      const source = targetMetric === "clicks" ? $svgClicks : $svgViews;
+      if (source && source.innerHTML) $svgHost.innerHTML = source.innerHTML;
+      $svgHost.setAttribute("data-active-metric", targetMetric);
+    }
+
+    const ctx = $canvas ? $canvas.getContext("2d") : null;
+    if (!ctx || !$canvas) {
+      syncSvgFallback("views");
+      return;
+    }
 
     let chartSets = {
       views: { labels: [], values: [] },
@@ -13548,6 +13666,7 @@ return `
       metric = btn.getAttribute("data-metric") || "views";
       hoverIndex = -1;
       hideTip();
+      syncSvgFallback(metric);
       setActiveBtn();
       syncLegend();
       draw();
@@ -13569,6 +13688,7 @@ return `
 
     setActiveBtn();
     syncLegend();
+    syncSvgFallback(metric);
     draw();
     window.addEventListener("resize", () => window.requestAnimationFrame(draw));
   }
