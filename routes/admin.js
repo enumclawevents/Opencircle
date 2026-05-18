@@ -12512,16 +12512,35 @@ return `
       function hideSvgChartTip(){
         if ($tip) $tip.style.display = "none";
       }
+      function getSvgHoverIndexFromEvent(ev){
+        const activeViewEl = $seg ? $seg.querySelector(".on") : null;
+        const mode = activeViewEl ? String(activeViewEl.getAttribute("data-view") || "daily") : "daily";
+        const eventSet = (svgChartSets.events && svgChartSets.events[mode]) ? svgChartSets.events[mode] : { labels: [], values: [] };
+        const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
+        if (!labels.length || !$svgHost) return -1;
+        const svgEl = $svgHost.querySelector("svg");
+        if (!svgEl) return -1;
+        const rect = svgEl.getBoundingClientRect();
+        if (!rect.width || !rect.height) return -1;
+        const mx = ev.clientX - rect.left;
+        const my = ev.clientY - rect.top;
+        const padL = rect.width * (56 / 1200);
+        const padR = rect.width * (18 / 1200);
+        const padT = rect.height * (18 / 260);
+        const padB = rect.height * (42 / 260);
+        const plotW = rect.width - padL - padR;
+        const plotH = rect.height - padT - padB;
+        if (mx < padL || mx > padL + plotW || my < padT || my > padT + plotH) return -1;
+        if (labels.length === 1) return 0;
+        const stepX = plotW / (labels.length - 1);
+        const rawIndex = Math.round((mx - padL) / stepX);
+        return Math.max(0, Math.min(rawIndex, labels.length - 1));
+      }
       window.ocShowEventsChartTipIndex = showSvgChartTip;
       window.ocHideEventsChartTip = hideSvgChartTip;
 
       $svgHost.addEventListener("mousemove", function(ev){
-        const hit = ev.target && ev.target.closest ? ev.target.closest("[data-chart-hit]") : null;
-        if (!hit) {
-          hideSvgChartTip();
-          return;
-        }
-        const index = parseInt(String(hit.getAttribute("data-chart-hit") || ""), 10);
+        const index = getSvgHoverIndexFromEvent(ev);
         if (!Number.isInteger(index) || index < 0) {
           hideSvgChartTip();
           return;
