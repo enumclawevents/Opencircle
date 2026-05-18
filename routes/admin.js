@@ -3657,7 +3657,7 @@ return `
 
       if (!labels.length || !allValues.some((v) => v > 0)) {
         return `
-          <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Venue chart">
+          <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Venue chart">
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
             <text x="18" y="90" fill="rgba(15,23,42,.75)" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No monthly venue history yet</text>
           </svg>
@@ -3710,7 +3710,7 @@ return `
       const labelStep = labels.length <= 4 ? 1 : Math.ceil(labels.length / 4);
 
       return `
-        <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Venue chart">
+        <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Venue chart">
           <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
           ${Array.from({ length: tickCount + 1 }).map((_, i) => {
             const value = i * tickStep;
@@ -4183,7 +4183,7 @@ return `
 
       if (!labels.length || !allValues.some((v) => v > 0)) {
         return `
-          <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Events chart">
+          <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Events chart">
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
             <text x="18" y="90" fill="rgba(15,23,42,.75)" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No recent activity</text>
           </svg>
@@ -4257,7 +4257,7 @@ return `
       }).join("");
 
       return `
-        <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Events chart">
+        <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Events chart">
           <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
           ${Array.from({ length: tickCount + 1 }).map((_, i) => {
             const value = i * tickStep;
@@ -5999,7 +5999,7 @@ return `
 
       if (!labels.length || !allValues.some((v) => v > 0)) {
         return `
-          <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Ad chart">
+          <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Ad chart">
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
             <text x="18" y="90" fill="rgba(15,23,42,.75)" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No monthly ad history yet</text>
           </svg>
@@ -6052,7 +6052,7 @@ return `
       const labelStep = labels.length <= 4 ? 1 : Math.ceil(labels.length / 4);
 
       return `
-        <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Ad chart">
+        <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Ad chart">
           <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
           ${Array.from({ length: tickCount + 1 }).map((_, i) => {
             const value = i * tickStep;
