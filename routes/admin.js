@@ -5197,6 +5197,11 @@ return `
       if (canManageEvents) {
         try {
           const eventActivityCols = await getEventsColumns();
+          const eventCreatedExpr = eventActivityCols.has("createdAt")
+            ? "e.createdAt"
+            : (eventActivityCols.has("updatedAt")
+              ? "e.updatedAt"
+              : "e.startDateTime");
           const eventCreatorJoin = eventActivityCols.has("createdByUserId")
             ? "LEFT JOIN users u ON u.id = e.createdByUserId"
             : "";
@@ -5204,12 +5209,12 @@ return `
             ? "u.displayName, u.username, u.email"
             : "NULL AS displayName, NULL AS username, NULL AS email";
           const rows = await all(
-            `SELECT e.id, e.slug, e.title, e.location, e.createdAt, e.createdByUserId,
+            `SELECT e.id, e.slug, e.title, e.location, ${eventCreatedExpr} AS createdAt, e.createdByUserId,
                     ${eventCreatorSelect}
                FROM events e
                ${eventCreatorJoin}
                ${eventActivityWhereSql}
-               ORDER BY datetime(COALESCE(e.createdAt, '1970-01-01')) DESC, e.id DESC
+               ORDER BY datetime(COALESCE(${eventCreatedExpr}, '1970-01-01')) DESC, e.id DESC
                LIMIT 8`,
             eventActivityParams
           );
