@@ -12480,7 +12480,7 @@ return `
         }
       } catch (_) {}
       const hasCityEventSeries = !!(svgChartSets.cityEvents && svgChartSets.cityEvents.daily);
-      window.ocShowEventsChartTipIndex = function(index, ev){
+      function showSvgChartTip(index, ev){
         if (!$tip || !ev) return;
         const activeViewEl = $seg ? $seg.querySelector(".on") : null;
         const mode = activeViewEl ? String(activeViewEl.getAttribute("data-view") || "daily") : "daily";
@@ -12508,10 +12508,27 @@ return `
         const top = Math.max(wrapRect.top + 10, clientY - 32);
         $tip.style.left = (left - wrapRect.left) + "px";
         $tip.style.top = (top - wrapRect.top) + "px";
-      };
-      window.ocHideEventsChartTip = function(){
+      }
+      function hideSvgChartTip(){
         if ($tip) $tip.style.display = "none";
-      };
+      }
+      window.ocShowEventsChartTipIndex = showSvgChartTip;
+      window.ocHideEventsChartTip = hideSvgChartTip;
+
+      $svgHost.addEventListener("mousemove", function(ev){
+        const hit = ev.target && ev.target.closest ? ev.target.closest("[data-chart-hit]") : null;
+        if (!hit) {
+          hideSvgChartTip();
+          return;
+        }
+        const index = parseInt(String(hit.getAttribute("data-chart-hit") || ""), 10);
+        if (!Number.isInteger(index) || index < 0) {
+          hideSvgChartTip();
+          return;
+        }
+        showSvgChartTip(index, ev);
+      });
+      $svgHost.addEventListener("mouseleave", hideSvgChartTip);
       return;
     }
     if ($canvas) $canvas.style.display = "block";
