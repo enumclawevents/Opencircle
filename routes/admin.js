@@ -4099,12 +4099,6 @@ return `
         const y = padT + plotH - ((value / yMax) * plotH);
         return { x, y, value };
       });
-      const infoPayload = labels.map((label, index) => ({
-        label: String(label || ""),
-        events: Number(eventValues[index] || 0),
-        views: Number(viewValues[index] || 0),
-        cityEvents: Number(cityEventValues[index] || 0),
-      }));
       function buildSmoothSvgPath(points) {
         if (!points.length) return "";
         if (points.length === 1) {
@@ -4132,6 +4126,27 @@ return `
           ` L ${eventPoints[eventPoints.length - 1].x.toFixed(2)} ${(padT + plotH).toFixed(2)} Z`
         : "";
       const labelStep = labels.length <= 4 ? 1 : Math.ceil(labels.length / 4);
+      const hoverRects = labels.map((label, index) => {
+        const centerX = eventPoints[index].x;
+        const prevX = index > 0 ? eventPoints[index - 1].x : centerX - (stepX || plotW / Math.max(1, labels.length));
+        const nextX = index < labels.length - 1 ? eventPoints[index + 1].x : centerX + (stepX || plotW / Math.max(1, labels.length));
+        const left = index === 0 ? padL : (prevX + centerX) / 2;
+        const right = index === labels.length - 1 ? (padL + plotW) : (centerX + nextX) / 2;
+        const widthPx = Math.max(12, right - left);
+        return `
+          <rect
+            x="${left.toFixed(2)}"
+            y="${padT.toFixed(2)}"
+            width="${widthPx.toFixed(2)}"
+            height="${plotH.toFixed(2)}"
+            fill="transparent"
+            data-chart-hit="${index}"
+            onmousemove="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
+            onmouseenter="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
+            onmouseleave="window.ocHideEventsChartTip && window.ocHideEventsChartTip()"
+          ></rect>
+        `;
+      }).join("");
 
       return `
         <svg viewBox="0 0 ${width} ${height}" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="Events chart">
@@ -4147,6 +4162,7 @@ return `
           ${fillPath ? `<path d="${fillPath}" fill="rgba(16,185,129,.10)"></path>` : ""}
           ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${hoverRects}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
             const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
@@ -9549,7 +9565,6 @@ return `
               <canvas id="eventsChart" style="width:100%; height:194px; display:none;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
-            <div id="eventsChartInfo" class="muted" style="margin-top:10px; font-weight:600;">${eventsChartInitialInfoHtml}</div>
           </div>
 
           ${!isOrganizerUser ? `
@@ -12448,7 +12463,6 @@ return `
 
   function initEventsChart(){
     const $svgHost = document.getElementById("eventsChartSvgHost");
-    if ($svgHost) return;
     const $data   = document.getElementById("eventsChartData");
     const $canvas = document.getElementById("eventsChart");
     const $wrap   = document.getElementById("eventsChartWrap");
@@ -12457,6 +12471,54 @@ return `
     const $range  = document.getElementById("chartRangeLabel");
     const $legend = document.getElementById("eventsChartLegend");
     const $info = document.getElementById("eventsChartInfo");
+    if ($svgHost) {
+      if ($canvas) $canvas.style.display = "none";
+      if ($info) $info.style.display = "none";
+      let svgChartSets = { events: {}, views: {} };
+      try {
+        if ($data) {
+          const rawChartJson = ($data.getAttribute("data-chart") || ($data.textContent || "").trim() || "{}");
+          const parsed = JSON.parse(rawChartJson);
+          if (parsed && typeof parsed === "object") {
+            svgChartSets = parsed;
+          }
+        }
+      } catch (_) {}
+      const hasCityEventSeries = !!(svgChartSets.cityEvents && svgChartSets.cityEvents.daily);
+      window.ocShowEventsChartTipIndex = function(index, ev){
+        if (!$tip || !ev) return;
+        const activeViewEl = $seg ? $seg.querySelector(".on") : null;
+        const mode = activeViewEl ? String(activeViewEl.getAttribute("data-view") || "daily") : "daily";
+        const eventSet = (svgChartSets.events && svgChartSets.events[mode]) ? svgChartSets.events[mode] : { labels: [], values: [] };
+        const viewSet = (svgChartSets.views && svgChartSets.views[mode]) ? svgChartSets.views[mode] : { labels: [], values: [] };
+        const cityEventSet = (svgChartSets.cityEvents && svgChartSets.cityEvents[mode]) ? svgChartSets.cityEvents[mode] : { labels: [], values: [] };
+        const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
+        const eventValues = Array.isArray(eventSet.values) ? eventSet.values : [];
+        const viewValues = Array.isArray(viewSet.values) ? viewSet.values : [];
+        const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values : [];
+        const safeIndex = Math.max(0, Math.min(Number(index || 0), labels.length - 1));
+        const label = String(labels[safeIndex] || "");
+        const periodNames = { daily: "Day", weekly: "Week", monthly: "Month", yearly: "Year" };
+        $tip.innerHTML =
+          '<div style="font-weight:700; margin-bottom:4px;">' + (periodNames[mode] || "Period") + ': ' + label + '</div>' +
+          '<div><span style="color:rgba(16,185,129,.9); font-weight:700;">' + (hasCityEventSeries ? 'My events:' : 'Events:') + '</span> ' + Number(eventValues[safeIndex] || 0).toLocaleString("en-US") + '</div>' +
+          (Number(cityEventValues[safeIndex] || 0) > 0 ? '<div><span style="color:rgba(71,85,105,.9); font-weight:700;">City events:</span> ' + Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US") + '</div>' : '') +
+          '<div><span style="color:rgba(37,99,235,.85); font-weight:700;">Views:</span> ' + Number(viewValues[safeIndex] || 0).toLocaleString("en-US") + '</div>';
+        $tip.style.display = "block";
+        const wrapRect = $wrap ? $wrap.getBoundingClientRect() : { left: 0, top: 0, width: 0 };
+        const clientX = typeof ev.clientX === "number" ? ev.clientX : 0;
+        const clientY = typeof ev.clientY === "number" ? ev.clientY : 0;
+        const tipRect = $tip.getBoundingClientRect();
+        const left = Math.min(wrapRect.left + wrapRect.width - tipRect.width - 10, clientX + 12);
+        const top = Math.max(wrapRect.top + 10, clientY - 32);
+        $tip.style.left = (left - wrapRect.left) + "px";
+        $tip.style.top = (top - wrapRect.top) + "px";
+      };
+      window.ocHideEventsChartTip = function(){
+        if ($tip) $tip.style.display = "none";
+      };
+      return;
+    }
     if ($canvas) $canvas.style.display = "block";
     if ($info) $info.style.display = "none";
 
