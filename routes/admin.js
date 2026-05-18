@@ -7521,7 +7521,12 @@ return `
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap:var(--gap);
       }
-      .venue-analytics-grid2 > .card{ height:100%; }
+      .venue-analytics-grid2 > .card{
+        height:100%;
+        min-width:0;
+        display:flex;
+        flex-direction:column;
+      }
 
       .gridMain{
         display:grid;
@@ -8118,6 +8123,13 @@ return `
 	        gap:14px;
 	        margin-top:14px;
 	      }
+        .venue-monthly-grid > .mini{
+          width:100%;
+          min-width:0;
+        }
+        .venue-monthly-grid .chart-wrap{
+          min-height:360px;
+        }
 	      .venue-monthly-table{
 	        width:100%;
 	        border-collapse: collapse;
@@ -12782,6 +12794,7 @@ return `
     $tip.style.display = "block";
     $tip.style.position = "absolute";
     $tip.style.pointerEvents = "none";
+    $tip.style.zIndex = "9";
     $tip.style.padding = "18px 22px";
     $tip.style.borderRadius = "18px";
     $tip.style.border = "2px solid rgba(148,163,184,.55)";
