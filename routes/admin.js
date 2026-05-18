@@ -12705,6 +12705,103 @@ return `
     ctx.fill();
   }
 
+  function ensureChartHoverOverlay($wrap, key){
+    if (!$wrap) return null;
+    const attr = "data-chart-hover-overlay";
+    let root = $wrap.querySelector('[' + attr + '="' + key + '"]');
+    if (!root) {
+      root = document.createElement("div");
+      root.setAttribute(attr, key);
+      root.style.position = "absolute";
+      root.style.inset = "0";
+      root.style.pointerEvents = "none";
+      root.style.zIndex = "3";
+      root.innerHTML =
+        '<div data-hover-line style="position:absolute; display:none; width:1px; background:rgba(148,163,184,.45); border-radius:999px;"></div>' +
+        '<div data-hover-point="secondary" style="position:absolute; display:none; width:14px; height:14px; margin-left:-7px; margin-top:-7px; border-radius:999px; background:#fff; border:2px solid rgba(37,99,235,.72); box-shadow:0 0 0 6px rgba(37,99,235,.10);"></div>' +
+        '<div data-hover-point="primary" style="position:absolute; display:none; width:16px; height:16px; margin-left:-8px; margin-top:-8px; border-radius:999px; background:#fff; border:3px solid rgba(16,185,129,.82); box-shadow:0 0 0 6px rgba(16,185,129,.12);"></div>';
+      $wrap.appendChild(root);
+    }
+    return {
+      root,
+      line: root.querySelector("[data-hover-line]"),
+      primary: root.querySelector('[data-hover-point="primary"]'),
+      secondary: root.querySelector('[data-hover-point="secondary"]'),
+    };
+  }
+
+  function showChartHoverOverlay(overlay, frame, primaryPoint, secondaryPoint, colors){
+    if (!overlay || !frame || !primaryPoint) return;
+    const guideX = primaryPoint.x;
+    if (overlay.line) {
+      overlay.line.style.display = "block";
+      overlay.line.style.left = Math.round(guideX) + "px";
+      overlay.line.style.top = Math.round(frame.padT) + "px";
+      overlay.line.style.height = Math.round(frame.gh) + "px";
+    }
+    if (overlay.primary) {
+      overlay.primary.style.display = "block";
+      overlay.primary.style.left = Math.round(primaryPoint.x) + "px";
+      overlay.primary.style.top = Math.round(primaryPoint.y) + "px";
+      overlay.primary.style.borderColor = (colors && colors.primary) || "rgba(16,185,129,.82)";
+      overlay.primary.style.boxShadow = "0 0 0 6px " + ((colors && colors.primaryGlow) || "rgba(16,185,129,.12)");
+    }
+    if (overlay.secondary) {
+      if (secondaryPoint) {
+        overlay.secondary.style.display = "block";
+        overlay.secondary.style.left = Math.round(secondaryPoint.x) + "px";
+        overlay.secondary.style.top = Math.round(secondaryPoint.y) + "px";
+        overlay.secondary.style.borderColor = (colors && colors.secondary) || "rgba(37,99,235,.72)";
+        overlay.secondary.style.boxShadow = "0 0 0 6px " + ((colors && colors.secondaryGlow) || "rgba(37,99,235,.10)");
+      } else {
+        overlay.secondary.style.display = "none";
+      }
+    }
+  }
+
+  function hideChartHoverOverlay(overlay){
+    if (!overlay) return;
+    if (overlay.line) overlay.line.style.display = "none";
+    if (overlay.primary) overlay.primary.style.display = "none";
+    if (overlay.secondary) overlay.secondary.style.display = "none";
+  }
+
+  function renderChartTipHtml(title, rows){
+    const titleHtml = '<div style="font-size:18px; line-height:1.25; font-weight:500; color:#334155; margin-bottom:14px;">' + String(title || "") + '</div>';
+    const rowsHtml = (rows || []).map((row) => {
+      return '<div style="display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:8px;">' +
+        '<span style="font-size:16px; color:#334155; white-space:nowrap;">' + String(row.label || "") + '</span>' +
+        '<span style="font-size:18px; font-weight:700; color:' + String(row.color || "#0f172a") + '; white-space:nowrap;">' + String(row.value || "") + '</span>' +
+      '</div>';
+    }).join("");
+    return titleHtml + rowsHtml;
+  }
+
+  function showChartTipCard($tip, $wrap, anchorX, anchorY, html){
+    if (!$tip || !$wrap) return;
+    $tip.style.display = "block";
+    $tip.style.position = "absolute";
+    $tip.style.pointerEvents = "none";
+    $tip.style.padding = "18px 22px";
+    $tip.style.borderRadius = "18px";
+    $tip.style.border = "2px solid rgba(148,163,184,.55)";
+    $tip.style.background = "rgba(255,255,255,.98)";
+    $tip.style.color = "#0f172a";
+    $tip.style.fontSize = "14px";
+    $tip.style.lineHeight = "1.25";
+    $tip.style.boxShadow = "0 18px 44px rgba(15,23,42,.12)";
+    $tip.style.backdropFilter = "blur(8px)";
+    $tip.style.minWidth = "280px";
+    $tip.style.maxWidth = "360px";
+    $tip.innerHTML = html;
+    const wrapRect = $wrap.getBoundingClientRect();
+    const tipRect = $tip.getBoundingClientRect();
+    const left = clamp(anchorX - (tipRect.width / 2), 14, Math.max(14, wrapRect.width - tipRect.width - 14));
+    const top = clamp(anchorY - tipRect.height - 24, 12, Math.max(12, wrapRect.height - tipRect.height - 12));
+    $tip.style.left = Math.round(left) + "px";
+    $tip.style.top = Math.round(top) + "px";
+  }
+
   function drawLineChart(ctx, width, height, labels, values, options){
     const frame = getChartFrame(width, height);
     const scale = getYScale(values);
@@ -12800,6 +12897,7 @@ return `
     const $range  = document.getElementById("chartRangeLabel");
     const $legend = document.getElementById("eventsChartLegend");
     const $info = document.getElementById("eventsChartInfo");
+    const hoverOverlay = ensureChartHoverOverlay($wrap, "events");
     if ($svgHost) {
       if ($canvas) $canvas.style.display = "none";
       if ($info) $info.style.display = "none";
@@ -12828,23 +12926,41 @@ return `
         const safeIndex = Math.max(0, Math.min(Number(index || 0), labels.length - 1));
         const label = String(labels[safeIndex] || "");
         const periodNames = { daily: "Day", weekly: "Week", monthly: "Month", yearly: "Year" };
-        $tip.innerHTML =
-          '<div style="font-weight:700; margin-bottom:4px;">' + (periodNames[mode] || "Period") + ': ' + label + '</div>' +
-          '<div><span style="color:rgba(16,185,129,.9); font-weight:700;">' + (hasCityEventSeries ? 'My events:' : 'Events:') + '</span> ' + Number(eventValues[safeIndex] || 0).toLocaleString("en-US") + '</div>' +
-          (Number(cityEventValues[safeIndex] || 0) > 0 ? '<div><span style="color:rgba(71,85,105,.9); font-weight:700;">City events:</span> ' + Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US") + '</div>' : '') +
-          '<div><span style="color:rgba(37,99,235,.85); font-weight:700;">Views:</span> ' + Number(viewValues[safeIndex] || 0).toLocaleString("en-US") + '</div>';
-        $tip.style.display = "block";
-        const wrapRect = $wrap ? $wrap.getBoundingClientRect() : { left: 0, top: 0, width: 0 };
-        const clientX = typeof ev.clientX === "number" ? ev.clientX : 0;
-        const clientY = typeof ev.clientY === "number" ? ev.clientY : 0;
-        const tipRect = $tip.getBoundingClientRect();
-        const left = Math.min(wrapRect.left + wrapRect.width - tipRect.width - 10, clientX + 12);
-        const top = Math.max(wrapRect.top + 10, clientY - 32);
-        $tip.style.left = (left - wrapRect.left) + "px";
-        $tip.style.top = (top - wrapRect.top) + "px";
+        const svgEl = $svgHost ? $svgHost.querySelector("svg") : null;
+        const svgRect = svgEl ? svgEl.getBoundingClientRect() : null;
+        const plotFrame = svgRect ? {
+          padT: svgRect.height * (18 / 260),
+          gh: svgRect.height - (svgRect.height * (18 / 260)) - (svgRect.height * (42 / 260)),
+        } : null;
+        const pointX = svgRect && labels.length > 1
+          ? (svgRect.width * (56 / 1200)) + ((svgRect.width - (svgRect.width * (56 / 1200)) - (svgRect.width * (18 / 1200))) / (labels.length - 1)) * safeIndex
+          : (svgRect ? svgRect.width / 2 : 0);
+        const allValues = eventValues.concat(viewValues).map((v) => Number(v || 0));
+        const yScale = getYScale(allValues);
+        const primaryY = plotFrame
+          ? clamp(plotFrame.padT + plotFrame.gh - ((Number(eventValues[safeIndex] || 0) / yScale.yMax) * plotFrame.gh), plotFrame.padT, plotFrame.padT + plotFrame.gh)
+          : 0;
+        const secondaryY = plotFrame
+          ? clamp(plotFrame.padT + plotFrame.gh - ((Number(viewValues[safeIndex] || 0) / yScale.yMax) * plotFrame.gh), plotFrame.padT, plotFrame.padT + plotFrame.gh)
+          : 0;
+        showChartHoverOverlay(hoverOverlay, { padT: plotFrame ? plotFrame.padT : 0, gh: plotFrame ? plotFrame.gh : 0 }, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, {
+          primary: "rgba(16,185,129,.82)",
+          primaryGlow: "rgba(16,185,129,.12)",
+          secondary: "rgba(37,99,235,.72)",
+          secondaryGlow: "rgba(37,99,235,.10)",
+        });
+        showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
+          (periodNames[mode] || "Period") + ": " + label,
+          [
+            { label: hasCityEventSeries ? "My events" : "Events", value: Number(eventValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
+            ...(Number(cityEventValues[safeIndex] || 0) > 0 ? [{ label: "City events", value: Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US"), color: "#475569" }] : []),
+            { label: "Views", value: Number(viewValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
+          ]
+        ));
       }
       function hideSvgChartTip(){
         if ($tip) $tip.style.display = "none";
+        hideChartHoverOverlay(hoverOverlay);
       }
       function getSvgHoverIndexFromEvent(ev){
         const activeViewEl = $seg ? $seg.querySelector(".on") : null;
@@ -13138,28 +13254,6 @@ return `
     drawSmoothLine(ctx, primaryPoints);
     ctx.restore();
 
-    if (Number.isInteger(hoverIndex) && hoverIndex >= 0) {
-      const hoverPrimary = primaryPoints[hoverIndex];
-      const hoverSecondary = secondaryPoints[hoverIndex];
-      if (hoverSecondary) {
-        ctx.beginPath();
-        ctx.arc(hoverSecondary.x, hoverSecondary.y, 6, 0, Math.PI * 2);
-        ctx.fillStyle = "#ffffff";
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = secondaryColor;
-        ctx.stroke();
-      }
-      if (hoverPrimary) {
-        ctx.beginPath();
-        ctx.arc(hoverPrimary.x, hoverPrimary.y, 7, 0, Math.PI * 2);
-        ctx.fillStyle = primaryColor;
-        ctx.fill();
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = "rgba(37,99,235,.25)";
-        ctx.stroke();
-      }
-    }
   }
 
   function getPointIndexFromEvent(ev){
@@ -13188,31 +13282,35 @@ return `
     const cityEventValues = (cityEventSet && cityEventSet.values) ? cityEventSet.values : [];
 
     const rect = $canvas.getBoundingClientRect();
-    const x = ev.clientX - rect.left;
-    const y = ev.clientY - rect.top;
     const eventValue = Number(typeof eventValues[idx] !== "undefined" ? eventValues[idx] : 0);
     const viewValue = Number(typeof viewValues[idx] !== "undefined" ? viewValues[idx] : 0);
     const cityEventValue = Number(typeof cityEventValues[idx] !== "undefined" ? cityEventValues[idx] : 0);
     const periodLabel = getPeriodLabel(labels[idx] || "");
-    $tip.innerHTML =
-      '<div style="font-weight:700; margin-bottom:4px;">' + periodLabel + '</div>' +
-      '<div><span style="color:rgba(16,185,129,.9); font-weight:700;">' + (hasCityEventSeries ? 'My events:' : 'Events:') + '</span> ' + eventValue.toLocaleString("en-US") + '</div>' +
-      (hasCityEventSeries
-        ? '<div><span style="color:rgba(71,85,105,.9); font-weight:700;">City events:</span> ' + cityEventValue.toLocaleString("en-US") + '</div>'
-        : '') +
-      '<div><span style="color:rgba(37,99,235,.85); font-weight:700;">Views:</span> ' + viewValue.toLocaleString("en-US") + '</div>';
-    $tip.style.display = "block";
-
-    const tipRect = $tip.getBoundingClientRect();
-    const left = Math.min(rect.left + rect.width - tipRect.width - 10, rect.left + x + 12);
-    const top  = Math.max(rect.top + 10, rect.top + y - 32);
-
-    $tip.style.left = (left - rect.left) + "px";
-    $tip.style.top  = (top - rect.top) + "px";
+    const frame = getChartFrame(rect.width, rect.height);
+    const scale = getYScale(eventValues.concat(viewValues));
+    const stepX = labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1));
+    const pointX = frame.padL + stepX * idx;
+    const primaryY = clamp(frame.padT + frame.gh - ((eventValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+    const secondaryY = clamp(frame.padT + frame.gh - ((viewValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+    showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, {
+      primary: "rgba(16,185,129,.82)",
+      primaryGlow: "rgba(16,185,129,.12)",
+      secondary: "rgba(37,99,235,.72)",
+      secondaryGlow: "rgba(37,99,235,.10)",
+    });
+    showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
+      periodLabel,
+      [
+        { label: hasCityEventSeries ? "My events" : "Events", value: eventValue.toLocaleString("en-US"), color: "#0f172a" },
+        ...(hasCityEventSeries ? [{ label: "City events", value: cityEventValue.toLocaleString("en-US"), color: "#475569" }] : []),
+        { label: "Views", value: viewValue.toLocaleString("en-US"), color: "#0f172a" },
+      ]
+    ));
   }
 
   function hideTip(){
     if ($tip) $tip.style.display = "none";
+    hideChartHoverOverlay(hoverOverlay);
   }
 
   // Bind toggle
@@ -13269,6 +13367,7 @@ return `
     const $tip = document.getElementById("organizerChartTip");
     const $legend = document.getElementById("organizerChartLegend");
     if (!$canvas || !$wrap) return;
+    const hoverOverlay = ensureChartHoverOverlay($wrap, "organizer");
 
     const ctx = $canvas.getContext("2d");
     if (!ctx) return;
@@ -13423,28 +13522,6 @@ return `
       drawSmoothLine(ctx, primaryPoints);
       ctx.restore();
 
-      if (Number.isInteger(hoverIndex) && hoverIndex >= 0) {
-        const hoverPrimary = primaryPoints[hoverIndex];
-        const hoverSecondary = secondaryPoints[hoverIndex];
-        if (hoverSecondary) {
-          ctx.beginPath();
-          ctx.arc(hoverSecondary.x, hoverSecondary.y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = "#ffffff";
-          ctx.fill();
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = secondaryColor;
-          ctx.stroke();
-        }
-        if (hoverPrimary) {
-          ctx.beginPath();
-          ctx.arc(hoverPrimary.x, hoverPrimary.y, 7, 0, Math.PI * 2);
-          ctx.fillStyle = primaryColor;
-          ctx.fill();
-          ctx.lineWidth = 4;
-          ctx.strokeStyle = "rgba(37,99,235,.25)";
-          ctx.stroke();
-        }
-      }
     }
     function getPointIndexFromEvent(ev){
       const set = chartSets.events || { labels: [], values: [] };
@@ -13464,21 +13541,28 @@ return `
       const labels = eventSet.labels || viewSet.labels || [];
       const eventValue = Number((eventSet.values || [])[idx] || 0);
       const viewValue = Number((viewSet.values || [])[idx] || 0);
-      $tip.innerHTML =
-        '<div style="font-weight:700; margin-bottom:4px;">Month: ' + String(labels[idx] || "") + '</div>' +
-        '<div><span style="color:rgba(16,185,129,.9); font-weight:700;">Events:</span> ' + eventValue.toLocaleString("en-US") + '</div>' +
-        '<div><span style="color:rgba(37,99,235,.85); font-weight:700;">Views:</span> ' + viewValue.toLocaleString("en-US") + '</div>';
-      $tip.style.display = "block";
       const rect = $canvas.getBoundingClientRect();
-      const x = ev.clientX - rect.left;
-      const y = ev.clientY - rect.top;
-      const tipRect = $tip.getBoundingClientRect();
-      const left = Math.min(rect.width - tipRect.width - 10, x + 12);
-      const top = Math.max(10, y - 32);
-      $tip.style.left = left + "px";
-      $tip.style.top = top + "px";
+      const frame = getChartFrame(rect.width, rect.height);
+      const scale = getYScale(eventSet.values.concat(viewSet.values));
+      const stepX = labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1));
+      const pointX = frame.padL + stepX * idx;
+      const primaryY = clamp(frame.padT + frame.gh - ((eventValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+      const secondaryY = clamp(frame.padT + frame.gh - ((viewValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+      showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, {
+        primary: "rgba(16,185,129,.82)",
+        primaryGlow: "rgba(16,185,129,.12)",
+        secondary: "rgba(37,99,235,.72)",
+        secondaryGlow: "rgba(37,99,235,.10)",
+      });
+      showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
+        "Month: " + String(labels[idx] || ""),
+        [
+          { label: "Events", value: eventValue.toLocaleString("en-US"), color: "#0f172a" },
+          { label: "Views", value: viewValue.toLocaleString("en-US"), color: "#0f172a" },
+        ]
+      ));
     }
-    function hideTip(){ if ($tip) $tip.style.display = "none"; }
+    function hideTip(){ if ($tip) $tip.style.display = "none"; hideChartHoverOverlay(hoverOverlay); }
 
     $canvas.addEventListener("mousemove", (e) => {
       const idx = getPointIndexFromEvent(e);
@@ -13510,6 +13594,7 @@ return `
     const $svgViews = document.getElementById("venueChartSvgViews");
     const $svgClicks = document.getElementById("venueChartSvgClicks");
     if (!$wrap || !$metricSeg) return;
+    const hoverOverlay = ensureChartHoverOverlay($wrap, "venue");
 
     function syncSvgFallback(nextMetric){
       if (!$svgHost) return;
@@ -13687,28 +13772,6 @@ return `
       drawSmoothLine(ctx, primaryPoints);
       ctx.restore();
 
-      if (Number.isInteger(hoverIndex) && hoverIndex >= 0) {
-        const hoverPrimary = primaryPoints[hoverIndex];
-        const hoverSecondary = secondaryPoints[hoverIndex];
-        if (hoverSecondary) {
-          ctx.beginPath();
-          ctx.arc(hoverSecondary.x, hoverSecondary.y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = "#ffffff";
-          ctx.fill();
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = secondaryColor;
-          ctx.stroke();
-        }
-        if (hoverPrimary) {
-          ctx.beginPath();
-          ctx.arc(hoverPrimary.x, hoverPrimary.y, 7, 0, Math.PI * 2);
-          ctx.fillStyle = primaryColor;
-          ctx.fill();
-          ctx.lineWidth = 4;
-          ctx.strokeStyle = "rgba(37,99,235,.25)";
-          ctx.stroke();
-        }
-      }
     }
 
     function getPointIndexFromEvent(ev){
@@ -13730,23 +13793,32 @@ return `
       const labels = viewsSet.labels || clicksSet.labels || [];
       const viewsValue = Number((viewsSet.values || [])[idx] || 0);
       const clicksValue = Number((clicksSet.values || [])[idx] || 0);
-      $tip.innerHTML =
-        '<div style="font-weight:700; margin-bottom:4px;">Month: ' + String(labels[idx] || "") + '</div>' +
-        '<div><span style="color:rgba(16,185,129,.9); font-weight:700;">Views:</span> ' + viewsValue.toLocaleString("en-US") + '</div>' +
-        '<div><span style="color:rgba(37,99,235,.85); font-weight:700;">Total Clicks:</span> ' + clicksValue.toLocaleString("en-US") + '</div>';
-      $tip.style.display = "block";
       const rect = $canvas.getBoundingClientRect();
-      const x = ev.clientX - rect.left;
-      const y = ev.clientY - rect.top;
-      const tipRect = $tip.getBoundingClientRect();
-      const left = Math.min(rect.width - tipRect.width - 10, x + 12);
-      const top = Math.max(10, y - 32);
-      $tip.style.left = left + "px";
-      $tip.style.top = top + "px";
+      const frame = getChartFrame(rect.width, rect.height);
+      const scale = getYScale(viewsSet.values.concat(clicksSet.values));
+      const stepX = labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1));
+      const pointX = frame.padL + stepX * idx;
+      const primaryY = clamp(frame.padT + frame.gh - ((Number((getSet().values || [])[idx] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+      const secondaryMetricValues = (chartSets[getSecondaryMetric()] || { values: [] }).values || [];
+      const secondaryY = clamp(frame.padT + frame.gh - ((Number(secondaryMetricValues[idx] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+      showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, {
+        primary: metric === "views" ? "rgba(16,185,129,.82)" : "rgba(37,99,235,.72)",
+        primaryGlow: metric === "views" ? "rgba(16,185,129,.12)" : "rgba(37,99,235,.10)",
+        secondary: metric === "views" ? "rgba(37,99,235,.72)" : "rgba(16,185,129,.82)",
+        secondaryGlow: metric === "views" ? "rgba(37,99,235,.10)" : "rgba(16,185,129,.12)",
+      });
+      showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
+        "Month: " + String(labels[idx] || ""),
+        [
+          { label: "Views", value: viewsValue.toLocaleString("en-US"), color: "#0f172a" },
+          { label: "Total Clicks", value: clicksValue.toLocaleString("en-US"), color: "#0f172a" },
+        ]
+      ));
     }
 
     function hideTip(){
       if ($tip) $tip.style.display = "none";
+      hideChartHoverOverlay(hoverOverlay);
     }
 
     $metricSeg.addEventListener("click", (e) => {
@@ -13793,6 +13865,7 @@ return `
     const $svgViews = document.getElementById("adChartSvgViews");
     const $svgClicks = document.getElementById("adChartSvgClicks");
     if (!$wrap || !$metricSeg) return;
+    const hoverOverlay = ensureChartHoverOverlay($wrap, "ad");
 
     function syncSvgFallback(nextMetric){
       if (!$svgHost) return;
@@ -13972,28 +14045,6 @@ return `
       drawSmoothLine(ctx, primaryPoints);
       ctx.restore();
 
-      if (Number.isInteger(hoverIndex) && hoverIndex >= 0) {
-        const hoverPrimary = primaryPoints[hoverIndex];
-        const hoverSecondary = secondaryPoints[hoverIndex];
-        if (hoverSecondary) {
-          ctx.beginPath();
-          ctx.arc(hoverSecondary.x, hoverSecondary.y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = "#ffffff";
-          ctx.fill();
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = secondaryColor;
-          ctx.stroke();
-        }
-        if (hoverPrimary) {
-          ctx.beginPath();
-          ctx.arc(hoverPrimary.x, hoverPrimary.y, 7, 0, Math.PI * 2);
-          ctx.fillStyle = primaryColor;
-          ctx.fill();
-          ctx.lineWidth = 4;
-          ctx.strokeStyle = "rgba(37,99,235,.25)";
-          ctx.stroke();
-        }
-      }
     }
 
     function getPointIndexFromEvent(ev){
@@ -14015,23 +14066,32 @@ return `
       const labels = viewsSet.labels || clicksSet.labels || [];
       const viewsValue = Number((viewsSet.values || [])[idx] || 0);
       const clicksValue = Number((clicksSet.values || [])[idx] || 0);
-      $tip.innerHTML =
-        '<div style="font-weight:700; margin-bottom:4px;">Month: ' + String(labels[idx] || "") + '</div>' +
-        '<div><span style="color:rgba(16,185,129,.9); font-weight:700;">Views:</span> ' + viewsValue.toLocaleString("en-US") + '</div>' +
-        '<div><span style="color:rgba(37,99,235,.85); font-weight:700;">Clicks:</span> ' + clicksValue.toLocaleString("en-US") + '</div>';
-      $tip.style.display = "block";
       const rect = $canvas.getBoundingClientRect();
-      const x = ev.clientX - rect.left;
-      const y = ev.clientY - rect.top;
-      const tipRect = $tip.getBoundingClientRect();
-      const left = Math.min(rect.width - tipRect.width - 10, x + 12);
-      const top = Math.max(10, y - 32);
-      $tip.style.left = left + "px";
-      $tip.style.top = top + "px";
+      const frame = getChartFrame(rect.width, rect.height);
+      const scale = getYScale(viewsSet.values.concat(clicksSet.values));
+      const stepX = labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1));
+      const pointX = frame.padL + stepX * idx;
+      const primaryY = clamp(frame.padT + frame.gh - ((Number((getSet().values || [])[idx] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+      const secondaryMetricValues = (chartSets[getSecondaryMetric()] || { values: [] }).values || [];
+      const secondaryY = clamp(frame.padT + frame.gh - ((Number(secondaryMetricValues[idx] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+      showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, {
+        primary: metric === "views" ? "rgba(16,185,129,.82)" : "rgba(37,99,235,.72)",
+        primaryGlow: metric === "views" ? "rgba(16,185,129,.12)" : "rgba(37,99,235,.10)",
+        secondary: metric === "views" ? "rgba(37,99,235,.72)" : "rgba(16,185,129,.82)",
+        secondaryGlow: metric === "views" ? "rgba(37,99,235,.10)" : "rgba(16,185,129,.12)",
+      });
+      showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
+        "Month: " + String(labels[idx] || ""),
+        [
+          { label: "Views", value: viewsValue.toLocaleString("en-US"), color: "#0f172a" },
+          { label: "Clicks", value: clicksValue.toLocaleString("en-US"), color: "#0f172a" },
+        ]
+      ));
     }
 
     function hideTip(){
       if ($tip) $tip.style.display = "none";
+      hideChartHoverOverlay(hoverOverlay);
     }
 
     $metricSeg.addEventListener("click", (e) => {
