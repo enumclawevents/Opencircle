@@ -11952,10 +11952,26 @@ return `
             return {};
           }
         }
+        function readCurrentRows(){
+          var out = {};
+          var rows = wrap.querySelectorAll("[data-multi-day-row]");
+          for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            var date = String(row.getAttribute("data-date") || "").trim();
+            var startInput = row.querySelector('input[name="multiDayStart"]');
+            var endInput = row.querySelector('input[name="multiDayEnd"]');
+            var startTime = startInput && startInput.value ? String(startInput.value).trim() : "";
+            var endTime = endInput && endInput.value ? String(endInput.value).trim() : "";
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+            if (!/^\d{2}:\d{2}$/.test(startTime)) continue;
+            if (!/^\d{2}:\d{2}$/.test(endTime)) continue;
+            out[date] = { startTime: startTime, endTime: endTime };
+          }
+          return out;
+        }
         function isMultiDaySelected(){
           var selected = String(typeChoice.value || "").trim().toLowerCase();
-          if (selected === "multi-day") return true;
-          return !!(shell && shell.classList.contains("is-visible"));
+          return selected === "multi-day";
         }
         function render(){
           if (!isMultiDaySelected()) return;
@@ -11973,10 +11989,11 @@ return `
             return;
           }
           var existing = parseExisting();
+          var draft = readCurrentRows();
           var defaultStart = toTimeValue(startParts);
           var defaultEnd = toTimeValue(endParts);
           wrap.innerHTML = '<div class="multi-day-list">' + dateKeys.map(function(dateKey){
-            var saved = existing[dateKey] || {};
+            var saved = draft[dateKey] || existing[dateKey] || {};
             var startVal = saved.startTime || defaultStart;
             var endVal = saved.endTime || defaultEnd;
             return '' +
