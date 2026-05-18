@@ -202,6 +202,11 @@ async function initDB() {
       metaDescription TEXT,
       focusKeyphrase TEXT,
       imageAlt TEXT,
+      hasRecurrence INTEGER NOT NULL DEFAULT 0,
+      recurrenceRule TEXT,
+      recurrenceDates TEXT,
+      recurrenceStartDate TEXT,
+      recurrenceUntilDate TEXT,
 
       submitterEmail TEXT,
       approvalNotes TEXT,
@@ -363,6 +368,11 @@ async function initDB() {
   await addPendingCol("metaDescription", `ALTER TABLE pending_events ADD COLUMN metaDescription TEXT;`);
   await addPendingCol("focusKeyphrase", `ALTER TABLE pending_events ADD COLUMN focusKeyphrase TEXT;`);
   await addPendingCol("imageAlt", `ALTER TABLE pending_events ADD COLUMN imageAlt TEXT;`);
+  await addPendingCol("hasRecurrence", `ALTER TABLE pending_events ADD COLUMN hasRecurrence INTEGER NOT NULL DEFAULT 0;`);
+  await addPendingCol("recurrenceRule", `ALTER TABLE pending_events ADD COLUMN recurrenceRule TEXT;`);
+  await addPendingCol("recurrenceDates", `ALTER TABLE pending_events ADD COLUMN recurrenceDates TEXT;`);
+  await addPendingCol("recurrenceStartDate", `ALTER TABLE pending_events ADD COLUMN recurrenceStartDate TEXT;`);
+  await addPendingCol("recurrenceUntilDate", `ALTER TABLE pending_events ADD COLUMN recurrenceUntilDate TEXT;`);
   await addPendingCol("multiDaySchedule", `ALTER TABLE pending_events ADD COLUMN multiDaySchedule TEXT;`);
 
   // ---- Safe migrations for older DBs ----

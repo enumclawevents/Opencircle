@@ -88,6 +88,63 @@ function addHoursIso(iso, hours) {
   }
 }
 
+function toDateValue(iso) {
+  const s = String(iso || "").trim();
+  const match = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
+}
+
+function normalizeYmd(value) {
+  const s = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+function normalizeWeekdayList(input) {
+  const values = Array.isArray(input) ? input : (String(input || "").trim() ? [input] : []);
+  const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
+  const uniq = [];
+  values
+    .map((value) => String(value || "").trim().toUpperCase())
+    .filter(Boolean)
+    .forEach((value) => {
+      if (!allowed.has(value) || uniq.includes(value)) return;
+      uniq.push(value);
+    });
+  return uniq;
+}
+
+function normalizeRecurringItems(raw, fallbackStartIso, fallbackEndIso) {
+  let parsed = safeParseJson(raw, []);
+  if (!Array.isArray(parsed)) parsed = [];
+  const uniqDates = [];
+  const items = [];
+  for (const item of parsed) {
+    if (typeof item === "string") {
+      const date = normalizeYmd(item);
+      if (!date) continue;
+      if (!uniqDates.includes(date)) uniqDates.push(date);
+      if (fallbackStartIso && fallbackEndIso) {
+        items.push({
+          date,
+          start: date + String(fallbackStartIso).slice(10),
+          end: date + String(fallbackEndIso).slice(10),
+        });
+      }
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const start = String(item.start || "").trim();
+    const end = String(item.end || "").trim();
+    const date = normalizeYmd(item.date || (start ? start.slice(0, 10) : ""));
+    if (!date) continue;
+    if (!uniqDates.includes(date)) uniqDates.push(date);
+    if (start && end) items.push({ date, start, end });
+  }
+  uniqDates.sort();
+  items.sort((a, b) => String(a.start || "").localeCompare(String(b.start || "")));
+  return { uniqDates, items };
+}
+
 // Public submission endpoint (frontend form -> pending approvals)
 router.post("/submit", async (req, res) => {
   try {
@@ -189,6 +246,61 @@ router.post("/submit", async (req, res) => {
     const ticketLabel = String(body.ticketLabel || "").trim() || "Tickets";
     const eventDetails = String(body.eventDetails || "").trim() || "";
     const goodToKnow = String(body.goodToKnow || "").trim() || "";
+    const eventTypeChoice = String(body.eventTypeChoice || "").trim().toLowerCase();
+    const hasRecurrenceFlag = String(body.hasRecurrence || "").trim() === "1" || eventTypeChoice === "recurring";
+    const recurrenceType = String(body.recurrenceType || "none").trim().toLowerCase();
+    const recurrenceInterval = Math.max(1, parseInt(String(body.recurrenceInterval || "1"), 10) || 1);
+    let hasRecurrence = hasRecurrenceFlag && recurrenceType !== "none" ? 1 : 0;
+    let recurrenceRule = null;
+    let recurrenceDatesJson = null;
+    let recurrenceStartDate = null;
+    let recurrenceUntilDate = null;
+    const multiDaySchedule = eventTypeChoice === "multi-day"
+      ? normalizeMultiDaySchedule(body.multiDayScheduleJson || body.multiDaySchedule)
+      : [];
+    const multiDayScheduleJson = multiDaySchedule.length ? JSON.stringify(multiDaySchedule) : null;
+
+    if (hasRecurrence) {
+      recurrenceStartDate = normalizeYmd(body.recurrenceStartDate) || normalizeYmd(toDateValue(startDateTime));
+      recurrenceUntilDate = normalizeYmd(body.recurrenceUntilDate) || normalizeYmd(toDateValue(endDateTime));
+
+      if (recurrenceType === "custom") {
+        const normalized = normalizeRecurringItems(
+          body.recurrenceDatesJson || body.recurrenceDates,
+          startDateTime,
+          endDateTime
+        );
+        recurrenceRule = normalized.items.length ? { type: "custom", items: normalized.items } : { type: "custom" };
+        recurrenceDatesJson = JSON.stringify(normalized.uniqDates);
+      } else if (recurrenceType === "weekly") {
+        recurrenceRule = {
+          type: "weekly",
+          interval: recurrenceInterval,
+          byDay: normalizeWeekdayList(body.weeklyByDay),
+        };
+      } else if (recurrenceType === "monthly") {
+        const monthlyMode = String(body.monthlyMode || "monthday").trim().toLowerCase();
+        if (monthlyMode === "nthweekday") {
+          recurrenceRule = {
+            type: "monthly",
+            interval: recurrenceInterval,
+            mode: "nthweekday",
+            setPos: parseInt(String(body.setPos || "1"), 10) || 1,
+            byDay: normalizeWeekdayList(body.monthlyByDay),
+          };
+        } else {
+          recurrenceRule = {
+            type: "monthly",
+            interval: recurrenceInterval,
+            mode: "monthday",
+            byMonthday: Math.max(1, Math.min(31, parseInt(String(body.byMonthday || "0"), 10) || 0)),
+          };
+        }
+      } else {
+        hasRecurrence = 0;
+      }
+    }
+
     const submitterEmail = String(body.submitterEmail || "").trim() || "";
     const approvalNotes = String(body.approvalNotes || "").trim() || "";
     const source = String(body.source || "").trim() || "wp_frontend";
@@ -201,12 +313,15 @@ router.post("/submit", async (req, res) => {
       `INSERT INTO pending_events
         (city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
          startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
-         submitterEmail, approvalNotes, source, submissionId)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         submitterEmail, approvalNotes, source, submissionId, hasRecurrence, recurrenceRule,
+         recurrenceDates, recurrenceStartDate, recurrenceUntilDate, multiDaySchedule)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
         startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
-        submitterEmail, approvalNotes, source, submissionId
+        submitterEmail, approvalNotes, source, submissionId, hasRecurrence,
+        recurrenceRule ? JSON.stringify(recurrenceRule) : null,
+        recurrenceDatesJson, recurrenceStartDate, recurrenceUntilDate, multiDayScheduleJson
       ]
     );
 
