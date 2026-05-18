@@ -12802,6 +12802,24 @@ return `
     $tip.style.top = Math.round(top) + "px";
   }
 
+  function getSvgChartHoverGeometry($svgHost, labels, index, valuesA, valuesB){
+    const svgEl = $svgHost ? $svgHost.querySelector("svg") : null;
+    if (!svgEl) return null;
+    const rect = svgEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const padL = rect.width * (56 / 1200);
+    const padR = rect.width * (18 / 1200);
+    const padT = rect.height * (18 / 260);
+    const padB = rect.height * (42 / 260);
+    const frame = { padT, gh: rect.height - padT - padB };
+    const safeIndex = Math.max(0, Math.min(Number(index || 0), Math.max(0, labels.length - 1)));
+    const pointX = labels.length > 1 ? padL + ((rect.width - padL - padR) / (labels.length - 1)) * safeIndex : rect.width / 2;
+    const scale = getYScale((valuesA || []).concat(valuesB || []).map((v) => Number(v || 0)));
+    const primaryY = clamp(frame.padT + frame.gh - ((Number((valuesA || [])[safeIndex] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+    const secondaryY = clamp(frame.padT + frame.gh - ((Number((valuesB || [])[safeIndex] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+    return { frame, pointX, primaryY, secondaryY };
+  }
+
   function drawLineChart(ctx, width, height, labels, values, options){
     const frame = getChartFrame(width, height);
     const scale = getYScale(values);
@@ -13821,6 +13839,57 @@ return `
       hideChartHoverOverlay(hoverOverlay);
     }
 
+    function showSvgFallbackTip(ev, idx){
+      if (!$svgHost || !$tip) return;
+      const viewsSet = chartSets.views || { labels: [], values: [] };
+      const clicksSet = chartSets.clicks || { labels: [], values: [] };
+      const labels = viewsSet.labels || clicksSet.labels || [];
+      const geometry = getSvgChartHoverGeometry(
+        $svgHost,
+        labels,
+        idx,
+        metric === "views" ? (viewsSet.values || []) : (clicksSet.values || []),
+        metric === "views" ? (clicksSet.values || []) : (viewsSet.values || [])
+      );
+      if (!geometry) return;
+      const viewsValue = Number((viewsSet.values || [])[idx] || 0);
+      const clicksValue = Number((clicksSet.values || [])[idx] || 0);
+      showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, {
+        primary: metric === "views" ? "rgba(16,185,129,.82)" : "rgba(37,99,235,.72)",
+        primaryGlow: metric === "views" ? "rgba(16,185,129,.12)" : "rgba(37,99,235,.10)",
+        secondary: metric === "views" ? "rgba(37,99,235,.72)" : "rgba(16,185,129,.82)",
+        secondaryGlow: metric === "views" ? "rgba(37,99,235,.10)" : "rgba(16,185,129,.12)",
+      });
+      showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipHtml(
+        "Month: " + String(labels[idx] || ""),
+        [
+          { label: "Views", value: viewsValue.toLocaleString("en-US"), color: "#0f172a" },
+          { label: "Total Clicks", value: clicksValue.toLocaleString("en-US"), color: "#0f172a" },
+        ]
+      ));
+    }
+
+    function getSvgFallbackIndex(ev){
+      if (!$svgHost) return -1;
+      const labels = (getSet().labels || []);
+      if (!labels.length) return -1;
+      const svgEl = $svgHost.querySelector("svg");
+      if (!svgEl) return -1;
+      const rect = svgEl.getBoundingClientRect();
+      if (!rect.width || !rect.height) return -1;
+      const padL = rect.width * (56 / 1200);
+      const padR = rect.width * (18 / 1200);
+      const padT = rect.height * (18 / 260);
+      const padB = rect.height * (42 / 260);
+      const plotW = rect.width - padL - padR;
+      const plotH = rect.height - padT - padB;
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      if (mx < padL || mx > padL + plotW || my < padT || my > padT + plotH) return -1;
+      if (labels.length === 1) return 0;
+      return Math.max(0, Math.min(Math.round((mx - padL) / (plotW / (labels.length - 1))), labels.length - 1));
+    }
+
     $metricSeg.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-metric]");
       if (!btn) return;
@@ -13846,6 +13915,13 @@ return `
       hideTip();
       draw();
     });
+    if ($svgHost) {
+      $svgHost.addEventListener("mousemove", (e) => {
+        const idx = getSvgFallbackIndex(e);
+        if (idx >= 0) showSvgFallbackTip(e, idx); else hideTip();
+      });
+      $svgHost.addEventListener("mouseleave", hideTip);
+    }
 
     setActiveBtn();
     syncLegend();
@@ -14094,6 +14170,57 @@ return `
       hideChartHoverOverlay(hoverOverlay);
     }
 
+    function showSvgFallbackTip(ev, idx){
+      if (!$svgHost || !$tip) return;
+      const viewsSet = chartSets.views || { labels: [], values: [] };
+      const clicksSet = chartSets.clicks || { labels: [], values: [] };
+      const labels = viewsSet.labels || clicksSet.labels || [];
+      const geometry = getSvgChartHoverGeometry(
+        $svgHost,
+        labels,
+        idx,
+        metric === "views" ? (viewsSet.values || []) : (clicksSet.values || []),
+        metric === "views" ? (clicksSet.values || []) : (viewsSet.values || [])
+      );
+      if (!geometry) return;
+      const viewsValue = Number((viewsSet.values || [])[idx] || 0);
+      const clicksValue = Number((clicksSet.values || [])[idx] || 0);
+      showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, {
+        primary: metric === "views" ? "rgba(16,185,129,.82)" : "rgba(37,99,235,.72)",
+        primaryGlow: metric === "views" ? "rgba(16,185,129,.12)" : "rgba(37,99,235,.10)",
+        secondary: metric === "views" ? "rgba(37,99,235,.72)" : "rgba(16,185,129,.82)",
+        secondaryGlow: metric === "views" ? "rgba(37,99,235,.10)" : "rgba(16,185,129,.12)",
+      });
+      showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipHtml(
+        "Month: " + String(labels[idx] || ""),
+        [
+          { label: "Views", value: viewsValue.toLocaleString("en-US"), color: "#0f172a" },
+          { label: "Clicks", value: clicksValue.toLocaleString("en-US"), color: "#0f172a" },
+        ]
+      ));
+    }
+
+    function getSvgFallbackIndex(ev){
+      if (!$svgHost) return -1;
+      const labels = (getSet().labels || []);
+      if (!labels.length) return -1;
+      const svgEl = $svgHost.querySelector("svg");
+      if (!svgEl) return -1;
+      const rect = svgEl.getBoundingClientRect();
+      if (!rect.width || !rect.height) return -1;
+      const padL = rect.width * (56 / 1200);
+      const padR = rect.width * (18 / 1200);
+      const padT = rect.height * (18 / 260);
+      const padB = rect.height * (42 / 260);
+      const plotW = rect.width - padL - padR;
+      const plotH = rect.height - padT - padB;
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      if (mx < padL || mx > padL + plotW || my < padT || my > padT + plotH) return -1;
+      if (labels.length === 1) return 0;
+      return Math.max(0, Math.min(Math.round((mx - padL) / (plotW / (labels.length - 1))), labels.length - 1));
+    }
+
     $metricSeg.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-metric]");
       if (!btn) return;
@@ -14119,6 +14246,13 @@ return `
       hideTip();
       draw();
     });
+    if ($svgHost) {
+      $svgHost.addEventListener("mousemove", (e) => {
+        const idx = getSvgFallbackIndex(e);
+        if (idx >= 0) showSvgFallbackTip(e, idx); else hideTip();
+      });
+      $svgHost.addEventListener("mouseleave", hideTip);
+    }
 
     setActiveBtn();
     syncLegend();
