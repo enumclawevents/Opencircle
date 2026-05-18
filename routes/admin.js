@@ -2591,9 +2591,16 @@ try {
       const sel = formCity === c ? "selected" : "";
       return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
     }).join("");
+    const buildCitySwitchHref = (cityValue) => {
+      const sp = new URLSearchParams(req.query || {});
+      sp.set("city", cityValue);
+      sp.delete("pg");
+      const qs = sp.toString();
+      return `${req.path || "/admin"}${qs ? `?${qs}` : ""}`;
+    };
     const cityListHtml = allowedForUser.map((c) => {
       const active = selectedCity === c ? " is-active" : "";
-      return `<button type="button" class="sb-city-opt${active}" data-city="${esc(c)}">${esc(c)}</button>`;
+      return `<a class="sb-city-opt${active}" data-city="${esc(c)}" href="${esc(buildCitySwitchHref(c))}">${esc(c)}</a>`;
     }).join("");
 
     const listHtml = events.length
@@ -9062,7 +9069,7 @@ return `
           </div>
             <div class="sb-city-wrap">
               <div class="sb-city-dd" id="sbCityDD">
-                <button type="button" class="sb-city-btn" id="sbCityBtn" aria-haspopup="listbox" aria-expanded="false">
+                <button type="button" class="sb-city-btn" id="sbCityBtn" aria-haspopup="listbox" aria-expanded="false" onclick="var dd=document.getElementById('sbCityDD'); if(!dd) return false; var next=!dd.classList.contains('is-open'); dd.classList.toggle('is-open', next); this.setAttribute('aria-expanded', next ? 'true' : 'false'); return false;">
                   <span id="sbCityLabel">${esc(selectedCity)}</span>
                   <span class="caret" aria-hidden="true"></span>
                 </button>
