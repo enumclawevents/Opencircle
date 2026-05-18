@@ -2596,7 +2596,7 @@ try {
       sp.set("city", cityValue);
       sp.delete("pg");
       const qs = sp.toString();
-      return `${req.path || "/admin"}${qs ? `?${qs}` : ""}`;
+      return `${req.baseUrl || "/admin"}${req.path === "/" ? "" : (req.path || "")}${qs ? `?${qs}` : ""}`;
     };
     const cityListHtml = allowedForUser.map((c) => {
       const active = selectedCity === c ? " is-active" : "";
