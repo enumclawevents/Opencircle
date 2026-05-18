@@ -3703,8 +3703,8 @@ return `
       const primaryPath = buildSmoothSvgPath(primaryPoints);
       const secondaryPath = buildSmoothSvgPath(secondaryPoints);
       const fillPath = primaryPoints.length
-        ? `M ${primaryPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} ` +
-          primaryPoints.map((pt) => `L ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ") +
+        ? `M ${primaryPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} L ${primaryPoints[0].x.toFixed(2)} ${primaryPoints[0].y.toFixed(2)} ` +
+          primaryPath.replace(/^M [^ ]+ [^ ]+ ?/, "") +
           ` L ${primaryPoints[primaryPoints.length - 1].x.toFixed(2)} ${(padT + plotH).toFixed(2)} Z`
         : "";
       const labelStep = labels.length <= 4 ? 1 : Math.ceil(labels.length / 4);
@@ -4229,8 +4229,8 @@ return `
       const eventPath = buildSmoothSvgPath(eventPoints);
       const viewPath = buildSmoothSvgPath(viewPoints);
       const fillPath = eventPoints.length
-        ? `M ${eventPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} ` +
-          eventPoints.map((pt, index) => `${index === 0 ? "L" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ") +
+        ? `M ${eventPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} L ${eventPoints[0].x.toFixed(2)} ${eventPoints[0].y.toFixed(2)} ` +
+          eventPath.replace(/^M [^ ]+ [^ ]+ ?/, "") +
           ` L ${eventPoints[eventPoints.length - 1].x.toFixed(2)} ${(padT + plotH).toFixed(2)} Z`
         : "";
       const labelStep = labels.length <= 4 ? 1 : Math.ceil(labels.length / 4);
@@ -6045,8 +6045,8 @@ return `
       const primaryPath = buildSmoothSvgPath(primaryPoints);
       const secondaryPath = buildSmoothSvgPath(secondaryPoints);
       const fillPath = primaryPoints.length
-        ? `M ${primaryPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} ` +
-          primaryPoints.map((pt) => `L ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`).join(" ") +
+        ? `M ${primaryPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} L ${primaryPoints[0].x.toFixed(2)} ${primaryPoints[0].y.toFixed(2)} ` +
+          primaryPath.replace(/^M [^ ]+ [^ ]+ ?/, "") +
           ` L ${primaryPoints[primaryPoints.length - 1].x.toFixed(2)} ${(padT + plotH).toFixed(2)} Z`
         : "";
       const labelStep = labels.length <= 4 ? 1 : Math.ceil(labels.length / 4);
@@ -12677,6 +12677,34 @@ return `
     ctx.stroke();
   }
 
+  function drawSmoothAreaFill(ctx, points, baselineY){
+    if (!points.length) return;
+    const yMin = Math.min.apply(null, points.map((p) => (typeof p.chartMinY !== "undefined" ? p.chartMinY : p.y)));
+    const yMax = Math.max.apply(null, points.map((p) => (typeof p.chartMaxY !== "undefined" ? p.chartMaxY : p.y)));
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, baselineY);
+    ctx.lineTo(points[0].x, points[0].y);
+    if (points.length === 1) {
+      ctx.lineTo(points[0].x, points[0].y);
+    } else {
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i - 1] || points[i];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = points[i + 2] || p2;
+        const cp1x = p1.x + (p2.x - p0.x) / 6;
+        const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, yMin, yMax);
+        const cp2x = p2.x - (p3.x - p1.x) / 6;
+        const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, yMin, yMax);
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      }
+    }
+    const last = points[points.length - 1];
+    ctx.lineTo(last.x, baselineY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   function drawLineChart(ctx, width, height, labels, values, options){
     const frame = getChartFrame(width, height);
     const scale = getYScale(values);
@@ -12721,30 +12749,8 @@ return `
 
     if (points.length) {
       ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, frame.padT + frame.gh);
-      ctx.lineTo(points[0].x, points[0].y);
-      if (points.length === 1) {
-        ctx.lineTo(points[0].x, points[0].y);
-      } else {
-        for (let i = 0; i < points.length - 1; i++) {
-          const p0 = points[i - 1] || points[i];
-          const p1 = points[i];
-          const p2 = points[i + 1];
-          const p3 = points[i + 2] || p2;
-          const cp1x = p1.x + (p2.x - p0.x) / 6;
-          const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, frame.padT, frame.padT + frame.gh);
-          const cp2x = p2.x - (p3.x - p1.x) / 6;
-          const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, frame.padT, frame.padT + frame.gh);
-          ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-        }
-      }
-      const last = points[points.length - 1];
-      ctx.lineTo(last.x, last.y);
-      ctx.lineTo(last.x, frame.padT + frame.gh);
-      ctx.closePath();
       ctx.fillStyle = fillColor;
-      ctx.fill();
+      drawSmoothAreaFill(ctx, points, frame.padT + frame.gh);
       ctx.restore();
 
       ctx.strokeStyle = lineColor;
@@ -13657,29 +13663,8 @@ return `
 
       if (primaryPoints.length) {
         ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(primaryPoints[0].x, frame.padT + frame.gh);
-        ctx.lineTo(primaryPoints[0].x, primaryPoints[0].y);
-        if (primaryPoints.length === 1) {
-          ctx.lineTo(primaryPoints[0].x, primaryPoints[0].y);
-        } else {
-          for (let i = 0; i < primaryPoints.length - 1; i++) {
-            const p0 = primaryPoints[i - 1] || primaryPoints[i];
-            const p1 = primaryPoints[i];
-            const p2 = primaryPoints[i + 1];
-            const p3 = primaryPoints[i + 2] || p2;
-            const cp1x = p1.x + (p2.x - p0.x) / 6;
-            const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, frame.padT, frame.padT + frame.gh);
-            const cp2x = p2.x - (p3.x - p1.x) / 6;
-            const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, frame.padT, frame.padT + frame.gh);
-            ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-          }
-        }
-        const last = primaryPoints[primaryPoints.length - 1];
-        ctx.lineTo(last.x, frame.padT + frame.gh);
-        ctx.closePath();
         ctx.fillStyle = metric === "views" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)";
-        ctx.fill();
+        drawSmoothAreaFill(ctx, primaryPoints, frame.padT + frame.gh);
         ctx.restore();
       }
 
@@ -13963,29 +13948,8 @@ return `
 
       if (primaryPoints.length) {
         ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(primaryPoints[0].x, frame.padT + frame.gh);
-        ctx.lineTo(primaryPoints[0].x, primaryPoints[0].y);
-        if (primaryPoints.length === 1) {
-          ctx.lineTo(primaryPoints[0].x, primaryPoints[0].y);
-        } else {
-          for (let i = 0; i < primaryPoints.length - 1; i++) {
-            const p0 = primaryPoints[i - 1] || primaryPoints[i];
-            const p1 = primaryPoints[i];
-            const p2 = primaryPoints[i + 1];
-            const p3 = primaryPoints[i + 2] || p2;
-            const cp1x = p1.x + (p2.x - p0.x) / 6;
-            const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, frame.padT, frame.padT + frame.gh);
-            const cp2x = p2.x - (p3.x - p1.x) / 6;
-            const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, frame.padT, frame.padT + frame.gh);
-            ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-          }
-        }
-        const last = primaryPoints[primaryPoints.length - 1];
-        ctx.lineTo(last.x, frame.padT + frame.gh);
-        ctx.closePath();
         ctx.fillStyle = metric === "views" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)";
-        ctx.fill();
+        drawSmoothAreaFill(ctx, primaryPoints, frame.padT + frame.gh);
         ctx.restore();
       }
 
