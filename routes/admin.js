@@ -4171,16 +4171,6 @@ return `
         </svg>
       `;
     }
-    const eventsChartSvgByMode = {
-      daily: buildEventsChartSvgForMode("daily"),
-      weekly: buildEventsChartSvgForMode("weekly"),
-      monthly: buildEventsChartSvgForMode("monthly"),
-      yearly: buildEventsChartSvgForMode("yearly"),
-    };
-    const eventsChartSvgJsonForScript = JSON.stringify(eventsChartSvgByMode)
-      .replace(/</g, "\\u003c")
-      .replace(/>/g, "\\u003e")
-      .replace(/&/g, "\\u0026");
     function buildEventsChartInfoHtml(mode, index = null) {
       const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : { labels: [], values: [] };
       const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : { labels: [], values: [] };
@@ -4201,7 +4191,6 @@ return `
         (Number(cityEventValues[safeIndex] || 0) > 0 ? ' <span style="margin-left:14px;">City events: <strong>' + cityEvents + '</strong></span>' : '') +
         ' <span style="margin-left:14px;">Views: <strong>' + views + '</strong></span>';
     }
-    const eventsChartInitialInfoHtml = buildEventsChartInfoHtml(chartViewMode);
     let selectedEventAnalytics = null;
     let analyticsSideTitle = "Top organizers";
     let analyticsSideSub = "Most frequent organizers";
@@ -4411,6 +4400,12 @@ return `
       .replace(/</g, "\\u003c")
       .replace(/>/g, "\\u003e")
       .replace(/&/g, "\\u0026");
+    const eventsChartSvgByMode = {
+      daily: buildEventsChartSvgForMode("daily"),
+      weekly: buildEventsChartSvgForMode("weekly"),
+      monthly: buildEventsChartSvgForMode("monthly"),
+      yearly: buildEventsChartSvgForMode("yearly"),
+    };
     const adPlacementOptions = [
       "homepage-top",
       "homepage-bottom",
