@@ -6466,6 +6466,7 @@ return `
       }
       .sb-city-dd.is-open .sb-city-menu{ display:block; }
       .sb-city-opt{
+        display:block;
         width:100%;
         border:0;
         background: transparent;
@@ -6476,6 +6477,7 @@ return `
         font-size:14px;
         color: var(--sidebar-text);
         cursor:pointer;
+        text-decoration:none;
       }
       .sb-city-opt:hover{ background: rgba(255,255,255,.05); }
       .sb-city-opt.is-active{
