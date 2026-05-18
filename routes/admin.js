@@ -10095,15 +10095,15 @@ return `
               <div class="rec-box">
                 <div style="font-weight:650; margin-bottom:6px;">Event Type</div>
                 <div class="event-type-picker" id="eventTypePicker">
-                  <button type="button" class="event-type-card ${inferredEventType === "single" ? "is-active" : ""}" data-event-type="single" onclick="(function(btn){var picker=btn.parentNode;var shell=document.getElementById('eventTypeShell');var hidden=document.getElementById('eventTypeChoice');var recurring=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='single';if(shell){shell.classList.add('is-visible');shell.hidden=false;shell.style.display='block';}if(recurring) recurring.style.display='none';if(multi){multi.classList.remove('is-visible');multi.hidden=true;multi.style.display='none';}if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active', el===btn);});}})(this)">
+                  <button type="button" class="event-type-card ${inferredEventType === "single" ? "is-active" : ""}" data-event-type="single" onclick="(function(btn){var picker=btn.parentNode;var shell=document.getElementById('eventTypeShell');var hidden=document.getElementById('eventTypeChoice');var recurring=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='single';if(shell){shell.classList.add('is-visible');shell.hidden=false;shell.style.display='block';}if(recurring) recurring.style.display='none';if(multi){multi.classList.remove('is-visible');multi.hidden=true;multi.style.display='none';}if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active', el===btn);});}if(window.ocRenderMultiDaySchedule){window.ocRenderMultiDaySchedule();}})(this)">
                     <span class="event-type-card-title">Single Event</span>
                     <span class="event-type-card-copy">One event with a single start and end time on the same day.</span>
                   </button>
-                  <button type="button" class="event-type-card ${inferredEventType === "multi-day" ? "is-active" : ""}" data-event-type="multi-day" onclick="(function(btn){var picker=btn.parentNode;var shell=document.getElementById('eventTypeShell');var hidden=document.getElementById('eventTypeChoice');var recurring=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='multi-day';if(shell){shell.classList.add('is-visible');shell.hidden=false;shell.style.display='block';}if(recurring) recurring.style.display='none';if(multi){multi.classList.add('is-visible');multi.hidden=false;multi.style.display='block';}if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active', el===btn);});}})(this)">
+                  <button type="button" class="event-type-card ${inferredEventType === "multi-day" ? "is-active" : ""}" data-event-type="multi-day" onclick="(function(btn){var picker=btn.parentNode;var shell=document.getElementById('eventTypeShell');var hidden=document.getElementById('eventTypeChoice');var recurring=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='multi-day';if(shell){shell.classList.add('is-visible');shell.hidden=false;shell.style.display='block';}if(recurring) recurring.style.display='none';if(multi){multi.classList.add('is-visible');multi.hidden=false;multi.style.display='block';}if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active', el===btn);});}if(window.ocRenderMultiDaySchedule){window.ocRenderMultiDaySchedule();}})(this)">
                     <span class="event-type-card-title">Multi-Day Event</span>
                     <span class="event-type-card-copy">One event that spans across multiple days with one continuous date range.</span>
                   </button>
-                  <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring" onclick="(function(btn){var picker=btn.parentNode;var shell=document.getElementById('eventTypeShell');var hidden=document.getElementById('eventTypeChoice');var recurring=document.getElementById('recurrenceSettings');var hasRec=document.getElementById('hasRecurrence');var recType=document.getElementById('recurrenceType');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='recurring';if(shell){shell.classList.add('is-visible');shell.hidden=false;shell.style.display='block';}if(recurring) recurring.style.display='';if(hasRec) hasRec.checked=true;if(recType && (!recType.value || recType.value==='none')) recType.value='weekly';if(multi){multi.classList.remove('is-visible');multi.hidden=true;multi.style.display='none';}if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active', el===btn);});}})(this)">
+                  <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring" onclick="(function(btn){var picker=btn.parentNode;var shell=document.getElementById('eventTypeShell');var hidden=document.getElementById('eventTypeChoice');var recurring=document.getElementById('recurrenceSettings');var hasRec=document.getElementById('hasRecurrence');var recType=document.getElementById('recurrenceType');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='recurring';if(shell){shell.classList.add('is-visible');shell.hidden=false;shell.style.display='block';}if(recurring) recurring.style.display='';if(hasRec) hasRec.checked=true;if(recType && (!recType.value || recType.value==='none')) recType.value='weekly';if(multi){multi.classList.remove('is-visible');multi.hidden=true;multi.style.display='none';}if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active', el===btn);});}if(window.ocRenderMultiDaySchedule){window.ocRenderMultiDaySchedule();}})(this)">
                     <span class="event-type-card-title">Recurring Event</span>
                     <span class="event-type-card-copy">An event that repeats weekly, monthly, or on a custom schedule.</span>
                   </button>
@@ -10198,7 +10198,7 @@ return `
               <!-- Recurring Events -->
               <div class="rec-box recurrence" id="recurrenceSettings">
                 <div class="checkbox event-type-managed-rec-toggle">
-                  <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} />
+                  <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} onchange="window.ocSyncRecurrenceUI && window.ocSyncRecurrenceUI()" />
                   <label for="hasRecurrence" style="margin:0;font-size:12px;font-weight:650;">Recurring event</label>
                 </div>
                 <div class="note event-type-managed-rec-toggle">Weekly/monthly rule or custom dates list.</div>
@@ -10210,7 +10210,7 @@ return `
                 <div class="rec-grid" style="margin-top:12px;">
                   <div>
                     <div class="rec-label">Recurrence Type</div>
-                    <select id="recurrenceType" name="recurrenceType" class="ctrl">
+                    <select id="recurrenceType" name="recurrenceType" class="ctrl" onchange="window.ocSyncRecurrenceUI && window.ocSyncRecurrenceUI()">
                       <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
                       <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
                       <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
@@ -10243,7 +10243,7 @@ return `
                   <div class="rec-grid">
                     <div>
                       <div class="rec-label">Monthly Mode</div>
-                      <select id="monthlyMode" name="monthlyMode" class="ctrl">
+                      <select id="monthlyMode" name="monthlyMode" class="ctrl" onchange="window.ocSyncRecurrenceUI && window.ocSyncRecurrenceUI()">
                         <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
                         <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday</option>
                       </select>
@@ -10322,6 +10322,94 @@ return `
                   <div class="note">Use “Remove past dates” to drop occurrences that have already passed.</div>
                 </div>
               </div>
+              <script>
+                (function(){
+                  var hasRecEl = document.getElementById("hasRecurrence");
+                  var typeEl = document.getElementById("recurrenceType");
+                  var intervalRow = document.getElementById("intervalRow");
+                  var weeklyBox = document.getElementById("weeklyBox");
+                  var monthlyBox = document.getElementById("monthlyBox");
+                  var customBox = document.getElementById("customBox");
+                  var monthlyModeEl = document.getElementById("monthlyMode");
+                  var monthdayBox = document.getElementById("monthdayBox");
+                  var nthweekdayBox = document.getElementById("nthweekdayBox");
+                  var addBtn = document.getElementById("addCustomDate");
+                  var pruneBtn = document.getElementById("prunePastDates");
+                  var wrap = document.getElementById("customDatesWrap");
+                  function show(el, on){
+                    if (!el) return;
+                    el.style.display = on ? "" : "none";
+                  }
+                  window.ocSyncRecurrenceUI = function(){
+                    var enabled = !!(hasRecEl && hasRecEl.checked);
+                    var t = typeEl ? String(typeEl.value || "none") : "none";
+                    if (!enabled) {
+                      show(intervalRow, false);
+                      show(weeklyBox, false);
+                      show(monthlyBox, false);
+                      show(customBox, false);
+                      return;
+                    }
+                    show(intervalRow, t !== "none" && t !== "custom");
+                    show(weeklyBox, t === "weekly");
+                    show(monthlyBox, t === "monthly");
+                    show(customBox, t === "custom");
+                    if (t === "monthly") {
+                      var mm = monthlyModeEl ? String(monthlyModeEl.value || "monthday") : "monthday";
+                      show(monthdayBox, mm === "monthday");
+                      show(nthweekdayBox, mm === "nthweekday");
+                    } else {
+                      show(monthdayBox, false);
+                      show(nthweekdayBox, false);
+                    }
+                  };
+                  function attachRemove(){
+                    if (!wrap) return;
+                    var btns = wrap.querySelectorAll("button[data-remove-date]");
+                    for (var i = 0; i < btns.length; i++) {
+                      btns[i].onclick = function(){
+                        var chip = this.closest ? this.closest(".chip") : null;
+                        if (chip) chip.remove();
+                      };
+                    }
+                  }
+                  attachRemove();
+                  if (addBtn && wrap) {
+                    addBtn.addEventListener("click", function(){
+                      var chip = document.createElement("span");
+                      chip.className = "chip";
+                      var startLocal = (document.getElementById("startDateTime") || {}).value || "";
+                      var endLocal = (document.getElementById("endDateTime") || {}).value || "";
+                      var startTime = startLocal && startLocal.length >= 16 ? startLocal.slice(11,16) : "";
+                      var endTime = endLocal && endLocal.length >= 16 ? endLocal.slice(11,16) : startTime;
+                      chip.innerHTML =
+                        '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="" />' +
+                        '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="" />' +
+                        '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="" />' +
+                        '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
+                      wrap.appendChild(chip);
+                      var st = chip.querySelector('input[name="customStart"]');
+                      var en = chip.querySelector('input[name="customEnd"]');
+                      if (st && startTime) st.value = startTime;
+                      if (en && endTime) en.value = endTime;
+                      attachRemove();
+                    });
+                  }
+                  if (pruneBtn && wrap) {
+                    pruneBtn.addEventListener("click", function(){
+                      var today = new Date();
+                      var todayStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+                      var chips = wrap.querySelectorAll(".chip");
+                      for (var i = 0; i < chips.length; i++) {
+                        var chip = chips[i];
+                        var date = (chip.querySelector('input[name="customDate"]') || {}).value || "";
+                        if (date && date < todayStr) chip.remove();
+                      }
+                    });
+                  }
+                  window.ocSyncRecurrenceUI();
+                })();
+              </script>
               <label>Flyer Image (Upload)</label>
               <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
               <div class="note">${isOrganizerUser ? "Images are automatically formatted after upload." : "Uploading replaces the Image URL below."}</div>
