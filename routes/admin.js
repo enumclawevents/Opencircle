@@ -3630,8 +3630,22 @@ return `
     const requestedEventId = Number.isInteger(selectedEventIdRaw) && selectedEventIdRaw > 0
       ? selectedEventIdRaw
       : null;
+    const requestedChartView = String(req.query.chartView || "").trim().toLowerCase();
+    const chartViewMode = ["daily", "weekly", "monthly", "yearly"].includes(requestedChartView)
+      ? requestedChartView
+      : "daily";
     const buildEventAnalyticsHref = (id) =>
       `/admin/events-analytics?event=${encodeURIComponent(String(id || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+    const buildAnalyticsChartHref = (mode) =>
+      `/admin/events-analytics?chartView=${encodeURIComponent(String(mode || "daily"))}` +
+      `${requestedEventId ? `&event=${encodeURIComponent(String(requestedEventId))}` : ""}` +
+      `${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+    const chartRangeLabelByMode = {
+      daily: "Last 14 days (by start date)",
+      weekly: "Last 12 weeks (by start date)",
+      monthly: "Last 12 months (by start date)",
+      yearly: "Last 5 years (by start date)",
+    };
 
     // Top events by views (today / week / month / year)
     const hasViews = cols.has("viewCount");
@@ -4134,26 +4148,6 @@ return `
           ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${labels.map((label, index) => {
-            return `
-              <circle cx="${eventPoints[index].x.toFixed(2)}" cy="${eventPoints[index].y.toFixed(2)}" r="8" fill="rgba(16,185,129,.18)" stroke="rgba(16,185,129,.88)" stroke-width="2"
-                data-chart-point="1" tabindex="0"
-                onmouseenter="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"
-                onmousemove="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
-                onmouseleave="window.ocHideEventsChartTip && window.ocHideEventsChartTip()"
-                onfocus="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
-                onblur="window.ocHideEventsChartTip && window.ocHideEventsChartTip()"
-                onclick="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"></circle>
-              <circle cx="${viewPoints[index].x.toFixed(2)}" cy="${viewPoints[index].y.toFixed(2)}" r="7" fill="#ffffff" stroke="rgba(37,99,235,.78)" stroke-width="2"
-                data-chart-point="1" tabindex="0"
-                onmouseenter="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"
-                onmousemove="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
-                onmouseleave="window.ocHideEventsChartTip && window.ocHideEventsChartTip()"
-                onfocus="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
-                onblur="window.ocHideEventsChartTip && window.ocHideEventsChartTip()"
-                onclick="window.ocShowEventsChartInfoIndex && window.ocShowEventsChartInfoIndex(${index})"></circle>
-            `;
-          }).join("")}
-          ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
             const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
             return `<text x="${eventPoints[index].x.toFixed(2)}" y="${(padT + plotH + 30).toFixed(2)}" text-anchor="${anchor}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(label || ""))}</text>`;
@@ -4191,7 +4185,7 @@ return `
         (Number(cityEventValues[safeIndex] || 0) > 0 ? ' <span style="margin-left:14px;">City events: <strong>' + cityEvents + '</strong></span>' : '') +
         ' <span style="margin-left:14px;">Views: <strong>' + views + '</strong></span>';
     }
-    const eventsChartInitialInfoHtml = buildEventsChartInfoHtml("daily");
+    const eventsChartInitialInfoHtml = buildEventsChartInfoHtml(chartViewMode);
     let selectedEventAnalytics = null;
     let analyticsSideTitle = "Top organizers";
     let analyticsSideSub = "Most frequent organizers";
@@ -7672,8 +7666,28 @@ return `
         cursor: pointer;
         line-height: 1;
       }
+      .seg a{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        text-decoration:none;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--muted);
+        padding: 7px 10px;
+        border-radius: 999px;
+        font-weight: 650;
+        font-size:14px;
+        line-height: 1;
+      }
       .seg button:hover{ color: var(--text); }
+      .seg a:hover{ color: var(--text); }
       .seg button.on{
+        background: rgba(0,192,139,.14);
+        border-color: rgba(0,192,139,.28);
+        color: #065f46;
+      }
+      .seg a.on{
         background: rgba(0,192,139,.14);
         border-color: rgba(0,192,139,.28);
         color: #065f46;
@@ -9517,21 +9531,22 @@ return `
                       <span>Views</span>
                     </div>
                   </div>
-                  <p class="sub" id="chartRangeLabel">Last 14 days (by start date)</p>
+                  <p class="sub" id="chartRangeLabel">${esc(chartRangeLabelByMode[chartViewMode] || chartRangeLabelByMode.daily)}</p>
                 </div>
               </div>
               <div class="right">
                 <div class="seg" id="chartViewSeg" aria-label="Chart view">
-                  <button type="button" data-view="daily" class="on" onclick="window.ocSetEventsChartView && window.ocSetEventsChartView('daily')">Daily</button>
-                  <button type="button" data-view="weekly" onclick="window.ocSetEventsChartView && window.ocSetEventsChartView('weekly')">Weekly</button>
-                  <button type="button" data-view="monthly" onclick="window.ocSetEventsChartView && window.ocSetEventsChartView('monthly')">Monthly</button>
-                  <button type="button" data-view="yearly" onclick="window.ocSetEventsChartView && window.ocSetEventsChartView('yearly')">Yearly</button>
+                  <a href="${buildAnalyticsChartHref("daily")}" data-view="daily" class="${chartViewMode === "daily" ? "on" : ""}">Daily</a>
+                  <a href="${buildAnalyticsChartHref("weekly")}" data-view="weekly" class="${chartViewMode === "weekly" ? "on" : ""}">Weekly</a>
+                  <a href="${buildAnalyticsChartHref("monthly")}" data-view="monthly" class="${chartViewMode === "monthly" ? "on" : ""}">Monthly</a>
+                  <a href="${buildAnalyticsChartHref("yearly")}" data-view="yearly" class="${chartViewMode === "yearly" ? "on" : ""}">Yearly</a>
                 </div>
               </div>
             </div>
             <div class="chart-wrap" id="eventsChartWrap" style="min-height:96px;">
+              <div id="eventsChartSvgHost">${eventsChartSvgByMode[chartViewMode] || eventsChartSvgByMode.daily}</div>
               <div id="eventsChartData" data-chart="${esc(chartDataJson)}" hidden></div>
-              <canvas id="eventsChart" style="width:100%; height:194px; display:block;"></canvas>
+              <canvas id="eventsChart" style="width:100%; height:194px; display:none;"></canvas>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
             <div id="eventsChartInfo" class="muted" style="margin-top:10px; font-weight:600;">${eventsChartInitialInfoHtml}</div>
@@ -12432,6 +12447,8 @@ return `
   }
 
   function initEventsChart(){
+    const $svgHost = document.getElementById("eventsChartSvgHost");
+    if ($svgHost) return;
     const $data   = document.getElementById("eventsChartData");
     const $canvas = document.getElementById("eventsChart");
     const $wrap   = document.getElementById("eventsChartWrap");
