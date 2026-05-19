@@ -3822,15 +3822,15 @@ return `
       "No views this year."
     );
 
-    // Top organizers
+    // Top organizers by total event views
     const orgRows = await all(`
       SELECT 
         COALESCE(NULLIF(TRIM(organizer), ''), '(unknown)') AS organizer,
-        COUNT(*) AS c
+        COALESCE(SUM(COALESCE(viewCount, 0)), 0) AS totalViews
       FROM events
       ${dashWhereSql}
       GROUP BY organizer
-      ORDER BY c DESC, organizer ASC
+      ORDER BY totalViews DESC, organizer ASC
       LIMIT 5
     `, dashParams);
 
@@ -3838,7 +3838,7 @@ return `
       .map((r) => {
         const organizerHref = `/admin/events-organizers?organizer=${encodeURIComponent(String(r.organizer || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
         const label = `<a href="${esc(organizerHref)}">${esc(r.organizer)}</a>`;
-        const count = Number(r.c || 0);
+        const count = Number(r.totalViews || 0);
         return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
       })
       .join("");
@@ -4301,7 +4301,7 @@ return `
     }
     let selectedEventAnalytics = null;
     let analyticsSideTitle = "Top organizers";
-    let analyticsSideSub = "Most frequent organizers";
+    let analyticsSideSub = "Highest total event views";
     let analyticsSideBodyHtml = `<div class="mini mini-list">${topOrganizersHtml}</div>`;
     if (requestedEventId) {
       const selectedEventRow = await get(
