@@ -10306,31 +10306,12 @@ return `
               ${fromPending ? `<input type="hidden" name="pendingId" value="${esc(pendingEvent.id)}" />` : ""}
 
               <input type="hidden" name="city" id="cityHidden" value="${esc(formCity)}" />
-              <input type="hidden" name="eventTypeChoice" id="eventTypeChoice" value="${esc(inferredEventType)}" />
+              <input type="hidden" name="eventTypeChoice" id="eventTypeChoice" value="${esc(inferredEventType || "single")}" />
 
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
               <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
 
-              <div class="rec-box">
-                <div style="font-weight:650; margin-bottom:6px;">Event Type</div>
-                <div class="event-type-picker" id="eventTypePicker">
-                  <button type="button" class="event-type-card ${inferredEventType === "single" ? "is-active" : ""}" data-event-type="single" onclick="(function(btn){var picker=btn.parentNode;var shell=document.getElementById('eventTypeShell');var hidden=document.getElementById('eventTypeChoice');var recurring=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='single';if(shell){shell.classList.add('is-visible');shell.hidden=false;shell.style.display='block';}if(recurring) recurring.style.display='none';if(multi){multi.classList.remove('is-visible');multi.hidden=true;multi.style.display='none';}if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active', el===btn);});}if(window.ocRenderMultiDaySchedule){window.ocRenderMultiDaySchedule();}})(this)">
-                    <span class="event-type-card-title">Single Event</span>
-                    <span class="event-type-card-copy">One event with a single start and end time on the same day.</span>
-                  </button>
-                  <button type="button" class="event-type-card ${inferredEventType === "multi-day" ? "is-active" : ""}" data-event-type="multi-day" onclick="(function(btn){var picker=btn.parentNode;var shell=document.getElementById('eventTypeShell');var hidden=document.getElementById('eventTypeChoice');var recurring=document.getElementById('recurrenceSettings');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='multi-day';if(shell){shell.classList.add('is-visible');shell.hidden=false;shell.style.display='block';}if(recurring) recurring.style.display='none';if(multi){multi.classList.add('is-visible');multi.hidden=false;multi.style.display='block';}if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active', el===btn);});}if(window.ocRenderMultiDaySchedule){window.ocRenderMultiDaySchedule();}})(this)">
-                    <span class="event-type-card-title">Multi-Day Event</span>
-                    <span class="event-type-card-copy">One event that spans across multiple days with one continuous date range.</span>
-                  </button>
-                  <button type="button" class="event-type-card ${inferredEventType === "recurring" ? "is-active" : ""}" data-event-type="recurring" onclick="(function(btn){var picker=btn.parentNode;var shell=document.getElementById('eventTypeShell');var hidden=document.getElementById('eventTypeChoice');var recurring=document.getElementById('recurrenceSettings');var hasRec=document.getElementById('hasRecurrence');var recType=document.getElementById('recurrenceType');var multi=document.getElementById('multiDayScheduleShell');if(hidden) hidden.value='recurring';if(shell){shell.classList.add('is-visible');shell.hidden=false;shell.style.display='block';}if(recurring) recurring.style.display='';if(hasRec) hasRec.checked=true;if(recType && (!recType.value || recType.value==='none')) recType.value='weekly';if(multi){multi.classList.remove('is-visible');multi.hidden=true;multi.style.display='none';}if(picker){Array.prototype.forEach.call(picker.querySelectorAll('[data-event-type]'),function(el){el.classList.toggle('is-active', el===btn);});}if(window.ocRenderMultiDaySchedule){window.ocRenderMultiDaySchedule();}})(this)">
-                    <span class="event-type-card-title">Recurring Event</span>
-                    <span class="event-type-card-copy">An event that repeats weekly, monthly, or on a custom schedule.</span>
-                  </button>
-                </div>
-                ${editEvent ? `` : `<div class="event-type-note">Choose an event type to open the matching form.</div>`}
-              </div>
-
-              <div class="event-type-shell ${inferredEventType ? "is-visible" : ""}" id="eventTypeShell">
+              <div class="event-type-shell is-visible" id="eventTypeShell">
 
               ${canFeatureEvents ? `
               <div class="rec-box">
