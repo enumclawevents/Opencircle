@@ -2587,7 +2587,7 @@ try {
     const ALLOWED_CITIES = [
       "Enumclaw",
       "Buckley",
-      "Wilkinson",
+      "Wilkeson",
       "Carbonado",
       "South Prairie",
       "Prairie Heights",
