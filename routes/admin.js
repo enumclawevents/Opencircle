@@ -10310,7 +10310,10 @@ return `
               ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
               ${fromPending ? `<input type="hidden" name="pendingId" value="${esc(pendingEvent.id)}" />` : ""}
 
-              <input type="hidden" name="city" id="cityHidden" value="${esc(formCity)}" />
+              <label>Area</label>
+              <select class="ctrl" name="city" id="cityHidden" required>
+                ${cityOptions}
+              </select>
               <input type="hidden" name="eventTypeChoice" id="eventTypeChoice" value="${esc(inferredEventType || "single")}" />
 
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
