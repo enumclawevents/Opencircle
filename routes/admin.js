@@ -2590,7 +2590,6 @@ try {
       "Wilkeson",
       "Carbonado",
       "South Prairie",
-      "Prairie Heights",
     ];
     const allowedForUser = hasDeveloperAccess ? ALLOWED_CITIES : [selectedCity];
     const formCity = String(editEvent?.city || selectedCity);
