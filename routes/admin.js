@@ -2584,7 +2584,14 @@ try {
       `;
     };
 
-    const ALLOWED_CITIES = ["Enumclaw", "Buckley"];
+    const ALLOWED_CITIES = [
+      "Enumclaw",
+      "Buckley",
+      "Wilkinson",
+      "Carbonado",
+      "South Prairie",
+      "Prairie Heights",
+    ];
     const allowedForUser = hasDeveloperAccess ? ALLOWED_CITIES : [selectedCity];
     const formCity = String(editEvent?.city || selectedCity);
     const cityOptions = allowedForUser.map((c) => {
@@ -5010,8 +5017,7 @@ return `
                                 <div>
                                   <div class="users-modal-label" style="margin-bottom:6px;">City</div>
                                   <select name="city" class="ctrl" style="width:100%;">
-                                    <option value="Enumclaw" ${u.city === "Enumclaw" ? "selected" : ""}>Enumclaw</option>
-                                    <option value="Buckley" ${u.city === "Buckley" ? "selected" : ""}>Buckley</option>
+                                    ${ALLOWED_CITIES.map((cityName) => `<option value="${esc(cityName)}" ${u.city === cityName ? "selected" : ""}>${esc(cityName)}</option>`).join("")}
                                   </select>
                                 </div>
                                 <div style="align-self:end;">
