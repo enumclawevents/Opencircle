@@ -4794,6 +4794,8 @@ return `
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(16,185,129,.35); color:#065f46;">Invite email sent.</div>`
           : notice === "no_email"
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">User has no email on file.</div>`
+          : notice === "email_taken"
+          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">That email is already assigned to another user.</div>`
           : notice === "send_failed"
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">Failed to send email. Check SMTP logs.</div>`
           : "";
@@ -5012,6 +5014,10 @@ return `
                               <select name="role" class="ctrl" style="width:100%;" data-organizer-role-select>
                                 ${liveRoleOptionsMarkup(normalizedUserRole, { includeLegacySelected: true })}
                               </select>
+                              <div>
+                                <div class="users-modal-label" style="margin-bottom:6px;">Email</div>
+                                <input type="email" name="email" class="ctrl" style="width:100%;" value="${esc(u.email || "")}" placeholder="name@example.com" />
+                              </div>
                               <div class="users-field-row">
                                 <div>
                                   <div class="users-modal-label" style="margin-bottom:6px;">City</div>
@@ -14711,6 +14717,17 @@ router.post("/users/:id/role", async (req, res) => {
       return res.redirect("/admin/users");
     }
     const newCity = String(req.body?.city || "Enumclaw");
+    const emailRaw = String(req.body?.email || "").trim().toLowerCase();
+    const newEmail = emailRaw || null;
+    if (newEmail) {
+      const emailTaken = await get(
+        "SELECT id FROM users WHERE lower(COALESCE(email,'')) = lower(?) AND id != ? LIMIT 1",
+        [newEmail, id]
+      );
+      if (emailTaken?.id) {
+        return res.redirect("/admin/users?notice=email_taken");
+      }
+    }
     const existingUser = await get("SELECT permissionsJson FROM users WHERE id = ? LIMIT 1", [id]);
     const permissionsJson = newRole === "organizer"
       ? stringifyOrganizerPermissions({
@@ -14724,7 +14741,7 @@ router.post("/users/:id/role", async (req, res) => {
           featureEvents: String(req.body?.perm_featureEvents || "") === "1",
         }, DEFAULT_ORGANIZER_PERMISSIONS)
       : null;
-    await run("UPDATE users SET role = ?, city = ?, permissionsJson = ? WHERE id = ?", [newRole, newCity, permissionsJson, id]);
+    await run("UPDATE users SET email = ?, role = ?, city = ?, permissionsJson = ?, updatedAt = datetime('now') WHERE id = ?", [newEmail, newRole, newCity, permissionsJson, id]);
     return res.redirect("/admin/users");
   } catch (err) {
     console.error(err);
