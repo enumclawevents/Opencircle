@@ -1841,6 +1841,13 @@ const EXISTING_ORGANIZER_PERMISSIONS = Object.freeze({
   ads: true,
   featureEvents: false,
 });
+const ADMIN_AREAS = Object.freeze([
+  "Enumclaw",
+  "Buckley",
+  "Wilkeson",
+  "Carbonado",
+  "South Prairie",
+]);
 
 function formatOrganizerPermissionLabel(key) {
   if (key === "featureEvents") return "Feature Events";
@@ -1881,16 +1888,43 @@ function liveRoleOptionsMarkup(selectedRole, { includeLegacySelected = false } =
     <option value="developer" ${normalized === "developer" ? "selected" : ""}>Developer</option>`;
 }
 
-function normalizeOrganizerPermissions(value, fallback = DEFAULT_ORGANIZER_PERMISSIONS) {
-  let parsed = null;
-  if (value && typeof value === "object" && !Array.isArray(value)) parsed = value;
-  else if (typeof value === "string" && value.trim()) {
+function parsePermissionsObject(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value === "string" && value.trim()) {
     try {
-      parsed = JSON.parse(value);
-    } catch (_) {
-      parsed = null;
-    }
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    } catch (_) {}
   }
+  return null;
+}
+
+function normalizeCityAccessList(value, fallbackCity = "Enumclaw") {
+  const seen = new Set();
+  const out = [];
+  const pushCity = (cityValue) => {
+    const normalized = String(cityValue || "").trim();
+    if (!normalized || !ADMIN_AREAS.includes(normalized) || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach(pushCity);
+  } else if (value && typeof value === "object" && !Array.isArray(value)) {
+    if (Array.isArray(value.cityAccess)) value.cityAccess.forEach(pushCity);
+    else if (Array.isArray(value.cities)) value.cities.forEach(pushCity);
+  } else if (typeof value === "string" && value.trim()) {
+    pushCity(value);
+  }
+
+  if (!out.length) pushCity(fallbackCity);
+  if (!out.length) pushCity("Enumclaw");
+  return out;
+}
+
+function normalizeOrganizerPermissions(value, fallback = DEFAULT_ORGANIZER_PERMISSIONS) {
+  const parsed = parsePermissionsObject(value);
   const base = { ...fallback };
   for (const key of ORGANIZER_SECTION_KEYS) {
     if (parsed && Object.prototype.hasOwnProperty.call(parsed, key)) {
@@ -1901,7 +1935,14 @@ function normalizeOrganizerPermissions(value, fallback = DEFAULT_ORGANIZER_PERMI
 }
 
 function stringifyOrganizerPermissions(value, fallback = DEFAULT_ORGANIZER_PERMISSIONS) {
-  return JSON.stringify(normalizeOrganizerPermissions(value, fallback));
+  const parsed = parsePermissionsObject(value) || {};
+  const payload = {
+    ...parsed,
+    ...normalizeOrganizerPermissions(parsed, fallback),
+  };
+  const cityAccess = normalizeCityAccessList(parsed, null);
+  if (cityAccess.length) payload.cityAccess = cityAccess;
+  return JSON.stringify(payload);
 }
 
 function getUserSectionPermissions(user) {
@@ -1913,6 +1954,18 @@ function getUserSectionPermissions(user) {
 
 function hasSectionAccess(user, section) {
   return !!getUserSectionPermissions(user)[section];
+}
+
+function getUserAllowedCities(user, fallbackCity = "Enumclaw") {
+  if (isDeveloperRole(user?.role)) return ADMIN_AREAS.slice();
+  return normalizeCityAccessList(user?.permissionsJson, user?.city || fallbackCity || "Enumclaw");
+}
+
+function pickAccessibleCity(requestedCity, user, { fallbackCity = "Enumclaw" } = {}) {
+  const allowedCities = getUserAllowedCities(user, fallbackCity);
+  const preferred = String(requestedCity || "").trim();
+  if (preferred && allowedCities.includes(preferred)) return preferred;
+  return allowedCities[0] || fallbackCity || "Enumclaw";
 }
 
 function normalizeOrganizerIdentity(value) {
@@ -2019,6 +2072,7 @@ let whereParams = [];
     const hasDeveloperAccess = hasDeveloperAccessRole(userRole);
     const isOrganizerUser = userRole === "organizer";
     const sectionPermissions = getUserSectionPermissions(currentUser || { role: userRole });
+    const userAllowedCities = getUserAllowedCities(currentUser || { role: userRole, city: req.user?.city || "Enumclaw" }, req.user?.city || "Enumclaw");
     const organizerAccessValues = isOrganizerUser ? getOrganizerAccessValues(currentUser, req) : [];
     const organizerPrimaryName = isOrganizerUser ? getOrganizerPrimaryName(currentUser, req) : "";
     const organizerOwnerClause = isOrganizerUser ? buildOrganizerOwnerClause("organizer", organizerAccessValues) : null;
@@ -2029,8 +2083,8 @@ let whereParams = [];
     const currentAdminPath = safeAdminRedirectPath(req.originalUrl || "/admin", "/admin");
 
     // City (from URL unless locked)
-    const userCity = String(req.user?.city || "Enumclaw");
-    const selectedCity = hasDeveloperAccess ? String(req.query.city || userCity) : userCity;
+    const userCity = String(req.user?.city || currentUser?.city || "Enumclaw");
+    const selectedCity = pickAccessibleCity(req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity: userCity });
     const canUseMessages = !!currentUser?.id;
     const canManageEvents = hasDeveloperAccess || sectionPermissions.events;
     const canApproveEvents = hasDeveloperAccess;
@@ -2116,11 +2170,13 @@ let whereParams = [];
             selectedCity,
             currentUser.id,
             currentUser.id,
-            selectedCity,
             currentUser.id,
             supportCircleUser?.id || null,
             supportCircleUser?.id || null
           ]
+        );
+        messageContacts = (messageContacts || []).filter((row) =>
+          getUserAllowedCities(row, row?.city || "Enumclaw").includes(selectedCity)
         );
       } catch (_) {
         messageContacts = [];
@@ -2584,14 +2640,7 @@ try {
       `;
     };
 
-    const ALLOWED_CITIES = [
-      "Enumclaw",
-      "Buckley",
-      "Wilkeson",
-      "Carbonado",
-      "South Prairie",
-    ];
-    const allowedForUser = hasDeveloperAccess ? ALLOWED_CITIES : [selectedCity];
+    const allowedForUser = hasDeveloperAccess ? ADMIN_AREAS.slice() : userAllowedCities;
     const formCity = String(editEvent?.city || selectedCity);
     const cityOptions = allowedForUser.map((c) => {
       const sel = formCity === c ? "selected" : "";
@@ -4796,6 +4845,8 @@ return `
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">User has no email on file.</div>`
           : notice === "email_taken"
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">That email is already assigned to another user.</div>`
+          : notice === "city_required"
+          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">Select at least one area for the user.</div>`
           : notice === "send_failed"
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">Failed to send email. Check SMTP logs.</div>`
           : "";
@@ -4964,11 +5015,12 @@ return `
               const normalizedUserRole = normalizeRoleValue(u.role);
               const labelRole = formatRoleLabel(normalizedUserRole);
               const userPerms = getUserSectionPermissions(u);
+              const userCities = getUserAllowedCities(u, u.city || "Enumclaw");
               const userFormId = `user-role-${encodeURIComponent(u.id)}`;
               const modalId = `user-modal-${encodeURIComponent(u.id)}`;
               const displayName = esc(u.username || u.email || "User");
               const emailLabel = esc(u.email || "—");
-              const cityLabel = esc(u.city || "Enumclaw");
+              const cityLabel = esc(userCities.join(", "));
               const initials = esc(String(u.username || u.email || "U").trim().slice(0, 2).toUpperCase());
               const statusTone = u.lastSeenAt ? "Active" : "Inactive";
               const statusColor = u.lastSeenAt ? "#22c55e" : "#ef4444";
@@ -5018,16 +5070,22 @@ return `
                                 <div class="users-modal-label" style="margin-bottom:6px;">Email</div>
                                 <input type="email" name="email" class="ctrl" style="width:100%;" value="${esc(u.email || "")}" placeholder="name@example.com" />
                               </div>
-                              <div class="users-field-row">
-                                <div>
-                                  <div class="users-modal-label" style="margin-bottom:6px;">City</div>
-                                  <select name="city" class="ctrl" style="width:100%;">
-                                    ${ALLOWED_CITIES.map((cityName) => `<option value="${esc(cityName)}" ${u.city === cityName ? "selected" : ""}>${esc(cityName)}</option>`).join("")}
-                                  </select>
+                              <div>
+                                <div class="users-modal-label">Area access</div>
+                                <div class="users-modal-card" style="padding:14px 16px;">
+                                  <div class="users-access-grid">
+                                    ${ADMIN_AREAS.map((cityName) => `
+                                      <label class="users-access-item">
+                                        <input type="checkbox" name="cities" value="${esc(cityName)}" ${userCities.includes(cityName) ? "checked" : ""} form="${userFormId}" />
+                                        <span>${esc(cityName)}</span>
+                                      </label>
+                                    `).join("")}
+                                  </div>
                                 </div>
-                                <div style="align-self:end;">
-                                  <button class="btn" type="submit">Update</button>
-                                </div>
+                                <div class="note" style="margin-top:8px;">Users can work in every checked area. The first checked area remains their primary legacy area.</div>
+                              </div>
+                              <div style="display:flex; justify-content:flex-end;">
+                                <button class="btn" type="submit" style="min-width:140px;">Update</button>
                               </div>
                               <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
                                 <div class="users-modal-label">Section access</div>
@@ -14449,9 +14507,7 @@ router.post("/messages", async (req, res) => {
     if (!currentUser?.id) return res.status(403).send("Forbidden");
 
     const requestedCity = String(req.body?.city || req.query.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
-    const city = hasDeveloperAccessRole(req.user?.role || "")
-      ? requestedCity
-      : String(currentUser.city || requestedCity || "Enumclaw").trim() || "Enumclaw";
+    const city = pickAccessibleCity(requestedCity, hasDeveloperAccessRole(req.user?.role || "") ? { role: "developer" } : currentUser, { fallbackCity: currentUser.city || "Enumclaw" });
     const recipientUserId = parseInt(String(req.body?.recipientUserId || ""), 10);
     const body = String(req.body?.body || "").trim().slice(0, 4000);
 
@@ -14463,11 +14519,11 @@ router.post("/messages", async (req, res) => {
     }
 
     const recipient = await get(
-      "SELECT id, city FROM users WHERE id = ? LIMIT 1",
+      "SELECT id, city, permissionsJson FROM users WHERE id = ? LIMIT 1",
       [recipientUserId]
     );
     const isSupportCircleRecipient = supportCircleUser?.id && Number(supportCircleUser.id) === Number(recipientUserId);
-    if (!recipient?.id || (!isSupportCircleRecipient && String(recipient.city || "") !== city)) {
+    if (!recipient?.id || (!isSupportCircleRecipient && !getUserAllowedCities(recipient, recipient.city || "Enumclaw").includes(city))) {
       return res.redirect(`/admin/messages?notice=recipient${city ? `&city=${encodeURIComponent(city)}` : ""}`);
     }
 
@@ -14500,20 +14556,18 @@ router.get("/messages/typing", async (req, res) => {
     if (!currentUser?.id) return res.status(403).json({ ok: false, typing: false });
 
     const requestedCity = String(req.query?.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
-    const city = hasDeveloperAccessRole(req.user?.role || "")
-      ? requestedCity
-      : String(currentUser.city || requestedCity || "Enumclaw").trim() || "Enumclaw";
+    const city = pickAccessibleCity(requestedCity, hasDeveloperAccessRole(req.user?.role || "") ? { role: "developer" } : currentUser, { fallbackCity: currentUser.city || "Enumclaw" });
     const otherUserId = parseInt(String(req.query?.user || ""), 10);
     if (!Number.isInteger(otherUserId) || otherUserId <= 0) {
       return res.json({ ok: true, typing: false });
     }
 
     const otherUser = await get(
-      "SELECT id, city, displayName, username, email FROM users WHERE id = ? LIMIT 1",
+      "SELECT id, city, permissionsJson, displayName, username, email FROM users WHERE id = ? LIMIT 1",
       [otherUserId]
     );
     const isSupportCircleUser = supportCircleUser?.id && Number(supportCircleUser.id) === Number(otherUserId);
-    if (!otherUser?.id || (!isSupportCircleUser && String(otherUser.city || "") !== city)) {
+    if (!otherUser?.id || (!isSupportCircleUser && !getUserAllowedCities(otherUser, otherUser.city || "Enumclaw").includes(city))) {
       return res.json({ ok: true, typing: false });
     }
 
@@ -14548,9 +14602,7 @@ router.post("/messages/typing", express.json(), async (req, res) => {
     if (!currentUser?.id) return res.status(403).json({ ok: false });
 
     const requestedCity = String(req.body?.city || req.query?.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
-    const city = hasDeveloperAccessRole(req.user?.role || "")
-      ? requestedCity
-      : String(currentUser.city || requestedCity || "Enumclaw").trim() || "Enumclaw";
+    const city = pickAccessibleCity(requestedCity, hasDeveloperAccessRole(req.user?.role || "") ? { role: "developer" } : currentUser, { fallbackCity: currentUser.city || "Enumclaw" });
     const recipientUserId = parseInt(String(req.body?.recipientUserId || ""), 10);
     const active = String(req.body?.active || "0") === "1" ? 1 : 0;
     if (!Number.isInteger(recipientUserId) || recipientUserId <= 0 || recipientUserId === Number(currentUser.id)) {
@@ -14558,11 +14610,11 @@ router.post("/messages/typing", express.json(), async (req, res) => {
     }
 
     const recipient = await get(
-      "SELECT id, city FROM users WHERE id = ? LIMIT 1",
+      "SELECT id, city, permissionsJson FROM users WHERE id = ? LIMIT 1",
       [recipientUserId]
     );
     const isSupportCircleRecipient = supportCircleUser?.id && Number(supportCircleUser.id) === Number(recipientUserId);
-    if (!recipient?.id || (!isSupportCircleRecipient && String(recipient.city || "") !== city)) {
+    if (!recipient?.id || (!isSupportCircleRecipient && !getUserAllowedCities(recipient, recipient.city || "Enumclaw").includes(city))) {
       return res.status(400).json({ ok: false });
     }
 
@@ -14597,7 +14649,7 @@ router.post("/invites", async (req, res) => {
     const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
     const permissionsJson = role === "organizer"
-      ? stringifyOrganizerPermissions(DEFAULT_ORGANIZER_PERMISSIONS)
+      ? stringifyOrganizerPermissions({ ...DEFAULT_ORGANIZER_PERMISSIONS, cityAccess: [city] })
       : null;
     await run(
       "INSERT INTO invites (email, tokenHash, role, city, permissionsJson, expiresAt, createdByUserId) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -14716,7 +14768,14 @@ router.post("/users/:id/role", async (req, res) => {
     if (!isLiveRole(newRole)) {
       return res.redirect("/admin/users");
     }
-    const newCity = String(req.body?.city || "Enumclaw");
+    const requestedCitiesRaw = Array.isArray(req.body?.cities)
+      ? req.body.cities
+      : (req.body?.cities !== undefined ? [req.body.cities] : []);
+    const requestedCities = normalizeCityAccessList(requestedCitiesRaw, req.body?.city || "Enumclaw");
+    if (!requestedCities.length) {
+      return res.redirect("/admin/users?notice=city_required");
+    }
+    const newCity = requestedCities[0];
     const emailRaw = String(req.body?.email || "").trim().toLowerCase();
     const newEmail = emailRaw || null;
     if (newEmail) {
@@ -14729,18 +14788,20 @@ router.post("/users/:id/role", async (req, res) => {
       }
     }
     const existingUser = await get("SELECT permissionsJson FROM users WHERE id = ? LIMIT 1", [id]);
-    const permissionsJson = newRole === "organizer"
-      ? stringifyOrganizerPermissions({
-          ...(newRole === "organizer"
-            ? normalizeOrganizerPermissions(existingUser?.permissionsJson, DEFAULT_ORGANIZER_PERMISSIONS)
-            : DEFAULT_ORGANIZER_PERMISSIONS),
-          events: String(req.body?.perm_events || "") === "1",
-          venues: String(req.body?.perm_venues || "") === "1",
-          jobs: String(req.body?.perm_jobs || "") === "1",
-          ads: String(req.body?.perm_ads || "") === "1",
-          featureEvents: String(req.body?.perm_featureEvents || "") === "1",
-        }, DEFAULT_ORGANIZER_PERMISSIONS)
-      : null;
+    const permissionsJson = stringifyOrganizerPermissions({
+      ...(parsePermissionsObject(existingUser?.permissionsJson) || {}),
+      ...(newRole === "organizer"
+        ? {
+            ...normalizeOrganizerPermissions(existingUser?.permissionsJson, DEFAULT_ORGANIZER_PERMISSIONS),
+            events: String(req.body?.perm_events || "") === "1",
+            venues: String(req.body?.perm_venues || "") === "1",
+            jobs: String(req.body?.perm_jobs || "") === "1",
+            ads: String(req.body?.perm_ads || "") === "1",
+            featureEvents: String(req.body?.perm_featureEvents || "") === "1",
+          }
+        : normalizeOrganizerPermissions(existingUser?.permissionsJson, DEFAULT_ORGANIZER_PERMISSIONS)),
+      cityAccess: requestedCities,
+    }, DEFAULT_ORGANIZER_PERMISSIONS);
     await run("UPDATE users SET email = ?, role = ?, city = ?, permissionsJson = ?, updatedAt = datetime('now') WHERE id = ?", [newEmail, newRole, newCity, permissionsJson, id]);
     return res.redirect("/admin/users");
   } catch (err) {
@@ -14816,7 +14877,11 @@ router.post("/users/:id/resend-invite", async (req, res) => {
         normalizedInviteRole,
         u.city || "Enumclaw",
         normalizedInviteRole === "organizer"
-          ? stringifyOrganizerPermissions(u.permissionsJson, DEFAULT_ORGANIZER_PERMISSIONS)
+          ? stringifyOrganizerPermissions({
+              ...(parsePermissionsObject(u.permissionsJson) || {}),
+              ...normalizeOrganizerPermissions(u.permissionsJson, DEFAULT_ORGANIZER_PERMISSIONS),
+              cityAccess: getUserAllowedCities(u, u.city || "Enumclaw"),
+            }, DEFAULT_ORGANIZER_PERMISSIONS)
           : null,
         exp,
         sessionUser?.id || null
@@ -14858,10 +14923,8 @@ router.post("/venues", upload.fields([{ name: "venueImageFile", maxCount: 1 }, {
     const id = idRaw ? parseInt(idRaw, 10) : null;
     const isUpdate = Number.isInteger(id) && id > 0;
 
-    const userCity = String(req.user?.city || "Enumclaw");
-    const city = hasDeveloperAccessRole(role)
-      ? String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw"
-      : userCity;
+    const userCity = String(req.user?.city || sessionUser?.city || "Enumclaw");
+    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccessRole(role) ? { role: "developer" } : sessionUser, { fallbackCity: userCity });
 
     const name = String(req.body?.name || "").trim();
     const address = String(req.body?.address || "").trim();
@@ -15011,10 +15074,8 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
     const id = idRaw ? parseInt(idRaw, 10) : null;
     const isUpdate = Number.isInteger(id) && id > 0;
 
-    const userCity = String(req.user?.city || "Enumclaw");
-    const city = hasDeveloperAccessRole(role)
-      ? String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw"
-      : userCity;
+    const userCity = String(req.user?.city || sessionUser?.city || "Enumclaw");
+    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccessRole(role) ? { role: "developer" } : sessionUser, { fallbackCity: userCity });
 
     const title = String(req.body?.title || "").trim();
     const company = String(req.body?.company || "").trim();
@@ -15131,10 +15192,8 @@ router.post("/ads", upload.single("adImageFile"), async (req, res) => {
     const id = idRaw ? parseInt(idRaw, 10) : null;
     const isUpdate = Number.isInteger(id) && id > 0;
 
-    const userCity = String(req.user?.city || "Enumclaw");
-    const city = hasDeveloperAccessRole(role)
-      ? String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw"
-      : userCity;
+    const userCity = String(req.user?.city || sessionUser?.city || "Enumclaw");
+    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccessRole(role) ? { role: "developer" } : sessionUser, { fallbackCity: userCity });
 
     const name = String(req.body?.name || "").trim();
     const placements = normalizeAdPlacements(req.body?.placements, String(req.body?.placement || "").trim());
@@ -15273,6 +15332,8 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       // legacy/simple custom dates
       recurrenceDates,
     } = req.body;
+
+    city = pickAccessibleCity(city || req.query.city, hasDeveloperAccessRole(role) ? { role: "developer" } : sessionUser, { fallbackCity: req.user?.city || sessionUser?.city || "Enumclaw" });
 
     if (role === "organizer") {
       organizer = organizerPrimaryName;
@@ -15744,9 +15805,9 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
       return res.status(400).send("Organizer account is missing an organizer identity.");
     }
 
-    const userCity = String(req.user?.city || "Enumclaw");
+    const userCity = String(req.user?.city || sessionUser?.city || "Enumclaw");
     const cityFromBody = String(req.body?.city || req.query.city || userCity || "Enumclaw").trim() || "Enumclaw";
-    const importCity = hasDeveloperAccessRole(role) ? cityFromBody : userCity;
+    const importCity = pickAccessibleCity(cityFromBody, hasDeveloperAccessRole(role) ? { role: "developer" } : sessionUser, { fallbackCity: userCity });
     const file = req.files?.eventsCsv?.[0] || null;
     const imageZipFile = req.files?.imageZip?.[0] || null;
     if (!file?.buffer) return res.status(400).send("CSV file is required.");
