@@ -10310,10 +10310,16 @@ return `
               ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
               ${fromPending ? `<input type="hidden" name="pendingId" value="${esc(pendingEvent.id)}" />` : ""}
 
-              <label>Area</label>
-              <select class="ctrl" name="city" id="cityHidden" required>
-                ${cityOptions}
-              </select>
+              <div class="rec-box" style="margin-top:0; border-color:rgba(16,185,129,.35); background:linear-gradient(180deg, rgba(16,185,129,.10), rgba(16,185,129,.04)); box-shadow:0 0 0 1px rgba(16,185,129,.08) inset;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
+                  <label for="cityHidden" style="margin:0; font-size:18px; font-weight:800; letter-spacing:-0.01em;">Area</label>
+                  <span class="pill" style="background:rgba(16,185,129,.14); border-color:rgba(16,185,129,.24); color:#166534;">Choose where this event will publish</span>
+                </div>
+                <div class="note" style="margin:0 0 10px 0; color:#42526b;">This controls which area site the event is added to.</div>
+                <select class="ctrl" name="city" id="cityHidden" required style="font-size:18px; font-weight:700; border-width:2px; border-color:rgba(16,185,129,.28); background:#fff;">
+                  ${cityOptions}
+                </select>
+              </div>
               <input type="hidden" name="eventTypeChoice" id="eventTypeChoice" value="${esc(inferredEventType || "single")}" />
 
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
