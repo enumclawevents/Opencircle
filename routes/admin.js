@@ -7,7 +7,7 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 const { execSync, execFileSync } = require("child_process");
-const { sendEmail, PASSWORD_RESET_FROM } = require("../mailer");
+const { sendEmail, PASSWORD_RESET_FROM, PASSWORD_RESET_REPLY_TO } = require("../mailer");
 const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const crypto = require("crypto");
 const packageMeta = require("../package.json");
@@ -14846,7 +14846,7 @@ router.post("/users/:id/reset", async (req, res) => {
     const subject = "Reset your OpenCircle password";
     const text = `Reset your password: ${link}`;
     const html = `<p>Reset your password:</p><p><a href="${link}">${link}</a></p>`;
-    try { await sendEmail({ to: u.email, subject, text, html, from: PASSWORD_RESET_FROM }); } catch (_) {}
+    try { await sendEmail({ to: u.email, subject, text, html, from: PASSWORD_RESET_FROM, replyTo: PASSWORD_RESET_REPLY_TO }); } catch (_) {}
     return res.redirect("/admin/users");
   } catch (err) {
     console.error(err);
