@@ -4,7 +4,7 @@ const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
-const { sendEmail } = require("./mailer");
+const { sendEmail, PASSWORD_RESET_FROM } = require("./mailer");
 const { hashPassword, hashToken, verifyPassword } = require("./lib/auth");
 const { esc } = require("./lib/html");
 const { UPLOAD_DIR } = require("./lib/uploads");
@@ -541,7 +541,7 @@ app.post("/forgot", async (req, res) => {
     const subject = "Reset your OpenCircle password";
     const text = `Reset your password: ${link}`;
     const html = `<p>Reset your password:</p><p><a href="${link}">${link}</a></p>`;
-    try { await sendEmail({ to: user.email, subject, text, html }); } catch (e) { console.error("[MAIL] reset failed", e); }
+    try { await sendEmail({ to: user.email, subject, text, html, from: PASSWORD_RESET_FROM }); } catch (e) { console.error("[MAIL] reset failed", e); }
   }
 
   return res.send("If the email exists, a reset link has been sent.");
