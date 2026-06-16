@@ -24,22 +24,25 @@ function escapeXml(str) {
 }
 
 function toLocalISOWithOffset(dtLocal) {
-  if (!dtLocal) return null;
-  const d = new Date(dtLocal);
-  if (Number.isNaN(d.getTime())) return null;
-  const pad = (n) => String(n).padStart(2, "0");
-  const year = d.getFullYear();
-  const month = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const hours = pad(d.getHours());
-  const minutes = pad(d.getMinutes());
-  const seconds = "00";
-  const offsetMin = -d.getTimezoneOffset();
-  const sign = offsetMin >= 0 ? "+" : "-";
-  const abs = Math.abs(offsetMin);
-  const offH = pad(Math.floor(abs / 60));
-  const offM = pad(abs % 60);
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
+  const raw = String(dtLocal || "").trim();
+  if (!raw) return null;
+
+  const zonedLocal = DateTime.fromFormat(raw, "yyyy-MM-dd'T'HH:mm", { zone: DEFAULT_TZ });
+  if (zonedLocal.isValid) {
+    return zonedLocal.toISO({ suppressMilliseconds: true, includeOffset: true });
+  }
+
+  const zonedWithSeconds = DateTime.fromFormat(raw, "yyyy-MM-dd'T'HH:mm:ss", { zone: DEFAULT_TZ });
+  if (zonedWithSeconds.isValid) {
+    return zonedWithSeconds.toISO({ suppressMilliseconds: true, includeOffset: true });
+  }
+
+  const parsed = DateTime.fromISO(raw, { setZone: true });
+  if (parsed.isValid) {
+    return parsed.toISO({ suppressMilliseconds: true, includeOffset: true });
+  }
+
+  return null;
 }
 
 function normalizeCategoriesInput(val) {
@@ -746,9 +749,6 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       const occStartUtc = Date.parse(startIso);
       if (!Number.isFinite(occStartUtc)) continue;
 
-      if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
-      if (Number.isFinite(baseStartUtc) && occStartUtc < baseStartUtc) continue;
-
       let endIso = toIsoIfValid(it && it.end);
       if (!endIso && durationMs > 0) {
         // If item.end missing, compute end using base duration while keeping the item's offset
@@ -759,6 +759,10 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
           endIso = partsToIso(ep);
         }
       }
+      const occEndUtc = endIso ? Date.parse(endIso) : (durationMs > 0 ? occStartUtc + durationMs : occStartUtc);
+      if (!Number.isFinite(occEndUtc)) continue;
+      if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+      if (Number.isFinite(baseStartUtc) && occStartUtc < baseStartUtc) continue;
 
       const sp = parseIsoParts(startIso);
       const occurrenceDate =
@@ -814,7 +818,7 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     const occStartUtc = partsToUtcMs(occLocalParts);
     const occEndUtc = occStartUtc + durationMs2;
 
-    if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+    if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
     if (occStartUtc < startUtc) continue;
 
     const occEndParts = utcMsToLocalParts(occEndUtc, offset);
@@ -898,7 +902,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       const occStartUtc = partsToUtcMs(occLocalParts);
       const occEndUtc = occStartUtc + durationMs;
 
-      if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+      if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
       if (occStartUtc < startUtc) continue;
 
       const occEndParts = utcMsToLocalParts(occEndUtc, offset);
@@ -975,7 +979,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
         const occStartUtc = partsToUtcMs(occLocalParts);
         const occEndUtc = occStartUtc + durationMs;
 
-        if (occStartUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+        if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
         if (occStartUtc < startUtc) continue;
 
         const occEndParts = utcMsToLocalParts(occEndUtc, offset);
@@ -1015,9 +1019,15 @@ function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
   };
 
   const baseStartUtc = Date.parse(base.startDateTime);
+  const baseEndUtc = Date.parse(base.endDateTime);
 
   if (!base.hasRecurrence || !base.recurrenceRule) {
-    if (Number.isFinite(baseStartUtc) && baseStartUtc >= windowStartUtcMs && baseStartUtc <= windowEndUtcMs) {
+    if (
+      Number.isFinite(baseStartUtc) &&
+      Number.isFinite(baseEndUtc) &&
+      baseEndUtc >= windowStartUtcMs &&
+      baseStartUtc <= windowEndUtcMs
+    ) {
       const p = parseIsoParts(base.startDateTime);
       return [{
         ...base,
@@ -1479,7 +1489,11 @@ router.get("/slug/:slug", async (req, res) => {
       : [];
 
     const occurrencesUpcoming = occurrences
-      .filter((o) => Date.parse(o.startDateTime) >= windowStartUtc)
+      .filter((o) => {
+        const startTs = Date.parse(o.startDateTime);
+        const endTs = Date.parse(o.endDateTime || o.startDateTime);
+        return Number.isFinite(startTs) && Number.isFinite(endTs) && endTs >= windowStartUtc;
+      })
       .slice(0, 200)
       .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
 
@@ -1880,7 +1894,11 @@ router.get("/:idOrSlug", async (req, res) => {
       : [];
 
     const occurrencesUpcoming = occurrences
-      .filter((o) => Date.parse(o.startDateTime) >= windowStartUtc)
+      .filter((o) => {
+        const startTs = Date.parse(o.startDateTime);
+        const endTs = Date.parse(o.endDateTime || o.startDateTime);
+        return Number.isFinite(startTs) && Number.isFinite(endTs) && endTs >= windowStartUtc;
+      })
       .slice(0, 200)
       .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
 

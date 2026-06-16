@@ -12,6 +12,7 @@ const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const crypto = require("crypto");
 const packageMeta = require("../package.json");
 const { hashPassword, hashToken, verifyPassword } = require("../lib/auth");
+const { DateTime } = require("luxon");
 const { esc } = require("../lib/html");
 const { safeParseJson } = require("../lib/json");
 const { ALLOWED_CATEGORIES, ALLOWED_VENUE_CATEGORIES, DEFAULT_TZ } = require("../lib/admin-constants");
@@ -902,25 +903,25 @@ function enumerateDateRangeYmd(startIso, endIso) {
 
 // Convert datetime-local (no timezone) into ISO with local timezone offset
 function toLocalISOWithOffset(dtLocal) {
-  const d = new Date(dtLocal);
-  if (isNaN(d.getTime())) return null;
+  const raw = String(dtLocal || "").trim();
+  if (!raw) return null;
 
-  const pad = (n) => String(n).padStart(2, "0");
+  const zonedLocal = DateTime.fromFormat(raw, "yyyy-MM-dd'T'HH:mm", { zone: DEFAULT_TZ });
+  if (zonedLocal.isValid) {
+    return zonedLocal.toISO({ suppressMilliseconds: true, includeOffset: true });
+  }
 
-  const year = d.getFullYear();
-  const month = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const hours = pad(d.getHours());
-  const minutes = pad(d.getMinutes());
-  const seconds = "00";
+  const zonedWithSeconds = DateTime.fromFormat(raw, "yyyy-MM-dd'T'HH:mm:ss", { zone: DEFAULT_TZ });
+  if (zonedWithSeconds.isValid) {
+    return zonedWithSeconds.toISO({ suppressMilliseconds: true, includeOffset: true });
+  }
 
-  const offsetMin = -d.getTimezoneOffset();
-  const sign = offsetMin >= 0 ? "+" : "-";
-  const abs = Math.abs(offsetMin);
-  const offH = pad(Math.floor(abs / 60));
-  const offM = pad(abs % 60);
+  const parsed = DateTime.fromISO(raw, { setZone: true });
+  if (parsed.isValid) {
+    return parsed.toISO({ suppressMilliseconds: true, includeOffset: true });
+  }
 
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
+  return null;
 }
 
 function toDateTimeLocalValue(isoWithOffset) {
@@ -10748,7 +10749,7 @@ return `
               <div class="actions">
                 <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
               ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
-                <span class="note">Dates are saved with your server's local timezone offset automatically.</span>
+                <span class="note">Dates are saved in Pacific time automatically.</span>
               </div>
               </div>
             </form>
