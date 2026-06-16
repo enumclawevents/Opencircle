@@ -1135,6 +1135,29 @@ function matchesLifecycleStatus(item, status, nowTs) {
   return endTs >= nowTs;
 }
 
+function pickRecurringDisplayOccurrence(occurrences, nowTs) {
+  const list = Array.isArray(occurrences) ? occurrences : [];
+  let active = null;
+  let next = null;
+
+  for (const occ of list) {
+    const startTs = Date.parse(String(occ?.startDateTime || ""));
+    const endTs = Date.parse(String(occ?.endDateTime || occ?.startDateTime || ""));
+    if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) continue;
+
+    if (startTs <= nowTs && endTs >= nowTs) {
+      if (!active || startTs < Date.parse(String(active.startDateTime || ""))) active = occ;
+      continue;
+    }
+
+    if (startTs > nowTs) {
+      if (!next || startTs < Date.parse(String(next.startDateTime || ""))) next = occ;
+    }
+  }
+
+  return active || next || null;
+}
+
 function paginate(items, limit, offset) {
   const total = items.length;
   const start = Math.max(0, offset);
@@ -1497,14 +1520,31 @@ router.get("/slug/:slug", async (req, res) => {
       .slice(0, 200)
       .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
 
+    const displayOccurrence = base.hasRecurrence && base.recurrenceRule
+      ? pickRecurringDisplayOccurrence(occurrencesUpcoming, nowUtc)
+      : null;
+
+    const detailData = {
+      ...base,
+      occurrencesUpcoming,
+      status: state,
+      eventEnded: state === "past" || state === "archived",
+      statusLabel: state === "past" || state === "archived" ? "Event ended." : "",
+    };
+
+    if (displayOccurrence) {
+      detailData.baseStartDateTime = base.startDateTime;
+      detailData.startDateTime = displayOccurrence.startDateTime;
+      detailData.endDateTime = displayOccurrence.endDateTime;
+      detailData.occurrenceLabel = displayOccurrence.label || "";
+      detailData.isOccurrence = true;
+      detailData.status = "upcoming";
+      detailData.eventEnded = false;
+      detailData.statusLabel = "";
+    }
+
     res.json({
-      data: {
-        ...base,
-        occurrencesUpcoming,
-        status: state,
-        eventEnded: state === "past" || state === "archived",
-        statusLabel: state === "past" || state === "archived" ? "Event ended." : "",
-      },
+      data: detailData,
     });
   } catch (err) {
     console.error(err);
@@ -1902,14 +1942,31 @@ router.get("/:idOrSlug", async (req, res) => {
       .slice(0, 200)
       .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
 
+    const displayOccurrence = base.hasRecurrence && base.recurrenceRule
+      ? pickRecurringDisplayOccurrence(occurrencesUpcoming, nowUtc)
+      : null;
+
+    const detailData = {
+      ...base,
+      occurrencesUpcoming,
+      status: state,
+      eventEnded: state === "past" || state === "archived",
+      statusLabel: state === "past" || state === "archived" ? "Event ended." : "",
+    };
+
+    if (displayOccurrence) {
+      detailData.baseStartDateTime = base.startDateTime;
+      detailData.startDateTime = displayOccurrence.startDateTime;
+      detailData.endDateTime = displayOccurrence.endDateTime;
+      detailData.occurrenceLabel = displayOccurrence.label || "";
+      detailData.isOccurrence = true;
+      detailData.status = "upcoming";
+      detailData.eventEnded = false;
+      detailData.statusLabel = "";
+    }
+
     res.json({
-      data: {
-        ...base,
-        occurrencesUpcoming,
-        status: state,
-        eventEnded: state === "past" || state === "archived",
-        statusLabel: state === "past" || state === "archived" ? "Event ended." : "",
-      },
+      data: detailData,
     });
   } catch (err) {
     console.error(err);
