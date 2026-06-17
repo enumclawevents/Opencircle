@@ -152,6 +152,10 @@ function buildJobPayload(row, req, options = {}) {
     imageUrl: normalizeHttpUrl(row.imageUrl || ""),
     description: String(row.description || ""),
     status: String(row.status || "active"),
+    seoTitle: String(row.seoTitle || ""),
+    metaDescription: String(row.metaDescription || ""),
+    focusKeyphrase: String(row.focusKeyphrase || ""),
+    imageAlt: String(row.imageAlt || ""),
     applicationMode,
     applicationFields,
     acceptsWebsiteApplications: applicationMode === "website" || applicationMode === "both",
@@ -170,8 +174,11 @@ function buildJobPayload(row, req, options = {}) {
   const seo = buildSeoDescriptor({
     req,
     pathname: detailPath,
+    seoTitle: payload.seoTitle,
     fallbackTitle: seoDefaults.seoTitle,
+    metaDescription: payload.metaDescription,
     fallbackDescription: seoDefaults.metaDescription,
+    imageAlt: payload.imageAlt,
     fallbackImageAlt: seoDefaults.imageAlt,
     updatedAt: payload.updatedAt,
     createdAt: payload.createdAt,
@@ -220,6 +227,10 @@ async function ensureJobSchema() {
       applyUrl TEXT,
       imageUrl TEXT,
       description TEXT,
+      seoTitle TEXT,
+      metaDescription TEXT,
+      focusKeyphrase TEXT,
+      imageAlt TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       applicationMode TEXT NOT NULL DEFAULT 'external',
       applicationFieldsJson TEXT,
@@ -239,6 +250,10 @@ async function ensureJobSchema() {
   await ensureTableColumn("jobs", "applyUrl", `ALTER TABLE jobs ADD COLUMN applyUrl TEXT`);
   await ensureTableColumn("jobs", "imageUrl", `ALTER TABLE jobs ADD COLUMN imageUrl TEXT`);
   await ensureTableColumn("jobs", "description", `ALTER TABLE jobs ADD COLUMN description TEXT`);
+  await ensureTableColumn("jobs", "seoTitle", `ALTER TABLE jobs ADD COLUMN seoTitle TEXT`);
+  await ensureTableColumn("jobs", "metaDescription", `ALTER TABLE jobs ADD COLUMN metaDescription TEXT`);
+  await ensureTableColumn("jobs", "focusKeyphrase", `ALTER TABLE jobs ADD COLUMN focusKeyphrase TEXT`);
+  await ensureTableColumn("jobs", "imageAlt", `ALTER TABLE jobs ADD COLUMN imageAlt TEXT`);
   await ensureTableColumn("jobs", "status", `ALTER TABLE jobs ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
   await ensureTableColumn("jobs", "applicationMode", `ALTER TABLE jobs ADD COLUMN applicationMode TEXT NOT NULL DEFAULT 'external'`);
   await ensureTableColumn("jobs", "applicationFieldsJson", `ALTER TABLE jobs ADD COLUMN applicationFieldsJson TEXT`);
@@ -293,11 +308,13 @@ async function loadActiveJob(idOrSlug) {
   return isNumericId
     ? get(
         `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, partTime, fullTime, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+         , seoTitle, metaDescription, focusKeyphrase, imageAlt
          FROM jobs WHERE id = ? AND LOWER(COALESCE(status, 'active')) = 'active' LIMIT 1`,
         [Number(raw)]
       )
     : get(
         `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, partTime, fullTime, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+         , seoTitle, metaDescription, focusKeyphrase, imageAlt
          FROM jobs WHERE slug = ? AND LOWER(COALESCE(status, 'active')) = 'active' LIMIT 1`,
         [raw]
       );
@@ -309,11 +326,13 @@ async function loadJobByIdOrSlug(idOrSlug) {
   return isNumericId
     ? get(
         `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, partTime, fullTime, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+         , seoTitle, metaDescription, focusKeyphrase, imageAlt
          FROM jobs WHERE id = ? LIMIT 1`,
         [Number(raw)]
       )
     : get(
         `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, partTime, fullTime, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+         , seoTitle, metaDescription, focusKeyphrase, imageAlt
          FROM jobs WHERE slug = ? LIMIT 1`,
         [raw]
       );
@@ -369,6 +388,7 @@ router.get("/", async (req, res) => {
     const total = Number(countRow?.n || 0);
     const rows = await all(
       `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, partTime, fullTime, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+       , seoTitle, metaDescription, focusKeyphrase, imageAlt
        FROM jobs ${whereSql}
        ORDER BY datetime(createdAt) DESC, id DESC
        LIMIT ? OFFSET ?`,
@@ -401,7 +421,7 @@ router.get("/sitemap.xml", async (req, res) => {
     await ensureJobSchema();
 
     const rows = await all(
-      `SELECT id, slug, title, company, location, description, status, createdAt, updatedAt
+      `SELECT id, slug, title, company, location, description, status, seoTitle, metaDescription, focusKeyphrase, imageAlt, createdAt, updatedAt
          FROM jobs
         WHERE slug IS NOT NULL
           AND trim(slug) <> ''

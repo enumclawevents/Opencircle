@@ -634,6 +634,31 @@ app.post("/logout", (req, res) => clearAuthAndRedirect(req, res));
 app.get("/logout", (req, res) => clearAuthAndRedirect(req, res));
 
 app.get("/health", (req, res) => res.status(200).send("ok"));
+app.get("/robots.txt", (req, res) => {
+  const base = String(
+    process.env.PUBLIC_SITE_URL ||
+    process.env.EVENTS_SITE_URL ||
+    process.env.PUBLIC_BASE_URL ||
+    `${req.headers["x-forwarded-proto"] || req.protocol}://${req.headers["x-forwarded-host"] || req.get("host")}`
+  ).replace(/\/$/, "");
+
+  const body = [
+    "User-agent: *",
+    "Allow: /",
+    "Disallow: /admin",
+    "Disallow: /login",
+    "Disallow: /signup",
+    "Disallow: /invite",
+    "Disallow: /forgot",
+    "Disallow: /reset",
+    "",
+    `Sitemap: ${base}/sitemap.xml`,
+    "",
+  ].join("\n");
+
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  return res.status(200).send(body);
+});
 app.get("/sitemap.xml", (req, res) => {
   const base = String(
     process.env.PUBLIC_SITE_URL ||
@@ -645,6 +670,7 @@ app.get("/sitemap.xml", (req, res) => {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <sitemap><loc>${base}/events/sitemap.xml</loc></sitemap>
+  <sitemap><loc>${base}/events/sitemap-past.xml</loc></sitemap>
   <sitemap><loc>${base}/venues/sitemap.xml</loc></sitemap>
   <sitemap><loc>${base}/jobs/sitemap.xml</loc></sitemap>
 </sitemapindex>`;

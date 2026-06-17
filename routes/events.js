@@ -394,84 +394,110 @@ router.post("/feature", async (req, res) => {
   }
 });
 
-// Public sitemap for events
-router.get("/sitemap.xml", async (_req, res) => {
-  try {
-    const base = String(process.env.PUBLIC_BASE_URL || "https://enumclawevents.org").replace(/\/$/, "");
-    const info = await all("PRAGMA table_info(events)");
-    const colSet = new Set((info || []).map((r) => String(r.name)));
-    const cols = ["id", "slug", "archived"];
-    if (colSet.has("updatedAt")) cols.push("updatedAt");
-    if (colSet.has("createdAt")) cols.push("createdAt");
-    if (colSet.has("expireDate")) cols.push("expireDate");
-    if (colSet.has("startDateTime")) cols.push("startDateTime");
-    if (colSet.has("endDateTime")) cols.push("endDateTime");
-    if (colSet.has("hasRecurrence")) cols.push("hasRecurrence");
-    if (colSet.has("recurrenceRule")) cols.push("recurrenceRule");
-    if (colSet.has("recurrenceDates")) cols.push("recurrenceDates");
-    if (colSet.has("recurrenceStartDate")) cols.push("recurrenceStartDate");
-    if (colSet.has("recurrenceUntilDate")) cols.push("recurrenceUntilDate");
+async function buildEventSitemapXml(mode = "upcoming") {
+  const base = String(process.env.PUBLIC_BASE_URL || process.env.PUBLIC_SITE_URL || "https://enumclawevents.org").replace(/\/$/, "");
+  const info = await all("PRAGMA table_info(events)");
+  const colSet = new Set((info || []).map((r) => String(r.name)));
+  const cols = ["id", "slug", "archived", "multiDaySchedule"];
+  if (colSet.has("updatedAt")) cols.push("updatedAt");
+  if (colSet.has("createdAt")) cols.push("createdAt");
+  if (colSet.has("expireDate")) cols.push("expireDate");
+  if (colSet.has("startDateTime")) cols.push("startDateTime");
+  if (colSet.has("endDateTime")) cols.push("endDateTime");
+  if (colSet.has("hasRecurrence")) cols.push("hasRecurrence");
+  if (colSet.has("recurrenceRule")) cols.push("recurrenceRule");
+  if (colSet.has("recurrenceDates")) cols.push("recurrenceDates");
+  if (colSet.has("recurrenceStartDate")) cols.push("recurrenceStartDate");
+  if (colSet.has("recurrenceUntilDate")) cols.push("recurrenceUntilDate");
 
-    const rows = await all(
-      `SELECT ${cols.join(", ")}
-       FROM events
-       WHERE archived = 0
-         AND slug IS NOT NULL
-         AND trim(slug) <> ''`
-    );
+  const rows = await all(
+    `SELECT ${cols.join(", ")}
+     FROM events
+     WHERE archived = 0
+       AND slug IS NOT NULL
+       AND trim(slug) <> ''`
+  );
 
-    const nowDate = new Date().toISOString().slice(0, 10);
-    const nowTs = Date.now();
-    const windowStartUtc = nowTs - 5 * 60 * 1000;
-    const windowEndUtc = nowTs + 365 * 86400 * 1000;
-    const urls = (rows || []).map((r) => {
-      const row = normalizeRowTimes(r);
-      const slug = String(r.slug || "").trim();
-      if (!slug) return null;
-      if (colSet.has("expireDate")) {
-        const expireDate = String(r.expireDate || "").trim();
-        if (expireDate && expireDate < nowDate) return null;
+  const nowDate = new Date().toISOString().slice(0, 10);
+  const nowTs = Date.now();
+  const windowStartUtc = mode === "past"
+    ? nowTs - 3650 * 86400 * 1000
+    : nowTs - 5 * 60 * 1000;
+  const windowEndUtc = mode === "past"
+    ? nowTs + 5 * 60 * 1000
+    : nowTs + 365 * 86400 * 1000;
+
+  const urls = (rows || []).map((r) => {
+    const row = normalizeRowTimes(r);
+    const slug = String(r.slug || "").trim();
+    if (!slug) return null;
+
+    if (colSet.has("expireDate") && mode !== "past") {
+      const expireDate = String(r.expireDate || "").trim();
+      if (expireDate && expireDate < nowDate) return null;
+    }
+
+    const normalized = {
+      ...row,
+      categories: normalizeCats(row),
+      multiDaySchedule: normalizeMultiDaySchedule(row.multiDaySchedule),
+      hasRecurrence: Number(row.hasRecurrence || 0),
+      recurrenceRule: safeParseJson(row.recurrenceRule, null),
+      recurrenceDates: safeParseJson(row.recurrenceDates, []),
+      featured: readFeaturedActive(row),
+      eddiesPick: readEddiesPick(row),
+    };
+
+    let include = false;
+    if (normalized.hasRecurrence && normalized.recurrenceRule) {
+      const occurrences = generateOccurrences(normalized, windowStartUtc, windowEndUtc);
+      include = (occurrences || []).some((occurrence) => {
+        const endTs = Date.parse(String(occurrence.endDateTime || occurrence.startDateTime || ""));
+        if (!Number.isFinite(endTs)) return false;
+        return mode === "past" ? endTs < nowTs : endTs >= nowTs - 5 * 60 * 1000;
+      });
+    } else {
+      const endTs = effectiveEndTs(normalized);
+      if (Number.isFinite(endTs)) {
+        include = mode === "past" ? endTs < nowTs : endTs >= nowTs - 5 * 60 * 1000;
       }
-      if (Number(row.hasRecurrence || 0) > 0 && row.recurrenceRule) {
-        const normalized = {
-          ...row,
-          categories: normalizeCats(row),
-          multiDaySchedule: normalizeMultiDaySchedule(row.multiDaySchedule),
-          hasRecurrence: Number(row.hasRecurrence || 0),
-          recurrenceRule: safeParseJson(row.recurrenceRule, null),
-          recurrenceDates: safeParseJson(row.recurrenceDates, []),
-          featured: readFeaturedActive(row),
-          eddiesPick: readEddiesPick(row),
-        };
-        const occurrences = generateOccurrences(normalized, windowStartUtc, windowEndUtc);
-        const hasCurrentOrFutureOccurrence = (occurrences || []).some((occurrence) => {
-          const endTs = Date.parse(String(occurrence.endDateTime || occurrence.startDateTime || ""));
-          return Number.isFinite(endTs) && endTs >= windowStartUtc;
-        });
-        if (!hasCurrentOrFutureOccurrence) return null;
-      } else {
-        const endTs = effectiveEndTs(row);
-        if (!Number.isFinite(endTs) || endTs < windowStartUtc) return null;
-      }
+    }
+    if (!include) return null;
 
-      const lastmod = String(r.updatedAt || r.createdAt || "").trim();
-      const loc = `${base}/events/${encodeURIComponent(slug)}`;
-      return `
+    const lastmod = String(r.updatedAt || r.createdAt || "").trim();
+    const loc = `${base}/events/${encodeURIComponent(slug)}`;
+    return `
   <url>
     <loc>${escapeXml(loc)}</loc>
     ${lastmod ? `<lastmod>${escapeXml(lastmod)}</lastmod>` : ""}
   </url>`;
-    }).filter(Boolean);
+  }).filter(Boolean);
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.join("\n")}
 </urlset>`;
+}
 
+// Public sitemap for upcoming/current events
+router.get("/sitemap.xml", async (_req, res) => {
+  try {
+    const xml = await buildEventSitemapXml("upcoming");
     res.setHeader("Content-Type", "application/xml");
     return res.status(200).send(xml);
   } catch (err) {
     console.error("[GET /events/sitemap.xml] error:", err);
+    return res.status(500).send("Server error");
+  }
+});
+
+router.get("/sitemap-past.xml", async (_req, res) => {
+  try {
+    const xml = await buildEventSitemapXml("past");
+    res.setHeader("Content-Type", "application/xml");
+    return res.status(200).send(xml);
+  } catch (err) {
+    console.error("[GET /events/sitemap-past.xml] error:", err);
     return res.status(500).send("Server error");
   }
 });
@@ -1494,7 +1520,7 @@ router.get("/past", async (req, res) => {
     }
 
     let rows = await all(
-      `SELECT title, slug, startDateTime, endDateTime, location, imageUrl, archived
+      `SELECT *
        FROM events
        WHERE LOWER(city) = LOWER(?)
          AND COALESCE(archived, 0) = 0
@@ -1502,25 +1528,42 @@ router.get("/past", async (req, res) => {
       [city]
     );
 
-    rows = (rows || [])
-      .map((r) => normalizeRowTimes(r))
-      .filter((r) => {
-        if (!String(r.slug || "").trim()) return false;
-        const endTs = effectiveEndTs(r);
-        return Number.isFinite(endTs) && endTs < nowTs;
-      })
+    rows = (rows || []).map((r) => normalizeRowTimes(r));
+
+    const windowStartUtc = nowTs - 3650 * 86400 * 1000;
+    const windowEndUtc = nowTs + 5 * 60 * 1000;
+    let expanded = [];
+    for (const row of rows) {
+      const normalized = {
+        ...row,
+        categories: normalizeCats(row),
+        multiDaySchedule: normalizeMultiDaySchedule(row.multiDaySchedule),
+        hasRecurrence: Number(row.hasRecurrence || 0),
+        recurrenceRule: safeParseJson(row.recurrenceRule, null),
+        recurrenceDates: safeParseJson(row.recurrenceDates, []),
+        featured: readFeaturedActive(row),
+        eddiesPick: readEddiesPick(row),
+      };
+      expanded.push(...expandEventIntoFeedItems(normalized, windowStartUtc, windowEndUtc));
+    }
+
+    expanded = expanded
+      .filter((r) => String(r.slug || "").trim())
+      .filter((r) => matchesLifecycleStatus(r, "past", nowTs))
       .sort((a, b) => effectiveEndTs(b) - effectiveEndTs(a));
 
-    const total = rows.length;
+    const total = expanded.length;
     const pages = Math.max(1, Math.ceil(total / PAST_EVENTS_LIMIT));
     const boundedPage = Math.min(page, pages);
     const offset = (boundedPage - 1) * PAST_EVENTS_LIMIT;
-    const data = rows.slice(offset, offset + PAST_EVENTS_LIMIT).map((r) => ({
+    const data = expanded.slice(offset, offset + PAST_EVENTS_LIMIT).map((r) => ({
       title: String(r.title || ""),
       slug: String(r.slug || ""),
       startDateTime: r.startDateTime || null,
+      endDateTime: r.endDateTime || null,
       location: String(r.location || ""),
       imageUrl: r.imageUrl || null,
+      isOccurrence: Boolean(r.isOccurrence),
     }));
 
     const payload = {

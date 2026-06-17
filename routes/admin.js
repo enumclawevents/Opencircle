@@ -308,6 +308,39 @@ function buildBasicEventSeoFields(input = {}) {
   };
 }
 
+function buildBasicJobSeoFields(input = {}) {
+  const title = String(input.title || "").replace(/\s+/g, " ").trim();
+  const company = String(input.company || "").replace(/\s+/g, " ").trim();
+  const location = String(input.location || "").replace(/\s+/g, " ").trim();
+  const description = truncatePlainText(stripHtml(input.description || ""), 160);
+
+  const seoTitleBase = [title, company].filter(Boolean).join(" | ");
+  const seoTitle = truncatePlainText(seoTitleBase || title, 60);
+
+  let metaDescription = description;
+  if (!metaDescription) {
+    metaDescription = truncatePlainText(
+      [title, company ? `at ${company}` : "", location || ""]
+        .filter(Boolean)
+        .join(" "),
+      160
+    );
+  }
+
+  return {
+    seoTitle,
+    metaDescription,
+    focusKeyphrase: truncatePlainText([title, company].filter(Boolean).join(" "), 100),
+    imageAlt: truncatePlainText([title, company].filter(Boolean).join(" "), 120),
+  };
+}
+
+function resolveSeoFieldValue(manualValue, generatedValue) {
+  const manual = String(manualValue || "").trim();
+  if (manual) return manual;
+  return String(generatedValue || "").trim();
+}
+
 function mapCategoriesFromJson(input) {
   const map = {
     family: "Family & Kids",
@@ -1399,6 +1432,10 @@ async function ensureJobSchema() {
       applyUrl TEXT,
       imageUrl TEXT,
       description TEXT,
+      seoTitle TEXT,
+      metaDescription TEXT,
+      focusKeyphrase TEXT,
+      imageAlt TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       viewCount INTEGER NOT NULL DEFAULT 0,
       createdByUserId INTEGER,
@@ -1422,6 +1459,10 @@ async function ensureJobSchema() {
   if (!cols.has("applyUrl")) await run(`ALTER TABLE jobs ADD COLUMN applyUrl TEXT`);
   if (!cols.has("imageUrl")) await run(`ALTER TABLE jobs ADD COLUMN imageUrl TEXT`);
   if (!cols.has("description")) await run(`ALTER TABLE jobs ADD COLUMN description TEXT`);
+  if (!cols.has("seoTitle")) await run(`ALTER TABLE jobs ADD COLUMN seoTitle TEXT`);
+  if (!cols.has("metaDescription")) await run(`ALTER TABLE jobs ADD COLUMN metaDescription TEXT`);
+  if (!cols.has("focusKeyphrase")) await run(`ALTER TABLE jobs ADD COLUMN focusKeyphrase TEXT`);
+  if (!cols.has("imageAlt")) await run(`ALTER TABLE jobs ADD COLUMN imageAlt TEXT`);
   if (!cols.has("status")) await run(`ALTER TABLE jobs ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
   if (!cols.has("applicationMode")) await run(`ALTER TABLE jobs ADD COLUMN applicationMode TEXT NOT NULL DEFAULT 'external'`);
   if (!cols.has("applicationFieldsJson")) await run(`ALTER TABLE jobs ADD COLUMN applicationFieldsJson TEXT`);
@@ -11350,6 +11391,33 @@ return `
               <div class="card" style="margin-top:14px; padding:16px;">
                 <div class="sectionTitle" style="margin-bottom:8px;">
                   <div>
+                    <h2 style="font-size:18px;">SEO</h2>
+                    <p class="sub">Optional overrides for search and social previews.</p>
+                  </div>
+                </div>
+                <label>SEO Title</label>
+                <input class="ctrl" name="seoTitle" value="${esc(editJob?.seoTitle || "")}" />
+                <div class="note">Recommended ~50-60 characters.</div>
+
+                <label>Meta Description</label>
+                <textarea class="ctrl" name="metaDescription" rows="3">${esc(editJob?.metaDescription || "")}</textarea>
+                <div class="note">Recommended ~140-160 characters.</div>
+
+                <div class="rec-grid" style="margin-top:10px;">
+                  <div>
+                    <label style="margin-top:0;">Focus Keyphrase</label>
+                    <input class="ctrl" name="focusKeyphrase" value="${esc(editJob?.focusKeyphrase || "")}" />
+                  </div>
+                  <div>
+                    <label style="margin-top:0;">Image Alt Text</label>
+                    <input class="ctrl" name="imageAlt" value="${esc(editJob?.imageAlt || "")}" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="card" style="margin-top:14px; padding:16px;">
+                <div class="sectionTitle" style="margin-bottom:8px;">
+                  <div>
                     <h2 style="font-size:18px;">Website application fields</h2>
                     <p class="sub">Choose which fields are shown if this job accepts applications on your website.</p>
                   </div>
@@ -15091,6 +15159,10 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
     const applicationMode = normalizeJobApplicationMode(req.body?.applicationMode || "external");
     const applyUrl = normalizeHttpUrl(req.body?.applyUrl || "");
     const description = String(req.body?.description || "").trim();
+    const seoTitle = String(req.body?.seoTitle || "").trim();
+    const metaDescription = String(req.body?.metaDescription || "").trim();
+    const focusKeyphrase = String(req.body?.focusKeyphrase || "").trim();
+    const imageAlt = String(req.body?.imageAlt || "").trim();
     const statusRaw = String(req.body?.status || "active").trim().toLowerCase();
     const status = ["active", "paused", "filled"].includes(statusRaw) ? statusRaw : "active";
     const applicationFields = normalizeJobApplicationFields(
@@ -15110,6 +15182,8 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
       imageUrl = await persistUploadedImage(imageFile, req);
     }
 
+    const autoSeoFields = buildBasicJobSeoFields({ title, company, location, description });
+
     const baseSlug = slugify(`${title}-${company}`);
     const slug = await ensureUniqueJobSlug(baseSlug, isUpdate ? id : null);
 
@@ -15121,15 +15195,15 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
       }
       await run(
         `UPDATE jobs
-            SET city = ?, slug = ?, title = ?, company = ?, location = ?, employmentType = ?, employmentTypesJson = ?, salaryRange = ?, applyUrl = ?, imageUrl = ?, description = ?, status = ?, applicationMode = ?, applicationFieldsJson = ?, createdByUserId = COALESCE(createdByUserId, ?), updatedAt = datetime('now')
+            SET city = ?, slug = ?, title = ?, company = ?, location = ?, employmentType = ?, employmentTypesJson = ?, salaryRange = ?, applyUrl = ?, imageUrl = ?, description = ?, seoTitle = ?, metaDescription = ?, focusKeyphrase = ?, imageAlt = ?, status = ?, applicationMode = ?, applicationFieldsJson = ?, createdByUserId = COALESCE(createdByUserId, ?), updatedAt = datetime('now')
           WHERE id = ?`,
-        [city, slug, title, company || null, location || null, employmentType || null, employmentTypesJson, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson, sessionUser?.id || null, id]
+        [city, slug, title, company || null, location || null, employmentType || null, employmentTypesJson, salaryRange || null, applyUrl || null, imageUrl || null, description || null, resolveSeoFieldValue(seoTitle, autoSeoFields?.seoTitle), resolveSeoFieldValue(metaDescription, autoSeoFields?.metaDescription), resolveSeoFieldValue(focusKeyphrase, autoSeoFields?.focusKeyphrase), resolveSeoFieldValue(imageAlt, autoSeoFields?.imageAlt), status, applicationMode, applicationFieldsJson, sessionUser?.id || null, id]
       );
     } else {
       await run(
-        `INSERT INTO jobs (city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, createdByUserId)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [city, slug, title, company || null, location || null, employmentType || null, employmentTypesJson, salaryRange || null, applyUrl || null, imageUrl || null, description || null, status, applicationMode, applicationFieldsJson, sessionUser?.id || null]
+        `INSERT INTO jobs (city, slug, title, company, location, employmentType, employmentTypesJson, salaryRange, applyUrl, imageUrl, description, seoTitle, metaDescription, focusKeyphrase, imageAlt, status, applicationMode, applicationFieldsJson, createdByUserId)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [city, slug, title, company || null, location || null, employmentType || null, employmentTypesJson, salaryRange || null, applyUrl || null, imageUrl || null, description || null, resolveSeoFieldValue(seoTitle, autoSeoFields?.seoTitle), resolveSeoFieldValue(metaDescription, autoSeoFields?.metaDescription), resolveSeoFieldValue(focusKeyphrase, autoSeoFields?.focusKeyphrase), resolveSeoFieldValue(imageAlt, autoSeoFields?.imageAlt), status, applicationMode, applicationFieldsJson, sessionUser?.id || null]
       );
     }
 
@@ -15460,10 +15534,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
           imageUrl,
           ticketUrl,
           ticketLabel: finalTicketLabel,
-          seoTitle: String((autoSeoFields?.seoTitle ?? seoTitle) || ""),
-          metaDescription: String((autoSeoFields?.metaDescription ?? metaDescription) || ""),
-          focusKeyphrase: String((autoSeoFields?.focusKeyphrase ?? focusKeyphrase) || ""),
-          imageAlt: String((autoSeoFields?.imageAlt ?? imageAlt) || ""),
+          seoTitle: resolveSeoFieldValue(seoTitle, autoSeoFields?.seoTitle),
+          metaDescription: resolveSeoFieldValue(metaDescription, autoSeoFields?.metaDescription),
+          focusKeyphrase: resolveSeoFieldValue(focusKeyphrase, autoSeoFields?.focusKeyphrase),
+          imageAlt: resolveSeoFieldValue(imageAlt, autoSeoFields?.imageAlt),
           categories: Array.isArray(categories) ? categories : normalizeCategories(categories),
           featured: featuredFlag ? "1" : "0",
           eddiesPick: eddiesPickFlag ? "1" : "0",
@@ -15668,10 +15742,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["description", description],
       ["eventDetails", eventDetails || ""],
       ["goodToKnow", goodToKnow || ""],
-      ["seoTitle", String((autoSeoFields?.seoTitle ?? seoTitle) || "")],
-      ["metaDescription", String((autoSeoFields?.metaDescription ?? metaDescription) || "")],
-      ["focusKeyphrase", String((autoSeoFields?.focusKeyphrase ?? focusKeyphrase) || "")],
-      ["imageAlt", String((autoSeoFields?.imageAlt ?? imageAlt) || "")],
+      ["seoTitle", resolveSeoFieldValue(seoTitle, autoSeoFields?.seoTitle)],
+      ["metaDescription", resolveSeoFieldValue(metaDescription, autoSeoFields?.metaDescription)],
+      ["focusKeyphrase", resolveSeoFieldValue(focusKeyphrase, autoSeoFields?.focusKeyphrase)],
+      ["imageAlt", resolveSeoFieldValue(imageAlt, autoSeoFields?.imageAlt)],
       ["startDateTime", startDateTime],
       ["endDateTime", endDateTime],
       ["multiDaySchedule", multiDayScheduleJson],
@@ -15998,10 +16072,10 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
           ["description", description],
           ["eventDetails", eventDetails || ""],
           ["goodToKnow", goodToKnow || ""],
-          ["seoTitle", String((autoSeoFields?.seoTitle ?? seoTitle) || "")],
-          ["metaDescription", String((autoSeoFields?.metaDescription ?? metaDescription) || "")],
-          ["focusKeyphrase", String((autoSeoFields?.focusKeyphrase ?? focusKeyphrase) || "")],
-          ["imageAlt", String((autoSeoFields?.imageAlt ?? imageAlt) || "")],
+          ["seoTitle", resolveSeoFieldValue(seoTitle, autoSeoFields?.seoTitle)],
+          ["metaDescription", resolveSeoFieldValue(metaDescription, autoSeoFields?.metaDescription)],
+          ["focusKeyphrase", resolveSeoFieldValue(focusKeyphrase, autoSeoFields?.focusKeyphrase)],
+          ["imageAlt", resolveSeoFieldValue(imageAlt, autoSeoFields?.imageAlt)],
           ["startDateTime", startDateTime],
           ["endDateTime", endDateTime],
           ["location", location],
