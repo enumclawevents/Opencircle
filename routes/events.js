@@ -6,6 +6,11 @@ const { all, get, run } = require("../db");
 const crypto = require("crypto");
 const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const { safeParseJson } = require("../lib/json");
+const {
+  buildEventStructuredData,
+  buildSeoDescriptor,
+  deriveEventSeoFields,
+} = require("../lib/public-seo");
 const PAST_EVENTS_LIMIT = 24;
 const PAST_EVENTS_CACHE_MS = 5 * 60 * 1000;
 const pastEventsCache = new Map();
@@ -395,11 +400,17 @@ router.get("/sitemap.xml", async (_req, res) => {
     const base = String(process.env.PUBLIC_BASE_URL || "https://enumclawevents.org").replace(/\/$/, "");
     const info = await all("PRAGMA table_info(events)");
     const colSet = new Set((info || []).map((r) => String(r.name)));
-    const cols = ["slug"];
+    const cols = ["id", "slug", "archived"];
     if (colSet.has("updatedAt")) cols.push("updatedAt");
     if (colSet.has("createdAt")) cols.push("createdAt");
     if (colSet.has("expireDate")) cols.push("expireDate");
     if (colSet.has("startDateTime")) cols.push("startDateTime");
+    if (colSet.has("endDateTime")) cols.push("endDateTime");
+    if (colSet.has("hasRecurrence")) cols.push("hasRecurrence");
+    if (colSet.has("recurrenceRule")) cols.push("recurrenceRule");
+    if (colSet.has("recurrenceDates")) cols.push("recurrenceDates");
+    if (colSet.has("recurrenceStartDate")) cols.push("recurrenceStartDate");
+    if (colSet.has("recurrenceUntilDate")) cols.push("recurrenceUntilDate");
 
     const rows = await all(
       `SELECT ${cols.join(", ")}
@@ -410,12 +421,37 @@ router.get("/sitemap.xml", async (_req, res) => {
     );
 
     const nowDate = new Date().toISOString().slice(0, 10);
+    const nowTs = Date.now();
+    const windowStartUtc = nowTs - 5 * 60 * 1000;
+    const windowEndUtc = nowTs + 365 * 86400 * 1000;
     const urls = (rows || []).map((r) => {
+      const row = normalizeRowTimes(r);
       const slug = String(r.slug || "").trim();
       if (!slug) return null;
       if (colSet.has("expireDate")) {
         const expireDate = String(r.expireDate || "").trim();
         if (expireDate && expireDate < nowDate) return null;
+      }
+      if (Number(row.hasRecurrence || 0) > 0 && row.recurrenceRule) {
+        const normalized = {
+          ...row,
+          categories: normalizeCats(row),
+          multiDaySchedule: normalizeMultiDaySchedule(row.multiDaySchedule),
+          hasRecurrence: Number(row.hasRecurrence || 0),
+          recurrenceRule: safeParseJson(row.recurrenceRule, null),
+          recurrenceDates: safeParseJson(row.recurrenceDates, []),
+          featured: readFeaturedActive(row),
+          eddiesPick: readEddiesPick(row),
+        };
+        const occurrences = generateOccurrences(normalized, windowStartUtc, windowEndUtc);
+        const hasCurrentOrFutureOccurrence = (occurrences || []).some((occurrence) => {
+          const endTs = Date.parse(String(occurrence.endDateTime || occurrence.startDateTime || ""));
+          return Number.isFinite(endTs) && endTs >= windowStartUtc;
+        });
+        if (!hasCurrentOrFutureOccurrence) return null;
+      } else {
+        const endTs = effectiveEndTs(row);
+        if (!Number.isFinite(endTs) || endTs < windowStartUtc) return null;
       }
 
       const lastmod = String(r.updatedAt || r.createdAt || "").trim();
@@ -1135,6 +1171,45 @@ function matchesLifecycleStatus(item, status, nowTs) {
   return endTs >= nowTs;
 }
 
+function getEventDetailPath(item) {
+  const key = String(item?.slug || item?.id || "").trim();
+  return `/events/${encodeURIComponent(key)}`;
+}
+
+function enrichEventDetailForSeo(req, detailData) {
+  const seoDefaults = deriveEventSeoFields(detailData);
+  const seo = buildSeoDescriptor({
+    req,
+    pathname: getEventDetailPath(detailData),
+    seoTitle: detailData.seoTitle,
+    fallbackTitle: seoDefaults.seoTitle,
+    metaDescription: detailData.metaDescription,
+    fallbackDescription: seoDefaults.metaDescription,
+    imageAlt: detailData.imageAlt,
+    fallbackImageAlt: seoDefaults.imageAlt,
+    updatedAt: detailData.updatedAt,
+    createdAt: detailData.createdAt,
+    indexable: detailData.status !== "archived",
+    robots: detailData.status === "archived" ? "noindex,nofollow" : "index,follow",
+  });
+
+  return {
+    ...detailData,
+    ...seo,
+    structuredData: buildEventStructuredData({
+      url: seo.publicUrl,
+      name: detailData.title,
+      description: detailData.description,
+      startDateTime: detailData.startDateTime,
+      endDateTime: detailData.endDateTime,
+      imageUrl: detailData.imageUrl,
+      locationName: detailData.location,
+      organizerName: detailData.organizer,
+      isScheduled: detailData.status === "upcoming",
+    }),
+  };
+}
+
 function pickRecurringDisplayOccurrence(occurrences, nowTs) {
   const list = Array.isArray(occurrences) ? occurrences : [];
   let active = null;
@@ -1544,7 +1619,7 @@ router.get("/slug/:slug", async (req, res) => {
     }
 
     res.json({
-      data: detailData,
+      data: enrichEventDetailForSeo(req, detailData),
     });
   } catch (err) {
     console.error(err);
@@ -1966,7 +2041,7 @@ router.get("/:idOrSlug", async (req, res) => {
     }
 
     res.json({
-      data: detailData,
+      data: enrichEventDetailForSeo(req, detailData),
     });
   } catch (err) {
     console.error(err);

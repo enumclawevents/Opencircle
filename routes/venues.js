@@ -4,6 +4,12 @@ const express = require("express");
 const router = express.Router();
 const { all, get, run } = require("../db");
 const { safeParseJson } = require("../lib/json");
+const {
+  buildSeoDescriptor,
+  buildVenueStructuredData,
+  deriveVenueSeoFields,
+} = require("../lib/public-seo");
+const { shouldTrackPublicView } = require("../lib/public-traffic");
 
 let _schemaEnsured = false;
 let _colsCache = null;
@@ -22,6 +28,15 @@ function normalizeVenueCategories(input) {
     out.push(v);
   }
   return out;
+}
+
+function escapeXml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function normalizeGalleryImages(input, max = 3) {
@@ -180,6 +195,42 @@ function mapVenueRow(r) {
   };
 }
 
+function getVenueDetailPath(venue) {
+  const key = String(venue?.slug || venue?.id || "").trim();
+  return `/venues/${encodeURIComponent(key)}`;
+}
+
+function enrichVenueForSeo(req, venue) {
+  const seoDefaults = deriveVenueSeoFields(venue);
+  const seo = buildSeoDescriptor({
+    req,
+    pathname: getVenueDetailPath(venue),
+    seoTitle: venue.seoTitle,
+    fallbackTitle: seoDefaults.seoTitle,
+    metaDescription: venue.metaDescription,
+    fallbackDescription: seoDefaults.metaDescription,
+    imageAlt: venue.imageAlt,
+    fallbackImageAlt: seoDefaults.imageAlt,
+    updatedAt: venue.updatedAt,
+    createdAt: venue.createdAt,
+    indexable: true,
+  });
+
+  return {
+    ...venue,
+    ...seo,
+    structuredData: buildVenueStructuredData({
+      url: seo.publicUrl,
+      name: venue.name,
+      description: venue.description,
+      imageUrl: venue.imageUrl,
+      phone: venue.phone,
+      address: venue.address,
+      website: venue.website,
+    }),
+  };
+}
+
 async function incrementVenueCounter(venueId, field) {
   const id = Number(venueId || 0);
   if (!Number.isInteger(id) || id <= 0) return;
@@ -210,6 +261,11 @@ async function incrementVenueCounter(venueId, field) {
 
 async function incrementVenueView(venueId) {
   await incrementVenueCounter(venueId, "viewCount");
+}
+
+function getVenueSitemapPath(venue) {
+  const key = String(venue?.slug || venue?.id || "").trim();
+  return `/venues/${encodeURIComponent(key)}`;
 }
 
 async function getVenueRowByIdOrSlug(idOrSlug) {
@@ -746,6 +802,47 @@ router.get("/resolve", async (req, res) => {
   }
 });
 
+router.get("/sitemap.xml", async (req, res) => {
+  try {
+    await ensureVenueSchema();
+
+    const rows = await all(
+      `SELECT id, slug, updatedAt, createdAt
+         FROM venues
+        WHERE slug IS NOT NULL
+          AND trim(slug) <> ''
+        ORDER BY datetime(COALESCE(updatedAt, createdAt, datetime('now'))) DESC`
+    );
+
+    const entries = (rows || []).map((row) => {
+      const venue = mapVenueRow(row);
+      const loc = buildSeoDescriptor({
+        req,
+        pathname: getVenueSitemapPath(venue),
+        fallbackTitle: venue.name,
+        fallbackDescription: venue.description,
+        updatedAt: row.updatedAt,
+        createdAt: row.createdAt,
+      }).publicUrl;
+      const lastmod = row.updatedAt || row.createdAt || "";
+      return `
+  <url>
+    <loc>${escapeXml(loc)}</loc>
+    ${lastmod ? `<lastmod>${escapeXml(lastmod)}</lastmod>` : ""}
+  </url>`;
+    }).join("\n");
+
+    res.setHeader("Content-Type", "application/xml");
+    return res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${entries}
+</urlset>`);
+  } catch (err) {
+    console.error("[/venues/sitemap.xml] error:", err && err.stack ? err.stack : err);
+    return res.status(500).send("Server error");
+  }
+});
+
 router.get("/slug/:slug", async (req, res) => {
   try {
     await ensureVenueSchema();
@@ -756,7 +853,7 @@ router.get("/slug/:slug", async (req, res) => {
     const row = await get("SELECT * FROM venues WHERE LOWER(slug) = LOWER(?) LIMIT 1", [slug]);
     if (!row) return res.status(404).json({ error: "Venue not found" });
 
-    const shouldTrack = String(req.query.track || "1") !== "0";
+    const shouldTrack = shouldTrackPublicView(req);
     if (shouldTrack) {
       await incrementVenueView(row.id);
       row.viewCount = Number(row.viewCount || 0) + 1;
@@ -766,7 +863,7 @@ router.get("/slug/:slug", async (req, res) => {
     const upcomingLimit = Math.max(1, Math.min(24, parseInt(String(req.query.upcomingLimit || "12"), 10) || 12));
     venue.upcomingEvents = await getUpcomingEventsForVenue(venue, upcomingLimit);
 
-    return res.json({ data: venue });
+    return res.json({ data: enrichVenueForSeo(req, venue) });
   } catch (err) {
     console.error("[/venues/slug/:slug] error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ error: "Server error" });
@@ -846,7 +943,7 @@ router.get("/:idOrSlug", async (req, res) => {
 
     if (!row) return res.status(404).json({ error: "Venue not found" });
 
-    const shouldTrack = String(req.query.track || "1") !== "0";
+    const shouldTrack = shouldTrackPublicView(req);
     if (shouldTrack) {
       await incrementVenueView(row.id);
       row.viewCount = Number(row.viewCount || 0) + 1;
@@ -856,9 +953,24 @@ router.get("/:idOrSlug", async (req, res) => {
     const upcomingLimit = Math.max(1, Math.min(24, parseInt(String(req.query.upcomingLimit || "12"), 10) || 12));
     venue.upcomingEvents = await getUpcomingEventsForVenue(venue, upcomingLimit);
 
-    return res.json({ data: venue });
+    return res.json({ data: enrichVenueForSeo(req, venue) });
   } catch (err) {
     console.error("[/venues/:idOrSlug] error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.post("/:idOrSlug/view", async (req, res) => {
+  try {
+    await ensureVenueSchema();
+
+    const row = await getVenueRowByIdOrSlug(req.params.idOrSlug);
+    if (!row) return res.status(404).json({ error: "Venue not found" });
+
+    await incrementVenueView(row.id);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("[/venues/:idOrSlug/view] error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ error: "Server error" });
   }
 });

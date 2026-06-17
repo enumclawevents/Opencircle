@@ -15,6 +15,12 @@ const {
   normalizeJobApplicationMode,
   normalizeJobEmploymentTypes,
 } = require("../lib/job-utils");
+const {
+  buildJobStructuredData,
+  buildSeoDescriptor,
+  deriveJobSeoFields,
+} = require("../lib/public-seo");
+const { shouldTrackPublicView } = require("../lib/public-traffic");
 
 const router = express.Router();
 
@@ -114,7 +120,16 @@ function getBaseUrl(req) {
   return `${proto}://${host}`;
 }
 
-function buildJobPayload(row, req) {
+function escapeXml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function buildJobPayload(row, req, options = {}) {
   if (!row) return null;
 
   const baseUrl = getBaseUrl(req);
@@ -122,8 +137,8 @@ function buildJobPayload(row, req) {
   const applicationFields = normalizeJobApplicationFields(safeParseJson(row.applicationFieldsJson, null));
   const employmentTypes = getCanonicalEmploymentTypes(row);
   const jobKey = encodeURIComponent(row.slug || row.id);
-
-  return {
+  const detailPath = `/jobs/${jobKey}`;
+  const payload = {
     id: Number(row.id),
     city: String(row.city || ""),
     slug: String(row.slug || ""),
@@ -147,6 +162,38 @@ function buildJobPayload(row, req) {
     createdAt: row.createdAt || null,
     updatedAt: row.updatedAt || null,
     jsonUrl: `${baseUrl}/jobs/${jobKey}`
+  };
+
+  if (!options.includeSeo) return payload;
+
+  const seoDefaults = deriveJobSeoFields(payload);
+  const seo = buildSeoDescriptor({
+    req,
+    pathname: detailPath,
+    fallbackTitle: seoDefaults.seoTitle,
+    fallbackDescription: seoDefaults.metaDescription,
+    fallbackImageAlt: seoDefaults.imageAlt,
+    updatedAt: payload.updatedAt,
+    createdAt: payload.createdAt,
+    indexable: String(payload.status || "").toLowerCase() === "active",
+  });
+
+  return {
+    ...payload,
+    ...seo,
+    structuredData: options.includeStructuredData
+      ? buildJobStructuredData({
+          url: seo.publicUrl,
+          title: payload.title,
+          description: payload.description,
+          company: payload.company,
+          location: payload.location,
+          employmentType: payload.employmentType,
+          createdAt: payload.createdAt,
+          updatedAt: payload.updatedAt,
+          applyUrl: payload.applyUrl,
+        })
+      : undefined,
   };
 }
 
@@ -256,6 +303,22 @@ async function loadActiveJob(idOrSlug) {
       );
 }
 
+async function loadJobByIdOrSlug(idOrSlug) {
+  const raw = String(idOrSlug || "").trim();
+  const isNumericId = /^\d+$/.test(raw);
+  return isNumericId
+    ? get(
+        `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, partTime, fullTime, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+         FROM jobs WHERE id = ? LIMIT 1`,
+        [Number(raw)]
+      )
+    : get(
+        `SELECT id, city, slug, title, company, location, employmentType, employmentTypesJson, partTime, fullTime, salaryRange, applyUrl, imageUrl, description, status, applicationMode, applicationFieldsJson, viewCount, createdAt, updatedAt
+         FROM jobs WHERE slug = ? LIMIT 1`,
+        [raw]
+      );
+}
+
 function trimBodyField(body, key, lower = false) {
   const value = String(body?.[key] || "").trim();
   return lower ? value.toLowerCase() : value;
@@ -333,6 +396,39 @@ router.get("/", async (req, res) => {
   }
 });
 
+router.get("/sitemap.xml", async (req, res) => {
+  try {
+    await ensureJobSchema();
+
+    const rows = await all(
+      `SELECT id, slug, title, company, location, description, status, createdAt, updatedAt
+         FROM jobs
+        WHERE slug IS NOT NULL
+          AND trim(slug) <> ''
+          AND LOWER(COALESCE(status, 'active')) = 'active'
+        ORDER BY datetime(COALESCE(updatedAt, createdAt, datetime('now'))) DESC`
+    );
+
+    const entries = (rows || []).map((row) => {
+      const payload = buildJobPayload(row, req, { includeSeo: true, includeStructuredData: false });
+      return `
+  <url>
+    <loc>${escapeXml(payload.publicUrl)}</loc>
+    ${payload.lastModified ? `<lastmod>${escapeXml(payload.lastModified)}</lastmod>` : ""}
+  </url>`;
+    }).join("\n");
+
+    res.setHeader("Content-Type", "application/xml");
+    return res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${entries}
+</urlset>`);
+  } catch (err) {
+    console.error("[/jobs/sitemap.xml] error:", err && err.stack ? err.stack : err);
+    return res.status(500).send("Server error");
+  }
+});
+
 router.get("/:idOrSlug", async (req, res) => {
   try {
     await ensureJobSchema();
@@ -340,14 +436,34 @@ router.get("/:idOrSlug", async (req, res) => {
     const row = await loadActiveJob(req.params.idOrSlug);
     if (!row) return res.status(404).json({ ok: false, error: "Job not found." });
 
-    await run("UPDATE jobs SET viewCount = COALESCE(viewCount, 0) + 1, updatedAt = datetime('now') WHERE id = ?", [row.id]);
-    row.viewCount = Number(row.viewCount || 0) + 1;
-    row.updatedAt = new Date().toISOString();
+    if (shouldTrackPublicView(req)) {
+      await run("UPDATE jobs SET viewCount = COALESCE(viewCount, 0) + 1, updatedAt = datetime('now') WHERE id = ?", [row.id]);
+      row.viewCount = Number(row.viewCount || 0) + 1;
+      row.updatedAt = new Date().toISOString();
+    }
 
-    return res.json({ ok: true, data: buildJobPayload(row, req) });
+    return res.json({
+      ok: true,
+      data: buildJobPayload(row, req, { includeSeo: true, includeStructuredData: true }),
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ ok: false, error: "Failed to load job." });
+  }
+});
+
+router.post("/:idOrSlug/view", async (req, res) => {
+  try {
+    await ensureJobSchema();
+
+    const row = await loadJobByIdOrSlug(req.params.idOrSlug);
+    if (!row) return res.status(404).json({ ok: false, error: "Job not found." });
+
+    await run("UPDATE jobs SET viewCount = COALESCE(viewCount, 0) + 1, updatedAt = datetime('now') WHERE id = ?", [row.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("[/jobs/:idOrSlug/view] error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ ok: false, error: "Failed to track job view." });
   }
 });
 
