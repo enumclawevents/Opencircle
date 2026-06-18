@@ -10875,6 +10875,9 @@ return `
 	                <h2>${isOrganizerUser ? "My events" : "All events"}</h2>
 	                <p class="sub">${isOrganizerUser ? "Manage and review your organizer events" : "Edit, delete, and check stats"}</p>
 	              </div>
+                <div class="right">
+                  <a class="btn btn-primary" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
+                </div>
 	            </div>
 
 	            <div class="eventsFilters">
@@ -11107,6 +11110,9 @@ return `
               <div>
                 <h2>All venues</h2>
                 <p class="sub">Search, edit, and manage venues</p>
+              </div>
+              <div class="right">
+                <a class="btn btn-primary" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
               </div>
             </div>
 
@@ -11463,6 +11469,7 @@ return `
                 <p class="sub">Search, edit, and manage local job listings</p>
               </div>
               <div class="right">
+                <a class="btn btn-primary" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
                 <a class="btn" href="/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" target="_blank" rel="noopener">View JSON</a>
               </div>
             </div>
@@ -11775,6 +11782,9 @@ return `
               <div>
                 <h2>All ads</h2>
                 <p class="sub">Search, edit, and manage rotating ad inventory</p>
+              </div>
+              <div class="right">
+                <a class="btn btn-primary" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ad</a>
               </div>
             </div>
 
