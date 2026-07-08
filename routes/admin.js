@@ -1987,6 +1987,11 @@ function stringifyOrganizerPermissions(value, fallback = DEFAULT_ORGANIZER_PERMI
   return JSON.stringify(payload);
 }
 
+function isCheckedValue(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes";
+}
+
 function getUserSectionPermissions(user) {
   if (isDeveloperRole(user?.role)) {
     return { events: true, venues: true, jobs: true, ads: true, featureEvents: true };
@@ -4883,6 +4888,8 @@ return `
       const noticeHtml =
         notice === "sent"
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(16,185,129,.35); color:#065f46;">Invite email sent.</div>`
+          : notice === "saved"
+          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(16,185,129,.35); color:#065f46;">User permissions updated.</div>`
           : notice === "no_email"
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">User has no email on file.</div>`
           : notice === "email_taken"
@@ -5067,7 +5074,7 @@ return `
               const statusTone = u.lastSeenAt ? "Active" : "Inactive";
               const statusColor = u.lastSeenAt ? "#22c55e" : "#ef4444";
               const accessSummary = normalizedUserRole === "organizer"
-                ? ["Events", userPerms.venues ? "Venues" : "", userPerms.jobs ? "Jobs" : "", userPerms.ads ? "Ads" : "", userPerms.featureEvents ? "Feature Events" : ""].filter(Boolean).join(", ")
+                ? [userPerms.events ? "Events" : "", userPerms.venues ? "Venues" : "", userPerms.jobs ? "Jobs" : "", userPerms.ads ? "Ads" : "", userPerms.featureEvents ? "Feature Events" : ""].filter(Boolean).join(", ")
                 : "Full";
               return `
                 <div class="users-row">
@@ -5126,9 +5133,6 @@ return `
                                 </div>
                                 <div class="note" style="margin-top:8px;">Users can work in every checked area. The first checked area remains their primary legacy area.</div>
                               </div>
-                              <div style="display:flex; justify-content:flex-end;">
-                                <button class="btn" type="submit" style="min-width:140px;">Update</button>
-                              </div>
                               <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
                                 <div class="users-modal-label">Section access</div>
                                 <div class="users-modal-card" style="padding:14px 16px;">
@@ -5141,6 +5145,9 @@ return `
                                     `).join("")}
                                   </div>
                                 </div>
+                              </div>
+                              <div style="display:flex; justify-content:flex-end;">
+                                <button class="btn" type="submit" style="min-width:140px;">Update</button>
                               </div>
                             </form>
                           </div>
@@ -14866,23 +14873,26 @@ router.post("/users/:id/role", async (req, res) => {
         return res.redirect("/admin/users?notice=email_taken");
       }
     }
-    const existingUser = await get("SELECT permissionsJson FROM users WHERE id = ? LIMIT 1", [id]);
+    const existingUser = await get("SELECT id, permissionsJson FROM users WHERE id = ? LIMIT 1", [id]);
+    if (!existingUser?.id) {
+      return res.redirect("/admin/users");
+    }
     const permissionsJson = stringifyOrganizerPermissions({
       ...(parsePermissionsObject(existingUser?.permissionsJson) || {}),
       ...(newRole === "organizer"
         ? {
             ...normalizeOrganizerPermissions(existingUser?.permissionsJson, DEFAULT_ORGANIZER_PERMISSIONS),
-            events: String(req.body?.perm_events || "") === "1",
-            venues: String(req.body?.perm_venues || "") === "1",
-            jobs: String(req.body?.perm_jobs || "") === "1",
-            ads: String(req.body?.perm_ads || "") === "1",
-            featureEvents: String(req.body?.perm_featureEvents || "") === "1",
+            events: isCheckedValue(req.body?.perm_events),
+            venues: isCheckedValue(req.body?.perm_venues),
+            jobs: isCheckedValue(req.body?.perm_jobs),
+            ads: isCheckedValue(req.body?.perm_ads),
+            featureEvents: isCheckedValue(req.body?.perm_featureEvents),
           }
         : normalizeOrganizerPermissions(existingUser?.permissionsJson, DEFAULT_ORGANIZER_PERMISSIONS)),
       cityAccess: requestedCities,
     }, DEFAULT_ORGANIZER_PERMISSIONS);
     await run("UPDATE users SET email = ?, role = ?, city = ?, permissionsJson = ?, updatedAt = datetime('now') WHERE id = ?", [newEmail, newRole, newCity, permissionsJson, id]);
-    return res.redirect("/admin/users");
+    return res.redirect("/admin/users?notice=saved");
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to update user.");
