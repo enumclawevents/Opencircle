@@ -1202,9 +1202,9 @@ function getEventDetailPath(item) {
   return `/events/${encodeURIComponent(key)}`;
 }
 
-function getRequestBaseUrl(req) {
+function getApiBaseUrl(req) {
   return (
-    (process.env.PUBLIC_SITE_URL || process.env.EVENTS_SITE_URL || "").trim() ||
+    (process.env.API_BASE_URL || process.env.PUBLIC_API_BASE_URL || "").trim() ||
     `${req.headers["x-forwarded-proto"] || req.protocol}://${req.headers["x-forwarded-host"] || req.get("host")}`
   ).replace(/\/$/, "");
 }
@@ -1214,7 +1214,7 @@ function getEventTicketTrackedUrl(req, item) {
   if (!ticketUrl) return "";
   const key = String(item?.slug || item?.id || "").trim();
   if (!key) return "";
-  return `${getRequestBaseUrl(req)}/events/${encodeURIComponent(key)}/tickets`;
+  return `${getApiBaseUrl(req)}/events/${encodeURIComponent(key)}/tickets`;
 }
 
 function enrichEventDetailForSeo(req, detailData) {
