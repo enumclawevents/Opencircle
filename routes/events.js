@@ -1202,6 +1202,21 @@ function getEventDetailPath(item) {
   return `/events/${encodeURIComponent(key)}`;
 }
 
+function getRequestBaseUrl(req) {
+  return (
+    (process.env.PUBLIC_SITE_URL || process.env.EVENTS_SITE_URL || "").trim() ||
+    `${req.headers["x-forwarded-proto"] || req.protocol}://${req.headers["x-forwarded-host"] || req.get("host")}`
+  ).replace(/\/$/, "");
+}
+
+function getEventTicketTrackedUrl(req, item) {
+  const ticketUrl = String(item?.ticketUrl || "").trim();
+  if (!ticketUrl) return "";
+  const key = String(item?.slug || item?.id || "").trim();
+  if (!key) return "";
+  return `${getRequestBaseUrl(req)}/events/${encodeURIComponent(key)}/tickets`;
+}
+
 function enrichEventDetailForSeo(req, detailData) {
   const seoDefaults = deriveEventSeoFields(detailData);
   const seo = buildSeoDescriptor({
@@ -1221,6 +1236,7 @@ function enrichEventDetailForSeo(req, detailData) {
 
   return {
     ...detailData,
+    ticketTrackedUrl: getEventTicketTrackedUrl(req, detailData),
     ...seo,
     structuredData: buildEventStructuredData({
       url: seo.publicUrl,
