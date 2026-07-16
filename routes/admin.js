@@ -2098,6 +2098,13 @@ const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || "").trim())
 const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "").trim())
   ? String(req.query.to).trim()
   : "";
+const analyticsMetricHelp = {
+  allViews: "Total tracked views from every source.",
+  directViews: "Views from visitors who landed on the page directly without a referring site.",
+  referralViews: "Views from visitors who arrived from another website, search result, or shared link.",
+  internalViews: "Views generated from internal OpenCircle navigation or internal referrals.",
+};
+const analyticsMetricLabel = (label, helpText) => `${esc(label)}<span class="metricInfo" tabindex="0" role="img" aria-label="${esc(`${label}: ${helpText}`)}" data-tip="${esc(helpText)}">i</span>`;
 
 // Lifecycle filter for admin list:
 // status=upcoming|past|archived, recurring=1 (optional)
@@ -7559,8 +7566,78 @@ return `
         border:1px solid var(--line);
         box-shadow: var(--shadow);
       }
-      .metric .k{ color:var(--muted); font-size:12px; font-weight:600; }
+      .metric .k{
+        color:var(--muted);
+        font-size:12px;
+        font-weight:600;
+        display:inline-flex;
+        align-items:center;
+        gap:6px;
+        flex-wrap:wrap;
+      }
       .metric .v{ font-size:22px; font-weight:650; letter-spacing:.2px; margin-top:6px; color: var(--text); }
+      .metricInfo{
+        position:relative;
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        width:16px;
+        height:16px;
+        border-radius:999px;
+        border:1px solid rgba(148,163,184,.45);
+        background:#f8fafc;
+        color:#64748b;
+        font-size:10px;
+        font-weight:800;
+        line-height:1;
+        cursor:help;
+        flex:0 0 16px;
+      }
+      .metricInfo::before{
+        content:"";
+        position:absolute;
+        left:50%;
+        bottom:calc(100% + 2px);
+        transform:translate(-50%, 8px);
+        border:6px solid transparent;
+        border-top-color:rgba(15,23,42,.92);
+        opacity:0;
+        visibility:hidden;
+        transition:opacity .16s ease, transform .16s ease, visibility .16s ease;
+        pointer-events:none;
+      }
+      .metricInfo::after{
+        content:attr(data-tip);
+        position:absolute;
+        left:50%;
+        bottom:calc(100% + 12px);
+        transform:translate(-50%, 8px);
+        min-width:190px;
+        max-width:240px;
+        padding:10px 12px;
+        border-radius:12px;
+        background:rgba(15,23,42,.92);
+        color:#fff;
+        font-size:12px;
+        font-weight:600;
+        line-height:1.45;
+        text-align:left;
+        box-shadow:0 18px 36px rgba(15,23,42,.18);
+        opacity:0;
+        visibility:hidden;
+        transition:opacity .16s ease, transform .16s ease, visibility .16s ease;
+        pointer-events:none;
+        z-index:20;
+        white-space:normal;
+      }
+      .metricInfo:hover::before,
+      .metricInfo:hover::after,
+      .metricInfo:focus-visible::before,
+      .metricInfo:focus-visible::after{
+        opacity:1;
+        visibility:visible;
+        transform:translate(-50%, 0);
+      }
       .metric .tag{
         font-size:12px; font-weight:650;
         padding:6px 10px; border-radius: var(--radius-inner);
@@ -9790,27 +9867,27 @@ return `
           ${selectedEventAnalytics ? `
           <div class="metric">
             <div>
-              <div class="k">All views</div>
+              <div class="k">${analyticsMetricLabel("All views", analyticsMetricHelp.allViews)}</div>
               <div class="v">${esc(selectedEventAnalytics.allViews.toLocaleString("en-US"))}</div>
             </div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">Direct views</div>
+              <div class="k">${analyticsMetricLabel("Direct views", analyticsMetricHelp.directViews)}</div>
               <div class="v">${esc(selectedEventAnalytics.directViews.toLocaleString("en-US"))}</div>
             </div>
             <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.directViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">Referral views</div>
+              <div class="k">${analyticsMetricLabel("Referral views", analyticsMetricHelp.referralViews)}</div>
               <div class="v">${esc(selectedEventAnalytics.referralViews.toLocaleString("en-US"))}</div>
             </div>
             <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.referralViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">Internal views</div>
+              <div class="k">${analyticsMetricLabel("Internal views", analyticsMetricHelp.internalViews)}</div>
               <div class="v">${esc(selectedEventAnalytics.internalViews.toLocaleString("en-US"))}</div>
             </div>
             <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.internalViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
@@ -9842,27 +9919,27 @@ return `
           </div>
           <div class="metric">
             <div>
-              <div class="k">All views</div>
+              <div class="k">${analyticsMetricLabel("All views", analyticsMetricHelp.allViews)}</div>
               <div class="v">${esc(stats.sourceTracked)}</div>
             </div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">Direct views</div>
+              <div class="k">${analyticsMetricLabel("Direct views", analyticsMetricHelp.directViews)}</div>
               <div class="v">${esc(stats.sourceDirect)}</div>
             </div>
             <div class="tag">${esc(stats.sourceDirectPct)}</div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">Referral views</div>
+              <div class="k">${analyticsMetricLabel("Referral views", analyticsMetricHelp.referralViews)}</div>
               <div class="v">${esc(stats.sourceReferral)}</div>
             </div>
             <div class="tag">${esc(stats.sourceReferralPct)}</div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">Internal views</div>
+              <div class="k">${analyticsMetricLabel("Internal views", analyticsMetricHelp.internalViews)}</div>
               <div class="v">${esc(stats.sourceInternal)}</div>
             </div>
             <div class="tag">${esc(stats.sourceInternalPct)}</div>
