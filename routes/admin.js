@@ -7821,6 +7821,17 @@ return `
         flex: 1 1 auto;
         min-height: 360px;
       }
+      #organizerChartSvgHost{
+        position:absolute;
+        inset:0;
+        width:100%;
+        height:100%;
+      }
+      #organizerChartSvgHost > svg{
+        display:block;
+        width:100%;
+        height:100%;
+      }
       .grid4{
         display:grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -10144,7 +10155,7 @@ return `
             <div class="chart-wrap" id="organizerChartWrap" style="min-height:220px;">
               <div id="organizerChartSvgHost">${organizerChartSvg}</div>
               <div id="organizerChartData" data-chart="${esc(organizerChartDataJson)}" hidden></div>
-              <canvas id="organizerChart" style="position:absolute; inset:0; width:100%; height:260px; display:none;"></canvas>
+              <canvas id="organizerChart" style="position:absolute; inset:0; width:100%; height:100%; display:none;"></canvas>
               <div id="organizerChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
           </div>
