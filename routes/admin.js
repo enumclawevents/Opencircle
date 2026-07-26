@@ -3746,6 +3746,24 @@ return `
         values: venueMonthlyHistory.map((row) => Number(row.totalClicks || 0)),
       },
     });
+    const analyticsChartStyle = {
+      width: 1200,
+      height: 260,
+      padL: 56,
+      padR: 18,
+      padT: 18,
+      padB: 42,
+      textColor: "#475569",
+      gridColor: "rgba(15,23,42,.08)",
+      emptyTextColor: "rgba(15,23,42,.75)",
+      greenStroke: "rgba(16,185,129,.82)",
+      blueStroke: "rgba(37,99,235,.72)",
+      greenFill: "rgba(16,185,129,.10)",
+      blueFill: "rgba(37,99,235,.08)",
+      primaryStrokeWidth: 3,
+      secondaryStrokeWidth: 2,
+      secondaryDash: "6 6",
+    };
     function buildVenueChartSvg(metric = "views") {
       const labels = venueMonthlyHistory.map((row) => String(row.label || ""));
       const primaryValues = venueMonthlyHistory.map((row) =>
@@ -3755,25 +3773,21 @@ return `
         Number(metric === "clicks" ? row.views || 0 : row.totalClicks || 0)
       );
       const allValues = primaryValues.concat(secondaryValues).filter((v) => Number.isFinite(v));
-      const width = 1200;
-      const height = 260;
-      const padL = 56;
-      const padR = 18;
-      const padT = 18;
-      const padB = 42;
+      const { width, height, padL, padR, padT, padB } = analyticsChartStyle;
       const plotW = width - padL - padR;
       const plotH = height - padT - padB;
-      const textColor = "#475569";
-      const viewsColor = "rgba(16,185,129,.82)";
-      const clicksColor = "rgba(37,99,235,.72)";
+      const textColor = analyticsChartStyle.textColor;
+      const viewsColor = analyticsChartStyle.greenStroke;
+      const clicksColor = analyticsChartStyle.blueStroke;
       const primaryColor = metric === "views" ? viewsColor : clicksColor;
       const secondaryColor = metric === "views" ? clicksColor : viewsColor;
+      const primaryFill = metric === "views" ? analyticsChartStyle.greenFill : analyticsChartStyle.blueFill;
 
       if (!labels.length || !allValues.some((v) => v > 0)) {
         return `
           <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Venue chart">
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
-            <text x="18" y="90" fill="rgba(15,23,42,.75)" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No monthly venue history yet</text>
+            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No monthly venue history yet</text>
           </svg>
         `;
       }
@@ -3830,13 +3844,13 @@ return `
             const value = i * tickStep;
             const y = padT + plotH - ((value / yMax) * plotH);
             return `
-              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="rgba(15,23,42,.08)" stroke-width="1"></line>
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
               <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
-          ${fillPath ? `<path d="${fillPath}" fill="${metric === "views" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)"}"></path>` : ""}
-          ${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-          ${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${fillPath ? `<path d="${fillPath}" fill="${primaryFill}"></path>` : ""}
+          ${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
             const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
@@ -4283,23 +4297,18 @@ return `
       const viewValues = Array.isArray(viewSet.values) ? viewSet.values.map((v) => Number(v || 0)) : [];
       const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values.map((v) => Number(v || 0)) : [];
       const allValues = eventValues.concat(viewValues).filter((v) => Number.isFinite(v));
-      const width = 1200;
-      const height = 260;
-      const padL = 56;
-      const padR = 18;
-      const padT = 18;
-      const padB = 42;
+      const { width, height, padL, padR, padT, padB } = analyticsChartStyle;
       const plotW = width - padL - padR;
       const plotH = height - padT - padB;
-      const textColor = "#475569";
-      const lineColor = "rgba(16,185,129,.82)";
-      const dashedColor = "rgba(37,99,235,.72)";
+      const textColor = analyticsChartStyle.textColor;
+      const lineColor = analyticsChartStyle.greenStroke;
+      const dashedColor = analyticsChartStyle.blueStroke;
 
       if (!labels.length || !allValues.some((v) => v > 0)) {
         return `
           <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Events chart">
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
-            <text x="18" y="90" fill="rgba(15,23,42,.75)" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No recent activity</text>
+            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No recent activity</text>
           </svg>
         `;
       }
@@ -4377,13 +4386,13 @@ return `
             const value = i * tickStep;
             const y = padT + plotH - ((value / yMax) * plotH);
             return `
-              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="rgba(15,23,42,.08)" stroke-width="1"></line>
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
               <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
-          ${fillPath ? `<path d="${fillPath}" fill="rgba(16,185,129,.10)"></path>` : ""}
-          ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-          ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
+          ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${hoverRects}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
@@ -6118,25 +6127,21 @@ return `
         Number(metric === "clicks" ? row.views || 0 : row.clicks || 0)
       );
       const allValues = primaryValues.concat(secondaryValues).filter((v) => Number.isFinite(v));
-      const width = 1200;
-      const height = 260;
-      const padL = 56;
-      const padR = 18;
-      const padT = 18;
-      const padB = 42;
+      const { width, height, padL, padR, padT, padB } = analyticsChartStyle;
       const plotW = width - padL - padR;
       const plotH = height - padT - padB;
-      const textColor = "#475569";
-      const viewsColor = "rgba(16,185,129,.82)";
-      const clicksColor = "rgba(37,99,235,.72)";
+      const textColor = analyticsChartStyle.textColor;
+      const viewsColor = analyticsChartStyle.greenStroke;
+      const clicksColor = analyticsChartStyle.blueStroke;
       const primaryColor = metric === "views" ? viewsColor : clicksColor;
       const secondaryColor = metric === "views" ? clicksColor : viewsColor;
+      const primaryFill = metric === "views" ? analyticsChartStyle.greenFill : analyticsChartStyle.blueFill;
 
       if (!labels.length || !allValues.some((v) => v > 0)) {
         return `
           <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Ad chart">
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
-            <text x="18" y="90" fill="rgba(15,23,42,.75)" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No monthly ad history yet</text>
+            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No monthly ad history yet</text>
           </svg>
         `;
       }
@@ -6193,13 +6198,13 @@ return `
             const value = i * tickStep;
             const y = padT + plotH - ((value / yMax) * plotH);
             return `
-              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="rgba(15,23,42,.08)" stroke-width="1"></line>
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
               <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
-          ${fillPath ? `<path d="${fillPath}" fill="${metric === "views" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)"}"></path>` : ""}
-          ${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-          ${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${fillPath ? `<path d="${fillPath}" fill="${primaryFill}"></path>` : ""}
+          ${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
             const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
@@ -6249,23 +6254,18 @@ return `
       const eventValues = Array.isArray(eventValuesInput) ? eventValuesInput.map((row) => Number(row || 0)) : [];
       const viewValues = Array.isArray(viewValuesInput) ? viewValuesInput.map((row) => Number(row || 0)) : [];
       const allValues = eventValues.concat(viewValues).filter((v) => Number.isFinite(v));
-      const width = 1200;
-      const height = 260;
-      const padL = 56;
-      const padR = 18;
-      const padT = 18;
-      const padB = 42;
+      const { width, height, padL, padR, padT, padB } = analyticsChartStyle;
       const plotW = width - padL - padR;
       const plotH = height - padT - padB;
-      const textColor = "#475569";
-      const eventsColor = "rgba(16,185,129,.82)";
-      const viewsColor = "rgba(37,99,235,.72)";
+      const textColor = analyticsChartStyle.textColor;
+      const eventsColor = analyticsChartStyle.greenStroke;
+      const viewsColor = analyticsChartStyle.blueStroke;
 
       if (!labels.length || !allValues.some((v) => v > 0)) {
         return `
           <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Organizer chart">
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
-            <text x="18" y="90" fill="rgba(15,23,42,.75)" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No organizer history yet</text>
+            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No organizer history yet</text>
           </svg>
         `;
       }
@@ -6324,13 +6324,13 @@ return `
             const value = i * tickStep;
             const y = padT + plotH - ((value / yMax) * plotH);
             return `
-              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="rgba(15,23,42,.08)" stroke-width="1"></line>
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
               <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
-          ${fillPath ? `<path d="${fillPath}" fill="rgba(16,185,129,.10)"></path>` : ""}
-          ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${viewsColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-          ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${eventsColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
+          ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${viewsColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${eventsColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
             const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
@@ -13059,6 +13059,33 @@ return `
 
       // Simple line charts (no libraries) + hover tooltip + view toggles
 (function(){
+  const chartTheme = {
+    gridColor: "rgba(15,23,42,.08)",
+    textColor: "rgba(71,85,105,.95)",
+    textColorMuted: "rgba(71,85,105,.9)",
+    emptyTextColor: "rgba(15,23,42,.75)",
+    greenStroke: "rgba(16,185,129,.82)",
+    blueStroke: "rgba(37,99,235,.72)",
+    greenFill: "rgba(16,185,129,.10)",
+    blueFill: "rgba(37,99,235,.08)",
+    greenGlow: "rgba(16,185,129,.12)",
+    blueGlow: "rgba(37,99,235,.10)",
+    primaryStrokeWidth: 3,
+    secondaryStrokeWidth: 2,
+    secondaryDash: [6, 6],
+  };
+
+  function getChartPalette(primaryMetric){
+    const primaryIsBlue = primaryMetric === "clicks";
+    return {
+      primary: primaryIsBlue ? chartTheme.blueStroke : chartTheme.greenStroke,
+      primaryFill: primaryIsBlue ? chartTheme.blueFill : chartTheme.greenFill,
+      primaryGlow: primaryIsBlue ? chartTheme.blueGlow : chartTheme.greenGlow,
+      secondary: primaryIsBlue ? chartTheme.greenStroke : chartTheme.blueStroke,
+      secondaryGlow: primaryIsBlue ? chartTheme.greenGlow : chartTheme.blueGlow,
+    };
+  }
+
   function getChartFrame(width, height){
     const padL = 56, padR = 18, padT = 18, padB = 46;
     return {
@@ -13159,8 +13186,8 @@ return `
       root.style.zIndex = "3";
       root.innerHTML =
         '<div data-hover-line style="position:absolute; display:none; width:1px; background:rgba(148,163,184,.45); border-radius:999px;"></div>' +
-        '<div data-hover-point="secondary" style="position:absolute; display:none; width:14px; height:14px; margin-left:-7px; margin-top:-7px; border-radius:999px; background:#fff; border:2px solid rgba(37,99,235,.72); box-shadow:0 0 0 6px rgba(37,99,235,.10);"></div>' +
-        '<div data-hover-point="primary" style="position:absolute; display:none; width:16px; height:16px; margin-left:-8px; margin-top:-8px; border-radius:999px; background:#fff; border:3px solid rgba(16,185,129,.82); box-shadow:0 0 0 6px rgba(16,185,129,.12);"></div>';
+        '<div data-hover-point="secondary" style="position:absolute; display:none; width:14px; height:14px; margin-left:-7px; margin-top:-7px; border-radius:999px; background:#fff; border:' + chartTheme.secondaryStrokeWidth + 'px solid ' + chartTheme.blueStroke + '; box-shadow:0 0 0 6px ' + chartTheme.blueGlow + ';"></div>' +
+        '<div data-hover-point="primary" style="position:absolute; display:none; width:16px; height:16px; margin-left:-8px; margin-top:-8px; border-radius:999px; background:#fff; border:' + chartTheme.primaryStrokeWidth + 'px solid ' + chartTheme.greenStroke + '; box-shadow:0 0 0 6px ' + chartTheme.greenGlow + ';"></div>';
       $wrap.appendChild(root);
     }
     return {
@@ -13184,16 +13211,16 @@ return `
       overlay.primary.style.display = "block";
       overlay.primary.style.left = Math.round(primaryPoint.x) + "px";
       overlay.primary.style.top = Math.round(primaryPoint.y) + "px";
-      overlay.primary.style.borderColor = (colors && colors.primary) || "rgba(16,185,129,.82)";
-      overlay.primary.style.boxShadow = "0 0 0 6px " + ((colors && colors.primaryGlow) || "rgba(16,185,129,.12)");
+      overlay.primary.style.borderColor = (colors && colors.primary) || chartTheme.greenStroke;
+      overlay.primary.style.boxShadow = "0 0 0 6px " + ((colors && colors.primaryGlow) || chartTheme.greenGlow);
     }
     if (overlay.secondary) {
       if (secondaryPoint) {
         overlay.secondary.style.display = "block";
         overlay.secondary.style.left = Math.round(secondaryPoint.x) + "px";
         overlay.secondary.style.top = Math.round(secondaryPoint.y) + "px";
-        overlay.secondary.style.borderColor = (colors && colors.secondary) || "rgba(37,99,235,.72)";
-        overlay.secondary.style.boxShadow = "0 0 0 6px " + ((colors && colors.secondaryGlow) || "rgba(37,99,235,.10)");
+        overlay.secondary.style.borderColor = (colors && colors.secondary) || chartTheme.blueStroke;
+        overlay.secondary.style.boxShadow = "0 0 0 6px " + ((colors && colors.secondaryGlow) || chartTheme.blueGlow);
       } else {
         overlay.secondary.style.display = "none";
       }
@@ -13270,13 +13297,13 @@ return `
       chartMinY: frame.padT,
       chartMaxY: frame.padT + frame.gh,
     }));
-    const lineColor = options.lineColor || "rgba(37,99,235,.72)";
-    const fillColor = options.fillColor || "rgba(37,99,235,.08)";
+    const lineColor = options.lineColor || chartTheme.blueStroke;
+    const fillColor = options.fillColor || chartTheme.blueFill;
     const hoverColor = options.hoverColor || "rgba(37,99,235,.95)";
 
     ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(15,23,42,.08)";
-    ctx.fillStyle = "rgba(71,85,105,.9)";
+    ctx.strokeStyle = chartTheme.gridColor;
+    ctx.fillStyle = chartTheme.textColorMuted;
     ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
     for (let i = 0; i <= scale.yTicks; i++) {
@@ -13295,12 +13322,12 @@ return `
         if (index !== points.length - 1 && index % labelStep !== 0) return;
         const point = points[index];
         ctx.textAlign = index === points.length - 1 ? "right" : (index === 0 ? "left" : "center");
-        ctx.fillStyle = "rgba(71,85,105,.95)";
+        ctx.fillStyle = chartTheme.textColor;
         ctx.fillText(String(label || ""), point.x, frame.padT + frame.gh + 30);
       });
     } else if (points.length === 1) {
       ctx.textAlign = "center";
-      ctx.fillStyle = "rgba(71,85,105,.95)";
+      ctx.fillStyle = chartTheme.textColor;
       ctx.fillText(String(labels[0] || ""), points[0].x, frame.padT + frame.gh + 30);
     }
 
@@ -13311,7 +13338,7 @@ return `
       ctx.restore();
 
       ctx.strokeStyle = lineColor;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = chartTheme.primaryStrokeWidth;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       drawSmoothLine(ctx, points);
@@ -13403,12 +13430,13 @@ return `
         const secondaryY = plotFrame
           ? clamp(plotFrame.padT + plotFrame.gh - ((Number(viewValues[safeIndex] || 0) / yScale.yMax) * plotFrame.gh), plotFrame.padT, plotFrame.padT + plotFrame.gh)
           : 0;
-        showChartHoverOverlay(hoverOverlay, { padT: plotFrame ? plotFrame.padT : 0, gh: plotFrame ? plotFrame.gh : 0 }, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, {
-          primary: "rgba(16,185,129,.82)",
-          primaryGlow: "rgba(16,185,129,.12)",
-          secondary: "rgba(37,99,235,.72)",
-          secondaryGlow: "rgba(37,99,235,.10)",
-        });
+        showChartHoverOverlay(
+          hoverOverlay,
+          { padT: plotFrame ? plotFrame.padT : 0, gh: plotFrame ? plotFrame.gh : 0 },
+          { x: pointX, y: primaryY },
+          { x: pointX, y: secondaryY },
+          getChartPalette("events")
+        );
         showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
           (periodNames[mode] || "Period") + ": " + label,
           [
@@ -13600,7 +13628,7 @@ return `
       return { w, h };
     }
 
-    function draw(){
+  function draw(){
       const primarySet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
       const secondarySet = (chartSets.views && chartSets.views[mode])
         ? chartSets.views[mode]
@@ -13615,7 +13643,7 @@ return `
 
       const hasAnyValue = combinedValues.some((value) => Number(value || 0) > 0);
       if (!labels.length || !hasAnyValue){
-        ctx.fillStyle = "rgba(15,23,42,.75)";
+        ctx.fillStyle = chartTheme.emptyTextColor;
       ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
       ctx.fillText("No recent activity", 18, 90);
       return;
@@ -13640,9 +13668,10 @@ return `
             chartMaxY: frame.padT + frame.gh,
         })) : [];
 
+    const palette = getChartPalette("events");
     ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(15,23,42,.08)";
-    ctx.fillStyle = "rgba(71,85,105,.9)";
+    ctx.strokeStyle = chartTheme.gridColor;
+    ctx.fillStyle = chartTheme.textColorMuted;
     ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
     for (let i = 0; i <= scale.yTicks; i++) {
       const v = i * scale.tickStep;
@@ -13659,13 +13688,13 @@ return `
         if (index !== primaryPoints.length - 1 && index % labelStep !== 0) return;
         const point = primaryPoints[index];
         ctx.textAlign = index === primaryPoints.length - 1 ? "right" : (index === 0 ? "left" : "center");
-        ctx.fillStyle = "rgba(71,85,105,.95)";
+        ctx.fillStyle = chartTheme.textColor;
         ctx.fillText(String(label || ""), point.x, frame.padT + frame.gh + 30);
       });
     }
 
-    const primaryColor = "rgba(16,185,129,.82)";
-    const secondaryColor = "rgba(37,99,235,.72)";
+    const primaryColor = palette.primary;
+    const secondaryColor = palette.secondary;
 
     if (primaryPoints.length) {
       ctx.save();
@@ -13690,7 +13719,7 @@ return `
       const last = primaryPoints[primaryPoints.length - 1];
       ctx.lineTo(last.x, frame.padT + frame.gh);
       ctx.closePath();
-      ctx.fillStyle = "rgba(16,185,129,.10)";
+      ctx.fillStyle = palette.primaryFill;
       ctx.fill();
       ctx.restore();
     }
@@ -13698,8 +13727,8 @@ return `
     if (secondaryPoints.length) {
       ctx.save();
       ctx.strokeStyle = secondaryColor;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 6]);
+      ctx.lineWidth = chartTheme.secondaryStrokeWidth;
+      ctx.setLineDash(chartTheme.secondaryDash);
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       drawSmoothLine(ctx, secondaryPoints);
@@ -13708,7 +13737,7 @@ return `
 
     ctx.save();
     ctx.strokeStyle = primaryColor;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = chartTheme.primaryStrokeWidth;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     drawSmoothLine(ctx, primaryPoints);
@@ -13752,12 +13781,8 @@ return `
     const pointX = frame.padL + stepX * idx;
     const primaryY = clamp(frame.padT + frame.gh - ((eventValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
     const secondaryY = clamp(frame.padT + frame.gh - ((viewValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
-    showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, {
-      primary: "rgba(16,185,129,.82)",
-      primaryGlow: "rgba(16,185,129,.12)",
-      secondary: "rgba(37,99,235,.72)",
-      secondaryGlow: "rgba(37,99,235,.10)",
-    });
+    const palette = getChartPalette("events");
+    showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, palette);
     showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
       periodLabel,
       [
@@ -13871,12 +13896,7 @@ return `
         const safeIndex = Math.max(0, Math.min(Number(index || 0), labels.length - 1));
         const geometry = getSvgChartHoverGeometry($svgHost, labels, safeIndex, eventValues, viewValues);
         if (!geometry) return;
-        showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, {
-          primary: "rgba(16,185,129,.82)",
-          primaryGlow: "rgba(16,185,129,.12)",
-          secondary: "rgba(37,99,235,.72)",
-          secondaryGlow: "rgba(37,99,235,.10)",
-        });
+        showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, getChartPalette("events"));
         showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipHtml(
           "Month: " + String(labels[safeIndex] || ""),
           [
@@ -13978,9 +13998,10 @@ return `
         chartMaxY: frame.padT + frame.gh,
       })) : [];
 
+      const palette = getChartPalette("events");
       ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(15,23,42,.08)";
-      ctx.fillStyle = "rgba(71,85,105,.9)";
+      ctx.strokeStyle = chartTheme.gridColor;
+      ctx.fillStyle = chartTheme.textColorMuted;
       ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
       for (let i = 0; i <= scale.yTicks; i++) {
         const v = i * scale.tickStep;
@@ -13997,13 +14018,13 @@ return `
           if (index !== primaryPoints.length - 1 && index % labelStep !== 0) return;
           const point = primaryPoints[index];
           ctx.textAlign = index === primaryPoints.length - 1 ? "right" : (index === 0 ? "left" : "center");
-          ctx.fillStyle = "rgba(71,85,105,.95)";
+          ctx.fillStyle = chartTheme.textColor;
           ctx.fillText(String(label || ""), point.x, frame.padT + frame.gh + 30);
         });
       }
 
-      const primaryColor = "rgba(16,185,129,.82)";
-      const secondaryColor = "rgba(37,99,235,.72)";
+      const primaryColor = palette.primary;
+      const secondaryColor = palette.secondary;
 
       if (primaryPoints.length) {
         ctx.save();
@@ -14024,15 +14045,15 @@ return `
         const last = primaryPoints[primaryPoints.length - 1];
         ctx.lineTo(last.x, frame.padT + frame.gh);
         ctx.closePath();
-        ctx.fillStyle = "rgba(16,185,129,.10)";
+        ctx.fillStyle = palette.primaryFill;
         ctx.fill();
         ctx.restore();
       }
       if (secondaryPoints.length) {
         ctx.save();
         ctx.strokeStyle = secondaryColor;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 6]);
+        ctx.lineWidth = chartTheme.secondaryStrokeWidth;
+        ctx.setLineDash(chartTheme.secondaryDash);
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         drawSmoothLine(ctx, secondaryPoints);
@@ -14040,7 +14061,7 @@ return `
       }
       ctx.save();
       ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = chartTheme.primaryStrokeWidth;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       drawSmoothLine(ctx, primaryPoints);
@@ -14072,12 +14093,7 @@ return `
       const pointX = frame.padL + stepX * idx;
       const primaryY = clamp(frame.padT + frame.gh - ((eventValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
       const secondaryY = clamp(frame.padT + frame.gh - ((viewValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
-      showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, {
-        primary: "rgba(16,185,129,.82)",
-        primaryGlow: "rgba(16,185,129,.12)",
-        secondary: "rgba(37,99,235,.72)",
-        secondaryGlow: "rgba(37,99,235,.10)",
-      });
+      showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, getChartPalette("events"));
       showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
         "Month: " + String(labels[idx] || ""),
         [
@@ -14241,9 +14257,10 @@ return `
           }))
         : [];
 
+      const palette = getChartPalette(metric);
       ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(15,23,42,.08)";
-      ctx.fillStyle = "rgba(71,85,105,.9)";
+      ctx.strokeStyle = chartTheme.gridColor;
+      ctx.fillStyle = chartTheme.textColorMuted;
       ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
       for (let i = 0; i <= scale.yTicks; i++) {
         const v = i * scale.tickStep;
@@ -14260,19 +14277,16 @@ return `
           if (index !== primaryPoints.length - 1 && index % labelStep !== 0) return;
           const point = primaryPoints[index];
           ctx.textAlign = index === primaryPoints.length - 1 ? "right" : (index === 0 ? "left" : "center");
-          ctx.fillStyle = "rgba(71,85,105,.95)";
+          ctx.fillStyle = chartTheme.textColor;
           ctx.fillText(String(label || ""), point.x, frame.padT + frame.gh + 30);
         });
       }
-
-      const viewsColor = "rgba(16,185,129,.82)";
-      const clicksColor = "rgba(37,99,235,.72)";
-      const primaryColor = metric === "views" ? viewsColor : clicksColor;
-      const secondaryColor = metric === "views" ? clicksColor : viewsColor;
+      const primaryColor = palette.primary;
+      const secondaryColor = palette.secondary;
 
       if (primaryPoints.length) {
         ctx.save();
-        ctx.fillStyle = metric === "views" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)";
+        ctx.fillStyle = palette.primaryFill;
         drawSmoothAreaFill(ctx, primaryPoints, frame.padT + frame.gh);
         ctx.restore();
       }
@@ -14280,8 +14294,8 @@ return `
       if (secondaryPoints.length) {
         ctx.save();
         ctx.strokeStyle = secondaryColor;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 6]);
+        ctx.lineWidth = chartTheme.secondaryStrokeWidth;
+        ctx.setLineDash(chartTheme.secondaryDash);
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         drawSmoothLine(ctx, secondaryPoints);
@@ -14290,7 +14304,7 @@ return `
 
       ctx.save();
       ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = chartTheme.primaryStrokeWidth;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       drawSmoothLine(ctx, primaryPoints);
@@ -14325,12 +14339,7 @@ return `
       const primaryY = clamp(frame.padT + frame.gh - ((Number((getSet().values || [])[idx] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
       const secondaryMetricValues = (chartSets[getSecondaryMetric()] || { values: [] }).values || [];
       const secondaryY = clamp(frame.padT + frame.gh - ((Number(secondaryMetricValues[idx] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
-      showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, {
-        primary: metric === "views" ? "rgba(16,185,129,.82)" : "rgba(37,99,235,.72)",
-        primaryGlow: metric === "views" ? "rgba(16,185,129,.12)" : "rgba(37,99,235,.10)",
-        secondary: metric === "views" ? "rgba(37,99,235,.72)" : "rgba(16,185,129,.82)",
-        secondaryGlow: metric === "views" ? "rgba(37,99,235,.10)" : "rgba(16,185,129,.12)",
-      });
+      showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, getChartPalette(metric));
       showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
         "Month: " + String(labels[idx] || ""),
         [
@@ -14360,12 +14369,7 @@ return `
       if (!geometry) return;
       const viewsValue = Number((viewsSet.values || [])[idx] || 0);
       const clicksValue = Number((clicksSet.values || [])[idx] || 0);
-      showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, {
-        primary: metric === "views" ? "rgba(16,185,129,.82)" : "rgba(37,99,235,.72)",
-        primaryGlow: metric === "views" ? "rgba(16,185,129,.12)" : "rgba(37,99,235,.10)",
-        secondary: metric === "views" ? "rgba(37,99,235,.72)" : "rgba(16,185,129,.82)",
-        secondaryGlow: metric === "views" ? "rgba(37,99,235,.10)" : "rgba(16,185,129,.12)",
-      });
+      showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, getChartPalette(metric));
       showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipHtml(
         "Month: " + String(labels[idx] || ""),
         [
@@ -14545,7 +14549,7 @@ return `
       ctx.clearRect(0, 0, w, h);
 
       if (!labels.length || !combinedValues.length) {
-        ctx.fillStyle = "rgba(15,23,42,.75)";
+        ctx.fillStyle = chartTheme.emptyTextColor;
         ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
         ctx.fillText("No monthly ad history yet", 18, 90);
         return;
@@ -14572,9 +14576,10 @@ return `
           }))
         : [];
 
+      const palette = getChartPalette(metric);
       ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(15,23,42,.08)";
-      ctx.fillStyle = "rgba(71,85,105,.9)";
+      ctx.strokeStyle = chartTheme.gridColor;
+      ctx.fillStyle = chartTheme.textColorMuted;
       ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
       for (let i = 0; i <= scale.yTicks; i++) {
         const v = i * scale.tickStep;
@@ -14591,19 +14596,16 @@ return `
           if (index !== primaryPoints.length - 1 && index % labelStep !== 0) return;
           const point = primaryPoints[index];
           ctx.textAlign = index === primaryPoints.length - 1 ? "right" : (index === 0 ? "left" : "center");
-          ctx.fillStyle = "rgba(71,85,105,.95)";
+          ctx.fillStyle = chartTheme.textColor;
           ctx.fillText(String(label || ""), point.x, frame.padT + frame.gh + 30);
         });
       }
-
-      const viewsColor = "rgba(16,185,129,.82)";
-      const clicksColor = "rgba(37,99,235,.72)";
-      const primaryColor = metric === "views" ? viewsColor : clicksColor;
-      const secondaryColor = metric === "views" ? clicksColor : viewsColor;
+      const primaryColor = palette.primary;
+      const secondaryColor = palette.secondary;
 
       if (primaryPoints.length) {
         ctx.save();
-        ctx.fillStyle = metric === "views" ? "rgba(16,185,129,.10)" : "rgba(37,99,235,.08)";
+        ctx.fillStyle = palette.primaryFill;
         drawSmoothAreaFill(ctx, primaryPoints, frame.padT + frame.gh);
         ctx.restore();
       }
@@ -14611,8 +14613,8 @@ return `
       if (secondaryPoints.length) {
         ctx.save();
         ctx.strokeStyle = secondaryColor;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 6]);
+        ctx.lineWidth = chartTheme.secondaryStrokeWidth;
+        ctx.setLineDash(chartTheme.secondaryDash);
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         drawSmoothLine(ctx, secondaryPoints);
@@ -14621,7 +14623,7 @@ return `
 
       ctx.save();
       ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = chartTheme.primaryStrokeWidth;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       drawSmoothLine(ctx, primaryPoints);
@@ -14656,12 +14658,7 @@ return `
       const primaryY = clamp(frame.padT + frame.gh - ((Number((getSet().values || [])[idx] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
       const secondaryMetricValues = (chartSets[getSecondaryMetric()] || { values: [] }).values || [];
       const secondaryY = clamp(frame.padT + frame.gh - ((Number(secondaryMetricValues[idx] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
-      showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, {
-        primary: metric === "views" ? "rgba(16,185,129,.82)" : "rgba(37,99,235,.72)",
-        primaryGlow: metric === "views" ? "rgba(16,185,129,.12)" : "rgba(37,99,235,.10)",
-        secondary: metric === "views" ? "rgba(37,99,235,.72)" : "rgba(16,185,129,.82)",
-        secondaryGlow: metric === "views" ? "rgba(37,99,235,.10)" : "rgba(16,185,129,.12)",
-      });
+      showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, getChartPalette(metric));
       showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
         "Month: " + String(labels[idx] || ""),
         [
@@ -14691,12 +14688,7 @@ return `
       if (!geometry) return;
       const viewsValue = Number((viewsSet.values || [])[idx] || 0);
       const clicksValue = Number((clicksSet.values || [])[idx] || 0);
-      showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, {
-        primary: metric === "views" ? "rgba(16,185,129,.82)" : "rgba(37,99,235,.72)",
-        primaryGlow: metric === "views" ? "rgba(16,185,129,.12)" : "rgba(37,99,235,.10)",
-        secondary: metric === "views" ? "rgba(37,99,235,.72)" : "rgba(16,185,129,.82)",
-        secondaryGlow: metric === "views" ? "rgba(37,99,235,.10)" : "rgba(16,185,129,.12)",
-      });
+      showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, getChartPalette(metric));
       showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipHtml(
         "Month: " + String(labels[idx] || ""),
         [
