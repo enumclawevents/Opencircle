@@ -2099,6 +2099,10 @@ const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "").trim())
   ? String(req.query.to).trim()
   : "";
 const analyticsMetricHelp = {
+  totalEvents: "Total event occurrences currently counted in analytics, including recurring occurrences.",
+  uniqueEvents: "Count of distinct event records, without repeating recurring occurrences.",
+  upcoming: "Event occurrences that have not ended yet and are still upcoming or in progress.",
+  featured: "Event occurrences currently marked as featured.",
   allViews: "Total tracked views from every source.",
   directViews: "Views from visitors who landed on the page directly without a referring site.",
   referralViews: "Views from visitors who arrived from another website, search result, or shared link.",
@@ -9895,25 +9899,25 @@ return `
           ` : `
           <div class="metric">
             <div>
-              <div class="k">Total events</div>
+              <div class="k">${analyticsMetricLabel("Total events", analyticsMetricHelp.totalEvents)}</div>
               <div class="v">${esc(stats.total)}</div>
             </div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">Unique events</div>
+              <div class="k">${analyticsMetricLabel("Unique events", analyticsMetricHelp.uniqueEvents)}</div>
               <div class="v">${esc(stats.uniqueTotal)}</div>
             </div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">Upcoming</div>
+              <div class="k">${analyticsMetricLabel("Upcoming", analyticsMetricHelp.upcoming)}</div>
               <div class="v">${esc(stats.upcoming)}</div>
             </div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">Featured</div>
+              <div class="k">${analyticsMetricLabel("Featured", analyticsMetricHelp.featured)}</div>
               <div class="v">${esc(stats.featured)}</div>
             </div>
           </div>
