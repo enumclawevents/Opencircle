@@ -2091,7 +2091,7 @@ const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
 const offset = (pg - 1) * limit;
 
 const q = String(req.query.q || "").trim();
-const sort = String(req.query.sort || "datetime"); // datetime | alpha | recent | id
+const sort = String(req.query.sort || "datetime"); // datetime | alpha | recent | id | popularity
 const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || "").trim())
   ? String(req.query.from).trim()
   : "";
@@ -2495,12 +2495,18 @@ let orderBySql = "startDateTime ASC";
 try {
   const colsForSort = await getEventsColumns();
   if (sort === "alpha") orderBySql = "title COLLATE NOCASE ASC";
+  else if (sort === "popularity") {
+    orderBySql = colsForSort.has("viewCount")
+      ? "COALESCE(viewCount, 0) DESC, startDateTime ASC, id DESC"
+      : "startDateTime ASC";
+  }
   else if (sort === "recent") {
     orderBySql = colsForSort.has("createdAt") ? "datetime(createdAt) DESC" : "id DESC";
   } else if (sort === "id") orderBySql = "id DESC";
   else orderBySql = "startDateTime ASC";
 } catch (_) {
   if (sort === "alpha") orderBySql = "title COLLATE NOCASE ASC";
+  else if (sort === "popularity") orderBySql = "startDateTime ASC";
   else if (sort === "recent") orderBySql = "id DESC";
   else if (sort === "id") orderBySql = "id DESC";
   else orderBySql = "startDateTime ASC";
@@ -11112,6 +11118,7 @@ return `
 	                  <label for="sortBy">Sort by</label>
 	                  <select id="sortBy" name="sort" class="ctrl sortBy">
 	                    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Event date/time</option>
+	                    <option value="popularity" ${sort === "popularity" ? "selected" : ""}>Popularity (most viewed)</option>
 	                    <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Alphabetical (A-Z)</option>
 	                    <option value="recent" ${sort === "recent" ? "selected" : ""}>Recently added</option>
 	                    <option value="id" ${sort === "id" ? "selected" : ""}>Newest ID first</option>
