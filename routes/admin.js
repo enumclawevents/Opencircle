@@ -7800,9 +7800,6 @@ return `
         margin-bottom:var(--gap);
       }
       .organizer-leaderboard-card{
-        margin-top: 0;
-      }
-      .organizer-secondary-grid{
         margin-top: calc(var(--gap) * -0.75);
       }
       .organizer-chart-grid > .card{
@@ -10203,7 +10200,7 @@ return `
           </div>
         </section>
         ` : `
-        <section class="grid2 analytics-main-grid organizer-secondary-grid">
+        <section class="grid2 analytics-main-grid">
           <div class="card organizer-leaderboard-card">
             <div class="sectionTitle">
               <div>
