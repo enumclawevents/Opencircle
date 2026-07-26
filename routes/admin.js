@@ -7800,7 +7800,7 @@ return `
         margin-bottom:var(--gap);
       }
       .organizer-leaderboard-card{
-        margin-top: -110px;
+        margin-top: calc(var(--gap) * -0.9);
       }
       .organizer-chart-grid > .card{
         height: auto;
