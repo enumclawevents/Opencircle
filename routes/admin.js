@@ -7816,21 +7816,21 @@ return `
       .organizer-chart-grid > .card:first-child{
         display:flex;
         flex-direction:column;
+        height:auto;
+        align-self:start;
       }
       .organizer-chart-grid > .card:first-child .chart-wrap{
         flex: 1 1 auto;
-        min-height: 360px;
+        min-height: 0;
       }
       #organizerChartSvgHost{
-        position:absolute;
-        inset:0;
+        position:relative;
         width:100%;
-        height:100%;
       }
       #organizerChartSvgHost > svg{
         display:block;
         width:100%;
-        height:100%;
+        height:auto;
       }
       .grid4{
         display:grid;
