@@ -9894,31 +9894,6 @@ return `
               </div>
             </details>
 
-            <details class="card dashboard-card" id="dashboard-release-notes-card" data-dashboard-card="release-notes" data-collapsible-card open>
-              <summary class="sectionTitle">
-                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
-                  <h2>Release notes</h2>
-                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </span>
-              </summary>
-              <div class="card-body" id="dashboard-release-notes-body">
-                <div class="mini">
-                  <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
-                  <div class="release-meta">
-                    <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
-                    <div class="release-row"><div class="label">Latest update</div><div class="value">${esc(latestRelease.date)}</div></div>
-                  </div>
-                  <div style="margin-top:12px; display:grid; gap:8px;">
-                    <div class="release-latest">
-                      <div class="value">${esc(latestRelease.text)}</div>
-                    </div>
-                  </div>
-                  <div style="margin-top:12px;">
-                    <a class="btn" href="/admin/updates-log">View full release notes</a>
-                  </div>
-                </div>
-              </div>
-            </details>
           </div>
 
           <div class="dashboard-col dashboard-col-fill dashboard-insights" data-dashboard-column="right">
@@ -9982,6 +9957,32 @@ return `
                 </div>
               </div>
             </details>` : ``}
+
+            <details class="card dashboard-card" id="dashboard-release-notes-card" data-dashboard-card="release-notes" data-collapsible-card open>
+              <summary class="sectionTitle">
+                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
+                  <h2>Release notes</h2>
+                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
+                </span>
+              </summary>
+              <div class="card-body" id="dashboard-release-notes-body">
+                <div class="mini">
+                  <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
+                  <div class="release-meta">
+                    <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
+                    <div class="release-row"><div class="label">Latest update</div><div class="value">${esc(latestRelease.date)}</div></div>
+                  </div>
+                  <div style="margin-top:12px; display:grid; gap:8px;">
+                    <div class="release-latest">
+                      <div class="value">${esc(latestRelease.text)}</div>
+                    </div>
+                  </div>
+                  <div style="margin-top:12px;">
+                    <a class="btn" href="/admin/updates-log">View full release notes</a>
+                  </div>
+                </div>
+              </div>
+            </details>
           </div>
         </section>
         ` : ``}
