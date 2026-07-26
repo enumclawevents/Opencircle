@@ -2099,6 +2099,7 @@ const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "").trim())
   ? String(req.query.to).trim()
   : "";
 const analyticsMetricHelp = {
+  organizers: "The number of organizers being counted here.",
   totalEvents: "The total number of event dates being counted here.",
   uniqueEvents: "The number of different events, without counting repeats over and over.",
   upcoming: "Events or event dates that have not ended yet.",
@@ -6240,6 +6241,104 @@ return `
       events: { labels: [], values: [] },
       views: { labels: [], values: [] },
     });
+    let organizerChartLabels = [];
+    let organizerChartEventValues = [];
+    let organizerChartViewValues = [];
+    function buildOrganizerChartSvg(labelsInput = [], eventValuesInput = [], viewValuesInput = []) {
+      const labels = Array.isArray(labelsInput) ? labelsInput.map((row) => String(row || "")) : [];
+      const eventValues = Array.isArray(eventValuesInput) ? eventValuesInput.map((row) => Number(row || 0)) : [];
+      const viewValues = Array.isArray(viewValuesInput) ? viewValuesInput.map((row) => Number(row || 0)) : [];
+      const allValues = eventValues.concat(viewValues).filter((v) => Number.isFinite(v));
+      const width = 1200;
+      const height = 260;
+      const padL = 56;
+      const padR = 18;
+      const padT = 18;
+      const padB = 42;
+      const plotW = width - padL - padR;
+      const plotH = height - padT - padB;
+      const textColor = "#475569";
+      const eventsColor = "rgba(16,185,129,.82)";
+      const viewsColor = "rgba(37,99,235,.72)";
+
+      if (!labels.length || !allValues.some((v) => v > 0)) {
+        return `
+          <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Organizer chart">
+            <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+            <text x="18" y="90" fill="rgba(15,23,42,.75)" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No organizer history yet</text>
+          </svg>
+        `;
+      }
+
+      const maxValue = Math.max(1, ...allValues);
+      const tickCount = Math.min(6, maxValue);
+      const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
+      const yMax = tickStep * tickCount;
+      const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
+      const eventPoints = labels.map((label, index) => {
+        const value = Number(eventValues[index] || 0);
+        return {
+          x: padL + stepX * index,
+          y: padT + plotH - ((value / yMax) * plotH),
+          value,
+        };
+      });
+      const viewPoints = labels.map((label, index) => {
+        const value = Number(viewValues[index] || 0);
+        return {
+          x: padL + stepX * index,
+          y: padT + plotH - ((value / yMax) * plotH),
+          value,
+        };
+      });
+      function buildSmoothSvgPath(points) {
+        if (!points.length) return "";
+        if (points.length === 1) return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+        let path = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+        for (let i = 0; i < points.length - 1; i++) {
+          const p0 = points[i - 1] || points[i];
+          const p1 = points[i];
+          const p2 = points[i + 1];
+          const p3 = points[i + 2] || p2;
+          const cp1x = p1.x + (p2.x - p0.x) / 6;
+          const cp1y = Math.max(padT, Math.min(padT + plotH, p1.y + (p2.y - p0.y) / 6));
+          const cp2x = p2.x - (p3.x - p1.x) / 6;
+          const cp2y = Math.max(padT, Math.min(padT + plotH, p2.y - (p3.y - p1.y) / 6));
+          path += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+        }
+        return path;
+      }
+      const eventPath = buildSmoothSvgPath(eventPoints);
+      const viewPath = buildSmoothSvgPath(viewPoints);
+      const fillPath = eventPoints.length
+        ? `M ${eventPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} L ${eventPoints[0].x.toFixed(2)} ${eventPoints[0].y.toFixed(2)} ` +
+          eventPath.replace(/^M [^ ]+ [^ ]+ ?/, "") +
+          ` L ${eventPoints[eventPoints.length - 1].x.toFixed(2)} ${(padT + plotH).toFixed(2)} Z`
+        : "";
+      const labelStep = labels.length <= 4 ? 1 : Math.ceil(labels.length / 4);
+
+      return `
+        <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Organizer chart">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+          ${Array.from({ length: tickCount + 1 }).map((_, i) => {
+            const value = i * tickStep;
+            const y = padT + plotH - ((value / yMax) * plotH);
+            return `
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="rgba(15,23,42,.08)" stroke-width="1"></line>
+              <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
+            `;
+          }).join("")}
+          ${fillPath ? `<path d="${fillPath}" fill="rgba(16,185,129,.10)"></path>` : ""}
+          ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${viewsColor}" stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${eventsColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${labels.map((label, index) => {
+            if (index !== labels.length - 1 && index % labelStep !== 0) return "";
+            const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
+            return `<text x="${eventPoints[index].x.toFixed(2)}" y="${(padT + plotH + 30).toFixed(2)}" text-anchor="${anchor}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(label || ""))}</text>`;
+          }).join("")}
+        </svg>
+      `;
+    }
     let organizerChartTitle = "All organizers performance";
     let organizerInsightsHeading = "Organizer overview";
     let organizerInsightsSub = "Click an organizer name to drill into one organizer";
@@ -6443,6 +6542,9 @@ return `
           eventValues.push(Number(overallMonthlyEventMap.get(ym) || 0));
           viewValues.push(Number(overallMonthlyViewMap.get(ym) || 0));
         }
+        organizerChartLabels = labels.slice();
+        organizerChartEventValues = eventValues.slice();
+        organizerChartViewValues = viewValues.slice();
         organizerChartDataJson = JSON.stringify({
           events: { labels, values: eventValues },
           views: { labels, values: viewValues },
@@ -6545,6 +6647,9 @@ return `
           eventValues.push(Number(selectedOrganizerEntry.monthlyEvents.get(ym) || 0));
           viewValues.push(Number(monthlyViewMap.get(ym) || 0));
         }
+        organizerChartLabels = labels.slice();
+        organizerChartEventValues = eventValues.slice();
+        organizerChartViewValues = viewValues.slice();
         organizerChartDataJson = JSON.stringify({
           events: { labels, values: eventValues },
           views: { labels, values: viewValues },
@@ -6557,6 +6662,11 @@ return `
         `;
       }
     }
+    const organizerChartSvg = buildOrganizerChartSvg(
+      organizerChartLabels,
+      organizerChartEventValues,
+      organizerChartViewValues
+    );
 
     const pageTitleBase = showCreate
       ? "Create Events"
@@ -10005,10 +10115,10 @@ return `
 
         ${showOrganizers ? `
         <section class="metrics" id="organizer-analytics-metrics">
-          <div class="metric"><div><div class="k">Organizers</div><div class="v">${organizerAnalyticsOptions.length.toLocaleString("en-US")}</div></div></div>
-          <div class="metric"><div><div class="k">Unique events</div><div class="v">${organizerPageSummary.uniqueEvents.toLocaleString("en-US")}</div></div></div>
-          <div class="metric"><div><div class="k">Total events</div><div class="v">${organizerPageSummary.totalOccurrences.toLocaleString("en-US")}</div></div></div>
-          <div class="metric"><div><div class="k">Upcoming</div><div class="v">${organizerPageSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">${analyticsMetricLabel("Organizers", analyticsMetricHelp.organizers)}</div><div class="v">${organizerAnalyticsOptions.length.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">${analyticsMetricLabel("Unique events", analyticsMetricHelp.uniqueEvents)}</div><div class="v">${organizerPageSummary.uniqueEvents.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">${analyticsMetricLabel("Total events", analyticsMetricHelp.totalEvents)}</div><div class="v">${organizerPageSummary.totalOccurrences.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">${analyticsMetricLabel("Upcoming", analyticsMetricHelp.upcoming)}</div><div class="v">${organizerPageSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div></div>
         </section>
 
         <section class="grid2 analytics-main-grid organizer-chart-grid">
@@ -10032,8 +10142,9 @@ return `
               </div>
             </div>
             <div class="chart-wrap" id="organizerChartWrap" style="min-height:220px;">
+              <div id="organizerChartSvgHost">${organizerChartSvg}</div>
               <div id="organizerChartData" data-chart="${esc(organizerChartDataJson)}" hidden></div>
-              <canvas id="organizerChart" style="width:100%; height:260px; display:block;"></canvas>
+              <canvas id="organizerChart" style="position:absolute; inset:0; width:100%; height:260px; display:none;"></canvas>
               <div id="organizerChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
           </div>
@@ -13704,6 +13815,7 @@ return `
     const $wrap = document.getElementById("organizerChartWrap");
     const $tip = document.getElementById("organizerChartTip");
     const $legend = document.getElementById("organizerChartLegend");
+    const $svgHost = document.getElementById("organizerChartSvgHost");
     if (!$canvas || !$wrap) return;
     const hoverOverlay = ensureChartHoverOverlay($wrap, "organizer");
 
@@ -13735,6 +13847,69 @@ return `
     } catch (_) {}
 
     let hoverIndex = -1;
+
+    if ($svgHost) {
+      if ($canvas) $canvas.style.display = "none";
+      function showSvgTip(index, ev){
+        if (!$tip || !ev) return;
+        const eventSet = chartSets.events || { labels: [], values: [] };
+        const viewSet = chartSets.views || { labels: [], values: [] };
+        const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
+        const eventValues = Array.isArray(eventSet.values) ? eventSet.values : [];
+        const viewValues = Array.isArray(viewSet.values) ? viewSet.values : [];
+        const safeIndex = Math.max(0, Math.min(Number(index || 0), labels.length - 1));
+        const geometry = getSvgChartHoverGeometry($svgHost, labels, safeIndex, eventValues, viewValues);
+        if (!geometry) return;
+        showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, {
+          primary: "rgba(16,185,129,.82)",
+          primaryGlow: "rgba(16,185,129,.12)",
+          secondary: "rgba(37,99,235,.72)",
+          secondaryGlow: "rgba(37,99,235,.10)",
+        });
+        showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipHtml(
+          "Month: " + String(labels[safeIndex] || ""),
+          [
+            { label: "Events", value: Number(eventValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
+            { label: "Views", value: Number(viewValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
+          ]
+        ));
+      }
+      function hideSvgTip(){
+        if ($tip) $tip.style.display = "none";
+        hideChartHoverOverlay(hoverOverlay);
+      }
+      function getSvgHoverIndex(ev){
+        const eventSet = chartSets.events || { labels: [], values: [] };
+        const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
+        if (!labels.length) return -1;
+        const svgEl = $svgHost.querySelector("svg");
+        if (!svgEl) return -1;
+        const rect = svgEl.getBoundingClientRect();
+        if (!rect.width || !rect.height) return -1;
+        const mx = ev.clientX - rect.left;
+        const my = ev.clientY - rect.top;
+        const padL = rect.width * (56 / 1200);
+        const padR = rect.width * (18 / 1200);
+        const padT = rect.height * (18 / 260);
+        const padB = rect.height * (42 / 260);
+        const plotW = rect.width - padL - padR;
+        const plotH = rect.height - padT - padB;
+        if (mx < padL || mx > padL + plotW || my < padT || my > padT + plotH) return -1;
+        if (labels.length === 1) return 0;
+        return Math.max(0, Math.min(Math.round((mx - padL) / (plotW / (labels.length - 1))), labels.length - 1));
+      }
+      syncLegend();
+      $svgHost.addEventListener("mousemove", (ev) => {
+        const index = getSvgHoverIndex(ev);
+        if (!Number.isInteger(index) || index < 0) {
+          hideSvgTip();
+          return;
+        }
+        showSvgTip(index, ev);
+      });
+      $svgHost.addEventListener("mouseleave", hideSvgTip);
+      return;
+    }
 
     function syncLegend(){
       if (!$legend) return;
