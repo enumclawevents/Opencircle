@@ -2099,14 +2099,14 @@ const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "").trim())
   ? String(req.query.to).trim()
   : "";
 const analyticsMetricHelp = {
-  totalEvents: "Total event occurrences currently counted in analytics, including recurring occurrences.",
-  uniqueEvents: "Count of distinct event records, without repeating recurring occurrences.",
-  upcoming: "Event occurrences that have not ended yet and are still upcoming or in progress.",
-  featured: "Event occurrences currently marked as featured.",
-  allViews: "Total tracked views from every source.",
-  directViews: "Views from visitors who landed on the page directly without a referring site.",
-  referralViews: "Views from visitors who arrived from another website, search result, or shared link.",
-  internalViews: "Views generated from internal OpenCircle navigation or internal referrals.",
+  totalEvents: "The total number of event dates being counted here.",
+  uniqueEvents: "The number of different events, without counting repeats over and over.",
+  upcoming: "Events or event dates that have not ended yet.",
+  featured: "Events that are marked as featured.",
+  allViews: "All views added together.",
+  directViews: "Views from people who came straight to this page.",
+  referralViews: "Views from people who came from another website or link.",
+  internalViews: "Views that came from inside OpenCircle.",
 };
 const analyticsMetricLabel = (label, helpText) => `${esc(label)}<span class="metricInfo" tabindex="0" role="img" aria-label="${esc(`${label}: ${helpText}`)}" data-tip="${esc(helpText)}">i</span>`;
 
