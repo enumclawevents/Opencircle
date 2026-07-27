@@ -720,6 +720,20 @@ initDB()
       pruneExpiredSessions().catch(() => {});
     }, 30 * 60 * 1000);
 
+    const runNewsletterScheduler = () => {
+      if (typeof adminRouter.processScheduledNewsletters !== "function") return;
+      adminRouter.processScheduledNewsletters()
+        .then((result) => {
+          if (result && (result.sent || result.failed)) {
+            console.log("[NEWSLETTER] Scheduler result:", result);
+          }
+        })
+        .catch((err) => console.error("[NEWSLETTER] Scheduler failed:", err));
+    };
+
+    runNewsletterScheduler();
+    setInterval(runNewsletterScheduler, 5 * 60 * 1000);
+
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`OpenCircle API running on port ${PORT}`);
     });

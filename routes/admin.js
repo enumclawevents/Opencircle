@@ -1722,6 +1722,12 @@ async function ensureNewsletterSchema() {
       showcaseCount INTEGER NOT NULL DEFAULT 5,
       includeFeatured INTEGER NOT NULL DEFAULT 1,
       includeEditorialPick INTEGER NOT NULL DEFAULT 1,
+      scheduleEnabled INTEGER NOT NULL DEFAULT 0,
+      sendDayOfWeek TEXT NOT NULL DEFAULT 'monday',
+      sendTimeLocal TEXT NOT NULL DEFAULT '09:00',
+      emailSubject TEXT,
+      previewText TEXT,
+      lastSentAt TEXT,
       updatedByUserId INTEGER,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
@@ -1736,9 +1742,29 @@ async function ensureNewsletterSchema() {
       createdAt TEXT DEFAULT (datetime('now'))
     )
   `);
+  try {
+    const settingCols = new Set((await all("PRAGMA table_info(newsletter_settings)")).map((row) => String(row.name || "")));
+    if (!settingCols.has("scheduleEnabled")) await run("ALTER TABLE newsletter_settings ADD COLUMN scheduleEnabled INTEGER NOT NULL DEFAULT 0");
+    if (!settingCols.has("sendDayOfWeek")) await run("ALTER TABLE newsletter_settings ADD COLUMN sendDayOfWeek TEXT NOT NULL DEFAULT 'monday'");
+    if (!settingCols.has("sendTimeLocal")) await run("ALTER TABLE newsletter_settings ADD COLUMN sendTimeLocal TEXT NOT NULL DEFAULT '09:00'");
+    if (!settingCols.has("emailSubject")) await run("ALTER TABLE newsletter_settings ADD COLUMN emailSubject TEXT");
+    if (!settingCols.has("previewText")) await run("ALTER TABLE newsletter_settings ADD COLUMN previewText TEXT");
+    if (!settingCols.has("lastSentAt")) await run("ALTER TABLE newsletter_settings ADD COLUMN lastSentAt TEXT");
+  } catch (_) {}
   try { await run("CREATE INDEX IF NOT EXISTS idx_newsletter_audience_city ON newsletter_audience(city, createdAt DESC)"); } catch (_) {}
   try { await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_audience_city_email ON newsletter_audience(city, email)"); } catch (_) {}
+  try { await run("CREATE INDEX IF NOT EXISTS idx_newsletter_schedule_enabled ON newsletter_settings(scheduleEnabled, city)"); } catch (_) {}
   _newsletterSchemaEnsured = true;
+}
+
+function buildDefaultNewsletterSubject(city) {
+  const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  return `${normalizedCity} events this week`;
+}
+
+function buildDefaultNewsletterPreviewText(city) {
+  const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  return `Featured events and local picks happening around ${normalizedCity}.`;
 }
 
 function getDefaultNewsletterSettings(city) {
@@ -1747,6 +1773,12 @@ function getDefaultNewsletterSettings(city) {
     showcaseCount: 5,
     includeFeatured: 1,
     includeEditorialPick: 1,
+    scheduleEnabled: 0,
+    sendDayOfWeek: "monday",
+    sendTimeLocal: "09:00",
+    emailSubject: buildDefaultNewsletterSubject(city),
+    previewText: buildDefaultNewsletterPreviewText(city),
+    lastSentAt: "",
   };
 }
 
@@ -1758,6 +1790,31 @@ function clampNewsletterShowcaseCount(value) {
 
 function normalizeNewsletterEmailAddress(input) {
   return String(input || "").trim().toLowerCase();
+}
+
+function normalizeNewsletterWeekday(input) {
+  const value = String(input || "").trim().toLowerCase();
+  const allowed = new Set(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
+  return allowed.has(value) ? value : "monday";
+}
+
+function normalizeNewsletterTime(input) {
+  const value = String(input || "").trim();
+  if (!/^\d{2}:\d{2}$/.test(value)) return "09:00";
+  const [hour, minute] = value.split(":").map(Number);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return "09:00";
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return "09:00";
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function normalizeNewsletterSubject(input, city) {
+  const value = String(input || "").trim();
+  return value.slice(0, 160) || buildDefaultNewsletterSubject(city);
+}
+
+function normalizeNewsletterPreviewText(input, city) {
+  const value = String(input || "").trim();
+  return value.slice(0, 220) || buildDefaultNewsletterPreviewText(city);
 }
 
 function isValidNewsletterEmail(input) {
@@ -1786,7 +1843,7 @@ async function getNewsletterSettingsForCity(city) {
   await ensureNewsletterSchema();
   const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
   const row = await get(
-    `SELECT city, showcaseCount, includeFeatured, includeEditorialPick
+    `SELECT city, showcaseCount, includeFeatured, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt
        FROM newsletter_settings
       WHERE city = ?
       LIMIT 1`,
@@ -1798,7 +1855,56 @@ async function getNewsletterSettingsForCity(city) {
     showcaseCount: clampNewsletterShowcaseCount(row.showcaseCount),
     includeFeatured: Number(row.includeFeatured || 0) === 1 ? 1 : 0,
     includeEditorialPick: Number(row.includeEditorialPick || 0) === 1 ? 1 : 0,
+    scheduleEnabled: Number(row.scheduleEnabled || 0) === 1 ? 1 : 0,
+    sendDayOfWeek: normalizeNewsletterWeekday(row.sendDayOfWeek),
+    sendTimeLocal: normalizeNewsletterTime(row.sendTimeLocal),
+    emailSubject: normalizeNewsletterSubject(row.emailSubject, normalizedCity),
+    previewText: normalizeNewsletterPreviewText(row.previewText, normalizedCity),
+    lastSentAt: String(row.lastSentAt || "").trim(),
   };
+}
+
+function getNewsletterWeekdayOptions() {
+  return [
+    ["monday", "Monday"],
+    ["tuesday", "Tuesday"],
+    ["wednesday", "Wednesday"],
+    ["thursday", "Thursday"],
+    ["friday", "Friday"],
+    ["saturday", "Saturday"],
+    ["sunday", "Sunday"],
+  ];
+}
+
+function getNewsletterSlotDateTime(settings, now = DateTime.now().setZone(DEFAULT_TZ)) {
+  const current = now.setZone(DEFAULT_TZ);
+  const weekdays = {
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+    sunday: 7,
+  };
+  const dayKey = normalizeNewsletterWeekday(settings?.sendDayOfWeek);
+  const targetWeekday = weekdays[dayKey] || 1;
+  const [hour, minute] = normalizeNewsletterTime(settings?.sendTimeLocal).split(":").map(Number);
+  let slot = current.set({ hour, minute, second: 0, millisecond: 0 }).plus({ days: targetWeekday - current.weekday });
+  if (slot > current) slot = slot.minus({ weeks: 1 });
+  return slot;
+}
+
+function getNextNewsletterSlotDateTime(settings, now = DateTime.now().setZone(DEFAULT_TZ)) {
+  return getNewsletterSlotDateTime(settings, now).plus({ weeks: 1 });
+}
+
+function formatNewsletterScheduleSummary(settings) {
+  const dayOptions = Object.fromEntries(getNewsletterWeekdayOptions());
+  const label = dayOptions[normalizeNewsletterWeekday(settings?.sendDayOfWeek)] || "Monday";
+  const [hour, minute] = normalizeNewsletterTime(settings?.sendTimeLocal).split(":").map(Number);
+  const sample = DateTime.fromObject({ hour, minute }, { zone: DEFAULT_TZ });
+  return `${label} at ${sample.toFormat("h:mm a")} ${DEFAULT_TZ}`;
 }
 
 function stripNewsletterHtml(input) {
@@ -1960,6 +2066,8 @@ function selectNewsletterEvents(events, settings) {
 
 function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEvent, showcaseEvents, req }) {
   const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  const previewText = normalizeNewsletterPreviewText(settings?.previewText, normalizedCity);
+  const subject = normalizeNewsletterSubject(settings?.emailSubject, normalizedCity);
   const pieces = [];
   const textPieces = [];
 
@@ -2048,27 +2156,156 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
   }
 
   return {
-    subject: `${normalizedCity} weekly newsletter preview`,
+    subject,
     html: `
       <div style="margin:0; padding:24px; background:#edf2f7; font-family:Arial, sans-serif;">
         <div style="max-width:720px; margin:0 auto;">
+          <div style="display:none!important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden;">${esc(previewText)}</div>
           <div style="padding:0 0 20px;">
             <div style="font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#00c08b; margin-bottom:8px;">OpenCircle Newsletter</div>
-            <div style="font-size:34px; line-height:1.1; font-weight:900; color:#0f172a; margin-bottom:10px;">${esc(normalizedCity)} this week</div>
-            <div style="font-size:16px; line-height:1.6; color:#526377;">This is a test send using your current newsletter settings. Showcase count: ${esc(String(clampNewsletterShowcaseCount(settings?.showcaseCount)))}.</div>
+            <div style="font-size:34px; line-height:1.1; font-weight:900; color:#0f172a; margin-bottom:10px;">${esc(subject)}</div>
+            <div style="font-size:16px; line-height:1.6; color:#526377; margin-bottom:8px;">${esc(previewText)}</div>
+            <div style="font-size:14px; line-height:1.6; color:#64748b;">This newsletter is scheduled for ${esc(formatNewsletterScheduleSummary(settings))}. Showcase count: ${esc(String(clampNewsletterShowcaseCount(settings?.showcaseCount)))}.</div>
           </div>
           ${pieces.join("")}
         </div>
       </div>
     `,
     text: [
-      `${normalizedCity} this week`,
+      subject,
+      previewText,
       "",
-      `This is a test send using your current newsletter settings. Showcase count: ${clampNewsletterShowcaseCount(settings?.showcaseCount)}.`,
+      `Scheduled send: ${formatNewsletterScheduleSummary(settings)}.`,
+      `Showcase count: ${clampNewsletterShowcaseCount(settings?.showcaseCount)}.`,
       "",
       textPieces.join("\n\n")
     ].join("\n")
   };
+}
+
+async function getNewsletterAudienceForCity(city) {
+  await ensureNewsletterSchema();
+  const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  const rows = await all(
+    `SELECT id, city, email, createdAt
+       FROM newsletter_audience
+      WHERE city = ?
+      ORDER BY lower(email) ASC, id ASC`,
+    [normalizedCity]
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function buildNewsletterCampaign(city, reqLike) {
+  const settings = await getNewsletterSettingsForCity(city);
+  const candidates = await getNewsletterEventCandidates(city);
+  const selection = selectNewsletterEvents(candidates, settings);
+  const message = buildNewsletterEmail({
+    city,
+    settings,
+    featuredEvent: selection.featuredEvent,
+    editorialPickEvent: selection.editorialPickEvent,
+    showcaseEvents: selection.showcaseEvents,
+    req: reqLike,
+  });
+  return {
+    settings,
+    selection,
+    message,
+    hasContent: !!(selection.featuredEvent || selection.editorialPickEvent || (selection.showcaseEvents || []).length),
+  };
+}
+
+function buildNewsletterSchedulerRequestLike() {
+  const base = buildNewsletterBaseUrl({
+    protocol: "https",
+    get(name) {
+      if (name === "x-forwarded-host" || name === "host") return "";
+      if (name === "x-forwarded-proto") return "https";
+      return "";
+    },
+  });
+  try {
+    const parsed = new URL(base);
+    return {
+      protocol: parsed.protocol.replace(":", "") || "https",
+      get(name) {
+        if (name === "x-forwarded-host" || name === "host") return parsed.host;
+        if (name === "x-forwarded-proto") return parsed.protocol.replace(":", "") || "https";
+        return "";
+      },
+    };
+  } catch (_) {
+    return {
+      protocol: "https",
+      get(name) {
+        if (name === "x-forwarded-host" || name === "host") return "";
+        if (name === "x-forwarded-proto") return "https";
+        return "";
+      },
+    };
+  }
+}
+
+async function processScheduledNewsletters() {
+  await ensureNewsletterSchema();
+  const now = DateTime.now().setZone(DEFAULT_TZ);
+  const rows = await all(
+    `SELECT city, showcaseCount, includeFeatured, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt
+       FROM newsletter_settings
+      WHERE COALESCE(scheduleEnabled, 0) = 1`
+  );
+  const summary = { checked: 0, sent: 0, skipped: 0, failed: 0 };
+  const reqLike = buildNewsletterSchedulerRequestLike();
+
+  for (const row of rows || []) {
+    summary.checked += 1;
+    const settings = {
+      city: String(row.city || "").trim() || "Enumclaw",
+      showcaseCount: clampNewsletterShowcaseCount(row.showcaseCount),
+      includeFeatured: Number(row.includeFeatured || 0) === 1 ? 1 : 0,
+      includeEditorialPick: Number(row.includeEditorialPick || 0) === 1 ? 1 : 0,
+      scheduleEnabled: Number(row.scheduleEnabled || 0) === 1 ? 1 : 0,
+      sendDayOfWeek: normalizeNewsletterWeekday(row.sendDayOfWeek),
+      sendTimeLocal: normalizeNewsletterTime(row.sendTimeLocal),
+      emailSubject: normalizeNewsletterSubject(row.emailSubject, row.city),
+      previewText: normalizeNewsletterPreviewText(row.previewText, row.city),
+      lastSentAt: String(row.lastSentAt || "").trim(),
+    };
+    const slot = getNewsletterSlotDateTime(settings, now);
+    const lastSent = settings.lastSentAt ? DateTime.fromISO(settings.lastSentAt, { zone: DEFAULT_TZ }) : null;
+    if (!slot.isValid || slot > now || (lastSent && lastSent.isValid && lastSent >= slot)) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    try {
+      const audience = await getNewsletterAudienceForCity(settings.city);
+      const emails = audience.map((item) => normalizeNewsletterEmailAddress(item.email)).filter((email) => isValidNewsletterEmail(email));
+      if (!emails.length) {
+        summary.skipped += 1;
+        continue;
+      }
+      const campaign = await buildNewsletterCampaign(settings.city, reqLike);
+      for (const email of emails) {
+        await sendEmail({
+          to: email,
+          subject: campaign.message.subject,
+          html: campaign.message.html,
+          text: campaign.message.text,
+          from: PASSWORD_RESET_FROM,
+          replyTo: PASSWORD_RESET_REPLY_TO,
+        });
+      }
+      await run("UPDATE newsletter_settings SET lastSentAt = ?, updatedAt = datetime('now') WHERE city = ?", [now.toISO(), settings.city]);
+      summary.sent += 1;
+    } catch (err) {
+      summary.failed += 1;
+      console.error("[NEWSLETTER] Scheduled send failed for city:", settings.city, err);
+    }
+  }
+
+  return summary;
 }
 
 async function resolveSessionUser(req) {
@@ -5178,15 +5415,19 @@ return `
     let newsletterFeaturedEvent = null;
     let newsletterEditorialPickEvent = null;
     let newsletterShowcaseEvents = [];
+    let newsletterNextSendLabel = "";
+    let newsletterLastSentLabel = "";
     if (showNewsletter || showNewsletterAudience) {
       newsletterSettings = await getNewsletterSettingsForCity(selectedCity);
-      newsletterAudienceRows = await all(
-        `SELECT id, city, email, createdAt
-           FROM newsletter_audience
-          WHERE city = ?
-          ORDER BY lower(email) ASC, id ASC`,
-        [selectedCity]
-      );
+      newsletterAudienceRows = await getNewsletterAudienceForCity(selectedCity);
+      newsletterNextSendLabel = Number(newsletterSettings.scheduleEnabled || 0) === 1
+        ? getNextNewsletterSlotDateTime(newsletterSettings, DateTime.now().setZone(DEFAULT_TZ)).toFormat("cccc, LLL d 'at' h:mm a")
+        : "Automatic sending is off";
+      newsletterLastSentLabel = String(newsletterSettings.lastSentAt || "").trim()
+        ? (DateTime.fromISO(String(newsletterSettings.lastSentAt || ""), { zone: DEFAULT_TZ }).isValid
+            ? DateTime.fromISO(String(newsletterSettings.lastSentAt || ""), { zone: DEFAULT_TZ }).toFormat("cccc, LLL d 'at' h:mm a")
+            : "")
+        : "Not sent yet";
       if (showNewsletter) {
         const newsletterCandidates = await getNewsletterEventCandidates(selectedCity);
         const selection = selectNewsletterEvents(newsletterCandidates, newsletterSettings);
@@ -10942,6 +11183,36 @@ return `
                 <form method="POST" action="/admin/newsletter/settings">
                   <input type="hidden" name="city" value="${esc(selectedCity)}" />
 
+                  <div class="rec-box" style="margin-top:0;">
+                    <div class="checkbox">
+                      <input type="checkbox" id="newsletterScheduleEnabled" name="scheduleEnabled" value="1" ${Number(newsletterSettings.scheduleEnabled || 0) === 1 ? "checked" : ""} />
+                      <label for="newsletterScheduleEnabled" style="margin:0; font-size:15px; font-weight:700;">Send this newsletter automatically</label>
+                    </div>
+                    <div class="note">Turn this on when you want the API to send the newsletter on its own every week.</div>
+                  </div>
+
+                  <div class="grid2" style="grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;">
+                    <div>
+                      <label>Day of the week</label>
+                      <select class="ctrl" name="sendDayOfWeek">
+                        ${getNewsletterWeekdayOptions().map(([value, label]) => `<option value="${esc(value)}" ${normalizeNewsletterWeekday(newsletterSettings.sendDayOfWeek) === value ? "selected" : ""}>${esc(label)}</option>`).join("")}
+                      </select>
+                    </div>
+                    <div>
+                      <label>Time</label>
+                      <input class="ctrl" type="time" name="sendTimeLocal" value="${esc(normalizeNewsletterTime(newsletterSettings.sendTimeLocal))}" />
+                    </div>
+                  </div>
+                  <div class="note">Schedule runs in Pacific Time.</div>
+
+                  <label style="margin-top:14px;">Email subject</label>
+                  <input class="ctrl" type="text" name="emailSubject" value="${esc(newsletterSettings.emailSubject || "")}" maxlength="160" placeholder="${esc(buildDefaultNewsletterSubject(selectedCity))}" />
+                  <div class="note">This is the subject line people will see in their inbox.</div>
+
+                  <label style="margin-top:14px;">Preview text</label>
+                  <textarea class="ctrl" name="previewText" rows="3" maxlength="220" placeholder="${esc(buildDefaultNewsletterPreviewText(selectedCity))}">${esc(newsletterSettings.previewText || "")}</textarea>
+                  <div class="note">This is the short preview snippet that appears next to the subject in many inboxes.</div>
+
                   <label>How many events to showcase</label>
                   <input class="ctrl" type="number" min="1" max="12" name="showcaseCount" value="${esc(String(newsletterSettings.showcaseCount || 5))}" />
                   <div class="note">This controls how many regular events appear in the email list.</div>
@@ -10980,6 +11251,9 @@ return `
                   </div>
                 </form>
                 <div class="mini" style="margin-top:14px;">
+                  <div class="insight-row"><div class="label">Schedule</div><div class="value">${esc(formatNewsletterScheduleSummary(newsletterSettings))}</div></div>
+                  <div class="insight-row"><div class="label">Next send</div><div class="value">${esc(newsletterNextSendLabel)}</div></div>
+                  <div class="insight-row"><div class="label">Last sent</div><div class="value">${esc(newsletterLastSentLabel)}</div></div>
                   <div class="insight-row"><div class="label">Audience size</div><div class="value">${esc(String(newsletterAudienceRows.length))}</div></div>
                   <div class="insight-row"><div class="label">Featured event</div><div class="value">${esc(newsletterFeaturedEvent?.title || "None right now")}</div></div>
                   <div class="insight-row"><div class="label">Editorial pick</div><div class="value">${esc(newsletterEditorialPickEvent?.title || "None right now")}</div></div>
@@ -15418,17 +15692,27 @@ router.post("/newsletter/settings", async (req, res) => {
     const showcaseCount = clampNewsletterShowcaseCount(req.body?.showcaseCount);
     const includeFeatured = String(req.body?.includeFeatured || "") === "1" ? 1 : 0;
     const includeEditorialPick = String(req.body?.includeEditorialPick || "") === "1" ? 1 : 0;
+    const scheduleEnabled = String(req.body?.scheduleEnabled || "") === "1" ? 1 : 0;
+    const sendDayOfWeek = normalizeNewsletterWeekday(req.body?.sendDayOfWeek);
+    const sendTimeLocal = normalizeNewsletterTime(req.body?.sendTimeLocal);
+    const emailSubject = normalizeNewsletterSubject(req.body?.emailSubject, city);
+    const previewText = normalizeNewsletterPreviewText(req.body?.previewText, city);
 
     await run(
-      `INSERT INTO newsletter_settings (city, showcaseCount, includeFeatured, includeEditorialPick, updatedByUserId, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      `INSERT INTO newsletter_settings (city, showcaseCount, includeFeatured, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, updatedByUserId, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
        ON CONFLICT(city) DO UPDATE SET
          showcaseCount = excluded.showcaseCount,
          includeFeatured = excluded.includeFeatured,
          includeEditorialPick = excluded.includeEditorialPick,
+         scheduleEnabled = excluded.scheduleEnabled,
+         sendDayOfWeek = excluded.sendDayOfWeek,
+         sendTimeLocal = excluded.sendTimeLocal,
+         emailSubject = excluded.emailSubject,
+         previewText = excluded.previewText,
          updatedByUserId = excluded.updatedByUserId,
          updatedAt = datetime('now')`,
-      [city, showcaseCount, includeFeatured, includeEditorialPick, Number(currentUser?.id || 0) || null]
+      [city, showcaseCount, includeFeatured, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, Number(currentUser?.id || 0) || null]
     );
 
     return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=saved`);
@@ -15455,23 +15739,13 @@ router.post("/newsletter/test", async (req, res) => {
       return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=invalid_email`);
     }
 
-    const settings = await getNewsletterSettingsForCity(city);
-    const candidates = await getNewsletterEventCandidates(city);
-    const selection = selectNewsletterEvents(candidates, settings);
-    const message = buildNewsletterEmail({
-      city,
-      settings,
-      featuredEvent: selection.featuredEvent,
-      editorialPickEvent: selection.editorialPickEvent,
-      showcaseEvents: selection.showcaseEvents,
-      req,
-    });
+    const campaign = await buildNewsletterCampaign(city, req);
 
     const sent = await sendEmail({
       to: testEmail,
-      subject: message.subject,
-      html: message.html,
-      text: message.text,
+      subject: campaign.message.subject,
+      html: campaign.message.html,
+      text: campaign.message.text,
       from: PASSWORD_RESET_FROM,
       replyTo: PASSWORD_RESET_REPLY_TO,
     });
@@ -17348,5 +17622,7 @@ router.post("/events/:id/unarchive", async (req, res) => {
     return res.status(500).send("Server error.");
   }
 });
+
+router.processScheduledNewsletters = processScheduledNewsletters;
 
 module.exports = router;
