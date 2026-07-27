@@ -8495,6 +8495,23 @@ return `
 
       .grid2 > .card:last-child .sectionTitle{ margin-bottom:12px; }
       .grid2 > .card:last-child .mini + .mini{ margin-top:var(--gap); }
+      .newsletter-preview-tools{
+        display:grid;
+        grid-template-columns: 360px minmax(0, 1fr);
+        gap:var(--gap);
+        margin-bottom:var(--gap);
+        align-items:start;
+      }
+      .newsletter-preview-layout{
+        display:grid;
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 1fr);
+        gap:var(--gap);
+        align-items:start;
+      }
+      .newsletter-preview-tools > .card,
+      .newsletter-preview-layout > .card{
+        height:100%;
+      }
       .analytics-main-grid{
         align-items:start;
       }
@@ -8607,6 +8624,12 @@ return `
         body.sidebar-open{ overflow:hidden; }
         .main{ padding:16px; }
         .search input{ min-width: 160px; }
+      }
+      @media (max-width: 980px){
+        .newsletter-preview-tools,
+        .newsletter-preview-layout{
+          grid-template-columns: 1fr;
+        }
       }
 
       h2{ margin:0 0 10px; font-size:22px; font-weight:700; letter-spacing:-.01em; line-height:1.2; }
@@ -11324,7 +11347,7 @@ return `
               </div>
             </div>
             ${newsletterNoticeHtml}
-            <div class="grid2" style="grid-template-columns:360px minmax(0,1fr); align-items:start;">
+            <div class="newsletter-preview-tools">
               <div class="card">
                 <div class="sectionTitle"><div><h2>Send a test email</h2></div></div>
                 <form method="POST" action="/admin/newsletter/test">
@@ -11339,7 +11362,7 @@ return `
               </div>
             </div>
 
-            <div class="grid2" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:start; margin-top:var(--gap);">
+            <div class="newsletter-preview-layout" style="margin-top:var(--gap);">
               <div class="card">
                 <div class="sectionTitle">
                   <div>
