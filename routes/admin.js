@@ -1968,7 +1968,7 @@ function formatNewsletterScheduleSummary(settings) {
   const label = dayOptions[normalizeNewsletterWeekday(settings?.sendDayOfWeek)] || "Monday";
   const [hour, minute] = normalizeNewsletterTime(settings?.sendTimeLocal).split(":").map(Number);
   const sample = DateTime.fromObject({ hour, minute }, { zone: DEFAULT_TZ });
-  return `${label} at ${sample.toFormat("h:mm a")} ${DEFAULT_TZ}`;
+  return `${label} at ${sample.toFormat("h:mm a")}`;
 }
 
 function getNewsletterContentStartDateTime(settings, baseDateTime = DateTime.now().setZone(DEFAULT_TZ)) {
