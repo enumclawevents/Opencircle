@@ -1721,6 +1721,7 @@ async function ensureNewsletterSchema() {
       city TEXT NOT NULL UNIQUE,
       showcaseCount INTEGER NOT NULL DEFAULT 5,
       daysAhead INTEGER NOT NULL DEFAULT 0,
+      daysToShow INTEGER NOT NULL DEFAULT 7,
       includeFeatured INTEGER NOT NULL DEFAULT 1,
       headerImageUrl TEXT,
       includeEditorialPick INTEGER NOT NULL DEFAULT 1,
@@ -1782,6 +1783,7 @@ async function ensureNewsletterSchema() {
   try {
     const settingCols = new Set((await all("PRAGMA table_info(newsletter_settings)")).map((row) => String(row.name || "")));
     if (!settingCols.has("daysAhead")) await run("ALTER TABLE newsletter_settings ADD COLUMN daysAhead INTEGER NOT NULL DEFAULT 0");
+    if (!settingCols.has("daysToShow")) await run("ALTER TABLE newsletter_settings ADD COLUMN daysToShow INTEGER NOT NULL DEFAULT 7");
     if (!settingCols.has("headerImageUrl")) await run("ALTER TABLE newsletter_settings ADD COLUMN headerImageUrl TEXT");
     if (!settingCols.has("scheduleEnabled")) await run("ALTER TABLE newsletter_settings ADD COLUMN scheduleEnabled INTEGER NOT NULL DEFAULT 0");
     if (!settingCols.has("sendDayOfWeek")) await run("ALTER TABLE newsletter_settings ADD COLUMN sendDayOfWeek TEXT NOT NULL DEFAULT 'monday'");
@@ -1816,6 +1818,7 @@ function getDefaultNewsletterSettings(city) {
     city: String(city || "Enumclaw").trim() || "Enumclaw",
     showcaseCount: 5,
     daysAhead: 0,
+    daysToShow: 7,
     includeFeatured: 1,
     headerImageUrl: "",
     includeEditorialPick: 1,
@@ -1838,6 +1841,12 @@ function clampNewsletterDaysAhead(value) {
   const n = parseInt(String(value || ""), 10);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(30, n));
+}
+
+function clampNewsletterDaysToShow(value) {
+  const n = parseInt(String(value || ""), 10);
+  if (!Number.isFinite(n)) return 7;
+  return Math.max(1, Math.min(30, n));
 }
 
 function normalizeNewsletterEmailAddress(input) {
@@ -1895,7 +1904,7 @@ async function getNewsletterSettingsForCity(city) {
   await ensureNewsletterSchema();
   const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
   const row = await get(
-    `SELECT city, showcaseCount, daysAhead, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt
+    `SELECT city, showcaseCount, daysAhead, daysToShow, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt
        FROM newsletter_settings
       WHERE city = ?
       LIMIT 1`,
@@ -1906,6 +1915,7 @@ async function getNewsletterSettingsForCity(city) {
     city: normalizedCity,
     showcaseCount: clampNewsletterShowcaseCount(row.showcaseCount),
     daysAhead: clampNewsletterDaysAhead(row.daysAhead),
+    daysToShow: clampNewsletterDaysToShow(row.daysToShow),
     includeFeatured: Number(row.includeFeatured || 0) === 1 ? 1 : 0,
     headerImageUrl: normalizeHttpUrl(row.headerImageUrl || ""),
     includeEditorialPick: Number(row.includeEditorialPick || 0) === 1 ? 1 : 0,
@@ -1966,6 +1976,10 @@ function getNewsletterContentStartDateTime(settings, baseDateTime = DateTime.now
   return base.startOf("day").plus({ days: clampNewsletterDaysAhead(settings?.daysAhead) });
 }
 
+function getNewsletterContentEndDateTime(settings, baseDateTime = DateTime.now().setZone(DEFAULT_TZ)) {
+  return getNewsletterContentStartDateTime(settings, baseDateTime).plus({ days: clampNewsletterDaysToShow(settings?.daysToShow) });
+}
+
 function getNewsletterPreviewBaseDateTime(settings, now = DateTime.now().setZone(DEFAULT_TZ)) {
   const current = DateTime.isDateTime(now) ? now.setZone(DEFAULT_TZ) : DateTime.now().setZone(DEFAULT_TZ);
   if (Number(settings?.scheduleEnabled || 0) === 1) {
@@ -2011,10 +2025,11 @@ function buildNewsletterEventUrl(req, eventRow) {
   return `${base}/events/${encodeURIComponent(String(eventRow?.id || ""))}`;
 }
 
-async function getNewsletterEventCandidates(city, { startAtMs = Date.now() } = {}) {
+async function getNewsletterEventCandidates(city, { startAtMs = Date.now(), endAtMs = null } = {}) {
   await ensurePickSchema();
   const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
   const selectionStartUtcMs = Number.isFinite(Number(startAtMs)) ? Number(startAtMs) : Date.now();
+  const selectionEndUtcMs = Number.isFinite(Number(endAtMs)) ? Number(endAtMs) : null;
   const futureWindowUtcMs = selectionStartUtcMs + (370 * 24 * 60 * 60 * 1000);
   let rows = [];
   try {
@@ -2077,8 +2092,12 @@ async function getNewsletterEventCandidates(city, { startAtMs = Date.now() } = {
     if (hasRecurring) {
       const occurrences = generateAdminOccurrences(row, selectionStartUtcMs, futureWindowUtcMs);
       const nextOccurrence = (occurrences || []).find((occ) => {
+        const startUtc = Date.parse(String(occ?.startDateTime || "").trim());
         const endUtc = Date.parse(String(occ?.endDateTime || occ?.startDateTime || "").trim());
-        return Number.isFinite(endUtc) && endUtc >= selectionStartUtcMs;
+        if (!Number.isFinite(endUtc)) return false;
+        if (endUtc < selectionStartUtcMs) return false;
+        if (selectionEndUtcMs !== null && Number.isFinite(startUtc) && startUtc >= selectionEndUtcMs) return false;
+        return true;
       });
       if (!nextOccurrence) continue;
       prepared.push({
@@ -2090,8 +2109,13 @@ async function getNewsletterEventCandidates(city, { startAtMs = Date.now() } = {
       continue;
     }
 
+    const startUtc = Date.parse(String(row?.startDateTime || "").trim());
     const endUtc = Date.parse(String(row?.endDateTime || row?.startDateTime || "").trim());
-    if (Number.isFinite(endUtc) && endUtc >= selectionStartUtcMs) {
+    if (
+      Number.isFinite(endUtc) &&
+      endUtc >= selectionStartUtcMs &&
+      (selectionEndUtcMs === null || !Number.isFinite(startUtc) || startUtc < selectionEndUtcMs)
+    ) {
       prepared.push(row);
     }
   }
@@ -2274,6 +2298,7 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
       "",
       `Scheduled send: ${formatNewsletterScheduleSummary(settings)}.`,
       `Starts with events ${clampNewsletterDaysAhead(settings?.daysAhead)} day(s) after send day.`,
+      `Shows ${clampNewsletterDaysToShow(settings?.daysToShow)} day(s) of events.`,
       `Showcase count: ${clampNewsletterShowcaseCount(settings?.showcaseCount)}.`,
       "",
       textPieces.join("\n\n")
@@ -2300,7 +2325,8 @@ async function buildNewsletterCampaign(city, reqLike, { baseDateTime = null } = 
     ? baseDateTime.setZone(DEFAULT_TZ)
     : getNewsletterPreviewBaseDateTime(settings);
   const contentStart = getNewsletterContentStartDateTime(settings, previewBase);
-  const candidates = await getNewsletterEventCandidates(city, { startAtMs: contentStart.toMillis() });
+  const contentEnd = getNewsletterContentEndDateTime(settings, previewBase);
+  const candidates = await getNewsletterEventCandidates(city, { startAtMs: contentStart.toMillis(), endAtMs: contentEnd.toMillis() });
   const selection = selectNewsletterEvents(candidates, settings);
   const message = buildNewsletterEmail({
     city,
@@ -2314,6 +2340,7 @@ async function buildNewsletterCampaign(city, reqLike, { baseDateTime = null } = 
     settings,
     selection,
     contentStart,
+    contentEnd,
     message,
     hasContent: !!(selection.featuredEvent || selection.editorialPickEvent || (selection.showcaseEvents || []).length),
   };
@@ -2516,7 +2543,7 @@ async function processScheduledNewsletters() {
   const now = DateTime.now().setZone(DEFAULT_TZ);
   const rows = await all(
     `SELECT city, showcaseCount, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt
-            , daysAhead
+            , daysAhead, daysToShow
        FROM newsletter_settings
       WHERE COALESCE(scheduleEnabled, 0) = 1`
   );
@@ -2529,6 +2556,7 @@ async function processScheduledNewsletters() {
       city: String(row.city || "").trim() || "Enumclaw",
       showcaseCount: clampNewsletterShowcaseCount(row.showcaseCount),
       daysAhead: clampNewsletterDaysAhead(row.daysAhead),
+      daysToShow: clampNewsletterDaysToShow(row.daysToShow),
       includeFeatured: Number(row.includeFeatured || 0) === 1 ? 1 : 0,
       headerImageUrl: normalizeHttpUrl(row.headerImageUrl || ""),
       includeEditorialPick: Number(row.includeEditorialPick || 0) === 1 ? 1 : 0,
@@ -5726,7 +5754,11 @@ return `
       if (showNewsletter || showNewsletterPreview) {
         const previewBase = getNewsletterPreviewBaseDateTime(newsletterSettings);
         const contentStart = getNewsletterContentStartDateTime(newsletterSettings, previewBase);
-        const newsletterCandidates = await getNewsletterEventCandidates(selectedCity, { startAtMs: contentStart.toMillis() });
+        const contentEnd = getNewsletterContentEndDateTime(newsletterSettings, previewBase);
+        const newsletterCandidates = await getNewsletterEventCandidates(selectedCity, {
+          startAtMs: contentStart.toMillis(),
+          endAtMs: contentEnd.toMillis(),
+        });
         const selection = selectNewsletterEvents(newsletterCandidates, newsletterSettings);
         newsletterFeaturedEvent = selection.featuredEvent;
         newsletterEditorialPickEvent = selection.editorialPickEvent;
@@ -11944,6 +11976,10 @@ return `
                 <input class="ctrl" type="number" min="0" max="30" name="daysAhead" value="${esc(String(newsletterSettings.daysAhead || 0))}" />
                 <div class="note">Use <strong style="color:var(--text);">0</strong> to include same-day events. Use <strong style="color:var(--text);">1</strong> if a Thursday newsletter should start with Friday events.</div>
 
+                <label style="margin-top:14px;">How many days of events to include</label>
+                <input class="ctrl" type="number" min="1" max="30" name="daysToShow" value="${esc(String(newsletterSettings.daysToShow || 7))}" />
+                <div class="note">Use <strong style="color:var(--text);">3</strong> if you want a Thursday newsletter to only show Friday, Saturday, and Sunday events.</div>
+
                 <label style="margin-top:14px;">Email subject</label>
                 <input class="ctrl" type="text" name="emailSubject" value="${esc(newsletterSettings.emailSubject || "")}" maxlength="160" placeholder="${esc(buildDefaultNewsletterSubject(selectedCity))}" />
                 <div class="note">This is the subject line people will see in their inbox.</div>
@@ -12038,6 +12074,7 @@ return `
                   <div class="insight-row"><div class="label">Preview text</div><div class="value">${esc(newsletterPreviewText || buildDefaultNewsletterPreviewText(selectedCity))}</div></div>
                   <div class="insight-row"><div class="label">Schedule</div><div class="value">${esc(formatNewsletterScheduleSummary(newsletterSettings))}</div></div>
                   <div class="insight-row"><div class="label">Days ahead</div><div class="value">${esc(String(clampNewsletterDaysAhead(newsletterSettings.daysAhead)))}</div></div>
+                  <div class="insight-row"><div class="label">Days shown</div><div class="value">${esc(String(clampNewsletterDaysToShow(newsletterSettings.daysToShow)))}</div></div>
                   <div class="insight-row"><div class="label">Next send</div><div class="value">${esc(newsletterNextSendLabel)}</div></div>
                   <div class="insight-row"><div class="label">Last sent</div><div class="value">${esc(newsletterLastSentLabel)}</div></div>
                   <div class="insight-row"><div class="label">Audience size</div><div class="value">${esc(String(newsletterAudienceRows.length))}</div></div>
@@ -16454,6 +16491,7 @@ router.post("/newsletter/settings", upload.single("headerImageFile"), async (req
     const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
     const showcaseCount = clampNewsletterShowcaseCount(req.body?.showcaseCount);
     const daysAhead = clampNewsletterDaysAhead(req.body?.daysAhead);
+    const daysToShow = clampNewsletterDaysToShow(req.body?.daysToShow);
     const includeFeatured = String(req.body?.includeFeatured || "") === "1" ? 1 : 0;
     let headerImageUrl = normalizeHttpUrl(req.body?.headerImageUrl || "");
     if (req.file) {
@@ -16467,11 +16505,12 @@ router.post("/newsletter/settings", upload.single("headerImageFile"), async (req
     const previewText = normalizeNewsletterPreviewText(req.body?.previewText, city);
 
     await run(
-      `INSERT INTO newsletter_settings (city, showcaseCount, daysAhead, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, updatedByUserId, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      `INSERT INTO newsletter_settings (city, showcaseCount, daysAhead, daysToShow, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, updatedByUserId, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
        ON CONFLICT(city) DO UPDATE SET
          showcaseCount = excluded.showcaseCount,
          daysAhead = excluded.daysAhead,
+         daysToShow = excluded.daysToShow,
          includeFeatured = excluded.includeFeatured,
          headerImageUrl = excluded.headerImageUrl,
          includeEditorialPick = excluded.includeEditorialPick,
@@ -16482,7 +16521,7 @@ router.post("/newsletter/settings", upload.single("headerImageFile"), async (req
          previewText = excluded.previewText,
          updatedByUserId = excluded.updatedByUserId,
          updatedAt = datetime('now')`,
-      [city, showcaseCount, daysAhead, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, Number(currentUser?.id || 0) || null]
+      [city, showcaseCount, daysAhead, daysToShow, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, Number(currentUser?.id || 0) || null]
     );
 
     return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=saved`);
