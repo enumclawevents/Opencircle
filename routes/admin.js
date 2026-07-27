@@ -2073,6 +2073,7 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
   const previewText = normalizeNewsletterPreviewText(settings?.previewText, normalizedCity);
   const subject = normalizeNewsletterSubject(settings?.emailSubject, normalizedCity);
   const headerImageUrl = normalizeHttpUrl(settings?.headerImageUrl || "");
+  const homeHref = esc(buildNewsletterBaseUrl(req));
   const pieces = [];
   const textPieces = [];
 
@@ -2087,10 +2088,10 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
     const image = normalizeHttpUrl(event.imageUrl || "");
     return `
       <div style="border:1px solid #dbe4ee; border-radius:16px; overflow:hidden; background:#ffffff; margin:0 0 20px;">
-        ${image ? `<img src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:260px; object-fit:cover; background:#eef4f8;" />` : ``}
+        ${image ? `<a href="${href}" style="display:block; text-decoration:none;"><img src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:260px; object-fit:cover; background:#eef4f8;" /></a>` : ``}
         <div style="padding:20px;">
           <div style="font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#0ea5e9; margin-bottom:8px;">${esc(label)}</div>
-          <div style="font-size:24px; line-height:1.2; font-weight:800; color:#0f172a; margin-bottom:10px;">${title}</div>
+          <div style="font-size:24px; line-height:1.2; font-weight:800; margin-bottom:10px;"><a href="${href}" style="color:#0f172a; text-decoration:none;">${title}</a></div>
           <div style="font-size:14px; color:#526377; margin-bottom:6px;">${dateLine}</div>
           <div style="font-size:14px; color:#526377; margin-bottom:6px;">${location}</div>
           <div style="font-size:14px; color:#526377; margin-bottom:12px;">${organizer}</div>
@@ -2131,9 +2132,9 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
       const image = normalizeHttpUrl(event.imageUrl || "");
       return `
         <div style="border:1px solid #e5edf4; border-radius:14px; overflow:hidden; background:#ffffff;">
-          ${image ? `<img src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:220px; object-fit:cover; background:#eef4f8;" />` : ``}
+          ${image ? `<a href="${href}" style="display:block; text-decoration:none;"><img src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:220px; object-fit:cover; background:#eef4f8;" /></a>` : ``}
           <div style="padding:16px;">
-            <div style="font-size:18px; line-height:1.35; font-weight:800; color:#0f172a; margin-bottom:6px;">${title}</div>
+            <div style="font-size:18px; line-height:1.35; font-weight:800; margin-bottom:6px;"><a href="${href}" style="color:#0f172a; text-decoration:none;">${title}</a></div>
             <div style="font-size:14px; color:#526377; margin-bottom:4px;">${dateLine}</div>
             <div style="font-size:14px; color:#526377; margin-bottom:4px;">${location}</div>
             <div style="font-size:14px; color:#526377; margin-bottom:10px;">${organizer}</div>
@@ -2190,7 +2191,9 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
           <div style="display:none!important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden;">${esc(previewText)}</div>
           ${headerImageUrl ? `
           <div style="margin:0 0 20px; border-radius:18px; overflow:hidden; background:#ffffff; border:1px solid #dbe4ee;">
-            <img src="${esc(headerImageUrl)}" alt="${esc(normalizedCity)} newsletter header" style="display:block; width:100%; max-height:320px; object-fit:cover; background:#eef4f8;" />
+            <a href="${homeHref}" style="display:block; text-decoration:none;">
+              <img src="${esc(headerImageUrl)}" alt="${esc(normalizedCity)} newsletter header" style="display:block; width:100%; max-height:320px; object-fit:cover; background:#eef4f8;" />
+            </a>
           </div>
           ` : ``}
           <div style="padding:0 0 20px;">
