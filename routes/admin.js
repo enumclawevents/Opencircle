@@ -2010,12 +2010,23 @@ function formatNewsletterEventDateRange(startValue, endValue) {
 }
 
 function buildNewsletterBaseUrl(req) {
-  const envBase = String(process.env.PUBLIC_BASE_URL || process.env.PUBLIC_SITE_URL || "").trim();
+  const envBase = String(process.env.PUBLIC_SITE_URL || process.env.EVENTS_SITE_URL || process.env.PUBLIC_BASE_URL || "").trim();
   if (envBase) return envBase.replace(/\/+$/, "");
   const host = String(req.get("x-forwarded-host") || req.get("host") || "").trim();
   const proto = String(req.get("x-forwarded-proto") || req.protocol || "https").trim() || "https";
   if (host) return `${proto}://${host}`.replace(/\/+$/, "");
   return "https://enumclawevents.org";
+}
+
+function buildNewsletterApiBaseUrl(req) {
+  const envBase = String(process.env.API_BASE_URL || process.env.PUBLIC_API_BASE_URL || "").trim();
+  if (envBase) return envBase.replace(/\/+$/, "");
+  const host = String(req.get("x-forwarded-host") || req.get("host") || "").trim();
+  const proto = String(req.get("x-forwarded-proto") || req.protocol || "https").trim() || "https";
+  if (host && (/^localhost(?::\d+)?$/i.test(host) || /^127\.0\.0\.1(?::\d+)?$/i.test(host) || /^api\./i.test(host))) {
+    return `${proto}://${host}`.replace(/\/+$/, "");
+  }
+  return "https://api.opencircleapi.com";
 }
 
 function buildNewsletterEventUrl(req, eventRow) {
@@ -2358,7 +2369,7 @@ function makeNewsletterOpenToken() {
 }
 
 function buildNewsletterOpenPixelUrl(reqLike, token) {
-  const base = String(buildNewsletterBaseUrl(reqLike) || "").replace(/\/+$/, "");
+  const base = String(buildNewsletterApiBaseUrl(reqLike) || "").replace(/\/+$/, "");
   return `${base}/newsletter/open/${encodeURIComponent(String(token || "").trim())}.gif`;
 }
 
