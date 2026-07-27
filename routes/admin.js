@@ -11347,22 +11347,7 @@ return `
               </div>
             </div>
             ${newsletterNoticeHtml}
-            <div class="newsletter-preview-tools">
-              <div class="card">
-                <div class="sectionTitle"><div><h2>Send a test email</h2></div></div>
-                <form method="POST" action="/admin/newsletter/test">
-                  <input type="hidden" name="city" value="${esc(selectedCity)}" />
-                  <label>Test email address</label>
-                  <input class="ctrl" type="email" name="testEmail" value="${esc(currentUser?.email || "")}" placeholder="name@example.com" required />
-                  <div class="note">This sends a preview using the current ${esc(selectedCity)} settings.</div>
-                  <div class="actions">
-                    <button class="btn btn-primary" type="submit">Send test email</button>
-                  </div>
-                </form>
-              </div>
-            </div>
-
-            <div class="newsletter-preview-layout" style="margin-top:var(--gap);">
+            <div class="newsletter-preview-layout">
               <div class="card">
                 <div class="sectionTitle">
                   <div>
@@ -11400,6 +11385,19 @@ return `
                   <div class="insight-row"><div class="label">Audience size</div><div class="value">${esc(String(newsletterAudienceRows.length))}</div></div>
                   <div class="insight-row"><div class="label">Featured event</div><div class="value">${esc(newsletterFeaturedEvent?.title || "None right now")}</div></div>
                   <div class="insight-row"><div class="label">Editorial pick</div><div class="value">${esc(newsletterEditorialPickEvent?.title || "None right now")}</div></div>
+                </div>
+
+                <div class="card" style="margin-top:var(--gap);">
+                  <div class="sectionTitle"><div><h2>Send a test email</h2></div></div>
+                  <form method="POST" action="/admin/newsletter/test">
+                    <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                    <label>Test email address</label>
+                    <input class="ctrl" type="email" name="testEmail" value="${esc(currentUser?.email || "")}" placeholder="name@example.com" required />
+                    <div class="note">This sends a preview using the current ${esc(selectedCity)} settings.</div>
+                    <div class="actions">
+                      <button class="btn btn-primary" type="submit">Send test email</button>
+                    </div>
+                  </form>
                 </div>
               </div>
             </div>
