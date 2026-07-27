@@ -5457,6 +5457,7 @@ return `
     let newsletterPreviewSubject = "";
     let newsletterPreviewText = "";
     let newsletterPreviewHtml = "";
+    let newsletterPreviewFrameHtml = "";
     if (showNewsletter || showNewsletterPreview || showNewsletterAudience) {
       newsletterSettings = await getNewsletterSettingsForCity(selectedCity);
       newsletterAudienceRows = await getNewsletterAudienceForCity(selectedCity);
@@ -5486,6 +5487,9 @@ return `
           newsletterPreviewSubject = String(previewMessage?.subject || "").trim();
           newsletterPreviewText = normalizeNewsletterPreviewText(newsletterSettings.previewText, selectedCity);
           newsletterPreviewHtml = String(previewMessage?.html || "").trim();
+          newsletterPreviewFrameHtml = newsletterPreviewHtml
+            ? `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${esc(newsletterPreviewSubject || buildDefaultNewsletterSubject(selectedCity))}</title></head><body style="margin:0;">${newsletterPreviewHtml.replace("max-width:720px; margin:0 auto;", "max-width:1100px; margin:0 auto;")}</body></html>`
+            : "";
         }
       }
     }
@@ -11341,31 +11345,39 @@ return `
                   <div class="insight-row"><div class="label">Editorial pick</div><div class="value">${esc(newsletterEditorialPickEvent?.title || "None right now")}</div></div>
                 </div>
               </div>
-
               <div class="card">
                 <div class="sectionTitle">
                   <div>
-                    <h2>Preview</h2>
-                    <p class="sub">This is the actual newsletter layout the API will send for ${esc(selectedCity)}.</p>
+                    <h2>Newsletter details</h2>
+                    <p class="sub">Quick snapshot of what is about to send for ${esc(selectedCity)}.</p>
                   </div>
                 </div>
-                <div class="mini" style="margin-bottom:14px;">
+                <div class="mini">
                   <div class="insight-row"><div class="label">Subject</div><div class="value">${esc(newsletterPreviewSubject || buildDefaultNewsletterSubject(selectedCity))}</div></div>
                   <div class="insight-row"><div class="label">Preview text</div><div class="value">${esc(newsletterPreviewText || buildDefaultNewsletterPreviewText(selectedCity))}</div></div>
                 </div>
-                ${newsletterPreviewHtml ? `
-                  <div style="border:1px solid var(--line); border-radius:18px; overflow:hidden; background:#dfe7f0;">
-                    <iframe
-                      title="Newsletter email preview"
-                      srcdoc="${esc(`<!doctype html><html><head><meta charset=\"utf-8\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /><title>${newsletterPreviewSubject || buildDefaultNewsletterSubject(selectedCity)}</title></head><body style=\"margin:0;\">${newsletterPreviewHtml}</body></html>`)}"
-                      style="display:block; width:100%; min-height:1400px; border:0; background:#dfe7f0;"
-                      loading="lazy"
-                    ></iframe>
-                  </div>
-                ` : `
-                  <div class="mini">The newsletter preview could not be built right now.</div>
-                `}
               </div>
+            </div>
+
+            <div class="card" style="margin-top:var(--gap);">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Preview</h2>
+                  <p class="sub">This is the actual newsletter layout the API will send for ${esc(selectedCity)}.</p>
+                </div>
+              </div>
+              ${newsletterPreviewFrameHtml ? `
+                <div style="border:1px solid var(--line); border-radius:18px; overflow:hidden; background:#dfe7f0;">
+                  <iframe
+                    title="Newsletter email preview"
+                    srcdoc="${esc(newsletterPreviewFrameHtml)}"
+                    style="display:block; width:100%; min-height:1800px; border:0; background:#dfe7f0;"
+                    loading="lazy"
+                  ></iframe>
+                </div>
+              ` : `
+                <div class="mini">The newsletter preview could not be built right now.</div>
+              `}
             </div>
           </div>
         </section>
