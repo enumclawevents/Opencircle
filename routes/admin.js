@@ -5669,7 +5669,13 @@ return `
     let newsletterPreviewText = "";
     let newsletterPreviewHtml = "";
     let newsletterPreviewFrameHtml = "";
-    if (showNewsletter || showNewsletterPreview || showNewsletterAudience || showNewsletterAnalytics) {
+    if (
+      showNewsletter ||
+      showNewsletterPreview ||
+      showNewsletterAudience ||
+      showNewsletterAnalytics ||
+      (showDashboard && canSeeNewsletterAnalytics)
+    ) {
       newsletterSettings = await getNewsletterSettingsForCity(selectedCity);
       newsletterAudienceRows = await getNewsletterAudienceForCity(selectedCity);
       newsletterNextSendLabel = Number(newsletterSettings.scheduleEnabled || 0) === 1
@@ -5723,7 +5729,7 @@ return `
       `/admin/newsletter/analytics?chartView=${encodeURIComponent(String(mode || "daily"))}` +
       `${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
 
-    if (showNewsletterAnalytics) {
+    if (showNewsletterAnalytics || (showDashboard && canSeeNewsletterAnalytics)) {
       await ensureNewsletterSchema();
       const campaignRows = await all(
         `SELECT id, city, mode, subject, previewText, totalRecipients, sentCount, failedCount, openCount, uniqueOpenCount, sentAt, createdAt
@@ -7852,6 +7858,15 @@ return `
       organizerChartEventValues,
       organizerChartViewValues
     );
+    const dashboardPrimaryInsightTarget = canSeeEventsAnalytics
+      ? "events"
+      : canSeeVenueAnalytics
+      ? "venues"
+      : canSeeAdsAnalytics
+      ? "ads"
+      : canSeeNewsletterAnalytics
+      ? "newsletter"
+      : "";
 
     const pageTitleBase = showCreate
       ? "Create Events"
@@ -11152,7 +11167,7 @@ return `
               </div>
             </details>
 
-            ${(canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeAdsAnalytics) ? `<details class="card dashboard-card" id="dashboard-insights-card" data-dashboard-card="insights" data-collapsible-card open>
+            ${(canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeAdsAnalytics || canSeeNewsletterAnalytics) ? `<details class="card dashboard-card" id="dashboard-insights-card" data-dashboard-card="insights" data-collapsible-card open>
               <summary class="sectionTitle">
                 <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-insights-body">
                   <h2>Insights</h2>
@@ -11161,26 +11176,33 @@ return `
               </summary>
               <div class="card-body" id="dashboard-insights-body">
                 <div class="insights-switcher" id="dashboardInsightsSwitcher">
-                  ${canSeeEventsAnalytics ? `<button type="button" class="is-active" data-insight-target="events" onclick="(function(btn){var wrap=btn.parentNode;Array.prototype.forEach.call(wrap.querySelectorAll('[data-insight-target]'),function(el){el.classList.toggle('is-active',el===btn);});Array.prototype.forEach.call(document.querySelectorAll('[data-insight-panel]'),function(panel){panel.classList.toggle('is-active',panel.getAttribute('data-insight-panel')==='events');});if(window.ocDashboardInsightActivate) window.ocDashboardInsightActivate('events');})(this)">Events</button>` : ``}
-                  ${canSeeVenueAnalytics ? `<button type="button" class="${canSeeEventsAnalytics ? "" : "is-active"}" data-insight-target="venues" onclick="(function(btn){var wrap=btn.parentNode;Array.prototype.forEach.call(wrap.querySelectorAll('[data-insight-target]'),function(el){el.classList.toggle('is-active',el===btn);});Array.prototype.forEach.call(document.querySelectorAll('[data-insight-panel]'),function(panel){panel.classList.toggle('is-active',panel.getAttribute('data-insight-panel')==='venues');});if(window.ocDashboardInsightActivate) window.ocDashboardInsightActivate('venues');})(this)">Venues</button>` : ``}
-                  ${canSeeAdsAnalytics ? `<button type="button" class="${(!canSeeEventsAnalytics && !canSeeVenueAnalytics) ? "is-active" : ""}" data-insight-target="ads" onclick="(function(btn){var wrap=btn.parentNode;Array.prototype.forEach.call(wrap.querySelectorAll('[data-insight-target]'),function(el){el.classList.toggle('is-active',el===btn);});Array.prototype.forEach.call(document.querySelectorAll('[data-insight-panel]'),function(panel){panel.classList.toggle('is-active',panel.getAttribute('data-insight-panel')==='ads');});if(window.ocDashboardInsightActivate) window.ocDashboardInsightActivate('ads');})(this)">Ads</button>` : ``}
+                  ${canSeeEventsAnalytics ? `<button type="button" class="${dashboardPrimaryInsightTarget === "events" ? "is-active" : ""}" data-insight-target="events" onclick="(function(btn){var wrap=btn.parentNode;Array.prototype.forEach.call(wrap.querySelectorAll('[data-insight-target]'),function(el){el.classList.toggle('is-active',el===btn);});Array.prototype.forEach.call(document.querySelectorAll('[data-insight-panel]'),function(panel){panel.classList.toggle('is-active',panel.getAttribute('data-insight-panel')==='events');});if(window.ocDashboardInsightActivate) window.ocDashboardInsightActivate('events');})(this)">Events</button>` : ``}
+                  ${canSeeVenueAnalytics ? `<button type="button" class="${dashboardPrimaryInsightTarget === "venues" ? "is-active" : ""}" data-insight-target="venues" onclick="(function(btn){var wrap=btn.parentNode;Array.prototype.forEach.call(wrap.querySelectorAll('[data-insight-target]'),function(el){el.classList.toggle('is-active',el===btn);});Array.prototype.forEach.call(document.querySelectorAll('[data-insight-panel]'),function(panel){panel.classList.toggle('is-active',panel.getAttribute('data-insight-panel')==='venues');});if(window.ocDashboardInsightActivate) window.ocDashboardInsightActivate('venues');})(this)">Venues</button>` : ``}
+                  ${canSeeAdsAnalytics ? `<button type="button" class="${dashboardPrimaryInsightTarget === "ads" ? "is-active" : ""}" data-insight-target="ads" onclick="(function(btn){var wrap=btn.parentNode;Array.prototype.forEach.call(wrap.querySelectorAll('[data-insight-target]'),function(el){el.classList.toggle('is-active',el===btn);});Array.prototype.forEach.call(document.querySelectorAll('[data-insight-panel]'),function(panel){panel.classList.toggle('is-active',panel.getAttribute('data-insight-panel')==='ads');});if(window.ocDashboardInsightActivate) window.ocDashboardInsightActivate('ads');})(this)">Ads</button>` : ``}
+                  ${canSeeNewsletterAnalytics ? `<button type="button" class="${dashboardPrimaryInsightTarget === "newsletter" ? "is-active" : ""}" data-insight-target="newsletter" onclick="(function(btn){var wrap=btn.parentNode;Array.prototype.forEach.call(wrap.querySelectorAll('[data-insight-target]'),function(el){el.classList.toggle('is-active',el===btn);});Array.prototype.forEach.call(document.querySelectorAll('[data-insight-panel]'),function(panel){panel.classList.toggle('is-active',panel.getAttribute('data-insight-panel')==='newsletter');});if(window.ocDashboardInsightActivate) window.ocDashboardInsightActivate('newsletter');})(this)">Newsletter</button>` : ``}
                 </div>
-                ${canSeeEventsAnalytics ? `<div class="insight-panel is-active" data-insight-panel="events"><div class="insight-list">
+                ${canSeeEventsAnalytics ? `<div class="insight-panel ${dashboardPrimaryInsightTarget === "events" ? "is-active" : ""}" data-insight-panel="events"><div class="insight-list">
                   <div class="insight-row"><div class="label">Events</div><div class="value">${esc(stats.total)}</div></div>
                   <div class="insight-row"><div class="label">Upcoming</div><div class="value">${esc(stats.upcoming)}</div></div>
                   <div class="insight-row"><div class="label">Featured</div><div class="value">${esc(stats.featured)}</div></div>
                   <div class="insight-row"><div class="label">Views</div><div class="value">${esc(stats.views)}</div></div>
                 </div></div>` : ``}
-                ${canSeeVenueAnalytics ? `<div class="insight-panel ${canSeeEventsAnalytics ? "" : "is-active"}" data-insight-panel="venues"><div class="insight-list">
+                ${canSeeVenueAnalytics ? `<div class="insight-panel ${dashboardPrimaryInsightTarget === "venues" ? "is-active" : ""}" data-insight-panel="venues"><div class="insight-list">
                   <div class="insight-row"><div class="label">Venues</div><div class="value">${esc(venueStats.total)}</div></div>
                   <div class="insight-row"><div class="label">Views</div><div class="value">${esc(venueStats.views)}</div></div>
                   <div class="insight-row"><div class="label">Total Link Clicks</div><div class="value">${esc(venueStats.totalClicks)}</div></div>
                 </div></div>` : ``}
-                ${canSeeAdsAnalytics ? `<div class="insight-panel ${(!canSeeEventsAnalytics && !canSeeVenueAnalytics) ? "is-active" : ""}" data-insight-panel="ads"><div class="insight-list">
+                ${canSeeAdsAnalytics ? `<div class="insight-panel ${dashboardPrimaryInsightTarget === "ads" ? "is-active" : ""}" data-insight-panel="ads"><div class="insight-list">
                   <div class="insight-row"><div class="label">Ads</div><div class="value">${esc(adAnalyticsStats.total)}</div></div>
                   <div class="insight-row"><div class="label">Active</div><div class="value">${esc(adAnalyticsStats.active)}</div></div>
                   <div class="insight-row"><div class="label">Clicks</div><div class="value">${esc(adAnalyticsStats.clicks)}</div></div>
                   <div class="insight-row"><div class="label">Views</div><div class="value">${esc(adAnalyticsStats.views)}</div></div>
+                </div></div>` : ``}
+                ${canSeeNewsletterAnalytics ? `<div class="insight-panel ${dashboardPrimaryInsightTarget === "newsletter" ? "is-active" : ""}" data-insight-panel="newsletter"><div class="insight-list">
+                  <div class="insight-row"><div class="label">Emails sent</div><div class="value">${esc(String(newsletterAnalyticsStats.totalEmailsSent))}</div></div>
+                  <div class="insight-row"><div class="label">Open rate</div><div class="value">${esc(String(newsletterAnalyticsStats.openRatePct))}</div></div>
+                  <div class="insight-row"><div class="label">Audience</div><div class="value">${esc(String(newsletterAnalyticsStats.audienceSize))}</div></div>
+                  <div class="insight-row"><div class="label">Campaigns</div><div class="value">${esc(String(newsletterAnalyticsStats.campaigns))}</div></div>
                 </div></div>` : ``}
                 </div>
               </div>
