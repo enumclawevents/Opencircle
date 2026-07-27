@@ -5454,6 +5454,9 @@ return `
     let newsletterShowcaseEvents = [];
     let newsletterNextSendLabel = "";
     let newsletterLastSentLabel = "";
+    let newsletterPreviewSubject = "";
+    let newsletterPreviewText = "";
+    let newsletterPreviewHtml = "";
     if (showNewsletter || showNewsletterPreview || showNewsletterAudience) {
       newsletterSettings = await getNewsletterSettingsForCity(selectedCity);
       newsletterAudienceRows = await getNewsletterAudienceForCity(selectedCity);
@@ -5471,6 +5474,19 @@ return `
         newsletterFeaturedEvent = selection.featuredEvent;
         newsletterEditorialPickEvent = selection.editorialPickEvent;
         newsletterShowcaseEvents = selection.showcaseEvents;
+        if (showNewsletterPreview) {
+          const previewMessage = buildNewsletterEmail({
+            city: selectedCity,
+            settings: newsletterSettings,
+            featuredEvent: newsletterFeaturedEvent,
+            editorialPickEvent: newsletterEditorialPickEvent,
+            showcaseEvents: newsletterShowcaseEvents,
+            req,
+          });
+          newsletterPreviewSubject = String(previewMessage?.subject || "").trim();
+          newsletterPreviewText = normalizeNewsletterPreviewText(newsletterSettings.previewText, selectedCity);
+          newsletterPreviewHtml = String(previewMessage?.html || "").trim();
+        }
       }
     }
 
@@ -11304,7 +11320,7 @@ return `
               </div>
             </div>
             ${newsletterNoticeHtml}
-            <div class="grid2" style="grid-template-columns:1fr 1.4fr; align-items:start;">
+            <div class="grid2" style="grid-template-columns:360px minmax(0,1fr); align-items:start;">
               <div class="card">
                 <div class="sectionTitle"><div><h2>Send a test email</h2></div></div>
                 <form method="POST" action="/admin/newsletter/test">
@@ -11330,37 +11346,24 @@ return `
                 <div class="sectionTitle">
                   <div>
                     <h2>Preview</h2>
-                    <p class="sub">This shows what the newsletter would pull in right now for ${esc(selectedCity)}.</p>
+                    <p class="sub">This is the actual newsletter layout the API will send for ${esc(selectedCity)}.</p>
                   </div>
                 </div>
-                ${(newsletterFeaturedEvent || newsletterEditorialPickEvent || newsletterShowcaseEvents.length) ? `
-                  <div class="grid2" style="grid-template-columns:1fr 1fr; align-items:start;">
-                    <div class="mini">
-                      <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Featured event</div>
-                      ${newsletterFeaturedEvent ? `
-                        <div class="insight-row"><div class="label">Title</div><div class="value">${esc(newsletterFeaturedEvent.title || "")}</div></div>
-                        <div class="insight-row"><div class="label">When</div><div class="value">${esc(formatNewsletterEventDateRange(newsletterFeaturedEvent.startDateTime, newsletterFeaturedEvent.endDateTime) || "Date coming soon")}</div></div>
-                      ` : `<div class="note">No upcoming featured event is available.</div>`}
-                    </div>
-                    <div class="mini">
-                      <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Editorial pick</div>
-                      ${newsletterEditorialPickEvent ? `
-                        <div class="insight-row"><div class="label">Title</div><div class="value">${esc(newsletterEditorialPickEvent.title || "")}</div></div>
-                        <div class="insight-row"><div class="label">When</div><div class="value">${esc(formatNewsletterEventDateRange(newsletterEditorialPickEvent.startDateTime, newsletterEditorialPickEvent.endDateTime) || "Date coming soon")}</div></div>
-                      ` : `<div class="note">No upcoming editorial pick is available.</div>`}
-                    </div>
-                  </div>
-                  <div class="mini" style="margin-top:14px;">
-                    <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Showcase events</div>
-                    ${newsletterShowcaseEvents.length ? newsletterShowcaseEvents.map((event) => `
-                      <div class="insight-row">
-                        <div class="label">${esc(event.title || "")}</div>
-                        <div class="value">${esc(formatNewsletterEventDateRange(event.startDateTime, event.endDateTime) || "Date coming soon")}</div>
-                      </div>
-                    `).join("") : `<div class="note">No showcase events are available right now.</div>`}
+                <div class="mini" style="margin-bottom:14px;">
+                  <div class="insight-row"><div class="label">Subject</div><div class="value">${esc(newsletterPreviewSubject || buildDefaultNewsletterSubject(selectedCity))}</div></div>
+                  <div class="insight-row"><div class="label">Preview text</div><div class="value">${esc(newsletterPreviewText || buildDefaultNewsletterPreviewText(selectedCity))}</div></div>
+                </div>
+                ${newsletterPreviewHtml ? `
+                  <div style="border:1px solid var(--line); border-radius:18px; overflow:hidden; background:#dfe7f0;">
+                    <iframe
+                      title="Newsletter email preview"
+                      srcdoc="${esc(`<!doctype html><html><head><meta charset=\"utf-8\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /><title>${newsletterPreviewSubject || buildDefaultNewsletterSubject(selectedCity)}</title></head><body style=\"margin:0;\">${newsletterPreviewHtml}</body></html>`)}"
+                      style="display:block; width:100%; min-height:1400px; border:0; background:#dfe7f0;"
+                      loading="lazy"
+                    ></iframe>
                   </div>
                 ` : `
-                  <div class="mini">No upcoming events are ready to build this newsletter yet.</div>
+                  <div class="mini">The newsletter preview could not be built right now.</div>
                 `}
               </div>
             </div>
