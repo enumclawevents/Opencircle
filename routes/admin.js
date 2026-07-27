@@ -3084,29 +3084,6 @@ try {
       return `<a class="sb-city-opt${active}" data-city="${esc(c)}" href="${esc(buildCitySwitchHref(c))}">${esc(c)}</a>`;
     }).join("");
 
-    let newsletterSettings = getDefaultNewsletterSettings(selectedCity);
-    let newsletterAudienceRows = [];
-    let newsletterFeaturedEvent = null;
-    let newsletterEditorialPickEvent = null;
-    let newsletterShowcaseEvents = [];
-    if (showNewsletter || showNewsletterAudience) {
-      newsletterSettings = await getNewsletterSettingsForCity(selectedCity);
-      newsletterAudienceRows = await all(
-        `SELECT id, city, email, createdAt
-           FROM newsletter_audience
-          WHERE city = ?
-          ORDER BY lower(email) ASC, id ASC`,
-        [selectedCity]
-      );
-      if (showNewsletter) {
-        const newsletterCandidates = await getNewsletterEventCandidates(selectedCity);
-        const selection = selectNewsletterEvents(newsletterCandidates, newsletterSettings);
-        newsletterFeaturedEvent = selection.featuredEvent;
-        newsletterEditorialPickEvent = selection.editorialPickEvent;
-        newsletterShowcaseEvents = selection.showcaseEvents;
-      }
-    }
-
     const listHtml = events.length
       ? events
           .map((e) => {
@@ -5195,6 +5172,29 @@ return `
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">One or more email addresses were invalid.</div>`
           : "")
       : "";
+
+    let newsletterSettings = getDefaultNewsletterSettings(selectedCity);
+    let newsletterAudienceRows = [];
+    let newsletterFeaturedEvent = null;
+    let newsletterEditorialPickEvent = null;
+    let newsletterShowcaseEvents = [];
+    if (showNewsletter || showNewsletterAudience) {
+      newsletterSettings = await getNewsletterSettingsForCity(selectedCity);
+      newsletterAudienceRows = await all(
+        `SELECT id, city, email, createdAt
+           FROM newsletter_audience
+          WHERE city = ?
+          ORDER BY lower(email) ASC, id ASC`,
+        [selectedCity]
+      );
+      if (showNewsletter) {
+        const newsletterCandidates = await getNewsletterEventCandidates(selectedCity);
+        const selection = selectNewsletterEvents(newsletterCandidates, newsletterSettings);
+        newsletterFeaturedEvent = selection.featuredEvent;
+        newsletterEditorialPickEvent = selection.editorialPickEvent;
+        newsletterShowcaseEvents = selection.showcaseEvents;
+      }
+    }
 
     let pendingRows = [];
     if (showApprove) {
