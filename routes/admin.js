@@ -2117,7 +2117,7 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
   }
 
   if ((showcaseEvents || []).length) {
-    const itemsHtml = showcaseEvents.map((event) => {
+    const itemCards = showcaseEvents.map((event) => {
       const href = esc(buildNewsletterEventUrl(req, event));
       const title = esc(event.title || "Untitled event");
       const dateLine = esc(formatNewsletterEventDateRange(event.startDateTime, event.endDateTime) || "Date coming soon");
@@ -2125,20 +2125,34 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
       const organizer = esc(String(event.organizer || "").trim() || "Organizer TBD");
       const image = normalizeHttpUrl(event.imageUrl || "");
       return `
-        <div style="padding:18px 0; border-top:1px solid #e5edf4;">
-          <div style="border:1px solid #e5edf4; border-radius:14px; overflow:hidden; background:#ffffff;">
-            ${image ? `<img src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:220px; object-fit:cover; background:#eef4f8;" />` : ``}
-            <div style="padding:16px;">
-              <div style="font-size:18px; line-height:1.35; font-weight:800; color:#0f172a; margin-bottom:6px;">${title}</div>
-              <div style="font-size:14px; color:#526377; margin-bottom:4px;">${dateLine}</div>
-              <div style="font-size:14px; color:#526377; margin-bottom:4px;">${location}</div>
-              <div style="font-size:14px; color:#526377; margin-bottom:10px;">${organizer}</div>
-              <a href="${href}" style="color:#0ea5e9; font-weight:700; text-decoration:none;">Open event</a>
-            </div>
+        <div style="border:1px solid #e5edf4; border-radius:14px; overflow:hidden; background:#ffffff;">
+          ${image ? `<img src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:220px; object-fit:cover; background:#eef4f8;" />` : ``}
+          <div style="padding:16px;">
+            <div style="font-size:18px; line-height:1.35; font-weight:800; color:#0f172a; margin-bottom:6px;">${title}</div>
+            <div style="font-size:14px; color:#526377; margin-bottom:4px;">${dateLine}</div>
+            <div style="font-size:14px; color:#526377; margin-bottom:4px;">${location}</div>
+            <div style="font-size:14px; color:#526377; margin-bottom:10px;">${organizer}</div>
+            <a href="${href}" style="color:#0ea5e9; font-weight:700; text-decoration:none;">Open event</a>
           </div>
         </div>
       `;
-    }).join("");
+    });
+    const rows = [];
+    for (let i = 0; i < itemCards.length; i += 2) {
+      const left = itemCards[i] || "";
+      const right = itemCards[i + 1] || "";
+      rows.push(`
+        <tr>
+          <td valign="top" width="50%" style="width:50%; padding:0 10px 20px 0;">${left}</td>
+          <td valign="top" width="50%" style="width:50%; padding:0 0 20px 10px;">${right || "&nbsp;"}</td>
+        </tr>
+      `);
+    }
+    const itemsHtml = `
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse; margin-top:16px;">
+        ${rows.join("")}
+      </table>
+    `;
     pieces.push(`
       <div style="border:1px solid #dbe4ee; border-radius:16px; background:#ffffff; padding:20px;">
         <div style="font-size:22px; line-height:1.2; font-weight:800; color:#0f172a; margin-bottom:4px;">More events coming up</div>
