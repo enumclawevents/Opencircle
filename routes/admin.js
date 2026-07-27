@@ -1712,6 +1712,365 @@ async function ensureMessageSchema() {
   _messageSchemaEnsured = true;
 }
 
+let _newsletterSchemaEnsured = false;
+async function ensureNewsletterSchema() {
+  if (_newsletterSchemaEnsured) return;
+  await run(`
+    CREATE TABLE IF NOT EXISTS newsletter_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL UNIQUE,
+      showcaseCount INTEGER NOT NULL DEFAULT 5,
+      includeFeatured INTEGER NOT NULL DEFAULT 1,
+      includeEditorialPick INTEGER NOT NULL DEFAULT 1,
+      updatedByUserId INTEGER,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS newsletter_audience (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL,
+      email TEXT NOT NULL,
+      createdByUserId INTEGER,
+      createdAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  try { await run("CREATE INDEX IF NOT EXISTS idx_newsletter_audience_city ON newsletter_audience(city, createdAt DESC)"); } catch (_) {}
+  try { await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_audience_city_email ON newsletter_audience(city, email)"); } catch (_) {}
+  _newsletterSchemaEnsured = true;
+}
+
+function getDefaultNewsletterSettings(city) {
+  return {
+    city: String(city || "Enumclaw").trim() || "Enumclaw",
+    showcaseCount: 5,
+    includeFeatured: 1,
+    includeEditorialPick: 1,
+  };
+}
+
+function clampNewsletterShowcaseCount(value) {
+  const n = parseInt(String(value || ""), 10);
+  if (!Number.isFinite(n)) return 5;
+  return Math.max(1, Math.min(12, n));
+}
+
+function normalizeNewsletterEmailAddress(input) {
+  return String(input || "").trim().toLowerCase();
+}
+
+function isValidNewsletterEmail(input) {
+  const email = normalizeNewsletterEmailAddress(input);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function parseNewsletterEmails(input) {
+  const rawItems = String(input || "")
+    .split(/[\n,;]+/g)
+    .map((item) => normalizeNewsletterEmailAddress(item))
+    .filter(Boolean);
+  const valid = [];
+  const invalid = [];
+  const seen = new Set();
+  for (const email of rawItems) {
+    if (seen.has(email)) continue;
+    seen.add(email);
+    if (isValidNewsletterEmail(email)) valid.push(email);
+    else invalid.push(email);
+  }
+  return { valid, invalid };
+}
+
+async function getNewsletterSettingsForCity(city) {
+  await ensureNewsletterSchema();
+  const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  const row = await get(
+    `SELECT city, showcaseCount, includeFeatured, includeEditorialPick
+       FROM newsletter_settings
+      WHERE city = ?
+      LIMIT 1`,
+    [normalizedCity]
+  );
+  if (!row) return getDefaultNewsletterSettings(normalizedCity);
+  return {
+    city: normalizedCity,
+    showcaseCount: clampNewsletterShowcaseCount(row.showcaseCount),
+    includeFeatured: Number(row.includeFeatured || 0) === 1 ? 1 : 0,
+    includeEditorialPick: Number(row.includeEditorialPick || 0) === 1 ? 1 : 0,
+  };
+}
+
+function stripNewsletterHtml(input) {
+  return String(input || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatNewsletterEventDateRange(startValue, endValue) {
+  const start = DateTime.fromISO(String(startValue || ""), { zone: DEFAULT_TZ });
+  const end = DateTime.fromISO(String(endValue || startValue || ""), { zone: DEFAULT_TZ });
+  if (!start.isValid && !end.isValid) return "";
+  if (start.isValid && end.isValid) {
+    const sameDay = start.toISODate() === end.toISODate();
+    if (sameDay) {
+      return `${start.toFormat("cccc, LLLL d")} · ${start.toFormat("h:mm a")} - ${end.toFormat("h:mm a")}`;
+    }
+    return `${start.toFormat("cccc, LLLL d h:mm a")} - ${end.toFormat("cccc, LLLL d h:mm a")}`;
+  }
+  return start.isValid ? start.toFormat("cccc, LLLL d h:mm a") : end.toFormat("cccc, LLLL d h:mm a");
+}
+
+function buildNewsletterBaseUrl(req) {
+  const envBase = String(process.env.PUBLIC_BASE_URL || process.env.PUBLIC_SITE_URL || "").trim();
+  if (envBase) return envBase.replace(/\/+$/, "");
+  const host = String(req.get("x-forwarded-host") || req.get("host") || "").trim();
+  const proto = String(req.get("x-forwarded-proto") || req.protocol || "https").trim() || "https";
+  if (host) return `${proto}://${host}`.replace(/\/+$/, "");
+  return "https://enumclawevents.org";
+}
+
+function buildNewsletterEventUrl(req, eventRow) {
+  const base = buildNewsletterBaseUrl(req);
+  const slug = String(eventRow?.slug || "").trim();
+  if (slug) return `${base}/events/${encodeURIComponent(slug)}`;
+  return `${base}/events/${encodeURIComponent(String(eventRow?.id || ""))}`;
+}
+
+async function getNewsletterEventCandidates(city) {
+  await ensurePickSchema();
+  const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  const nowUtcMs = Date.now();
+  const futureWindowUtcMs = nowUtcMs + (370 * 24 * 60 * 60 * 1000);
+  let rows = [];
+  try {
+    rows = await all(
+      `SELECT
+         id,
+         slug,
+         title,
+         description,
+         startDateTime,
+         endDateTime,
+         hasRecurrence,
+         recurrenceRule,
+         recurrenceDates,
+         recurrenceStartDate,
+         recurrenceUntilDate,
+         location,
+         organizer,
+         imageUrl,
+         ticketUrl,
+         featured,
+         eddiesPick
+       FROM events
+       WHERE city = ?
+         AND COALESCE(archived, 0) = 0
+       ORDER BY datetime(startDateTime) ASC, id ASC
+       LIMIT 250`,
+      [normalizedCity]
+    );
+  } catch (_) {
+    rows = await all(
+      `SELECT
+         id,
+         slug,
+         title,
+         description,
+         startDateTime,
+         endDateTime,
+         0 AS hasRecurrence,
+         NULL AS recurrenceRule,
+         NULL AS recurrenceDates,
+         NULL AS recurrenceStartDate,
+         NULL AS recurrenceUntilDate,
+         location,
+         organizer,
+         imageUrl,
+         ticketUrl,
+         0 AS featured,
+         0 AS eddiesPick
+       FROM events
+       WHERE city = ?
+       ORDER BY datetime(startDateTime) ASC, id ASC
+       LIMIT 250`,
+      [normalizedCity]
+    );
+  }
+  const prepared = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const hasRecurring = Number(row?.hasRecurrence || 0) === 1 || hasRecurringData(row);
+    if (hasRecurring) {
+      const occurrences = generateAdminOccurrences(row, nowUtcMs, futureWindowUtcMs);
+      const nextOccurrence = (occurrences || []).find((occ) => {
+        const endUtc = Date.parse(String(occ?.endDateTime || occ?.startDateTime || "").trim());
+        return Number.isFinite(endUtc) && endUtc >= nowUtcMs;
+      });
+      if (!nextOccurrence) continue;
+      prepared.push({
+        ...row,
+        startDateTime: nextOccurrence.startDateTime,
+        endDateTime: nextOccurrence.endDateTime,
+        occurrenceDate: nextOccurrence.occurrenceDate,
+      });
+      continue;
+    }
+
+    const endUtc = Date.parse(String(row?.endDateTime || row?.startDateTime || "").trim());
+    if (Number.isFinite(endUtc) && endUtc >= nowUtcMs) {
+      prepared.push(row);
+    }
+  }
+  prepared.sort((a, b) => {
+    const aTs = Date.parse(String(a?.startDateTime || "").trim());
+    const bTs = Date.parse(String(b?.startDateTime || "").trim());
+    return (Number.isFinite(aTs) ? aTs : 0) - (Number.isFinite(bTs) ? bTs : 0);
+  });
+  return prepared;
+}
+
+function selectNewsletterEvents(events, settings) {
+  const list = Array.isArray(events) ? events.slice() : [];
+  let featuredEvent = null;
+  let editorialPickEvent = null;
+  const usedIds = new Set();
+
+  if (Number(settings?.includeFeatured || 0) === 1) {
+    featuredEvent = list.find((event) => Number(event?.featured || 0) === 1) || null;
+    if (featuredEvent?.id) usedIds.add(Number(featuredEvent.id));
+  }
+
+  if (Number(settings?.includeEditorialPick || 0) === 1) {
+    editorialPickEvent = list.find((event) => Number(event?.eddiesPick || 0) === 1 && !usedIds.has(Number(event.id))) || null;
+    if (editorialPickEvent?.id) usedIds.add(Number(editorialPickEvent.id));
+  }
+
+  const showcaseEvents = [];
+  const maxItems = clampNewsletterShowcaseCount(settings?.showcaseCount);
+  for (const event of list) {
+    const eventId = Number(event?.id || 0);
+    if (eventId > 0 && usedIds.has(eventId)) continue;
+    showcaseEvents.push(event);
+    if (showcaseEvents.length >= maxItems) break;
+  }
+
+  return { featuredEvent, editorialPickEvent, showcaseEvents };
+}
+
+function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEvent, showcaseEvents, req }) {
+  const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  const pieces = [];
+  const textPieces = [];
+
+  const renderEventCard = (event, label) => {
+    if (!event) return "";
+    const title = esc(event.title || "Untitled event");
+    const dateLine = esc(formatNewsletterEventDateRange(event.startDateTime, event.endDateTime) || "Date coming soon");
+    const location = esc(String(event.location || "").trim() || "Location coming soon");
+    const organizer = esc(String(event.organizer || "").trim() || "Organizer TBD");
+    const body = esc(stripNewsletterHtml(event.description || "").slice(0, 220));
+    const href = esc(buildNewsletterEventUrl(req, event));
+    const image = normalizeHttpUrl(event.imageUrl || "");
+    return `
+      <div style="border:1px solid #dbe4ee; border-radius:16px; overflow:hidden; background:#ffffff; margin:0 0 20px;">
+        ${image ? `<img src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:260px; object-fit:cover; background:#eef4f8;" />` : ``}
+        <div style="padding:20px;">
+          <div style="font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#0ea5e9; margin-bottom:8px;">${esc(label)}</div>
+          <div style="font-size:24px; line-height:1.2; font-weight:800; color:#0f172a; margin-bottom:10px;">${title}</div>
+          <div style="font-size:14px; color:#526377; margin-bottom:6px;">${dateLine}</div>
+          <div style="font-size:14px; color:#526377; margin-bottom:6px;">${location}</div>
+          <div style="font-size:14px; color:#526377; margin-bottom:12px;">${organizer}</div>
+          ${body ? `<div style="font-size:15px; line-height:1.6; color:#334155; margin-bottom:16px;">${body}</div>` : ``}
+          <a href="${href}" style="display:inline-block; padding:11px 16px; border-radius:999px; background:#00c08b; color:#ffffff; font-weight:700; text-decoration:none;">View event</a>
+        </div>
+      </div>
+    `;
+  };
+
+  const renderTextEvent = (event, label) => {
+    if (!event) return "";
+    const lines = [
+      `${label}: ${String(event.title || "Untitled event").trim()}`,
+      formatNewsletterEventDateRange(event.startDateTime, event.endDateTime) || "Date coming soon",
+      String(event.location || "").trim() || "Location coming soon",
+      buildNewsletterEventUrl(req, event)
+    ].filter(Boolean);
+    return lines.join("\n");
+  };
+
+  if (featuredEvent) {
+    pieces.push(renderEventCard(featuredEvent, "Featured Event"));
+    textPieces.push(renderTextEvent(featuredEvent, "Featured Event"));
+  }
+  if (editorialPickEvent) {
+    pieces.push(renderEventCard(editorialPickEvent, "Editorial Pick"));
+    textPieces.push(renderTextEvent(editorialPickEvent, "Editorial Pick"));
+  }
+
+  if ((showcaseEvents || []).length) {
+    const itemsHtml = showcaseEvents.map((event) => {
+      const href = esc(buildNewsletterEventUrl(req, event));
+      const title = esc(event.title || "Untitled event");
+      const dateLine = esc(formatNewsletterEventDateRange(event.startDateTime, event.endDateTime) || "Date coming soon");
+      const location = esc(String(event.location || "").trim() || "Location coming soon");
+      return `
+        <div style="padding:16px 0; border-top:1px solid #e5edf4;">
+          <div style="font-size:18px; line-height:1.35; font-weight:800; color:#0f172a; margin-bottom:6px;">${title}</div>
+          <div style="font-size:14px; color:#526377; margin-bottom:4px;">${dateLine}</div>
+          <div style="font-size:14px; color:#526377; margin-bottom:10px;">${location}</div>
+          <a href="${href}" style="color:#0ea5e9; font-weight:700; text-decoration:none;">Open event</a>
+        </div>
+      `;
+    }).join("");
+    pieces.push(`
+      <div style="border:1px solid #dbe4ee; border-radius:16px; background:#ffffff; padding:20px;">
+        <div style="font-size:22px; line-height:1.2; font-weight:800; color:#0f172a; margin-bottom:4px;">More events coming up</div>
+        <div style="font-size:14px; color:#526377; margin-bottom:10px;">${esc(normalizedCity)} newsletter picks</div>
+        ${itemsHtml}
+      </div>
+    `);
+    textPieces.push(
+      ["More events coming up:"]
+        .concat(showcaseEvents.map((event) => renderTextEvent(event, `- ${String(event.title || "Untitled event").trim()}`)))
+        .join("\n\n")
+    );
+  }
+
+  if (!pieces.length) {
+    pieces.push(`
+      <div style="border:1px solid #dbe4ee; border-radius:16px; background:#ffffff; padding:20px;">
+        <div style="font-size:22px; line-height:1.2; font-weight:800; color:#0f172a; margin-bottom:8px;">No upcoming events yet</div>
+        <div style="font-size:15px; line-height:1.6; color:#526377;">There are no upcoming events ready to include in the ${esc(normalizedCity)} newsletter right now.</div>
+      </div>
+    `);
+    textPieces.push(`No upcoming events are ready to include in the ${normalizedCity} newsletter right now.`);
+  }
+
+  return {
+    subject: `${normalizedCity} weekly newsletter preview`,
+    html: `
+      <div style="margin:0; padding:24px; background:#edf2f7; font-family:Arial, sans-serif;">
+        <div style="max-width:720px; margin:0 auto;">
+          <div style="padding:0 0 20px;">
+            <div style="font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#00c08b; margin-bottom:8px;">OpenCircle Newsletter</div>
+            <div style="font-size:34px; line-height:1.1; font-weight:900; color:#0f172a; margin-bottom:10px;">${esc(normalizedCity)} this week</div>
+            <div style="font-size:16px; line-height:1.6; color:#526377;">This is a test send using your current newsletter settings. Showcase count: ${esc(String(clampNewsletterShowcaseCount(settings?.showcaseCount)))}.</div>
+          </div>
+          ${pieces.join("")}
+        </div>
+      </div>
+    `,
+    text: [
+      `${normalizedCity} this week`,
+      "",
+      `This is a test send using your current newsletter settings. Showcase count: ${clampNewsletterShowcaseCount(settings?.showcaseCount)}.`,
+      "",
+      textPieces.join("\n\n")
+    ].join("\n")
+  };
+}
+
 async function resolveSessionUser(req) {
   await ensureUserProfileSchema();
   const rawKey = String(req.user?.user || "").trim();
@@ -2079,6 +2438,7 @@ async function renderAdmin(req, res, view) {
   try {
     await ensurePickSchema();
     await ensureVenueSchema();
+    await ensureNewsletterSchema();
     const sessionUser = await resolveSessionUser(req);
     await ensureJobSchema();
     await ensureAdSchema();
@@ -2154,6 +2514,7 @@ let whereParams = [];
     const canSeeJobAnalytics = canManageJobs;
     const canManageAds = hasDeveloperAccess || sectionPermissions.ads;
     const canSeeAdsAnalytics = canManageAds;
+    const canManageNewsletter = canManageEvents;
     const canSeeOrganizerAnalytics = hasDeveloperAccess;
     const canSeeAnyAnalytics = canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeJobAnalytics || canSeeAdsAnalytics || canSeeOrganizerAnalytics;
 
@@ -2722,6 +3083,29 @@ try {
       const active = selectedCity === c ? " is-active" : "";
       return `<a class="sb-city-opt${active}" data-city="${esc(c)}" href="${esc(buildCitySwitchHref(c))}">${esc(c)}</a>`;
     }).join("");
+
+    let newsletterSettings = getDefaultNewsletterSettings(selectedCity);
+    let newsletterAudienceRows = [];
+    let newsletterFeaturedEvent = null;
+    let newsletterEditorialPickEvent = null;
+    let newsletterShowcaseEvents = [];
+    if (showNewsletter || showNewsletterAudience) {
+      newsletterSettings = await getNewsletterSettingsForCity(selectedCity);
+      newsletterAudienceRows = await all(
+        `SELECT id, city, email, createdAt
+           FROM newsletter_audience
+          WHERE city = ?
+          ORDER BY lower(email) ASC, id ASC`,
+        [selectedCity]
+      );
+      if (showNewsletter) {
+        const newsletterCandidates = await getNewsletterEventCandidates(selectedCity);
+        const selection = selectNewsletterEvents(newsletterCandidates, newsletterSettings);
+        newsletterFeaturedEvent = selection.featuredEvent;
+        newsletterEditorialPickEvent = selection.editorialPickEvent;
+        newsletterShowcaseEvents = selection.showcaseEvents;
+      }
+    }
 
     const listHtml = events.length
       ? events
@@ -4671,6 +5055,8 @@ return `
     const showAdsExisting = view === "ads-existing";
     const showAdsAnalytics = view === "ads-analytics";
     const showMessages = view === "messages";
+    const showNewsletter = view === "newsletter";
+    const showNewsletterAudience = view === "newsletter-audience";
     const showPreferences = view === "preferences";
     const showUpdatesLog = view === "updates-log";
     const showUsers = view === "users";
@@ -4678,6 +5064,8 @@ return `
 
     if (showExisting && !canManageEvents) return res.status(403).send("Forbidden");
     if (showAnalytics && !canSeeEventsAnalytics) return res.status(403).send("Forbidden");
+    if (showNewsletter && !canManageNewsletter) return res.status(403).send("Forbidden");
+    if (showNewsletterAudience && !canManageNewsletter) return res.status(403).send("Forbidden");
     if (showUsers && !hasDeveloperAccess) return res.status(403).send("Forbidden");
     if (showInvites && !hasDeveloperAccess) return res.status(403).send("Forbidden");
     if (showMessages && !canUseMessages) return res.status(403).send("Forbidden");
@@ -4736,7 +5124,7 @@ return `
     if (showAdsCreate && !canManageAds) return res.status(403).send("Forbidden");
     if (showAdsExisting && !canManageAds) return res.status(403).send("Forbidden");
     if (showAdsAnalytics && !canSeeAdsAnalytics) return res.status(403).send("Forbidden");
-    const showSearch = !showMessages;
+    const showSearch = !showMessages && !showNewsletter && !showNewsletterAudience;
     const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
       ? "/admin/venues"
       : showJobsApplicants
@@ -4770,7 +5158,7 @@ return `
       : showAnalytics
       ? `/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`
       : `/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`;
-    const isSingleManage = (showCreate ^ showUpload ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showAdsCreate ^ showAdsExisting ^ showAdsAnalytics ^ showPreferences);
+    const isSingleManage = (showCreate ^ showUpload ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showAdsCreate ^ showAdsExisting ^ showAdsAnalytics ^ showPreferences ^ showNewsletter ^ showNewsletterAudience);
 
     const prefNotice = String(req.query.notice || "").trim().toLowerCase();
     const prefNoticeHtml = prefNotice
@@ -4788,6 +5176,23 @@ return `
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">Current password is incorrect.</div>`
           : prefNotice === "user_not_found"
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">User record not found.</div>`
+          : "")
+      : "";
+
+    const newsletterNotice = String(req.query.newsletterNotice || "").trim().toLowerCase();
+    const newsletterNoticeHtml = newsletterNotice
+      ? (newsletterNotice === "saved"
+          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Newsletter settings saved.</div>`
+          : newsletterNotice === "test_sent"
+          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Test email sent.</div>`
+          : newsletterNotice === "test_failed"
+          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">Test email could not be sent. Check your SMTP settings.</div>`
+          : newsletterNotice === "audience_added"
+          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Audience updated.</div>`
+          : newsletterNotice === "audience_removed"
+          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Email removed from this audience.</div>`
+          : newsletterNotice === "invalid_email"
+          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">One or more email addresses were invalid.</div>`
           : "")
       : "";
 
@@ -6682,6 +7087,10 @@ return `
       ? "Approve Events"
       : showExisting
       ? (isOrganizerUser ? "My Events" : "All Events")
+      : showNewsletter
+      ? "Newsletter"
+      : showNewsletterAudience
+      ? "Newsletter Audience"
       : showOrganizers
       ? "Organizer Analytics"
       : showVenueCreate
@@ -6714,6 +7123,7 @@ return `
       ? "Invites"
       : "Dashboard";
     const eventsMenuOpen = showExisting || showCreate || showApprove || showUpload;
+    const newsletterMenuOpen = showNewsletter || showNewsletterAudience;
     const venuesMenuOpen = showVenueExisting || showVenueCreate;
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants;
     const adsMenuOpen = showAdsExisting || showAdsCreate;
@@ -9654,6 +10064,15 @@ return `
           </div>
           <div class="sb-divider"></div>` : ``}
 
+          ${canManageNewsletter ? `<div class="nav-group nav-collapsible ${newsletterMenuOpen ? "is-open" : ""}" data-nav-group>
+            <a class="nav-title-btn" href="/admin/newsletter${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${newsletterMenuOpen ? "page" : "false"}"><i class="fa-regular fa-envelope nav-title-icon" aria-hidden="true"></i><span>Newsletter</span></a>
+            <div class="nav-sub" data-nav-sub>
+              <a class="subnav-link ${showNewsletter ? "active" : ""}" href="/admin/newsletter${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Settings</a>
+              <a class="subnav-link ${showNewsletterAudience ? "active" : ""}" href="/admin/newsletter/audience${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Audience</a>
+            </div>
+          </div>
+          <div class="sb-divider"></div>` : ``}
+
           ${canManageVenues ? `<div class="nav-group nav-collapsible ${venuesMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${venuesMenuOpen ? "page" : "false"}"><i class="fa-regular fa-building nav-title-icon" aria-hidden="true"></i><span>Venues</span></a>
             <div class="nav-sub" data-nav-sub>
@@ -10505,6 +10924,158 @@ return `
           }, heartbeatMs);
         })();
         </script>
+        ` : ``}
+
+        ${showNewsletter ? `
+        <section class="gridMain single" id="newsletter">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Newsletter</h2>
+                <p class="sub">Set the basics for the ${esc(selectedCity)} weekly newsletter and send yourself a test.</p>
+              </div>
+            </div>
+            ${newsletterNoticeHtml}
+            <div class="grid2" style="grid-template-columns:1.4fr 1fr; align-items:start;">
+              <div class="card">
+                <div class="sectionTitle"><div><h2>Settings</h2></div></div>
+                <form method="POST" action="/admin/newsletter/settings">
+                  <input type="hidden" name="city" value="${esc(selectedCity)}" />
+
+                  <label>How many events to showcase</label>
+                  <input class="ctrl" type="number" min="1" max="12" name="showcaseCount" value="${esc(String(newsletterSettings.showcaseCount || 5))}" />
+                  <div class="note">This controls how many regular events appear in the email list.</div>
+
+                  <div class="rec-box" style="margin-top:14px;">
+                    <div class="checkbox">
+                      <input type="checkbox" id="newsletterIncludeFeatured" name="includeFeatured" value="1" ${Number(newsletterSettings.includeFeatured || 0) === 1 ? "checked" : ""} />
+                      <label for="newsletterIncludeFeatured" style="margin:0; font-size:15px; font-weight:700;">Include a featured event</label>
+                    </div>
+                    <div class="note">If an upcoming event is marked Featured, it will be pulled into the email first.</div>
+                  </div>
+
+                  <div class="rec-box" style="margin-top:14px;">
+                    <div class="checkbox">
+                      <input type="checkbox" id="newsletterIncludeEditorial" name="includeEditorialPick" value="1" ${Number(newsletterSettings.includeEditorialPick || 0) === 1 ? "checked" : ""} />
+                      <label for="newsletterIncludeEditorial" style="margin:0; font-size:15px; font-weight:700;">Include an editorial pick</label>
+                    </div>
+                    <div class="note">If an upcoming event is marked Eddie's Pick, it will be added as the editorial pick.</div>
+                  </div>
+
+                  <div class="actions">
+                    <button class="btn btn-primary" type="submit">Save settings</button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="card">
+                <div class="sectionTitle"><div><h2>Send a test email</h2></div></div>
+                <form method="POST" action="/admin/newsletter/test">
+                  <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                  <label>Test email address</label>
+                  <input class="ctrl" type="email" name="testEmail" value="${esc(currentUser?.email || "")}" placeholder="name@example.com" required />
+                  <div class="note">This sends a preview using the current ${esc(selectedCity)} settings.</div>
+                  <div class="actions">
+                    <button class="btn btn-primary" type="submit">Send test email</button>
+                  </div>
+                </form>
+                <div class="mini" style="margin-top:14px;">
+                  <div class="insight-row"><div class="label">Audience size</div><div class="value">${esc(String(newsletterAudienceRows.length))}</div></div>
+                  <div class="insight-row"><div class="label">Featured event</div><div class="value">${esc(newsletterFeaturedEvent?.title || "None right now")}</div></div>
+                  <div class="insight-row"><div class="label">Editorial pick</div><div class="value">${esc(newsletterEditorialPickEvent?.title || "None right now")}</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:var(--gap);">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Preview</h2>
+                  <p class="sub">This shows what the newsletter would pull in right now for ${esc(selectedCity)}.</p>
+                </div>
+              </div>
+              ${(newsletterFeaturedEvent || newsletterEditorialPickEvent || newsletterShowcaseEvents.length) ? `
+                <div class="grid2" style="grid-template-columns:1fr 1fr; align-items:start;">
+                  <div class="mini">
+                    <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Featured event</div>
+                    ${newsletterFeaturedEvent ? `
+                      <div class="insight-row"><div class="label">Title</div><div class="value">${esc(newsletterFeaturedEvent.title || "")}</div></div>
+                      <div class="insight-row"><div class="label">When</div><div class="value">${esc(formatNewsletterEventDateRange(newsletterFeaturedEvent.startDateTime, newsletterFeaturedEvent.endDateTime) || "Date coming soon")}</div></div>
+                    ` : `<div class="note">No upcoming featured event is available.</div>`}
+                  </div>
+                  <div class="mini">
+                    <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Editorial pick</div>
+                    ${newsletterEditorialPickEvent ? `
+                      <div class="insight-row"><div class="label">Title</div><div class="value">${esc(newsletterEditorialPickEvent.title || "")}</div></div>
+                      <div class="insight-row"><div class="label">When</div><div class="value">${esc(formatNewsletterEventDateRange(newsletterEditorialPickEvent.startDateTime, newsletterEditorialPickEvent.endDateTime) || "Date coming soon")}</div></div>
+                    ` : `<div class="note">No upcoming editorial pick is available.</div>`}
+                  </div>
+                </div>
+                <div class="mini" style="margin-top:14px;">
+                  <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Showcase events</div>
+                  ${newsletterShowcaseEvents.length ? newsletterShowcaseEvents.map((event) => `
+                    <div class="insight-row">
+                      <div class="label">${esc(event.title || "")}</div>
+                      <div class="value">${esc(formatNewsletterEventDateRange(event.startDateTime, event.endDateTime) || "Date coming soon")}</div>
+                    </div>
+                  `).join("") : `<div class="note">No showcase events are available right now.</div>`}
+                </div>
+              ` : `
+                <div class="mini">No upcoming events are ready to build this newsletter yet.</div>
+              `}
+            </div>
+          </div>
+        </section>
+        ` : ``}
+
+        ${showNewsletterAudience ? `
+        <section class="gridMain single" id="newsletter-audience">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Newsletter audience</h2>
+                <p class="sub">Add and manage email addresses for the ${esc(selectedCity)} newsletter list.</p>
+              </div>
+            </div>
+            ${newsletterNoticeHtml}
+            <div class="grid2" style="grid-template-columns:1fr 1.4fr; align-items:start;">
+              <div class="card">
+                <div class="sectionTitle"><div><h2>Add emails</h2></div></div>
+                <form method="POST" action="/admin/newsletter/audience">
+                  <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                  <label>Email list</label>
+                  <textarea class="ctrl" name="emails" rows="8" placeholder="one@example.com&#10;two@example.com"></textarea>
+                  <div class="note">Paste one email per line, or separate them with commas.</div>
+                  <div class="actions">
+                    <button class="btn btn-primary" type="submit">Add to audience</button>
+                  </div>
+                </form>
+              </div>
+              <div class="card">
+                <div class="sectionTitle">
+                  <div>
+                    <h2>Current audience</h2>
+                    <p class="sub">${esc(String(newsletterAudienceRows.length))} email${newsletterAudienceRows.length === 1 ? "" : "s"} in ${esc(selectedCity)}</p>
+                  </div>
+                </div>
+                <div class="mini">
+                  ${newsletterAudienceRows.length ? newsletterAudienceRows.map((row) => `
+                    <div class="insight-row" style="gap:12px;">
+                      <div class="label" style="overflow-wrap:anywhere;">${esc(row.email || "")}</div>
+                      <div class="value" style="display:flex; align-items:center; gap:10px;">
+                        <span>${esc(DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "")}</span>
+                        <form method="POST" action="/admin/newsletter/audience/${esc(String(row.id))}/delete" style="margin:0;">
+                          <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                          <button class="btn" type="submit" style="height:34px; padding:0 10px;">Remove</button>
+                        </form>
+                      </div>
+                    </div>
+                  `).join("") : `<div class="note">No emails have been added for this area yet.</div>`}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
         ` : ``}
 
         ${showPreferences ? `
@@ -14824,11 +15395,152 @@ router.get("/jobs/analytics", async (req, res) => renderAdmin(req, res, "jobs-an
 router.get("/ads", async (req, res) => renderAdmin(req, res, "ads-existing"));
 router.get("/ads/create", async (req, res) => renderAdmin(req, res, "ads-create"));
 router.get("/ads/analytics", async (req, res) => renderAdmin(req, res, "ads-analytics"));
+router.get("/newsletter", async (req, res) => renderAdmin(req, res, "newsletter"));
+router.get("/newsletter/audience", async (req, res) => renderAdmin(req, res, "newsletter-audience"));
 router.get("/messages", async (req, res) => renderAdmin(req, res, "messages"));
 router.get("/preferences", async (req, res) => renderAdmin(req, res, "preferences"));
 router.get("/updates-log", async (req, res) => renderAdmin(req, res, "updates-log"));
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
+
+router.post("/newsletter/settings", async (req, res) => {
+  try {
+    await ensureNewsletterSchema();
+    await ensureUserProfileSchema();
+    const currentUser = await resolveSessionUser(req);
+    const role = normalizeRoleValue(req.user?.role || currentUser?.role || "organizer");
+    const hasDeveloperAccess = hasDeveloperAccessRole(role);
+    const sectionPermissions = getUserSectionPermissions(currentUser || { role });
+    if (!(hasDeveloperAccess || sectionPermissions.events)) return res.status(403).send("Forbidden");
+
+    const fallbackCity = String(req.user?.city || currentUser?.city || "Enumclaw").trim() || "Enumclaw";
+    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const showcaseCount = clampNewsletterShowcaseCount(req.body?.showcaseCount);
+    const includeFeatured = String(req.body?.includeFeatured || "") === "1" ? 1 : 0;
+    const includeEditorialPick = String(req.body?.includeEditorialPick || "") === "1" ? 1 : 0;
+
+    await run(
+      `INSERT INTO newsletter_settings (city, showcaseCount, includeFeatured, includeEditorialPick, updatedByUserId, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(city) DO UPDATE SET
+         showcaseCount = excluded.showcaseCount,
+         includeFeatured = excluded.includeFeatured,
+         includeEditorialPick = excluded.includeEditorialPick,
+         updatedByUserId = excluded.updatedByUserId,
+         updatedAt = datetime('now')`,
+      [city, showcaseCount, includeFeatured, includeEditorialPick, Number(currentUser?.id || 0) || null]
+    );
+
+    return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=saved`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Internal server error");
+  }
+});
+
+router.post("/newsletter/test", async (req, res) => {
+  try {
+    await ensureNewsletterSchema();
+    await ensureUserProfileSchema();
+    const currentUser = await resolveSessionUser(req);
+    const role = normalizeRoleValue(req.user?.role || currentUser?.role || "organizer");
+    const hasDeveloperAccess = hasDeveloperAccessRole(role);
+    const sectionPermissions = getUserSectionPermissions(currentUser || { role });
+    if (!(hasDeveloperAccess || sectionPermissions.events)) return res.status(403).send("Forbidden");
+
+    const fallbackCity = String(req.user?.city || currentUser?.city || "Enumclaw").trim() || "Enumclaw";
+    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const testEmail = normalizeNewsletterEmailAddress(req.body?.testEmail);
+    if (!isValidNewsletterEmail(testEmail)) {
+      return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=invalid_email`);
+    }
+
+    const settings = await getNewsletterSettingsForCity(city);
+    const candidates = await getNewsletterEventCandidates(city);
+    const selection = selectNewsletterEvents(candidates, settings);
+    const message = buildNewsletterEmail({
+      city,
+      settings,
+      featuredEvent: selection.featuredEvent,
+      editorialPickEvent: selection.editorialPickEvent,
+      showcaseEvents: selection.showcaseEvents,
+      req,
+    });
+
+    const sent = await sendEmail({
+      to: testEmail,
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
+      from: PASSWORD_RESET_FROM,
+      replyTo: PASSWORD_RESET_REPLY_TO,
+    });
+
+    return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=${sent ? "test_sent" : "test_failed"}`);
+  } catch (err) {
+    console.error(err);
+    const fallbackCity = String(req.body?.city || req.query.city || "Enumclaw").trim() || "Enumclaw";
+    return res.redirect(`/admin/newsletter?city=${encodeURIComponent(fallbackCity)}&newsletterNotice=test_failed`);
+  }
+});
+
+router.post("/newsletter/audience", async (req, res) => {
+  try {
+    await ensureNewsletterSchema();
+    await ensureUserProfileSchema();
+    const currentUser = await resolveSessionUser(req);
+    const role = normalizeRoleValue(req.user?.role || currentUser?.role || "organizer");
+    const hasDeveloperAccess = hasDeveloperAccessRole(role);
+    const sectionPermissions = getUserSectionPermissions(currentUser || { role });
+    if (!(hasDeveloperAccess || sectionPermissions.events)) return res.status(403).send("Forbidden");
+
+    const fallbackCity = String(req.user?.city || currentUser?.city || "Enumclaw").trim() || "Enumclaw";
+    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const parsed = parseNewsletterEmails(req.body?.emails);
+    if (!parsed.valid.length) {
+      return res.redirect(`/admin/newsletter/audience?city=${encodeURIComponent(city)}&newsletterNotice=invalid_email`);
+    }
+
+    for (const email of parsed.valid) {
+      await run(
+        `INSERT INTO newsletter_audience (city, email, createdByUserId, createdAt)
+         VALUES (?, ?, ?, datetime('now'))
+         ON CONFLICT(city, email) DO NOTHING`,
+        [city, email, Number(currentUser?.id || 0) || null]
+      );
+    }
+
+    const notice = parsed.invalid.length ? "invalid_email" : "audience_added";
+    return res.redirect(`/admin/newsletter/audience?city=${encodeURIComponent(city)}&newsletterNotice=${notice}`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Internal server error");
+  }
+});
+
+router.post("/newsletter/audience/:id/delete", async (req, res) => {
+  try {
+    await ensureNewsletterSchema();
+    await ensureUserProfileSchema();
+    const currentUser = await resolveSessionUser(req);
+    const role = normalizeRoleValue(req.user?.role || currentUser?.role || "organizer");
+    const hasDeveloperAccess = hasDeveloperAccessRole(role);
+    const sectionPermissions = getUserSectionPermissions(currentUser || { role });
+    if (!(hasDeveloperAccess || sectionPermissions.events)) return res.status(403).send("Forbidden");
+
+    const fallbackCity = String(req.user?.city || currentUser?.city || "Enumclaw").trim() || "Enumclaw";
+    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const id = parseInt(String(req.params.id || ""), 10);
+    if (Number.isInteger(id) && id > 0) {
+      await run("DELETE FROM newsletter_audience WHERE id = ? AND city = ?", [id, city]);
+    }
+    return res.redirect(`/admin/newsletter/audience?city=${encodeURIComponent(city)}&newsletterNotice=audience_removed`);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Internal server error");
+  }
+});
+
 router.get("/pending-count", async (req, res) => {
   try {
     await ensureMessageSchema();
