@@ -2161,6 +2161,8 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
   const subject = normalizeNewsletterSubject(settings?.emailSubject, normalizedCity);
   const headerImageUrl = normalizeHttpUrl(settings?.headerImageUrl || "");
   const homeHref = esc(buildNewsletterBaseUrl(req));
+  const allEventsHrefRaw = `${buildNewsletterBaseUrl(req).replace(/\/+$/, "")}/events`;
+  const allEventsHref = esc(allEventsHrefRaw);
   const pieces = [];
   const textPieces = [];
 
@@ -2289,6 +2291,9 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
             <div style="font-size:16px; line-height:1.6; color:#526377; margin-bottom:8px;">${esc(previewText)}</div>
           </div>
           ${pieces.join("")}
+          <div style="padding:24px 0 0; text-align:center;">
+            <a href="${allEventsHref}" style="display:inline-block; padding:12px 18px; border-radius:999px; background:#0ea5e9; color:#ffffff; font-weight:800; text-decoration:none;">See all events</a>
+          </div>
         </div>
       </div>
     `,
@@ -2301,7 +2306,9 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
       `Shows ${clampNewsletterDaysToShow(settings?.daysToShow)} day(s) of events.`,
       `Showcase count: ${clampNewsletterShowcaseCount(settings?.showcaseCount)}.`,
       "",
-      textPieces.join("\n\n")
+      textPieces.join("\n\n"),
+      "",
+      `See all events: ${allEventsHrefRaw}`
     ].join("\n")
   };
 }
