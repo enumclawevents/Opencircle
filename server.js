@@ -746,7 +746,7 @@ app.post("/newsletter/subscribe", async (req, res) => {
       });
     }
 
-    await run(
+    const insertResult = await run(
       `INSERT INTO newsletter_audience (city, email, createdByUserId, createdAt)
        VALUES (?, ?, NULL, datetime('now'))
        ON CONFLICT(city, email) DO NOTHING`,
@@ -757,6 +757,8 @@ app.post("/newsletter/subscribe", async (req, res) => {
       ok: true,
       city,
       email,
+      subscribed: true,
+      duplicate: Number(insertResult?.changes || 0) === 0,
       message: "Subscribed successfully.",
     });
   } catch (err) {
@@ -804,8 +806,15 @@ app.get("/newsletter/open/:token.gif", async (req, res) => {
   }
   const gif = Buffer.from("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", "base64");
   res.set("Content-Type", "image/gif");
-  res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
-  return res.status(200).send(gif);
+  res.set("Content-Length", String(gif.length));
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, private, max-age=0, s-maxage=0");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  res.set("Surrogate-Control", "no-store");
+  res.set("Last-Modified", new Date().toUTCString());
+  res.set("ETag", `"newsletter-open-${Date.now()}-${Math.random().toString(36).slice(2, 8)}"`);
+  res.status(200);
+  return res.end(gif);
 });
 app.use("/events", eventsRouter);
 app.use("/venues", venuesRouter);

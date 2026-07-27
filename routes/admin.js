@@ -2378,7 +2378,7 @@ function buildTrackedNewsletterHtml(html, reqLike, openToken) {
   const token = String(openToken || "").trim();
   if (!sourceHtml || !token) return sourceHtml;
   const pixelUrl = buildNewsletterOpenPixelUrl(reqLike, token);
-  const pixelHtml = `<div style="display:none!important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden;"><img src="${esc(pixelUrl)}" alt="" width="1" height="1" style="display:block; width:1px; height:1px; border:0;" /></div>`;
+  const pixelHtml = `<div style="font-size:0; line-height:0; max-height:1px; overflow:hidden;"><img src="${esc(pixelUrl)}" alt="" width="1" height="1" style="display:block !important; width:1px !important; height:1px !important; max-width:1px !important; max-height:1px !important; opacity:0.01; border:0; margin:0; padding:0;" /></div>`;
   return `${sourceHtml}${pixelHtml}`;
 }
 
