@@ -5305,6 +5305,7 @@ return `
     const showAdsAnalytics = view === "ads-analytics";
     const showMessages = view === "messages";
     const showNewsletter = view === "newsletter";
+    const showNewsletterPreview = view === "newsletter-preview";
     const showNewsletterAudience = view === "newsletter-audience";
     const showPreferences = view === "preferences";
     const showUpdatesLog = view === "updates-log";
@@ -5314,6 +5315,7 @@ return `
     if (showExisting && !canManageEvents) return res.status(403).send("Forbidden");
     if (showAnalytics && !canSeeEventsAnalytics) return res.status(403).send("Forbidden");
     if (showNewsletter && !canManageNewsletter) return res.status(403).send("Forbidden");
+    if (showNewsletterPreview && !canManageNewsletter) return res.status(403).send("Forbidden");
     if (showNewsletterAudience && !canManageNewsletter) return res.status(403).send("Forbidden");
     if (showUsers && !hasDeveloperAccess) return res.status(403).send("Forbidden");
     if (showInvites && !hasDeveloperAccess) return res.status(403).send("Forbidden");
@@ -5373,7 +5375,7 @@ return `
     if (showAdsCreate && !canManageAds) return res.status(403).send("Forbidden");
     if (showAdsExisting && !canManageAds) return res.status(403).send("Forbidden");
     if (showAdsAnalytics && !canSeeAdsAnalytics) return res.status(403).send("Forbidden");
-    const showSearch = !showMessages && !showNewsletter && !showNewsletterAudience;
+    const showSearch = !showMessages && !showNewsletter && !showNewsletterPreview && !showNewsletterAudience;
     const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
       ? "/admin/venues"
       : showJobsApplicants
@@ -5407,7 +5409,7 @@ return `
       : showAnalytics
       ? `/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`
       : `/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`;
-    const isSingleManage = (showCreate ^ showUpload ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showAdsCreate ^ showAdsExisting ^ showAdsAnalytics ^ showPreferences ^ showNewsletter ^ showNewsletterAudience);
+    const isSingleManage = (showCreate ^ showUpload ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showAdsCreate ^ showAdsExisting ^ showAdsAnalytics ^ showPreferences ^ showNewsletter ^ showNewsletterPreview ^ showNewsletterAudience);
 
     const prefNotice = String(req.query.notice || "").trim().toLowerCase();
     const prefNoticeHtml = prefNotice
@@ -5452,7 +5454,7 @@ return `
     let newsletterShowcaseEvents = [];
     let newsletterNextSendLabel = "";
     let newsletterLastSentLabel = "";
-    if (showNewsletter || showNewsletterAudience) {
+    if (showNewsletter || showNewsletterPreview || showNewsletterAudience) {
       newsletterSettings = await getNewsletterSettingsForCity(selectedCity);
       newsletterAudienceRows = await getNewsletterAudienceForCity(selectedCity);
       newsletterNextSendLabel = Number(newsletterSettings.scheduleEnabled || 0) === 1
@@ -5463,7 +5465,7 @@ return `
             ? DateTime.fromISO(String(newsletterSettings.lastSentAt || ""), { zone: DEFAULT_TZ }).toFormat("cccc, LLL d 'at' h:mm a")
             : "")
         : "Not sent yet";
-      if (showNewsletter) {
+      if (showNewsletter || showNewsletterPreview) {
         const newsletterCandidates = await getNewsletterEventCandidates(selectedCity);
         const selection = selectNewsletterEvents(newsletterCandidates, newsletterSettings);
         newsletterFeaturedEvent = selection.featuredEvent;
@@ -7365,6 +7367,8 @@ return `
       ? (isOrganizerUser ? "My Events" : "All Events")
       : showNewsletter
       ? "Newsletter"
+      : showNewsletterPreview
+      ? "Newsletter Preview"
       : showNewsletterAudience
       ? "Newsletter Audience"
       : showOrganizers
@@ -7399,7 +7403,7 @@ return `
       ? "Invites"
       : "Dashboard";
     const eventsMenuOpen = showExisting || showCreate || showApprove || showUpload;
-    const newsletterMenuOpen = showNewsletter || showNewsletterAudience;
+    const newsletterMenuOpen = showNewsletter || showNewsletterPreview || showNewsletterAudience;
     const venuesMenuOpen = showVenueExisting || showVenueCreate;
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants;
     const adsMenuOpen = showAdsExisting || showAdsCreate;
@@ -10344,6 +10348,7 @@ return `
             <a class="nav-title-btn" href="/admin/newsletter${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${newsletterMenuOpen ? "page" : "false"}"><i class="fa-regular fa-envelope nav-title-icon" aria-hidden="true"></i><span>Newsletter</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showNewsletter ? "active" : ""}" href="/admin/newsletter${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Settings</a>
+              <a class="subnav-link ${showNewsletterPreview ? "active" : ""}" href="/admin/newsletter/preview${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Preview</a>
               <a class="subnav-link ${showNewsletterAudience ? "active" : ""}" href="/admin/newsletter/audience${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Audience</a>
             </div>
           </div>
@@ -11208,85 +11213,98 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Newsletter</h2>
-                <p class="sub">Set the basics for the ${esc(selectedCity)} weekly newsletter and send yourself a test.</p>
+                <p class="sub">Set the basics for the ${esc(selectedCity)} weekly newsletter.</p>
               </div>
             </div>
             ${newsletterNoticeHtml}
-            <div class="grid2" style="grid-template-columns:1.4fr 1fr; align-items:start;">
-              <div class="card">
-                <div class="sectionTitle"><div><h2>Settings</h2></div></div>
-                <form method="POST" action="/admin/newsletter/settings" enctype="multipart/form-data">
-                  <input type="hidden" name="city" value="${esc(selectedCity)}" />
+            <div class="card">
+              <div class="sectionTitle"><div><h2>Settings</h2></div></div>
+              <form method="POST" action="/admin/newsletter/settings" enctype="multipart/form-data">
+                <input type="hidden" name="city" value="${esc(selectedCity)}" />
 
-                  <div class="rec-box" style="margin-top:0;">
-                    <div class="checkbox">
-                      <input type="checkbox" id="newsletterScheduleEnabled" name="scheduleEnabled" value="1" ${Number(newsletterSettings.scheduleEnabled || 0) === 1 ? "checked" : ""} />
-                      <label for="newsletterScheduleEnabled" style="margin:0; font-size:15px; font-weight:700;">Send this newsletter automatically</label>
-                    </div>
-                    <div class="note">Turn this on when you want the API to send the newsletter on its own every week.</div>
+                <div class="rec-box" style="margin-top:0;">
+                  <div class="checkbox">
+                    <input type="checkbox" id="newsletterScheduleEnabled" name="scheduleEnabled" value="1" ${Number(newsletterSettings.scheduleEnabled || 0) === 1 ? "checked" : ""} />
+                    <label for="newsletterScheduleEnabled" style="margin:0; font-size:15px; font-weight:700;">Send this newsletter automatically</label>
                   </div>
+                  <div class="note">Turn this on when you want the API to send the newsletter on its own every week.</div>
+                </div>
 
-                  <div class="grid2" style="grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;">
-                    <div>
-                      <label>Day of the week</label>
-                      <select class="ctrl" name="sendDayOfWeek">
-                        ${getNewsletterWeekdayOptions().map(([value, label]) => `<option value="${esc(value)}" ${normalizeNewsletterWeekday(newsletterSettings.sendDayOfWeek) === value ? "selected" : ""}>${esc(label)}</option>`).join("")}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Time</label>
-                      <input class="ctrl" type="time" name="sendTimeLocal" value="${esc(normalizeNewsletterTime(newsletterSettings.sendTimeLocal))}" />
-                    </div>
+                <div class="grid2" style="grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;">
+                  <div>
+                    <label>Day of the week</label>
+                    <select class="ctrl" name="sendDayOfWeek">
+                      ${getNewsletterWeekdayOptions().map(([value, label]) => `<option value="${esc(value)}" ${normalizeNewsletterWeekday(newsletterSettings.sendDayOfWeek) === value ? "selected" : ""}>${esc(label)}</option>`).join("")}
+                    </select>
                   </div>
-                  <div class="note">Schedule runs in Pacific Time.</div>
-
-                  <label style="margin-top:14px;">Email subject</label>
-                  <input class="ctrl" type="text" name="emailSubject" value="${esc(newsletterSettings.emailSubject || "")}" maxlength="160" placeholder="${esc(buildDefaultNewsletterSubject(selectedCity))}" />
-                  <div class="note">This is the subject line people will see in their inbox.</div>
-
-                  <label style="margin-top:14px;">Preview text</label>
-                  <textarea class="ctrl" name="previewText" rows="3" maxlength="220" placeholder="${esc(buildDefaultNewsletterPreviewText(selectedCity))}">${esc(newsletterSettings.previewText || "")}</textarea>
-                  <div class="note">This is the short preview snippet that appears next to the subject in many inboxes.</div>
-
-                  <label style="margin-top:14px;">Header image</label>
-                  <input type="file" name="headerImageFile" accept="image/*" />
-                  <div class="note">Upload a header image to show at the very top of the newsletter.</div>
-
-                  <label style="margin-top:14px;">Header image URL (optional fallback)</label>
-                  <input class="ctrl" type="text" name="headerImageUrl" value="${esc(newsletterSettings.headerImageUrl || "")}" placeholder="https://..." />
-                  <div class="note">If you upload an image above, that will replace this URL.</div>
-                  ${newsletterSettings.headerImageUrl ? `
-                    <div class="mini" style="margin-top:12px;">
-                      <img src="${esc(newsletterSettings.headerImageUrl)}" alt="Newsletter header preview" style="display:block; width:100%; max-height:180px; object-fit:cover; border-radius:12px; border:1px solid var(--line); background:#eef4f8;" />
-                    </div>
-                  ` : ``}
-
-                  <label>How many events to showcase</label>
-                  <input class="ctrl" type="number" min="1" max="12" name="showcaseCount" value="${esc(String(newsletterSettings.showcaseCount || 5))}" />
-                  <div class="note">This controls how many regular events appear in the email list.</div>
-
-                  <div class="rec-box" style="margin-top:14px;">
-                    <div class="checkbox">
-                      <input type="checkbox" id="newsletterIncludeFeatured" name="includeFeatured" value="1" ${Number(newsletterSettings.includeFeatured || 0) === 1 ? "checked" : ""} />
-                      <label for="newsletterIncludeFeatured" style="margin:0; font-size:15px; font-weight:700;">Include a featured event</label>
-                    </div>
-                    <div class="note">If an upcoming event is marked Featured, it will be pulled into the email first.</div>
+                  <div>
+                    <label>Time</label>
+                    <input class="ctrl" type="time" name="sendTimeLocal" value="${esc(normalizeNewsletterTime(newsletterSettings.sendTimeLocal))}" />
                   </div>
+                </div>
+                <div class="note">Schedule runs in Pacific Time.</div>
 
-                  <div class="rec-box" style="margin-top:14px;">
-                    <div class="checkbox">
-                      <input type="checkbox" id="newsletterIncludeEditorial" name="includeEditorialPick" value="1" ${Number(newsletterSettings.includeEditorialPick || 0) === 1 ? "checked" : ""} />
-                      <label for="newsletterIncludeEditorial" style="margin:0; font-size:15px; font-weight:700;">Include an editorial pick</label>
-                    </div>
-                    <div class="note">If an upcoming event is marked Eddie's Pick, it will be added as the editorial pick.</div>
-                  </div>
+                <label style="margin-top:14px;">Email subject</label>
+                <input class="ctrl" type="text" name="emailSubject" value="${esc(newsletterSettings.emailSubject || "")}" maxlength="160" placeholder="${esc(buildDefaultNewsletterSubject(selectedCity))}" />
+                <div class="note">This is the subject line people will see in their inbox.</div>
 
-                  <div class="actions">
-                    <button class="btn btn-primary" type="submit">Save settings</button>
+                <label style="margin-top:14px;">Preview text</label>
+                <textarea class="ctrl" name="previewText" rows="3" maxlength="220" placeholder="${esc(buildDefaultNewsletterPreviewText(selectedCity))}">${esc(newsletterSettings.previewText || "")}</textarea>
+                <div class="note">This is the short preview snippet that appears next to the subject in many inboxes.</div>
+
+                <label style="margin-top:14px;">Header image</label>
+                <input type="file" name="headerImageFile" accept="image/*" />
+                <div class="note">Upload a header image to show at the very top of the newsletter.</div>
+
+                <label style="margin-top:14px;">Header image URL (optional fallback)</label>
+                <input class="ctrl" type="text" name="headerImageUrl" value="${esc(newsletterSettings.headerImageUrl || "")}" placeholder="https://..." />
+                <div class="note">If you upload an image above, that will replace this URL.</div>
+                ${newsletterSettings.headerImageUrl ? `
+                  <div class="mini" style="margin-top:12px;">
+                    <img src="${esc(newsletterSettings.headerImageUrl)}" alt="Newsletter header preview" style="display:block; width:100%; max-height:180px; object-fit:cover; border-radius:12px; border:1px solid var(--line); background:#eef4f8;" />
                   </div>
-                </form>
+                ` : ``}
+
+                <label style="margin-top:14px;">How many events to showcase</label>
+                <input class="ctrl" type="number" min="1" max="12" name="showcaseCount" value="${esc(String(newsletterSettings.showcaseCount || 5))}" />
+                <div class="note">This controls how many regular events appear in the email list.</div>
+
+                <div class="rec-box" style="margin-top:14px;">
+                  <div class="checkbox">
+                    <input type="checkbox" id="newsletterIncludeFeatured" name="includeFeatured" value="1" ${Number(newsletterSettings.includeFeatured || 0) === 1 ? "checked" : ""} />
+                    <label for="newsletterIncludeFeatured" style="margin:0; font-size:15px; font-weight:700;">Include a featured event</label>
+                  </div>
+                  <div class="note">If an upcoming event is marked Featured, it will be pulled into the email first.</div>
+                </div>
+
+                <div class="rec-box" style="margin-top:14px;">
+                  <div class="checkbox">
+                    <input type="checkbox" id="newsletterIncludeEditorial" name="includeEditorialPick" value="1" ${Number(newsletterSettings.includeEditorialPick || 0) === 1 ? "checked" : ""} />
+                    <label for="newsletterIncludeEditorial" style="margin:0; font-size:15px; font-weight:700;">Include an editorial pick</label>
+                  </div>
+                  <div class="note">If an upcoming event is marked Eddie's Pick, it will be added as the editorial pick.</div>
+                </div>
+
+                <div class="actions">
+                  <button class="btn btn-primary" type="submit">Save settings</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+        ` : ``}
+
+        ${showNewsletterPreview ? `
+        <section class="gridMain single" id="newsletter-preview">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Newsletter preview</h2>
+                <p class="sub">Preview what will go out for ${esc(selectedCity)} and send yourself a test email.</p>
               </div>
-
+            </div>
+            ${newsletterNoticeHtml}
+            <div class="grid2" style="grid-template-columns:1fr 1.4fr; align-items:start;">
               <div class="card">
                 <div class="sectionTitle"><div><h2>Send a test email</h2></div></div>
                 <form method="POST" action="/admin/newsletter/test">
@@ -11307,44 +11325,44 @@ return `
                   <div class="insight-row"><div class="label">Editorial pick</div><div class="value">${esc(newsletterEditorialPickEvent?.title || "None right now")}</div></div>
                 </div>
               </div>
-            </div>
 
-            <div class="card" style="margin-top:var(--gap);">
-              <div class="sectionTitle">
-                <div>
-                  <h2>Preview</h2>
-                  <p class="sub">This shows what the newsletter would pull in right now for ${esc(selectedCity)}.</p>
-                </div>
-              </div>
-              ${(newsletterFeaturedEvent || newsletterEditorialPickEvent || newsletterShowcaseEvents.length) ? `
-                <div class="grid2" style="grid-template-columns:1fr 1fr; align-items:start;">
-                  <div class="mini">
-                    <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Featured event</div>
-                    ${newsletterFeaturedEvent ? `
-                      <div class="insight-row"><div class="label">Title</div><div class="value">${esc(newsletterFeaturedEvent.title || "")}</div></div>
-                      <div class="insight-row"><div class="label">When</div><div class="value">${esc(formatNewsletterEventDateRange(newsletterFeaturedEvent.startDateTime, newsletterFeaturedEvent.endDateTime) || "Date coming soon")}</div></div>
-                    ` : `<div class="note">No upcoming featured event is available.</div>`}
-                  </div>
-                  <div class="mini">
-                    <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Editorial pick</div>
-                    ${newsletterEditorialPickEvent ? `
-                      <div class="insight-row"><div class="label">Title</div><div class="value">${esc(newsletterEditorialPickEvent.title || "")}</div></div>
-                      <div class="insight-row"><div class="label">When</div><div class="value">${esc(formatNewsletterEventDateRange(newsletterEditorialPickEvent.startDateTime, newsletterEditorialPickEvent.endDateTime) || "Date coming soon")}</div></div>
-                    ` : `<div class="note">No upcoming editorial pick is available.</div>`}
+              <div class="card">
+                <div class="sectionTitle">
+                  <div>
+                    <h2>Preview</h2>
+                    <p class="sub">This shows what the newsletter would pull in right now for ${esc(selectedCity)}.</p>
                   </div>
                 </div>
-                <div class="mini" style="margin-top:14px;">
-                  <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Showcase events</div>
-                  ${newsletterShowcaseEvents.length ? newsletterShowcaseEvents.map((event) => `
-                    <div class="insight-row">
-                      <div class="label">${esc(event.title || "")}</div>
-                      <div class="value">${esc(formatNewsletterEventDateRange(event.startDateTime, event.endDateTime) || "Date coming soon")}</div>
+                ${(newsletterFeaturedEvent || newsletterEditorialPickEvent || newsletterShowcaseEvents.length) ? `
+                  <div class="grid2" style="grid-template-columns:1fr 1fr; align-items:start;">
+                    <div class="mini">
+                      <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Featured event</div>
+                      ${newsletterFeaturedEvent ? `
+                        <div class="insight-row"><div class="label">Title</div><div class="value">${esc(newsletterFeaturedEvent.title || "")}</div></div>
+                        <div class="insight-row"><div class="label">When</div><div class="value">${esc(formatNewsletterEventDateRange(newsletterFeaturedEvent.startDateTime, newsletterFeaturedEvent.endDateTime) || "Date coming soon")}</div></div>
+                      ` : `<div class="note">No upcoming featured event is available.</div>`}
                     </div>
-                  `).join("") : `<div class="note">No showcase events are available right now.</div>`}
-                </div>
-              ` : `
-                <div class="mini">No upcoming events are ready to build this newsletter yet.</div>
-              `}
+                    <div class="mini">
+                      <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Editorial pick</div>
+                      ${newsletterEditorialPickEvent ? `
+                        <div class="insight-row"><div class="label">Title</div><div class="value">${esc(newsletterEditorialPickEvent.title || "")}</div></div>
+                        <div class="insight-row"><div class="label">When</div><div class="value">${esc(formatNewsletterEventDateRange(newsletterEditorialPickEvent.startDateTime, newsletterEditorialPickEvent.endDateTime) || "Date coming soon")}</div></div>
+                      ` : `<div class="note">No upcoming editorial pick is available.</div>`}
+                    </div>
+                  </div>
+                  <div class="mini" style="margin-top:14px;">
+                    <div style="font-weight:800; color:var(--text); margin-bottom:10px;">Showcase events</div>
+                    ${newsletterShowcaseEvents.length ? newsletterShowcaseEvents.map((event) => `
+                      <div class="insight-row">
+                        <div class="label">${esc(event.title || "")}</div>
+                        <div class="value">${esc(formatNewsletterEventDateRange(event.startDateTime, event.endDateTime) || "Date coming soon")}</div>
+                      </div>
+                    `).join("") : `<div class="note">No showcase events are available right now.</div>`}
+                  </div>
+                ` : `
+                  <div class="mini">No upcoming events are ready to build this newsletter yet.</div>
+                `}
+              </div>
             </div>
           </div>
         </section>
@@ -15718,6 +15736,7 @@ router.get("/ads", async (req, res) => renderAdmin(req, res, "ads-existing"));
 router.get("/ads/create", async (req, res) => renderAdmin(req, res, "ads-create"));
 router.get("/ads/analytics", async (req, res) => renderAdmin(req, res, "ads-analytics"));
 router.get("/newsletter", async (req, res) => renderAdmin(req, res, "newsletter"));
+router.get("/newsletter/preview", async (req, res) => renderAdmin(req, res, "newsletter-preview"));
 router.get("/newsletter/audience", async (req, res) => renderAdmin(req, res, "newsletter-audience"));
 router.get("/messages", async (req, res) => renderAdmin(req, res, "messages"));
 router.get("/preferences", async (req, res) => renderAdmin(req, res, "preferences"));
