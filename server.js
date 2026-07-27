@@ -19,6 +19,14 @@ const jobsRouter = require("./routes/jobs");
 
 const app = express();
 app.locals.reqTimes = [];
+const NEWSLETTER_PUBLIC_CITIES = Object.freeze([
+  "Enumclaw",
+  "Buckley",
+  "Wilkeson",
+  "Carbonado",
+  "South Prairie",
+]);
+let publicNewsletterSchemaEnsured = false;
 
 // If behind Render proxy, this helps req.protocol be correct
 app.set("trust proxy", 1);
@@ -91,11 +99,48 @@ const PUBLIC_PREFIXES = [
   "/events",
   "/venues",
   "/newsletter/open",
+  "/newsletter/subscribe",
   "/ads",
   "/jobs",
   "/uploads",
   "/assets",
 ];
+
+async function ensurePublicNewsletterSchema() {
+  if (publicNewsletterSchemaEnsured) return;
+  await run(`
+    CREATE TABLE IF NOT EXISTS newsletter_audience (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL,
+      email TEXT NOT NULL,
+      createdByUserId INTEGER,
+      createdAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  try {
+    await run("CREATE INDEX IF NOT EXISTS idx_newsletter_audience_city ON newsletter_audience(city, createdAt DESC)");
+  } catch (_) {}
+  try {
+    await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_audience_city_email ON newsletter_audience(city, email)");
+  } catch (_) {}
+  publicNewsletterSchemaEnsured = true;
+}
+
+function normalizeNewsletterSignupCity(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "Enumclaw";
+  const match = NEWSLETTER_PUBLIC_CITIES.find((city) => city.toLowerCase() === raw.toLowerCase());
+  return match || null;
+}
+
+function normalizeNewsletterSignupEmail(input) {
+  return String(input || "").trim().toLowerCase();
+}
+
+function isValidNewsletterSignupEmail(input) {
+  const email = normalizeNewsletterSignupEmail(input);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
 
 function parseCookies(cookieHeader) {
@@ -680,6 +725,48 @@ app.get("/sitemap.xml", (req, res) => {
   return res.status(200).send(xml);
 });
 app.use(express.text({ type: "text/plain" })); // for sendBeacon payloads
+app.post("/newsletter/subscribe", async (req, res) => {
+  try {
+    await ensurePublicNewsletterSchema();
+    const email = normalizeNewsletterSignupEmail(req.body?.email);
+    const city = normalizeNewsletterSignupCity(req.body?.city);
+
+    if (!city) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid city.",
+        allowedCities: NEWSLETTER_PUBLIC_CITIES,
+      });
+    }
+
+    if (!isValidNewsletterSignupEmail(email)) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid email address.",
+      });
+    }
+
+    await run(
+      `INSERT INTO newsletter_audience (city, email, createdByUserId, createdAt)
+       VALUES (?, ?, NULL, datetime('now'))
+       ON CONFLICT(city, email) DO NOTHING`,
+      [city, email]
+    );
+
+    return res.status(200).json({
+      ok: true,
+      city,
+      email,
+      message: "Subscribed successfully.",
+    });
+  } catch (err) {
+    console.error("[NEWSLETTER] subscribe failed:", err && err.stack ? err.stack : err);
+    return res.status(500).json({
+      ok: false,
+      error: "Unable to subscribe right now.",
+    });
+  }
+});
 
 // Routes
 app.use(requireLogin);
