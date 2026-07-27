@@ -3021,6 +3021,7 @@ const analyticsMetricHelp = {
   internalViews: "Views that came from inside OpenCircle.",
   totalEmailsSent: "How many newsletter emails have been sent.",
   openedEmails: "How many newsletter emails have been opened at least once.",
+  reopens: "How many extra opens happened after the first open.",
   openRate: "The share of sent newsletter emails that were opened.",
   newsletterCampaigns: "The number of newsletter sends that have been logged.",
   audienceSize: "How many email addresses are currently on this newsletter list.",
@@ -5806,6 +5807,7 @@ return `
       testCampaigns: 0,
       totalEmailsSent: 0,
       openedEmails: 0,
+      reopens: 0,
       openRatePct: "0%",
       audienceSize: 0,
       failedEmails: 0,
@@ -5838,6 +5840,8 @@ return `
 
       const totalEmailsSent = campaignRows.reduce((sum, row) => sum + Number(row.sentCount || 0), 0);
       const openedEmails = campaignRows.reduce((sum, row) => sum + Number(row.uniqueOpenCount || 0), 0);
+      const totalOpenEvents = campaignRows.reduce((sum, row) => sum + Number(row.openCount || 0), 0);
+      const reopens = Math.max(0, totalOpenEvents - openedEmails);
       const failedEmails = campaignRows.reduce((sum, row) => sum + Number(row.failedCount || 0), 0);
       const scheduledCampaigns = campaignRows.filter((row) => String(row.mode || "scheduled") !== "test").length;
       const testCampaigns = campaignRows.filter((row) => String(row.mode || "") === "test").length;
@@ -5847,6 +5851,7 @@ return `
         testCampaigns,
         totalEmailsSent,
         openedEmails,
+        reopens,
         openRatePct: totalEmailsSent > 0 ? `${Math.round((openedEmails / totalEmailsSent) * 100)}%` : "0%",
         audienceSize: newsletterAudienceRows.length,
         failedEmails,
@@ -5856,6 +5861,7 @@ return `
         ? campaignRows.slice(0, 6).map((row) => {
             const sentCount = Number(row.sentCount || 0);
             const openCount = Number(row.uniqueOpenCount || 0);
+            const reopenCount = Math.max(0, Number(row.openCount || 0) - openCount);
             const modeLabel = String(row.mode || "scheduled") === "test" ? "Test" : "Live";
             const rate = sentCount > 0 ? `${Math.round((openCount / sentCount) * 100)}%` : "0%";
             const sentLabel = String(row.sentAt || row.createdAt || "").trim();
@@ -5866,7 +5872,7 @@ return `
                   <div style="font-weight:700; color:var(--text);">${esc(String(row.subject || buildDefaultNewsletterSubject(selectedCity)))}</div>
                   <div class="muted" style="font-size:12px; margin-top:4px;">${esc(modeLabel)} send${sentDt && sentDt.isValid ? ` · ${sentDt.toFormat("LLL d, yyyy 'at' h:mm a")}` : ""}</div>
                 </div>
-                <div class="value">${sentCount.toLocaleString("en-US")} sent · ${rate} open</div>
+                <div class="value">${sentCount.toLocaleString("en-US")} sent · ${openCount.toLocaleString("en-US")} opens · ${reopenCount.toLocaleString("en-US")} re-opens</div>
               </div>
             `;
           }).join("")
@@ -5878,11 +5884,12 @@ return `
         .map((row) => {
           const sentCount = Number(row.sentCount || 0);
           const openCount = Number(row.uniqueOpenCount || 0);
+          const reopenCount = Math.max(0, Number(row.openCount || 0) - openCount);
           const rate = sentCount > 0 ? `${Math.round((openCount / sentCount) * 100)}%` : "0%";
           return `
             <div class="kv">
               <div class="k">${esc(String(row.subject || buildDefaultNewsletterSubject(selectedCity)))}</div>
-              <div class="v">${openCount.toLocaleString("en-US")} opens · ${rate}</div>
+              <div class="v">${openCount.toLocaleString("en-US")} opens · ${reopenCount.toLocaleString("en-US")} re-opens · ${rate}</div>
             </div>
           `;
         }).join("") || newsletterTopCampaignsHtml;
@@ -11852,6 +11859,12 @@ return `
             <div>
               <div class="k">${analyticsMetricLabel("Opened emails", analyticsMetricHelp.openedEmails)}</div>
               <div class="v">${newsletterAnalyticsStats.openedEmails.toLocaleString("en-US")}</div>
+            </div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Re-opens", analyticsMetricHelp.reopens)}</div>
+              <div class="v">${newsletterAnalyticsStats.reopens.toLocaleString("en-US")}</div>
             </div>
           </div>
           <div class="metric">
