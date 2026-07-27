@@ -1721,6 +1721,7 @@ async function ensureNewsletterSchema() {
       city TEXT NOT NULL UNIQUE,
       showcaseCount INTEGER NOT NULL DEFAULT 5,
       includeFeatured INTEGER NOT NULL DEFAULT 1,
+      headerImageUrl TEXT,
       includeEditorialPick INTEGER NOT NULL DEFAULT 1,
       scheduleEnabled INTEGER NOT NULL DEFAULT 0,
       sendDayOfWeek TEXT NOT NULL DEFAULT 'monday',
@@ -1744,6 +1745,7 @@ async function ensureNewsletterSchema() {
   `);
   try {
     const settingCols = new Set((await all("PRAGMA table_info(newsletter_settings)")).map((row) => String(row.name || "")));
+    if (!settingCols.has("headerImageUrl")) await run("ALTER TABLE newsletter_settings ADD COLUMN headerImageUrl TEXT");
     if (!settingCols.has("scheduleEnabled")) await run("ALTER TABLE newsletter_settings ADD COLUMN scheduleEnabled INTEGER NOT NULL DEFAULT 0");
     if (!settingCols.has("sendDayOfWeek")) await run("ALTER TABLE newsletter_settings ADD COLUMN sendDayOfWeek TEXT NOT NULL DEFAULT 'monday'");
     if (!settingCols.has("sendTimeLocal")) await run("ALTER TABLE newsletter_settings ADD COLUMN sendTimeLocal TEXT NOT NULL DEFAULT '09:00'");
@@ -1772,6 +1774,7 @@ function getDefaultNewsletterSettings(city) {
     city: String(city || "Enumclaw").trim() || "Enumclaw",
     showcaseCount: 5,
     includeFeatured: 1,
+    headerImageUrl: "",
     includeEditorialPick: 1,
     scheduleEnabled: 0,
     sendDayOfWeek: "monday",
@@ -1843,7 +1846,7 @@ async function getNewsletterSettingsForCity(city) {
   await ensureNewsletterSchema();
   const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
   const row = await get(
-    `SELECT city, showcaseCount, includeFeatured, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt
+    `SELECT city, showcaseCount, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt
        FROM newsletter_settings
       WHERE city = ?
       LIMIT 1`,
@@ -1854,6 +1857,7 @@ async function getNewsletterSettingsForCity(city) {
     city: normalizedCity,
     showcaseCount: clampNewsletterShowcaseCount(row.showcaseCount),
     includeFeatured: Number(row.includeFeatured || 0) === 1 ? 1 : 0,
+    headerImageUrl: normalizeHttpUrl(row.headerImageUrl || ""),
     includeEditorialPick: Number(row.includeEditorialPick || 0) === 1 ? 1 : 0,
     scheduleEnabled: Number(row.scheduleEnabled || 0) === 1 ? 1 : 0,
     sendDayOfWeek: normalizeNewsletterWeekday(row.sendDayOfWeek),
@@ -2068,6 +2072,7 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
   const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
   const previewText = normalizeNewsletterPreviewText(settings?.previewText, normalizedCity);
   const subject = normalizeNewsletterSubject(settings?.emailSubject, normalizedCity);
+  const headerImageUrl = normalizeHttpUrl(settings?.headerImageUrl || "");
   const pieces = [];
   const textPieces = [];
 
@@ -2183,6 +2188,11 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
       <div style="margin:0; padding:24px; background:#edf2f7; font-family:Arial, sans-serif;">
         <div style="max-width:720px; margin:0 auto;">
           <div style="display:none!important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden;">${esc(previewText)}</div>
+          ${headerImageUrl ? `
+          <div style="margin:0 0 20px; border-radius:18px; overflow:hidden; background:#ffffff; border:1px solid #dbe4ee;">
+            <img src="${esc(headerImageUrl)}" alt="${esc(normalizedCity)} newsletter header" style="display:block; width:100%; max-height:320px; object-fit:cover; background:#eef4f8;" />
+          </div>
+          ` : ``}
           <div style="padding:0 0 20px;">
             <div style="font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#00c08b; margin-bottom:8px;">OpenCircle Newsletter</div>
             <div style="font-size:34px; line-height:1.1; font-weight:900; color:#0f172a; margin-bottom:10px;">${esc(subject)}</div>
@@ -2272,7 +2282,7 @@ async function processScheduledNewsletters() {
   await ensureNewsletterSchema();
   const now = DateTime.now().setZone(DEFAULT_TZ);
   const rows = await all(
-    `SELECT city, showcaseCount, includeFeatured, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt
+    `SELECT city, showcaseCount, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt
        FROM newsletter_settings
       WHERE COALESCE(scheduleEnabled, 0) = 1`
   );
@@ -2285,6 +2295,7 @@ async function processScheduledNewsletters() {
       city: String(row.city || "").trim() || "Enumclaw",
       showcaseCount: clampNewsletterShowcaseCount(row.showcaseCount),
       includeFeatured: Number(row.includeFeatured || 0) === 1 ? 1 : 0,
+      headerImageUrl: normalizeHttpUrl(row.headerImageUrl || ""),
       includeEditorialPick: Number(row.includeEditorialPick || 0) === 1 ? 1 : 0,
       scheduleEnabled: Number(row.scheduleEnabled || 0) === 1 ? 1 : 0,
       sendDayOfWeek: normalizeNewsletterWeekday(row.sendDayOfWeek),
@@ -11201,7 +11212,7 @@ return `
             <div class="grid2" style="grid-template-columns:1.4fr 1fr; align-items:start;">
               <div class="card">
                 <div class="sectionTitle"><div><h2>Settings</h2></div></div>
-                <form method="POST" action="/admin/newsletter/settings">
+                <form method="POST" action="/admin/newsletter/settings" enctype="multipart/form-data">
                   <input type="hidden" name="city" value="${esc(selectedCity)}" />
 
                   <div class="rec-box" style="margin-top:0;">
@@ -11233,6 +11244,19 @@ return `
                   <label style="margin-top:14px;">Preview text</label>
                   <textarea class="ctrl" name="previewText" rows="3" maxlength="220" placeholder="${esc(buildDefaultNewsletterPreviewText(selectedCity))}">${esc(newsletterSettings.previewText || "")}</textarea>
                   <div class="note">This is the short preview snippet that appears next to the subject in many inboxes.</div>
+
+                  <label style="margin-top:14px;">Header image</label>
+                  <input type="file" name="headerImageFile" accept="image/*" />
+                  <div class="note">Upload a header image to show at the very top of the newsletter.</div>
+
+                  <label style="margin-top:14px;">Header image URL (optional fallback)</label>
+                  <input class="ctrl" type="text" name="headerImageUrl" value="${esc(newsletterSettings.headerImageUrl || "")}" placeholder="https://..." />
+                  <div class="note">If you upload an image above, that will replace this URL.</div>
+                  ${newsletterSettings.headerImageUrl ? `
+                    <div class="mini" style="margin-top:12px;">
+                      <img src="${esc(newsletterSettings.headerImageUrl)}" alt="Newsletter header preview" style="display:block; width:100%; max-height:180px; object-fit:cover; border-radius:12px; border:1px solid var(--line); background:#eef4f8;" />
+                    </div>
+                  ` : ``}
 
                   <label>How many events to showcase</label>
                   <input class="ctrl" type="number" min="1" max="12" name="showcaseCount" value="${esc(String(newsletterSettings.showcaseCount || 5))}" />
@@ -15698,7 +15722,7 @@ router.get("/updates-log", async (req, res) => renderAdmin(req, res, "updates-lo
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 
-router.post("/newsletter/settings", async (req, res) => {
+router.post("/newsletter/settings", upload.single("headerImageFile"), async (req, res) => {
   try {
     await ensureNewsletterSchema();
     await ensureUserProfileSchema();
@@ -15712,6 +15736,10 @@ router.post("/newsletter/settings", async (req, res) => {
     const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
     const showcaseCount = clampNewsletterShowcaseCount(req.body?.showcaseCount);
     const includeFeatured = String(req.body?.includeFeatured || "") === "1" ? 1 : 0;
+    let headerImageUrl = normalizeHttpUrl(req.body?.headerImageUrl || "");
+    if (req.file) {
+      headerImageUrl = await persistUploadedImage(req.file, req);
+    }
     const includeEditorialPick = String(req.body?.includeEditorialPick || "") === "1" ? 1 : 0;
     const scheduleEnabled = String(req.body?.scheduleEnabled || "") === "1" ? 1 : 0;
     const sendDayOfWeek = normalizeNewsletterWeekday(req.body?.sendDayOfWeek);
@@ -15720,11 +15748,12 @@ router.post("/newsletter/settings", async (req, res) => {
     const previewText = normalizeNewsletterPreviewText(req.body?.previewText, city);
 
     await run(
-      `INSERT INTO newsletter_settings (city, showcaseCount, includeFeatured, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, updatedByUserId, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      `INSERT INTO newsletter_settings (city, showcaseCount, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, updatedByUserId, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
        ON CONFLICT(city) DO UPDATE SET
          showcaseCount = excluded.showcaseCount,
          includeFeatured = excluded.includeFeatured,
+         headerImageUrl = excluded.headerImageUrl,
          includeEditorialPick = excluded.includeEditorialPick,
          scheduleEnabled = excluded.scheduleEnabled,
          sendDayOfWeek = excluded.sendDayOfWeek,
@@ -15733,7 +15762,7 @@ router.post("/newsletter/settings", async (req, res) => {
          previewText = excluded.previewText,
          updatedByUserId = excluded.updatedByUserId,
          updatedAt = datetime('now')`,
-      [city, showcaseCount, includeFeatured, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, Number(currentUser?.id || 0) || null]
+      [city, showcaseCount, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, Number(currentUser?.id || 0) || null]
     );
 
     return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=saved`);
