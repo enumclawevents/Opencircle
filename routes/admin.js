@@ -2187,7 +2187,6 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
             <div style="font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#00c08b; margin-bottom:8px;">OpenCircle Newsletter</div>
             <div style="font-size:34px; line-height:1.1; font-weight:900; color:#0f172a; margin-bottom:10px;">${esc(subject)}</div>
             <div style="font-size:16px; line-height:1.6; color:#526377; margin-bottom:8px;">${esc(previewText)}</div>
-            <div style="font-size:14px; line-height:1.6; color:#64748b;">This newsletter is scheduled for ${esc(formatNewsletterScheduleSummary(settings))}. Showcase count: ${esc(String(clampNewsletterShowcaseCount(settings?.showcaseCount)))}.</div>
           </div>
           ${pieces.join("")}
         </div>
