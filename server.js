@@ -90,6 +90,7 @@ const PUBLIC_PREFIXES = [
   "/events/feature",
   "/events",
   "/venues",
+  "/newsletter/open",
   "/ads",
   "/jobs",
   "/uploads",
@@ -682,6 +683,43 @@ app.use(express.text({ type: "text/plain" })); // for sendBeacon payloads
 
 // Routes
 app.use(requireLogin);
+app.get("/newsletter/open/:token.gif", async (req, res) => {
+  const token = String(req.params.token || "").trim();
+  try {
+    if (token) {
+      const row = await get(
+        "SELECT id, campaignId, openCount FROM newsletter_recipients WHERE openToken = ? LIMIT 1",
+        [token]
+      );
+      if (row?.id) {
+        const wasOpened = Number(row.openCount || 0) > 0;
+        await run(
+          `UPDATE newsletter_recipients
+              SET openCount = COALESCE(openCount, 0) + 1,
+                  firstOpenedAt = COALESCE(firstOpenedAt, datetime('now')),
+                  lastOpenedAt = datetime('now'),
+                  updatedAt = datetime('now')
+            WHERE id = ?`,
+          [row.id]
+        );
+        await run(
+          `UPDATE newsletter_campaigns
+              SET openCount = COALESCE(openCount, 0) + 1,
+                  uniqueOpenCount = COALESCE(uniqueOpenCount, 0) + ?,
+                  updatedAt = datetime('now')
+            WHERE id = ?`,
+          [wasOpened ? 0 : 1, row.campaignId]
+        );
+      }
+    }
+  } catch (err) {
+    console.error("[NEWSLETTER] Open tracking failed:", err);
+  }
+  const gif = Buffer.from("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", "base64");
+  res.set("Content-Type", "image/gif");
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  return res.status(200).send(gif);
+});
 app.use("/events", eventsRouter);
 app.use("/venues", venuesRouter);
 app.use("/ads", adsRouter);

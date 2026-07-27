@@ -1743,6 +1743,41 @@ async function ensureNewsletterSchema() {
       createdAt TEXT DEFAULT (datetime('now'))
     )
   `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS newsletter_campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'scheduled',
+      subject TEXT,
+      previewText TEXT,
+      totalRecipients INTEGER NOT NULL DEFAULT 0,
+      sentCount INTEGER NOT NULL DEFAULT 0,
+      failedCount INTEGER NOT NULL DEFAULT 0,
+      openCount INTEGER NOT NULL DEFAULT 0,
+      uniqueOpenCount INTEGER NOT NULL DEFAULT 0,
+      createdByUserId INTEGER,
+      sentAt TEXT,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS newsletter_recipients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaignId INTEGER NOT NULL,
+      city TEXT NOT NULL,
+      email TEXT NOT NULL,
+      deliveryStatus TEXT NOT NULL DEFAULT 'pending',
+      openToken TEXT UNIQUE,
+      openCount INTEGER NOT NULL DEFAULT 0,
+      firstOpenedAt TEXT,
+      lastOpenedAt TEXT,
+      sentAt TEXT,
+      errorText TEXT,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
   try {
     const settingCols = new Set((await all("PRAGMA table_info(newsletter_settings)")).map((row) => String(row.name || "")));
     if (!settingCols.has("headerImageUrl")) await run("ALTER TABLE newsletter_settings ADD COLUMN headerImageUrl TEXT");
@@ -1756,6 +1791,11 @@ async function ensureNewsletterSchema() {
   try { await run("CREATE INDEX IF NOT EXISTS idx_newsletter_audience_city ON newsletter_audience(city, createdAt DESC)"); } catch (_) {}
   try { await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_audience_city_email ON newsletter_audience(city, email)"); } catch (_) {}
   try { await run("CREATE INDEX IF NOT EXISTS idx_newsletter_schedule_enabled ON newsletter_settings(scheduleEnabled, city)"); } catch (_) {}
+  try { await run("CREATE INDEX IF NOT EXISTS idx_newsletter_campaigns_city_sentAt ON newsletter_campaigns(city, sentAt DESC, id DESC)"); } catch (_) {}
+  try { await run("CREATE INDEX IF NOT EXISTS idx_newsletter_campaigns_mode ON newsletter_campaigns(mode, city)"); } catch (_) {}
+  try { await run("CREATE INDEX IF NOT EXISTS idx_newsletter_recipients_campaignId ON newsletter_recipients(campaignId, id DESC)"); } catch (_) {}
+  try { await run("CREATE INDEX IF NOT EXISTS idx_newsletter_recipients_city_sentAt ON newsletter_recipients(city, sentAt DESC, id DESC)"); } catch (_) {}
+  try { await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_recipients_openToken ON newsletter_recipients(openToken)"); } catch (_) {}
   _newsletterSchemaEnsured = true;
 }
 
@@ -2250,6 +2290,162 @@ async function buildNewsletterCampaign(city, reqLike) {
   };
 }
 
+function makeNewsletterOpenToken() {
+  return crypto.randomBytes(18).toString("hex");
+}
+
+function buildNewsletterOpenPixelUrl(reqLike, token) {
+  const base = String(buildNewsletterBaseUrl(reqLike) || "").replace(/\/+$/, "");
+  return `${base}/newsletter/open/${encodeURIComponent(String(token || "").trim())}.gif`;
+}
+
+function buildTrackedNewsletterHtml(html, reqLike, openToken) {
+  const sourceHtml = String(html || "");
+  const token = String(openToken || "").trim();
+  if (!sourceHtml || !token) return sourceHtml;
+  const pixelUrl = buildNewsletterOpenPixelUrl(reqLike, token);
+  const pixelHtml = `<div style="display:none!important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden;"><img src="${esc(pixelUrl)}" alt="" width="1" height="1" style="display:block; width:1px; height:1px; border:0;" /></div>`;
+  return `${sourceHtml}${pixelHtml}`;
+}
+
+async function createNewsletterCampaignLog({ city, mode, subject, previewText, totalRecipients, createdByUserId, sentAt }) {
+  await ensureNewsletterSchema();
+  const result = await run(
+    `INSERT INTO newsletter_campaigns
+      (city, mode, subject, previewText, totalRecipients, sentCount, failedCount, openCount, uniqueOpenCount, createdByUserId, sentAt, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, datetime('now'), datetime('now'))`,
+    [
+      String(city || "Enumclaw").trim() || "Enumclaw",
+      String(mode || "scheduled").trim() || "scheduled",
+      String(subject || "").trim(),
+      String(previewText || "").trim(),
+      Math.max(0, Number(totalRecipients || 0)),
+      Number(createdByUserId || 0) || null,
+      String(sentAt || "").trim() || null,
+    ]
+  );
+  return Number(result?.lastID || 0) || 0;
+}
+
+async function createNewsletterRecipientLog({ campaignId, city, email, openToken }) {
+  await ensureNewsletterSchema();
+  const result = await run(
+    `INSERT INTO newsletter_recipients
+      (campaignId, city, email, deliveryStatus, openToken, openCount, createdAt, updatedAt)
+     VALUES (?, ?, ?, 'pending', ?, 0, datetime('now'), datetime('now'))`,
+    [
+      Number(campaignId || 0),
+      String(city || "Enumclaw").trim() || "Enumclaw",
+      normalizeNewsletterEmailAddress(email),
+      String(openToken || "").trim() || null,
+    ]
+  );
+  return Number(result?.lastID || 0) || 0;
+}
+
+async function markNewsletterRecipientDelivery(recipientId, ok, errorText) {
+  await ensureNewsletterSchema();
+  const isOk = !!ok;
+  await run(
+    `UPDATE newsletter_recipients
+        SET deliveryStatus = ?,
+            sentAt = CASE WHEN ? THEN COALESCE(sentAt, datetime('now')) ELSE sentAt END,
+            errorText = ?,
+            updatedAt = datetime('now')
+      WHERE id = ?`,
+    [
+      isOk ? "sent" : "failed",
+      isOk ? 1 : 0,
+      isOk ? null : String(errorText || "").slice(0, 500),
+      Number(recipientId || 0),
+    ]
+  );
+}
+
+async function updateNewsletterCampaignDeliveryCounts(campaignId, sentCount, failedCount, sentAt) {
+  await ensureNewsletterSchema();
+  await run(
+    `UPDATE newsletter_campaigns
+        SET sentCount = ?,
+            failedCount = ?,
+            sentAt = COALESCE(sentAt, ?),
+            updatedAt = datetime('now')
+      WHERE id = ?`,
+    [
+      Math.max(0, Number(sentCount || 0)),
+      Math.max(0, Number(failedCount || 0)),
+      String(sentAt || "").trim() || null,
+      Number(campaignId || 0),
+    ]
+  );
+}
+
+async function sendTrackedNewsletterCampaign({ city, recipients, reqLike, createdByUserId, mode }) {
+  await ensureNewsletterSchema();
+  const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  const recipientList = Array.from(new Set(
+    (Array.isArray(recipients) ? recipients : [])
+      .map((email) => normalizeNewsletterEmailAddress(email))
+      .filter((email) => isValidNewsletterEmail(email))
+  ));
+  const campaign = await buildNewsletterCampaign(normalizedCity, reqLike);
+  const sentAtIso = DateTime.now().setZone(DEFAULT_TZ).toISO();
+  const campaignId = await createNewsletterCampaignLog({
+    city: normalizedCity,
+    mode: mode || "scheduled",
+    subject: campaign.message.subject,
+    previewText: normalizeNewsletterPreviewText(campaign.settings?.previewText, normalizedCity),
+    totalRecipients: recipientList.length,
+    createdByUserId: Number(createdByUserId || 0) || null,
+    sentAt: sentAtIso,
+  });
+
+  let sentCount = 0;
+  let failedCount = 0;
+  for (const email of recipientList) {
+    const openToken = makeNewsletterOpenToken();
+    const recipientId = await createNewsletterRecipientLog({
+      campaignId,
+      city: normalizedCity,
+      email,
+      openToken,
+    });
+    const trackedHtml = buildTrackedNewsletterHtml(campaign.message.html, reqLike, openToken);
+    try {
+      const sent = await sendEmail({
+        to: email,
+        subject: campaign.message.subject,
+        html: trackedHtml,
+        text: campaign.message.text,
+        from: PASSWORD_RESET_FROM,
+        replyTo: PASSWORD_RESET_REPLY_TO,
+      });
+      if (sent) {
+        sentCount += 1;
+        await markNewsletterRecipientDelivery(recipientId, true, "");
+      } else {
+        failedCount += 1;
+        await markNewsletterRecipientDelivery(recipientId, false, "sendEmail returned false");
+      }
+    } catch (err) {
+      failedCount += 1;
+      await markNewsletterRecipientDelivery(recipientId, false, err && err.message ? err.message : "Send failed");
+    }
+  }
+
+  await updateNewsletterCampaignDeliveryCounts(campaignId, sentCount, failedCount, sentAtIso);
+  return {
+    campaignId,
+    sentCount,
+    failedCount,
+    totalRecipients: recipientList.length,
+    message: campaign.message,
+    hasContent: campaign.hasContent,
+    settings: campaign.settings,
+    selection: campaign.selection,
+  };
+}
+
 function buildNewsletterSchedulerRequestLike() {
   const base = buildNewsletterBaseUrl({
     protocol: "https",
@@ -2321,19 +2517,19 @@ async function processScheduledNewsletters() {
         summary.skipped += 1;
         continue;
       }
-      const campaign = await buildNewsletterCampaign(settings.city, reqLike);
-      for (const email of emails) {
-        await sendEmail({
-          to: email,
-          subject: campaign.message.subject,
-          html: campaign.message.html,
-          text: campaign.message.text,
-          from: PASSWORD_RESET_FROM,
-          replyTo: PASSWORD_RESET_REPLY_TO,
-        });
+      const sendResult = await sendTrackedNewsletterCampaign({
+        city: settings.city,
+        recipients: emails,
+        reqLike,
+        createdByUserId: null,
+        mode: "scheduled",
+      });
+      if (Number(sendResult.sentCount || 0) > 0) {
+        await run("UPDATE newsletter_settings SET lastSentAt = ?, updatedAt = datetime('now') WHERE city = ?", [now.toISO(), settings.city]);
+        summary.sent += 1;
+      } else {
+        summary.failed += 1;
       }
-      await run("UPDATE newsletter_settings SET lastSentAt = ?, updatedAt = datetime('now') WHERE city = ?", [now.toISO(), settings.city]);
-      summary.sent += 1;
     } catch (err) {
       summary.failed += 1;
       console.error("[NEWSLETTER] Scheduled send failed for city:", settings.city, err);
@@ -2740,6 +2936,12 @@ const analyticsMetricHelp = {
   directViews: "Views from people who came straight to this page.",
   referralViews: "Views from people who came from another website or link.",
   internalViews: "Views that came from inside OpenCircle.",
+  totalEmailsSent: "How many newsletter emails have been sent.",
+  openedEmails: "How many newsletter emails have been opened at least once.",
+  openRate: "The share of sent newsletter emails that were opened.",
+  newsletterCampaigns: "The number of newsletter sends that have been logged.",
+  audienceSize: "How many email addresses are currently on this newsletter list.",
+  testEmails: "How many test newsletter emails have been sent.",
 };
 const analyticsMetricLabel = (label, helpText) => `${esc(label)}<span class="metricInfo" tabindex="0" role="img" aria-label="${esc(`${label}: ${helpText}`)}" data-tip="${esc(helpText)}">i</span>`;
 
@@ -2787,8 +2989,9 @@ let whereParams = [];
     const canManageAds = hasDeveloperAccess || sectionPermissions.ads;
     const canSeeAdsAnalytics = canManageAds;
     const canManageNewsletter = canManageEvents;
+    const canSeeNewsletterAnalytics = canManageNewsletter;
     const canSeeOrganizerAnalytics = hasDeveloperAccess;
-    const canSeeAnyAnalytics = canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeJobAnalytics || canSeeAdsAnalytics || canSeeOrganizerAnalytics;
+    const canSeeAnyAnalytics = canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeJobAnalytics || canSeeAdsAnalytics || canSeeNewsletterAnalytics || canSeeOrganizerAnalytics;
 
     let unreadMessagesCount = 0;
     let messageContacts = [];
@@ -5303,6 +5506,7 @@ return `
     const showAdsCreate = view === "ads-create";
     const showAdsExisting = view === "ads-existing";
     const showAdsAnalytics = view === "ads-analytics";
+    const showNewsletterAnalytics = view === "newsletter-analytics";
     const showMessages = view === "messages";
     const showNewsletter = view === "newsletter";
     const showNewsletterPreview = view === "newsletter-preview";
@@ -5314,6 +5518,7 @@ return `
 
     if (showExisting && !canManageEvents) return res.status(403).send("Forbidden");
     if (showAnalytics && !canSeeEventsAnalytics) return res.status(403).send("Forbidden");
+    if (showNewsletterAnalytics && !canSeeNewsletterAnalytics) return res.status(403).send("Forbidden");
     if (showNewsletter && !canManageNewsletter) return res.status(403).send("Forbidden");
     if (showNewsletterPreview && !canManageNewsletter) return res.status(403).send("Forbidden");
     if (showNewsletterAudience && !canManageNewsletter) return res.status(403).send("Forbidden");
@@ -5375,7 +5580,7 @@ return `
     if (showAdsCreate && !canManageAds) return res.status(403).send("Forbidden");
     if (showAdsExisting && !canManageAds) return res.status(403).send("Forbidden");
     if (showAdsAnalytics && !canSeeAdsAnalytics) return res.status(403).send("Forbidden");
-    const showSearch = !showMessages && !showNewsletter && !showNewsletterPreview && !showNewsletterAudience;
+    const showSearch = !showMessages && !showNewsletter && !showNewsletterPreview && !showNewsletterAudience && !showNewsletterAnalytics;
     const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
       ? "/admin/venues"
       : showJobsApplicants
@@ -5384,6 +5589,8 @@ return `
       ? "/admin/jobs"
       : showAdsCreate || showAdsExisting || showAdsAnalytics
       ? "/admin/ads"
+      : showNewsletterAnalytics
+      ? "/admin/newsletter/analytics"
       : showAnalytics
       ? "/admin/events-analytics"
       : "/admin/existing-events";
@@ -5395,6 +5602,8 @@ return `
       ? "Search jobs (title, company, location, ID)..."
       : showAdsCreate || showAdsExisting || showAdsAnalytics
       ? "Search ads (name, placement, slug, URL, ID)..."
+      : showNewsletterAnalytics
+      ? ""
       : showMessages
       ? ""
       : "Search events (title, slug, location, ID)...";
@@ -5406,6 +5615,8 @@ return `
       ? `/admin/jobs?pg=1&limit=${esc(String(limit))}`
       : showAdsCreate || showAdsExisting || showAdsAnalytics
       ? `/admin/ads?pg=1&limit=${esc(String(limit))}`
+      : showNewsletterAnalytics
+      ? `/admin/newsletter/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`
       : showAnalytics
       ? `/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`
       : `/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`;
@@ -5458,7 +5669,7 @@ return `
     let newsletterPreviewText = "";
     let newsletterPreviewHtml = "";
     let newsletterPreviewFrameHtml = "";
-    if (showNewsletter || showNewsletterPreview || showNewsletterAudience) {
+    if (showNewsletter || showNewsletterPreview || showNewsletterAudience || showNewsletterAnalytics) {
       newsletterSettings = await getNewsletterSettingsForCity(selectedCity);
       newsletterAudienceRows = await getNewsletterAudienceForCity(selectedCity);
       newsletterNextSendLabel = Number(newsletterSettings.scheduleEnabled || 0) === 1
@@ -5492,6 +5703,271 @@ return `
             : "";
         }
       }
+    }
+
+    let newsletterAnalyticsStats = {
+      campaigns: 0,
+      scheduledCampaigns: 0,
+      testCampaigns: 0,
+      totalEmailsSent: 0,
+      openedEmails: 0,
+      openRatePct: "0%",
+      audienceSize: 0,
+      failedEmails: 0,
+    };
+    let newsletterRecentCampaignsHtml = `<div class="muted">No newsletter sends yet.</div>`;
+    let newsletterTopCampaignsHtml = `<div class="muted">No newsletter open data yet.</div>`;
+    let newsletterChartDataJson = esc(JSON.stringify({ events: {}, views: {} }));
+    let newsletterChartSvgByMode = { daily: "", weekly: "", monthly: "", yearly: "" };
+    const buildNewsletterAnalyticsChartHref = (mode) =>
+      `/admin/newsletter/analytics?chartView=${encodeURIComponent(String(mode || "daily"))}` +
+      `${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+
+    if (showNewsletterAnalytics) {
+      await ensureNewsletterSchema();
+      const campaignRows = await all(
+        `SELECT id, city, mode, subject, previewText, totalRecipients, sentCount, failedCount, openCount, uniqueOpenCount, sentAt, createdAt
+           FROM newsletter_campaigns
+          WHERE city = ?
+          ORDER BY datetime(COALESCE(sentAt, createdAt)) DESC, id DESC`,
+        [selectedCity]
+      );
+      const openRows = await all(
+        `SELECT firstOpenedAt
+           FROM newsletter_recipients
+          WHERE city = ?
+            AND firstOpenedAt IS NOT NULL
+          ORDER BY datetime(firstOpenedAt) DESC, id DESC`,
+        [selectedCity]
+      );
+
+      const totalEmailsSent = campaignRows.reduce((sum, row) => sum + Number(row.sentCount || 0), 0);
+      const openedEmails = campaignRows.reduce((sum, row) => sum + Number(row.uniqueOpenCount || 0), 0);
+      const failedEmails = campaignRows.reduce((sum, row) => sum + Number(row.failedCount || 0), 0);
+      const scheduledCampaigns = campaignRows.filter((row) => String(row.mode || "scheduled") !== "test").length;
+      const testCampaigns = campaignRows.filter((row) => String(row.mode || "") === "test").length;
+      newsletterAnalyticsStats = {
+        campaigns: campaignRows.length,
+        scheduledCampaigns,
+        testCampaigns,
+        totalEmailsSent,
+        openedEmails,
+        openRatePct: totalEmailsSent > 0 ? `${Math.round((openedEmails / totalEmailsSent) * 100)}%` : "0%",
+        audienceSize: newsletterAudienceRows.length,
+        failedEmails,
+      };
+
+      newsletterRecentCampaignsHtml = campaignRows.length
+        ? campaignRows.slice(0, 6).map((row) => {
+            const sentCount = Number(row.sentCount || 0);
+            const openCount = Number(row.uniqueOpenCount || 0);
+            const modeLabel = String(row.mode || "scheduled") === "test" ? "Test" : "Live";
+            const rate = sentCount > 0 ? `${Math.round((openCount / sentCount) * 100)}%` : "0%";
+            const sentLabel = String(row.sentAt || row.createdAt || "").trim();
+            const sentDt = sentLabel ? DateTime.fromISO(sentLabel, { zone: DEFAULT_TZ }) : null;
+            return `
+              <div class="insight-row">
+                <div class="label">
+                  <div style="font-weight:700; color:var(--text);">${esc(String(row.subject || buildDefaultNewsletterSubject(selectedCity)))}</div>
+                  <div class="muted" style="font-size:12px; margin-top:4px;">${esc(modeLabel)} send${sentDt && sentDt.isValid ? ` · ${sentDt.toFormat("LLL d, yyyy 'at' h:mm a")}` : ""}</div>
+                </div>
+                <div class="value">${sentCount.toLocaleString("en-US")} sent · ${rate} open</div>
+              </div>
+            `;
+          }).join("")
+        : newsletterRecentCampaignsHtml;
+
+      newsletterTopCampaignsHtml = [...campaignRows]
+        .sort((a, b) => Number(b.uniqueOpenCount || 0) - Number(a.uniqueOpenCount || 0) || Number(b.sentCount || 0) - Number(a.sentCount || 0) || Number(b.id || 0) - Number(a.id || 0))
+        .slice(0, 6)
+        .map((row) => {
+          const sentCount = Number(row.sentCount || 0);
+          const openCount = Number(row.uniqueOpenCount || 0);
+          const rate = sentCount > 0 ? `${Math.round((openCount / sentCount) * 100)}%` : "0%";
+          return `
+            <div class="kv">
+              <div class="k">${esc(String(row.subject || buildDefaultNewsletterSubject(selectedCity)))}</div>
+              <div class="v">${openCount.toLocaleString("en-US")} opens · ${rate}</div>
+            </div>
+          `;
+        }).join("") || newsletterTopCampaignsHtml;
+
+      const nowTz = DateTime.now().setZone(DEFAULT_TZ);
+      function makeNewsletterDailyBuckets() {
+        const labels = [];
+        const keys = [];
+        for (let i = 13; i >= 0; i--) {
+          const dt = nowTz.startOf("day").minus({ days: i });
+          labels.push(dt.toFormat("MM-dd"));
+          keys.push(dt.toISODate());
+        }
+        return { labels, keys };
+      }
+      function makeNewsletterWeeklyBuckets() {
+        const labels = [];
+        const keys = [];
+        const base = nowTz.startOf("week");
+        for (let i = 11; i >= 0; i--) {
+          const dt = base.minus({ weeks: i });
+          labels.push(dt.toFormat("MM-dd"));
+          keys.push(dt.toISODate());
+        }
+        return { labels, keys };
+      }
+      function makeNewsletterMonthlyBuckets() {
+        const labels = [];
+        const keys = [];
+        const base = nowTz.startOf("month");
+        for (let i = 11; i >= 0; i--) {
+          const dt = base.minus({ months: i });
+          labels.push(dt.year === nowTz.year ? dt.toFormat("LLL") : dt.toFormat("LLL yy"));
+          keys.push(dt.toFormat("yyyy-MM"));
+        }
+        return { labels, keys };
+      }
+      function makeNewsletterYearlyBuckets() {
+        const labels = [];
+        const keys = [];
+        for (let i = 4; i >= 0; i--) {
+          const year = nowTz.year - i;
+          labels.push(String(year));
+          keys.push(String(year));
+        }
+        return { labels, keys };
+      }
+      function getNewsletterBucketKey(dt, mode) {
+        if (!dt || !dt.isValid) return "";
+        if (mode === "daily") return dt.toISODate();
+        if (mode === "weekly") return dt.startOf("week").toISODate();
+        if (mode === "monthly") return dt.toFormat("yyyy-MM");
+        return String(dt.year);
+      }
+      function buildNewsletterSeries(mode, rows, dateField, valueFn) {
+        const bucketFactory =
+          mode === "daily" ? makeNewsletterDailyBuckets :
+          mode === "weekly" ? makeNewsletterWeeklyBuckets :
+          mode === "monthly" ? makeNewsletterMonthlyBuckets :
+          makeNewsletterYearlyBuckets;
+        const { labels, keys } = bucketFactory();
+        const counts = new Map(keys.map((key) => [key, 0]));
+        for (const row of rows || []) {
+          const dt = DateTime.fromISO(String(row[dateField] || ""), { zone: DEFAULT_TZ });
+          if (!dt.isValid) continue;
+          const key = getNewsletterBucketKey(dt, mode);
+          if (!counts.has(key)) continue;
+          counts.set(key, Number(counts.get(key) || 0) + Number(valueFn(row) || 0));
+        }
+        return { labels, values: keys.map((key) => Number(counts.get(key) || 0)) };
+      }
+
+      const newsletterChartSets = {
+        events: {
+          daily: buildNewsletterSeries("daily", campaignRows, "sentAt", (row) => row.sentCount),
+          weekly: buildNewsletterSeries("weekly", campaignRows, "sentAt", (row) => row.sentCount),
+          monthly: buildNewsletterSeries("monthly", campaignRows, "sentAt", (row) => row.sentCount),
+          yearly: buildNewsletterSeries("yearly", campaignRows, "sentAt", (row) => row.sentCount),
+        },
+        views: {
+          daily: buildNewsletterSeries("daily", openRows, "firstOpenedAt", () => 1),
+          weekly: buildNewsletterSeries("weekly", openRows, "firstOpenedAt", () => 1),
+          monthly: buildNewsletterSeries("monthly", openRows, "firstOpenedAt", () => 1),
+          yearly: buildNewsletterSeries("yearly", openRows, "firstOpenedAt", () => 1),
+        },
+      };
+      newsletterChartDataJson = esc(JSON.stringify(newsletterChartSets));
+
+      function buildNewsletterChartSvgForMode(mode) {
+        const sentSet = (newsletterChartSets.events && newsletterChartSets.events[mode]) ? newsletterChartSets.events[mode] : { labels: [], values: [] };
+        const openSet = (newsletterChartSets.views && newsletterChartSets.views[mode]) ? newsletterChartSets.views[mode] : { labels: [], values: [] };
+        const labels = Array.isArray(sentSet.labels) ? sentSet.labels : [];
+        const sentValues = Array.isArray(sentSet.values) ? sentSet.values.map((v) => Number(v || 0)) : [];
+        const openValues = Array.isArray(openSet.values) ? openSet.values.map((v) => Number(v || 0)) : [];
+        const allValues = sentValues.concat(openValues).filter((v) => Number.isFinite(v));
+        const { width, height, padL, padR, padT, padB } = analyticsChartStyle;
+        const plotW = width - padL - padR;
+        const plotH = height - padT - padB;
+        const textColor = analyticsChartStyle.textColor;
+        const lineColor = analyticsChartStyle.greenStroke;
+        const dashedColor = analyticsChartStyle.blueStroke;
+        if (!labels.length || !allValues.some((v) => v > 0)) {
+          return `
+            <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Newsletter analytics chart">
+              <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+              <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No newsletter send activity yet</text>
+            </svg>
+          `;
+        }
+        const maxValue = Math.max(1, ...allValues);
+        const tickCount = Math.min(6, maxValue);
+        const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
+        const yMax = tickStep * tickCount;
+        const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
+        const sentPoints = labels.map((label, index) => {
+          const value = Number(sentValues[index] || 0);
+          const x = padL + stepX * index;
+          const y = padT + plotH - ((value / yMax) * plotH);
+          return { x, y, value };
+        });
+        const openPoints = labels.map((label, index) => {
+          const value = Number(openValues[index] || 0);
+          const x = padL + stepX * index;
+          const y = padT + plotH - ((value / yMax) * plotH);
+          return { x, y, value };
+        });
+        function buildSmoothSvgPath(points) {
+          if (!points.length) return "";
+          if (points.length === 1) return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+          let path = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+          for (let i = 0; i < points.length - 1; i++) {
+            const p0 = points[i - 1] || points[i];
+            const p1 = points[i];
+            const p2 = points[i + 1];
+            const p3 = points[i + 2] || p2;
+            const cp1x = p1.x + (p2.x - p0.x) / 6;
+            const cp1y = Math.max(padT, Math.min(padT + plotH, p1.y + (p2.y - p0.y) / 6));
+            const cp2x = p2.x - (p3.x - p1.x) / 6;
+            const cp2y = Math.max(padT, Math.min(padT + plotH, p2.y - (p3.y - p1.y) / 6));
+            path += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+          }
+          return path;
+        }
+        const sentPath = buildSmoothSvgPath(sentPoints);
+        const openPath = buildSmoothSvgPath(openPoints);
+        const fillPath = sentPoints.length
+          ? `M ${sentPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} L ${sentPoints[0].x.toFixed(2)} ${sentPoints[0].y.toFixed(2)} ` +
+            sentPath.replace(/^M [^ ]+ [^ ]+ ?/, "") +
+            ` L ${sentPoints[sentPoints.length - 1].x.toFixed(2)} ${(padT + plotH).toFixed(2)} Z`
+          : "";
+        const labelStep = labels.length <= 4 ? 1 : Math.ceil(labels.length / 4);
+        return `
+          <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Newsletter analytics chart">
+            <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+            ${Array.from({ length: tickCount + 1 }).map((_, i) => {
+              const value = i * tickStep;
+              const y = padT + plotH - ((value / yMax) * plotH);
+              return `
+                <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
+                <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
+              `;
+            }).join("")}
+            ${fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
+            ${openPath ? `<path d="${openPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+            ${sentPath ? `<path d="${sentPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+            ${labels.map((label, index) => {
+              if (index !== labels.length - 1 && index % labelStep !== 0) return "";
+              const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
+              return `<text x="${sentPoints[index].x.toFixed(2)}" y="${(padT + plotH + 30).toFixed(2)}" text-anchor="${anchor}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(label || ""))}</text>`;
+            }).join("")}
+          </svg>
+        `;
+      }
+
+      newsletterChartSvgByMode = {
+        daily: buildNewsletterChartSvgForMode("daily"),
+        weekly: buildNewsletterChartSvgForMode("weekly"),
+        monthly: buildNewsletterChartSvgForMode("monthly"),
+        yearly: buildNewsletterChartSvgForMode("yearly"),
+      };
     }
 
     let pendingRows = [];
@@ -7387,6 +7863,8 @@ return `
       ? (isOrganizerUser ? "My Events" : "All Events")
       : showNewsletter
       ? "Newsletter"
+      : showNewsletterAnalytics
+      ? "Newsletter Analytics"
       : showNewsletterPreview
       ? "Newsletter Preview"
       : showNewsletterAudience
@@ -7427,7 +7905,7 @@ return `
     const venuesMenuOpen = showVenueExisting || showVenueCreate;
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants;
     const adsMenuOpen = showAdsExisting || showAdsCreate;
-    const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showOrganizers;
+    const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showOrganizers;
     const adminMenuOpen = showUsers || showInvites || showPreferences || showUpdatesLog;
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
@@ -10431,6 +10909,7 @@ return `
             <div class="nav-sub" data-nav-sub>
               ${canSeeEventsAnalytics ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events</a>` : ``}
               ${canSeeOrganizerAnalytics ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
+              ${canSeeNewsletterAnalytics ? `<a class="subnav-link ${showNewsletterAnalytics ? "active" : ""}" href="/admin/newsletter/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Newsletter</a>` : ``}
               ${canSeeVenueAnalytics ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venues</a>` : ``}
               ${canSeeJobAnalytics ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Jobs</a>` : ``}
               ${canSeeAdsAnalytics ? `<a class="subnav-link ${showAdsAnalytics ? "active" : ""}" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads</a>` : ``}
@@ -11248,6 +11727,119 @@ return `
           }, heartbeatMs);
         })();
         </script>
+        ` : ``}
+
+        ${showNewsletterAnalytics ? `
+        <section class="metrics" id="newsletter-analytics-metrics">
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Total emails sent", analyticsMetricHelp.totalEmailsSent)}</div>
+              <div class="v">${newsletterAnalyticsStats.totalEmailsSent.toLocaleString("en-US")}</div>
+            </div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Opened emails", analyticsMetricHelp.openedEmails)}</div>
+              <div class="v">${newsletterAnalyticsStats.openedEmails.toLocaleString("en-US")}</div>
+            </div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Open rate", analyticsMetricHelp.openRate)}</div>
+              <div class="v">${newsletterAnalyticsStats.openRatePct}</div>
+            </div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Campaigns sent", analyticsMetricHelp.newsletterCampaigns)}</div>
+              <div class="v">${newsletterAnalyticsStats.campaigns.toLocaleString("en-US")}</div>
+            </div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Audience size", analyticsMetricHelp.audienceSize)}</div>
+              <div class="v">${newsletterAnalyticsStats.audienceSize.toLocaleString("en-US")}</div>
+            </div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Test emails", analyticsMetricHelp.testEmails)}</div>
+              <div class="v">${newsletterAnalyticsStats.testCampaigns.toLocaleString("en-US")}</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="grid2 analytics-main-grid organizer-chart-grid">
+          <div class="card">
+            <div class="sectionTitle sectionTitle--chart">
+              <div class="left">
+                <div class="chartTopRow">
+                  <div class="chartLegend" aria-label="Newsletter chart legend">
+                    <div class="chartLegendItem is-events">
+                      <span class="chartLegendLine"></span>
+                      <span>Emails sent</span>
+                    </div>
+                    <div class="chartLegendItem is-views">
+                      <span class="chartLegendLine is-dashed"></span>
+                      <span>Opens</span>
+                    </div>
+                  </div>
+                  <p class="sub">${esc(chartRangeLabelByMode[chartViewMode] || chartRangeLabelByMode.daily)}</p>
+                </div>
+              </div>
+              <div class="right">
+                <div class="seg" aria-label="Newsletter chart view">
+                  <a href="${buildNewsletterAnalyticsChartHref("daily")}" class="${chartViewMode === "daily" ? "on" : ""}">Daily</a>
+                  <a href="${buildNewsletterAnalyticsChartHref("weekly")}" class="${chartViewMode === "weekly" ? "on" : ""}">Weekly</a>
+                  <a href="${buildNewsletterAnalyticsChartHref("monthly")}" class="${chartViewMode === "monthly" ? "on" : ""}">Monthly</a>
+                  <a href="${buildNewsletterAnalyticsChartHref("yearly")}" class="${chartViewMode === "yearly" ? "on" : ""}">Yearly</a>
+                </div>
+              </div>
+            </div>
+            <div class="chart-wrap" style="min-height:96px;">
+              <div>${newsletterChartSvgByMode[chartViewMode] || newsletterChartSvgByMode.daily}</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Newsletter overview</h2>
+                <p class="sub">Current send setup and delivery snapshot</p>
+              </div>
+            </div>
+            <div class="mini">
+              <div class="kv"><div class="k">Automatic sending</div><div class="v">${Number(newsletterSettings.scheduleEnabled || 0) === 1 ? "On" : "Off"}</div></div>
+              <div class="kv"><div class="k">Schedule</div><div class="v">${esc(formatNewsletterScheduleSummary(newsletterSettings))}</div></div>
+              <div class="kv"><div class="k">Next send</div><div class="v">${esc(newsletterNextSendLabel)}</div></div>
+              <div class="kv"><div class="k">Last sent</div><div class="v">${esc(newsletterLastSentLabel)}</div></div>
+              <div class="kv"><div class="k">Live campaigns</div><div class="v">${newsletterAnalyticsStats.scheduledCampaigns.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Failed emails</div><div class="v">${newsletterAnalyticsStats.failedEmails.toLocaleString("en-US")}</div></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="grid2 analytics-main-grid">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Recent newsletter sends</h2>
+                <p class="sub">Latest live and test campaigns</p>
+              </div>
+            </div>
+            <div class="mini">${newsletterRecentCampaignsHtml}</div>
+          </div>
+
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Top campaigns by opens</h2>
+                <p class="sub">Best performing newsletter sends</p>
+              </div>
+            </div>
+            <div class="mini mini-list">${newsletterTopCampaignsHtml}</div>
+          </div>
+        </section>
         ` : ``}
 
         ${showNewsletter ? `
@@ -15772,6 +16364,7 @@ router.get("/jobs/analytics", async (req, res) => renderAdmin(req, res, "jobs-an
 router.get("/ads", async (req, res) => renderAdmin(req, res, "ads-existing"));
 router.get("/ads/create", async (req, res) => renderAdmin(req, res, "ads-create"));
 router.get("/ads/analytics", async (req, res) => renderAdmin(req, res, "ads-analytics"));
+router.get("/newsletter/analytics", async (req, res) => renderAdmin(req, res, "newsletter-analytics"));
 router.get("/newsletter", async (req, res) => renderAdmin(req, res, "newsletter"));
 router.get("/newsletter/preview", async (req, res) => renderAdmin(req, res, "newsletter-preview"));
 router.get("/newsletter/audience", async (req, res) => renderAdmin(req, res, "newsletter-audience"));
@@ -15845,25 +16438,22 @@ router.post("/newsletter/test", async (req, res) => {
     const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
     const testEmail = normalizeNewsletterEmailAddress(req.body?.testEmail);
     if (!isValidNewsletterEmail(testEmail)) {
-      return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=invalid_email`);
+      return res.redirect(`/admin/newsletter/preview?city=${encodeURIComponent(city)}&newsletterNotice=invalid_email`);
     }
 
-    const campaign = await buildNewsletterCampaign(city, req);
-
-    const sent = await sendEmail({
-      to: testEmail,
-      subject: campaign.message.subject,
-      html: campaign.message.html,
-      text: campaign.message.text,
-      from: PASSWORD_RESET_FROM,
-      replyTo: PASSWORD_RESET_REPLY_TO,
+    const sendResult = await sendTrackedNewsletterCampaign({
+      city,
+      recipients: [testEmail],
+      reqLike: req,
+      createdByUserId: Number(currentUser?.id || 0) || null,
+      mode: "test",
     });
 
-    return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=${sent ? "test_sent" : "test_failed"}`);
+    return res.redirect(`/admin/newsletter/preview?city=${encodeURIComponent(city)}&newsletterNotice=${Number(sendResult.sentCount || 0) > 0 ? "test_sent" : "test_failed"}`);
   } catch (err) {
     console.error(err);
     const fallbackCity = String(req.body?.city || req.query.city || "Enumclaw").trim() || "Enumclaw";
-    return res.redirect(`/admin/newsletter?city=${encodeURIComponent(fallbackCity)}&newsletterNotice=test_failed`);
+    return res.redirect(`/admin/newsletter/preview?city=${encodeURIComponent(fallbackCity)}&newsletterNotice=test_failed`);
   }
 });
 
