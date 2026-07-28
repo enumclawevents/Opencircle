@@ -5741,6 +5741,18 @@ return `
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">One or more email addresses were invalid.</div>`
           : "")
       : "";
+    const buildNewsletterTabSearchHtml = (inputId, placeholder) => `
+      <div class="newsletter-search-toolbar">
+        <div class="filterField">
+          <label for="${esc(inputId)}">Search this tab</label>
+          <div class="newsletter-search-controls">
+            <input id="${esc(inputId)}" class="ctrl" type="search" placeholder="${esc(placeholder)}" data-newsletter-search-input autocomplete="off" />
+            <button class="btn" type="button" data-newsletter-search-clear>Clear</button>
+          </div>
+        </div>
+      </div>
+      <div class="mini" data-newsletter-search-empty style="display:none; margin-bottom:12px;">No matching items found on this newsletter tab.</div>
+    `;
 
     let newsletterSettings = getDefaultNewsletterSettings(selectedCity);
     let newsletterAudienceRows = [];
@@ -9763,6 +9775,25 @@ return `
 	        align-items:end;
 	        justify-content:flex-end;
 	      }
+	      .newsletter-search-toolbar{
+	        display:flex;
+	        gap:12px;
+	        align-items:end;
+	        margin:0 0 14px;
+	      }
+	      .newsletter-search-toolbar .filterField{
+	        max-width:560px;
+	        width:100%;
+	      }
+	      .newsletter-search-controls{
+	        display:flex;
+	        gap:10px;
+	        align-items:center;
+	      }
+	      .newsletter-search-controls .ctrl{
+	        flex:1 1 auto;
+	        min-width:0;
+	      }
 	      .filterActions .btn{
 	        min-width: 112px;
 	      }
@@ -9832,6 +9863,9 @@ return `
         .listSearchRow{
           grid-template-columns: 1fr 1fr;
           align-items:stretch;
+        }
+        .newsletter-search-controls{
+          flex-wrap:wrap;
         }
         .filterActions{
           justify-content:flex-start;
@@ -11854,44 +11888,45 @@ return `
         ` : ``}
 
         ${showNewsletterAnalytics ? `
+        <div data-newsletter-search-root id="newsletter-analytics-root">
         <section class="metrics" id="newsletter-analytics-metrics">
-          <div class="metric">
+          <div class="metric" data-newsletter-search-item>
             <div>
               <div class="k">${analyticsMetricLabel("Total emails sent", analyticsMetricHelp.totalEmailsSent)}</div>
               <div class="v">${newsletterAnalyticsStats.totalEmailsSent.toLocaleString("en-US")}</div>
             </div>
           </div>
-          <div class="metric">
+          <div class="metric" data-newsletter-search-item>
             <div>
               <div class="k">${analyticsMetricLabel("Opened emails", analyticsMetricHelp.openedEmails)}</div>
               <div class="v">${newsletterAnalyticsStats.openedEmails.toLocaleString("en-US")}</div>
             </div>
           </div>
-          <div class="metric">
+          <div class="metric" data-newsletter-search-item>
             <div>
               <div class="k">${analyticsMetricLabel("Re-opens", analyticsMetricHelp.reopens)}</div>
               <div class="v">${newsletterAnalyticsStats.reopens.toLocaleString("en-US")}</div>
             </div>
           </div>
-          <div class="metric">
+          <div class="metric" data-newsletter-search-item>
             <div>
               <div class="k">${analyticsMetricLabel("Open rate", analyticsMetricHelp.openRate)}</div>
               <div class="v">${newsletterAnalyticsStats.openRatePct}</div>
             </div>
           </div>
-          <div class="metric">
+          <div class="metric" data-newsletter-search-item>
             <div>
               <div class="k">${analyticsMetricLabel("Campaigns sent", analyticsMetricHelp.newsletterCampaigns)}</div>
               <div class="v">${newsletterAnalyticsStats.campaigns.toLocaleString("en-US")}</div>
             </div>
           </div>
-          <div class="metric">
+          <div class="metric" data-newsletter-search-item>
             <div>
               <div class="k">${analyticsMetricLabel("Audience size", analyticsMetricHelp.audienceSize)}</div>
               <div class="v">${newsletterAnalyticsStats.audienceSize.toLocaleString("en-US")}</div>
             </div>
           </div>
-          <div class="metric">
+          <div class="metric" data-newsletter-search-item>
             <div>
               <div class="k">${analyticsMetricLabel("Test emails", analyticsMetricHelp.testEmails)}</div>
               <div class="v">${newsletterAnalyticsStats.testCampaigns.toLocaleString("en-US")}</div>
@@ -11899,8 +11934,10 @@ return `
           </div>
         </section>
 
+        ${buildNewsletterTabSearchHtml("newsletterAnalyticsSearch", "Search newsletter analytics...")}
+
         <section class="grid2 analytics-main-grid organizer-chart-grid">
-          <div class="card">
+          <div class="card" data-newsletter-search-item data-newsletter-search-text="chart emails sent opens daily weekly monthly yearly newsletter analytics">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
                 <div class="chartTopRow">
@@ -11931,7 +11968,7 @@ return `
             </div>
           </div>
 
-          <div class="card">
+          <div class="card" data-newsletter-search-item>
             <div class="sectionTitle">
               <div>
                 <h2>Newsletter overview</h2>
@@ -11950,7 +11987,7 @@ return `
         </section>
 
         <section class="grid2 analytics-main-grid">
-          <div class="card">
+          <div class="card" data-newsletter-search-item>
             <div class="sectionTitle">
               <div>
                 <h2>Recent newsletter sends</h2>
@@ -11960,7 +11997,7 @@ return `
             <div class="mini">${newsletterRecentCampaignsHtml}</div>
           </div>
 
-          <div class="card">
+          <div class="card" data-newsletter-search-item>
             <div class="sectionTitle">
               <div>
                 <h2>Top campaigns by opens</h2>
@@ -11970,11 +12007,12 @@ return `
             <div class="mini mini-list">${newsletterTopCampaignsHtml}</div>
           </div>
         </section>
+        </div>
         ` : ``}
 
         ${showNewsletter ? `
         <section class="gridMain single" id="newsletter">
-          <div class="card">
+          <div class="card" data-newsletter-search-root>
             <div class="sectionTitle">
               <div>
                 <h2>Newsletter</h2>
@@ -11982,11 +12020,13 @@ return `
               </div>
             </div>
             ${newsletterNoticeHtml}
+            ${buildNewsletterTabSearchHtml("newsletterSettingsSearch", "Search newsletter settings...")}
             <div class="card">
               <div class="sectionTitle"><div><h2>Settings</h2></div></div>
               <form method="POST" action="/admin/newsletter/settings" enctype="multipart/form-data">
                 <input type="hidden" name="city" value="${esc(selectedCity)}" />
 
+                <div data-newsletter-search-item>
                 <div class="rec-box" style="margin-top:0;">
                   <div class="checkbox">
                     <input type="checkbox" id="newsletterScheduleEnabled" name="scheduleEnabled" value="1" ${Number(newsletterSettings.scheduleEnabled || 0) === 1 ? "checked" : ""} />
@@ -11994,7 +12034,9 @@ return `
                   </div>
                   <div class="note">Turn this on when you want the API to send the newsletter on its own every week.</div>
                 </div>
+                </div>
 
+                <div data-newsletter-search-item>
                 <div class="grid2" style="grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;">
                   <div>
                     <label>Day of the week</label>
@@ -12008,27 +12050,39 @@ return `
                   </div>
                 </div>
                 <div class="note">Schedule runs in Pacific Time.</div>
+                </div>
 
+                <div data-newsletter-search-item>
                 <label style="margin-top:14px;">Days ahead to start showcasing</label>
                 <input class="ctrl" type="number" min="0" max="30" name="daysAhead" value="${esc(String(newsletterSettings.daysAhead || 0))}" />
                 <div class="note">Use <strong style="color:var(--text);">0</strong> to include same-day events. Use <strong style="color:var(--text);">1</strong> if a Thursday newsletter should start with Friday events.</div>
+                </div>
 
+                <div data-newsletter-search-item>
                 <label style="margin-top:14px;">How many days of events to include</label>
                 <input class="ctrl" type="number" min="1" max="30" name="daysToShow" value="${esc(String(newsletterSettings.daysToShow || 7))}" />
                 <div class="note">Use <strong style="color:var(--text);">3</strong> if you want a Thursday newsletter to only show Friday, Saturday, and Sunday events.</div>
+                </div>
 
+                <div data-newsletter-search-item>
                 <label style="margin-top:14px;">Email subject</label>
                 <input class="ctrl" type="text" name="emailSubject" value="${esc(newsletterSettings.emailSubject || "")}" maxlength="160" placeholder="${esc(buildDefaultNewsletterSubject(selectedCity))}" />
                 <div class="note">This is the subject line people will see in their inbox.</div>
+                </div>
 
+                <div data-newsletter-search-item>
                 <label style="margin-top:14px;">Preview text</label>
                 <textarea class="ctrl" name="previewText" rows="3" maxlength="220" placeholder="${esc(buildDefaultNewsletterPreviewText(selectedCity))}">${esc(newsletterSettings.previewText || "")}</textarea>
                 <div class="note">This is the short preview snippet that appears next to the subject in many inboxes.</div>
+                </div>
 
+                <div data-newsletter-search-item>
                 <label style="margin-top:14px;">Header image</label>
                 <input type="file" name="headerImageFile" accept="image/*" />
                 <div class="note">Upload a header image to show at the very top of the newsletter.</div>
+                </div>
 
+                <div data-newsletter-search-item>
                 <label style="margin-top:14px;">Header image URL (optional fallback)</label>
                 <input class="ctrl" type="text" name="headerImageUrl" value="${esc(newsletterSettings.headerImageUrl || "")}" placeholder="https://..." />
                 <div class="note">If you upload an image above, that will replace this URL.</div>
@@ -12037,11 +12091,15 @@ return `
                     <img src="${esc(newsletterSettings.headerImageUrl)}" alt="Newsletter header preview" style="display:block; width:100%; max-height:180px; object-fit:cover; border-radius:12px; border:1px solid var(--line); background:#eef4f8;" />
                   </div>
                 ` : ``}
+                </div>
 
+                <div data-newsletter-search-item>
                 <label style="margin-top:14px;">How many events to showcase</label>
                 <input class="ctrl" type="number" min="1" max="12" name="showcaseCount" value="${esc(String(newsletterSettings.showcaseCount || 5))}" />
                 <div class="note">This controls how many regular events appear in the email list.</div>
+                </div>
 
+                <div data-newsletter-search-item>
                 <div class="rec-box" style="margin-top:14px;">
                   <div class="checkbox">
                     <input type="checkbox" id="newsletterIncludeFeatured" name="includeFeatured" value="1" ${Number(newsletterSettings.includeFeatured || 0) === 1 ? "checked" : ""} />
@@ -12049,13 +12107,16 @@ return `
                   </div>
                   <div class="note">If an upcoming event is marked Featured, it will be pulled into the email first.</div>
                 </div>
+                </div>
 
+                <div data-newsletter-search-item>
                 <div class="rec-box" style="margin-top:14px;">
                   <div class="checkbox">
                     <input type="checkbox" id="newsletterIncludeEditorial" name="includeEditorialPick" value="1" ${Number(newsletterSettings.includeEditorialPick || 0) === 1 ? "checked" : ""} />
                     <label for="newsletterIncludeEditorial" style="margin:0; font-size:15px; font-weight:700;">Include an editorial pick</label>
                   </div>
                   <div class="note">If an upcoming event is marked Eddie's Pick, it will be added as the editorial pick.</div>
+                </div>
                 </div>
 
                 <div class="actions">
@@ -12069,7 +12130,7 @@ return `
 
         ${showNewsletterPreview ? `
         <section class="gridMain single" id="newsletter-preview">
-          <div class="card">
+          <div class="card" data-newsletter-search-root>
             <div class="sectionTitle">
               <div>
                 <h2>Newsletter preview</h2>
@@ -12077,8 +12138,9 @@ return `
               </div>
             </div>
             ${newsletterNoticeHtml}
+            ${buildNewsletterTabSearchHtml("newsletterPreviewSearch", "Search newsletter preview details...")}
             <div class="newsletter-preview-layout">
-              <div class="card">
+              <div class="card" data-newsletter-search-item data-newsletter-search-text="preview newsletter email layout images events header">
                 <div class="sectionTitle">
                   <div>
                     <h2>Preview</h2>
@@ -12099,27 +12161,29 @@ return `
                 `}
               </div>
 
-              <div class="card">
-                <div class="sectionTitle">
-                  <div>
-                    <h2>Newsletter details</h2>
-                    <p class="sub">Quick snapshot of what is about to send for ${esc(selectedCity)}.</p>
+              <div>
+                <div class="card" data-newsletter-search-item>
+                  <div class="sectionTitle">
+                    <div>
+                      <h2>Newsletter details</h2>
+                      <p class="sub">Quick snapshot of what is about to send for ${esc(selectedCity)}.</p>
+                    </div>
+                  </div>
+                  <div class="mini">
+                    <div class="insight-row"><div class="label">Subject</div><div class="value">${esc(newsletterPreviewSubject || buildDefaultNewsletterSubject(selectedCity))}</div></div>
+                    <div class="insight-row"><div class="label">Preview text</div><div class="value">${esc(newsletterPreviewText || buildDefaultNewsletterPreviewText(selectedCity))}</div></div>
+                    <div class="insight-row"><div class="label">Schedule</div><div class="value">${esc(formatNewsletterScheduleSummary(newsletterSettings))}</div></div>
+                    <div class="insight-row"><div class="label">Days ahead</div><div class="value">${esc(String(clampNewsletterDaysAhead(newsletterSettings.daysAhead)))}</div></div>
+                    <div class="insight-row"><div class="label">Days shown</div><div class="value">${esc(String(clampNewsletterDaysToShow(newsletterSettings.daysToShow)))}</div></div>
+                    <div class="insight-row"><div class="label">Next send</div><div class="value">${esc(newsletterNextSendLabel)}</div></div>
+                    <div class="insight-row"><div class="label">Last sent</div><div class="value">${esc(newsletterLastSentLabel)}</div></div>
+                    <div class="insight-row"><div class="label">Audience size</div><div class="value">${esc(String(newsletterAudienceRows.length))}</div></div>
+                    <div class="insight-row"><div class="label">Featured event</div><div class="value">${esc(newsletterFeaturedEvent?.title || "None right now")}</div></div>
+                    <div class="insight-row"><div class="label">Editorial pick</div><div class="value">${esc(newsletterEditorialPickEvent?.title || "None right now")}</div></div>
                   </div>
                 </div>
-                <div class="mini">
-                  <div class="insight-row"><div class="label">Subject</div><div class="value">${esc(newsletterPreviewSubject || buildDefaultNewsletterSubject(selectedCity))}</div></div>
-                  <div class="insight-row"><div class="label">Preview text</div><div class="value">${esc(newsletterPreviewText || buildDefaultNewsletterPreviewText(selectedCity))}</div></div>
-                  <div class="insight-row"><div class="label">Schedule</div><div class="value">${esc(formatNewsletterScheduleSummary(newsletterSettings))}</div></div>
-                  <div class="insight-row"><div class="label">Days ahead</div><div class="value">${esc(String(clampNewsletterDaysAhead(newsletterSettings.daysAhead)))}</div></div>
-                  <div class="insight-row"><div class="label">Days shown</div><div class="value">${esc(String(clampNewsletterDaysToShow(newsletterSettings.daysToShow)))}</div></div>
-                  <div class="insight-row"><div class="label">Next send</div><div class="value">${esc(newsletterNextSendLabel)}</div></div>
-                  <div class="insight-row"><div class="label">Last sent</div><div class="value">${esc(newsletterLastSentLabel)}</div></div>
-                  <div class="insight-row"><div class="label">Audience size</div><div class="value">${esc(String(newsletterAudienceRows.length))}</div></div>
-                  <div class="insight-row"><div class="label">Featured event</div><div class="value">${esc(newsletterFeaturedEvent?.title || "None right now")}</div></div>
-                  <div class="insight-row"><div class="label">Editorial pick</div><div class="value">${esc(newsletterEditorialPickEvent?.title || "None right now")}</div></div>
-                </div>
 
-                <div class="card" style="margin-top:var(--gap);">
+                <div class="card" style="margin-top:var(--gap);" data-newsletter-search-item>
                   <div class="sectionTitle"><div><h2>Send a test email</h2></div></div>
                   <form method="POST" action="/admin/newsletter/test">
                     <input type="hidden" name="city" value="${esc(selectedCity)}" />
@@ -12139,7 +12203,7 @@ return `
 
         ${showNewsletterAudience ? `
         <section class="gridMain single" id="newsletter-audience">
-          <div class="card">
+          <div class="card" data-newsletter-search-root>
             <div class="sectionTitle">
               <div>
                 <h2>Newsletter audience</h2>
@@ -12147,8 +12211,9 @@ return `
               </div>
             </div>
             ${newsletterNoticeHtml}
+            ${buildNewsletterTabSearchHtml("newsletterAudienceSearch", "Search audience emails...")}
             <div class="newsletter-audience-layout">
-              <div class="card">
+              <div class="card" data-newsletter-search-item data-newsletter-search-text="add emails audience subscribe newsletter list">
                 <div class="sectionTitle"><div><h2>Add emails</h2></div></div>
                 <form method="POST" action="/admin/newsletter/audience">
                   <input type="hidden" name="city" value="${esc(selectedCity)}" />
@@ -12169,7 +12234,7 @@ return `
                 </div>
                 <div class="mini">
                   ${newsletterAudienceRows.length ? newsletterAudienceRows.map((row) => `
-                    <div class="insight-row" style="gap:12px;">
+                    <div class="insight-row" style="gap:12px;" data-newsletter-search-item data-newsletter-search-text="${esc([row.email || "", DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : ""].join(" "))}">
                       <div class="label" style="overflow-wrap:anywhere;">${esc(row.email || "")}</div>
                       <div class="value" style="display:flex; align-items:center; gap:10px;">
                         <span>${esc(DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "")}</span>
@@ -14565,6 +14630,50 @@ return `
             go();
           });
         }
+      })();
+
+      // Newsletter tab search
+      (function(){
+        function normalize(value){
+          return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+        }
+
+        var roots = document.querySelectorAll("[data-newsletter-search-root]");
+        if (!roots.length) return;
+
+        roots.forEach(function(root){
+          var input = root.querySelector("[data-newsletter-search-input]");
+          if (!input) return;
+
+          var clearBtn = root.querySelector("[data-newsletter-search-clear]");
+          var emptyState = root.querySelector("[data-newsletter-search-empty]");
+          var items = Array.prototype.slice.call(root.querySelectorAll("[data-newsletter-search-item]"));
+          if (!items.length) return;
+
+          function applyFilter(){
+            var query = normalize(input.value);
+            var visibleCount = 0;
+            items.forEach(function(item){
+              var haystack = normalize(item.getAttribute("data-newsletter-search-text") || item.textContent || "");
+              var matches = !query || haystack.indexOf(query) !== -1;
+              item.hidden = !matches;
+              if (matches) visibleCount += 1;
+            });
+            if (emptyState) {
+              emptyState.style.display = query && visibleCount === 0 ? "block" : "none";
+            }
+          }
+
+          input.addEventListener("input", applyFilter);
+          if (clearBtn) {
+            clearBtn.addEventListener("click", function(){
+              input.value = "";
+              applyFilter();
+              input.focus();
+            });
+          }
+          applyFilter();
+        });
       })();
 
       // Restore scroll position after actions
