@@ -5664,7 +5664,8 @@ return `
     if (showAdsCreate && !canManageAds) return res.status(403).send("Forbidden");
     if (showAdsExisting && !canManageAds) return res.status(403).send("Forbidden");
     if (showAdsAnalytics && !canSeeAdsAnalytics) return res.status(403).send("Forbidden");
-    const showSearch = !showMessages && !showNewsletter && !showNewsletterPreview && !showNewsletterAudience && !showNewsletterAnalytics;
+    const isNewsletterTab = showNewsletter || showNewsletterPreview || showNewsletterAudience || showNewsletterAnalytics;
+    const showSearch = !showMessages && (!showPreferences || isNewsletterTab);
     const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
       ? "/admin/venues"
       : showJobsApplicants
@@ -5673,8 +5674,10 @@ return `
       ? "/admin/jobs"
       : showAdsCreate || showAdsExisting || showAdsAnalytics
       ? "/admin/ads"
+      : showNewsletter || showNewsletterPreview || showNewsletterAudience
+      ? currentAdminPath
       : showNewsletterAnalytics
-      ? "/admin/newsletter/analytics"
+      ? currentAdminPath
       : showAnalytics
       ? "/admin/events-analytics"
       : "/admin/existing-events";
@@ -5686,8 +5689,14 @@ return `
       ? "Search jobs (title, company, location, ID)..."
       : showAdsCreate || showAdsExisting || showAdsAnalytics
       ? "Search ads (name, placement, slug, URL, ID)..."
+      : showNewsletter
+      ? "Search newsletter settings..."
+      : showNewsletterPreview
+      ? "Search newsletter preview..."
+      : showNewsletterAudience
+      ? "Search newsletter audience..."
       : showNewsletterAnalytics
-      ? ""
+      ? "Search newsletter analytics..."
       : showMessages
       ? ""
       : "Search events (title, slug, location, ID)...";
@@ -5699,8 +5708,10 @@ return `
       ? `/admin/jobs?pg=1&limit=${esc(String(limit))}`
       : showAdsCreate || showAdsExisting || showAdsAnalytics
       ? `/admin/ads?pg=1&limit=${esc(String(limit))}`
+      : showNewsletter || showNewsletterPreview || showNewsletterAudience
+      ? `${currentAdminPath}${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`
       : showNewsletterAnalytics
-      ? `/admin/newsletter/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`
+      ? `${currentAdminPath}${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`
       : showAnalytics
       ? `/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`
       : `/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`;
@@ -5741,19 +5752,6 @@ return `
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">One or more email addresses were invalid.</div>`
           : "")
       : "";
-    const buildNewsletterTabSearchHtml = (inputId, placeholder) => `
-      <div class="newsletter-search-toolbar">
-        <div class="filterField">
-          <label for="${esc(inputId)}">Search this tab</label>
-          <div class="newsletter-search-controls">
-            <input id="${esc(inputId)}" class="ctrl" type="search" placeholder="${esc(placeholder)}" data-newsletter-search-input autocomplete="off" />
-            <button class="btn" type="button" data-newsletter-search-clear>Clear</button>
-          </div>
-        </div>
-      </div>
-      <div class="mini" data-newsletter-search-empty style="display:none; margin-bottom:12px;">No matching items found on this newsletter tab.</div>
-    `;
-
     let newsletterSettings = getDefaultNewsletterSettings(selectedCity);
     let newsletterAudienceRows = [];
     let newsletterFeaturedEvent = null;
@@ -9775,25 +9773,6 @@ return `
 	        align-items:end;
 	        justify-content:flex-end;
 	      }
-	      .newsletter-search-toolbar{
-	        display:flex;
-	        gap:12px;
-	        align-items:end;
-	        margin:0 0 14px;
-	      }
-	      .newsletter-search-toolbar .filterField{
-	        max-width:560px;
-	        width:100%;
-	      }
-	      .newsletter-search-controls{
-	        display:flex;
-	        gap:10px;
-	        align-items:center;
-	      }
-	      .newsletter-search-controls .ctrl{
-	        flex:1 1 auto;
-	        min-width:0;
-	      }
 	      .filterActions .btn{
 	        min-width: 112px;
 	      }
@@ -9863,9 +9842,6 @@ return `
         .listSearchRow{
           grid-template-columns: 1fr 1fr;
           align-items:stretch;
-        }
-        .newsletter-search-controls{
-          flex-wrap:wrap;
         }
         .filterActions{
           justify-content:flex-start;
@@ -11096,14 +11072,14 @@ return `
             </button>
             ${showSearch ? `
             <div class="h-left-search">
-              <form class="search" method="GET" action="${searchAction}">
-                <input name="q" value="${esc(q)}" placeholder="${searchPlaceholder}" />
+              <form class="search" method="GET" action="${searchAction}" ${isNewsletterTab ? `data-newsletter-header-search="1"` : ``}>
+                <input name="q" value="${esc(isNewsletterTab ? "" : q)}" placeholder="${searchPlaceholder}" ${isNewsletterTab ? `data-newsletter-search-input autocomplete="off"` : ``} />
                 ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
-                <input type="hidden" name="pg" value="1" />
-                <input type="hidden" name="limit" value="${esc(String(limit))}" />
-                ${(showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
-                ${(showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="${esc(String(1))}" />` : ``)}
-                ${q ? `<a class="btn" href="${searchResetHref}">Reset</a>` : ``}
+                ${isNewsletterTab ? `` : `<input type="hidden" name="pg" value="1" />`}
+                ${isNewsletterTab ? `` : `<input type="hidden" name="limit" value="${esc(String(limit))}" />`}
+                ${(isNewsletterTab || showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
+                ${(isNewsletterTab || showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="${esc(String(1))}" />` : ``)}
+                ${(!isNewsletterTab && q) ? `<a class="btn" href="${searchResetHref}">Reset</a>` : ``}
               </form>
             </div>
             ` : ``}
@@ -11934,8 +11910,6 @@ return `
           </div>
         </section>
 
-        ${buildNewsletterTabSearchHtml("newsletterAnalyticsSearch", "Search newsletter analytics...")}
-
         <section class="grid2 analytics-main-grid organizer-chart-grid">
           <div class="card" data-newsletter-search-item data-newsletter-search-text="chart emails sent opens daily weekly monthly yearly newsletter analytics">
             <div class="sectionTitle sectionTitle--chart">
@@ -12020,7 +11994,6 @@ return `
               </div>
             </div>
             ${newsletterNoticeHtml}
-            ${buildNewsletterTabSearchHtml("newsletterSettingsSearch", "Search newsletter settings...")}
             <div class="card">
               <div class="sectionTitle"><div><h2>Settings</h2></div></div>
               <form method="POST" action="/admin/newsletter/settings" enctype="multipart/form-data">
@@ -12138,7 +12111,6 @@ return `
               </div>
             </div>
             ${newsletterNoticeHtml}
-            ${buildNewsletterTabSearchHtml("newsletterPreviewSearch", "Search newsletter preview details...")}
             <div class="newsletter-preview-layout">
               <div class="card" data-newsletter-search-item data-newsletter-search-text="preview newsletter email layout images events header">
                 <div class="sectionTitle">
@@ -12211,7 +12183,6 @@ return `
               </div>
             </div>
             ${newsletterNoticeHtml}
-            ${buildNewsletterTabSearchHtml("newsletterAudienceSearch", "Search audience emails...")}
             <div class="newsletter-audience-layout">
               <div class="card" data-newsletter-search-item data-newsletter-search-text="add emails audience subscribe newsletter list">
                 <div class="sectionTitle"><div><h2>Add emails</h2></div></div>
@@ -14638,42 +14609,32 @@ return `
           return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
         }
 
+        var headerForm = document.querySelector("form.search[data-newsletter-header-search]");
+        var input = headerForm ? headerForm.querySelector("[data-newsletter-search-input]") : null;
         var roots = document.querySelectorAll("[data-newsletter-search-root]");
-        if (!roots.length) return;
+        if (!roots.length || !input) return;
 
-        roots.forEach(function(root){
-          var input = root.querySelector("[data-newsletter-search-input]");
-          if (!input) return;
-
-          var clearBtn = root.querySelector("[data-newsletter-search-clear]");
-          var emptyState = root.querySelector("[data-newsletter-search-empty]");
-          var items = Array.prototype.slice.call(root.querySelectorAll("[data-newsletter-search-item]"));
-          if (!items.length) return;
-
-          function applyFilter(){
-            var query = normalize(input.value);
-            var visibleCount = 0;
+        function applyFilter(){
+          var query = normalize(input.value);
+          roots.forEach(function(root){
+            var items = Array.prototype.slice.call(root.querySelectorAll("[data-newsletter-search-item]"));
             items.forEach(function(item){
               var haystack = normalize(item.getAttribute("data-newsletter-search-text") || item.textContent || "");
               var matches = !query || haystack.indexOf(query) !== -1;
               item.hidden = !matches;
-              if (matches) visibleCount += 1;
             });
-            if (emptyState) {
-              emptyState.style.display = query && visibleCount === 0 ? "block" : "none";
-            }
-          }
+          });
+        }
 
-          input.addEventListener("input", applyFilter);
-          if (clearBtn) {
-            clearBtn.addEventListener("click", function(){
-              input.value = "";
-              applyFilter();
-              input.focus();
-            });
-          }
-          applyFilter();
-        });
+        input.addEventListener("input", applyFilter);
+        if (headerForm) {
+          headerForm.addEventListener("submit", function(ev){
+            ev.preventDefault();
+            applyFilter();
+          });
+        }
+
+        applyFilter();
       })();
 
       // Restore scroll position after actions
