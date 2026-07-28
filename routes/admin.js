@@ -9097,6 +9097,12 @@ return `
         gap:var(--gap);
         align-items:start;
       }
+      .newsletter-audience-layout{
+        display:grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap:var(--gap);
+        align-items:start;
+      }
       .newsletter-preview-tools > .card,
       .newsletter-preview-layout > .card{
         height:100%;
@@ -12141,7 +12147,7 @@ return `
               </div>
             </div>
             ${newsletterNoticeHtml}
-            <div class="grid2" style="grid-template-columns:1fr 1.4fr; align-items:start;">
+            <div class="newsletter-audience-layout">
               <div class="card">
                 <div class="sectionTitle"><div><h2>Add emails</h2></div></div>
                 <form method="POST" action="/admin/newsletter/audience">
