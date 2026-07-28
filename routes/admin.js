@@ -16534,10 +16534,39 @@ router.post("/newsletter/settings", upload.single("headerImageFile"), async (req
     const sendTimeLocal = normalizeNewsletterTime(req.body?.sendTimeLocal);
     const emailSubject = normalizeNewsletterSubject(req.body?.emailSubject, city);
     const previewText = normalizeNewsletterPreviewText(req.body?.previewText, city);
+    const existingSettings = await getNewsletterSettingsForCity(city);
+    let lastSentAt = String(existingSettings?.lastSentAt || "").trim() || null;
+
+    if (scheduleEnabled === 1) {
+      const now = DateTime.now().setZone(DEFAULT_TZ);
+      const nextSettings = {
+        ...existingSettings,
+        city,
+        showcaseCount,
+        daysAhead,
+        daysToShow,
+        includeFeatured,
+        headerImageUrl,
+        includeEditorialPick,
+        scheduleEnabled,
+        sendDayOfWeek,
+        sendTimeLocal,
+        emailSubject,
+        previewText,
+        lastSentAt: lastSentAt || "",
+      };
+      const slot = getNewsletterSlotDateTime(nextSettings, now);
+      const priorLastSent = lastSentAt ? DateTime.fromISO(lastSentAt, { zone: DEFAULT_TZ }) : null;
+      const alreadyHandledCurrentSlot = !!(priorLastSent && priorLastSent.isValid && slot.isValid && priorLastSent >= slot);
+      if (slot.isValid && slot <= now && !alreadyHandledCurrentSlot) {
+        // Saving settings should never trigger an immediate live send for an already-due slot.
+        lastSentAt = now.toISO();
+      }
+    }
 
     await run(
-      `INSERT INTO newsletter_settings (city, showcaseCount, daysAhead, daysToShow, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, updatedByUserId, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      `INSERT INTO newsletter_settings (city, showcaseCount, daysAhead, daysToShow, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt, updatedByUserId, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
        ON CONFLICT(city) DO UPDATE SET
          showcaseCount = excluded.showcaseCount,
          daysAhead = excluded.daysAhead,
@@ -16550,9 +16579,10 @@ router.post("/newsletter/settings", upload.single("headerImageFile"), async (req
          sendTimeLocal = excluded.sendTimeLocal,
          emailSubject = excluded.emailSubject,
          previewText = excluded.previewText,
+         lastSentAt = excluded.lastSentAt,
          updatedByUserId = excluded.updatedByUserId,
          updatedAt = datetime('now')`,
-      [city, showcaseCount, daysAhead, daysToShow, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, Number(currentUser?.id || 0) || null]
+      [city, showcaseCount, daysAhead, daysToShow, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt, Number(currentUser?.id || 0) || null]
     );
 
     return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=saved`);
