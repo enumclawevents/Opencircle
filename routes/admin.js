@@ -2803,6 +2803,14 @@ const ADMIN_AREAS = Object.freeze([
   "Carbonado",
   "South Prairie",
 ]);
+const ADMIN_WORKSPACE_GROUPS = Object.freeze({
+  "Plateau Events": Object.freeze([
+    "Buckley",
+    "Wilkeson",
+    "Carbonado",
+    "South Prairie",
+  ]),
+});
 const NEWSLETTER_SCOPE_GROUPS = Object.freeze({
   "Plateau Regional": Object.freeze([
     "Buckley",
@@ -2934,6 +2942,85 @@ function pickAccessibleCity(requestedCity, user, { fallbackCity = "Enumclaw" } =
   const preferred = String(requestedCity || "").trim();
   if (preferred && allowedCities.includes(preferred)) return preferred;
   return allowedCities[0] || fallbackCity || "Enumclaw";
+}
+
+function getUserAdminWorkspaceOptions(user, fallbackCity = "Enumclaw") {
+  if (isDeveloperRole(user?.role)) return ADMIN_AREAS.slice();
+
+  const allowedCities = getUserAllowedCities(user, fallbackCity);
+  const options = [];
+  const seen = new Set();
+  const coveredCities = new Set();
+  const groupedOptions = [];
+
+  for (const [workspaceName, memberCities] of Object.entries(ADMIN_WORKSPACE_GROUPS)) {
+    if (memberCities.every((city) => allowedCities.includes(city))) {
+      groupedOptions.push(workspaceName);
+      memberCities.forEach((city) => coveredCities.add(city));
+    }
+  }
+
+  const pushOption = (value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    options.push(normalized);
+  };
+
+  allowedCities.forEach((city) => {
+    if (!coveredCities.has(city)) pushOption(city);
+  });
+  groupedOptions.forEach(pushOption);
+
+  if (!options.length) pushOption(fallbackCity || "Enumclaw");
+  return options;
+}
+
+function getAdminWorkspaceCities(workspace, user, fallbackCity = "Enumclaw") {
+  if (isDeveloperRole(user?.role)) {
+    const selectedCity = pickAccessibleCity(workspace, user, { fallbackCity });
+    return selectedCity ? [selectedCity] : ADMIN_AREAS.slice();
+  }
+
+  const allowedCities = getUserAllowedCities(user, fallbackCity);
+  const normalized = String(workspace || "").trim();
+  if (normalized && Object.prototype.hasOwnProperty.call(ADMIN_WORKSPACE_GROUPS, normalized)) {
+    return ADMIN_WORKSPACE_GROUPS[normalized].filter((city) => allowedCities.includes(city));
+  }
+  if (normalized && allowedCities.includes(normalized)) return [normalized];
+  return allowedCities.slice();
+}
+
+function pickAccessibleAdminWorkspace(requestedWorkspace, user, { fallbackWorkspace = "", fallbackCity = "Enumclaw" } = {}) {
+  const options = getUserAdminWorkspaceOptions(user, fallbackCity);
+  const preferred = String(requestedWorkspace || "").trim();
+  if (preferred && options.includes(preferred)) return preferred;
+  const normalizedFallback = String(fallbackWorkspace || "").trim();
+  if (normalizedFallback && options.includes(normalizedFallback)) return normalizedFallback;
+  return options[0] || fallbackCity || "Enumclaw";
+}
+
+function buildCityScopeSql(column, cities) {
+  const normalizedCities = Array.from(new Set(
+    (Array.isArray(cities) ? cities : [cities])
+      .map((city) => String(city || "").trim())
+      .filter((city) => ADMIN_AREAS.includes(city))
+  ));
+  if (!normalizedCities.length) return { sql: "", params: [] };
+  if (normalizedCities.length === 1) {
+    return { sql: `${column} = ?`, params: [normalizedCities[0]] };
+  }
+  return {
+    sql: `${column} IN (${normalizedCities.map(() => "?").join(", ")})`,
+    params: normalizedCities,
+  };
+}
+
+function pushCityScopeCondition(parts, params, cities, column = "city") {
+  const scope = buildCityScopeSql(column, cities);
+  if (!scope.sql) return;
+  parts.push(scope.sql);
+  params.push(...scope.params);
 }
 
 function getNewsletterScopeCities(scope) {
@@ -3125,9 +3212,24 @@ let whereParams = [];
     const currentPresenceClass = getPresenceStatusClass(currentPresenceStatus, !!currentUser?.id);
     const currentAdminPath = safeAdminRedirectPath(req.originalUrl || "/admin", "/admin");
 
-    // City (from URL unless locked)
+    // City/workspace (developers stay city-based; non-developers can be workspace-based)
     const userCity = String(req.user?.city || currentUser?.city || "Enumclaw");
     const selectedCity = pickAccessibleCity(req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity: userCity });
+    const adminWorkspaceOptions = hasDeveloperAccess
+      ? ADMIN_AREAS.slice()
+      : getUserAdminWorkspaceOptions(currentUser, userCity);
+    const selectedAdminWorkspace = hasDeveloperAccess
+      ? selectedCity
+      : pickAccessibleAdminWorkspace(req.query.workspace || req.query.city, currentUser, { fallbackWorkspace: userCity, fallbackCity: userCity });
+    const selectedAdminCities = hasDeveloperAccess
+      ? [selectedCity]
+      : getAdminWorkspaceCities(selectedAdminWorkspace, currentUser, userCity);
+    const selectedAdminLabel = hasDeveloperAccess ? selectedCity : selectedAdminWorkspace;
+    const selectedAdminPrimaryCity = selectedAdminCities[0] || selectedCity || userCity;
+    const showSidebarAreaSwitcher = hasDeveloperAccess;
+    const defaultNewsletterScope = !hasDeveloperAccess && selectedAdminWorkspace === "Plateau Events"
+      ? "Plateau Regional"
+      : selectedCity;
     const newsletterScopeOptions = getUserAllowedNewsletterScopes(
       hasDeveloperAccess ? { role: "developer" } : currentUser,
       userCity
@@ -3135,11 +3237,11 @@ let whereParams = [];
     const selectedNewsletterScope = pickAccessibleNewsletterScope(
       req.query.newsletterScope || req.query.city,
       hasDeveloperAccess ? { role: "developer" } : currentUser,
-      { fallbackScope: selectedCity, fallbackCity: userCity }
+      { fallbackScope: defaultNewsletterScope, fallbackCity: userCity }
     );
     const buildNewsletterHref = (pathname, extraParams = {}) =>
       buildNewsletterAdminPath(pathname, {
-        city: selectedCity,
+        city: selectedAdminPrimaryCity,
         newsletterScope: selectedNewsletterScope,
         extraParams,
       });
@@ -3363,11 +3465,8 @@ let whereParams = [];
       whereParams.push(like, like, like, like);
     }
 
-    // City filter
-    if (selectedCity) {
-      whereParts.push(`city = ?`);
-      whereParams.push(selectedCity);
-    }
+    // City/workspace filter
+    pushCityScopeCondition(whereParts, whereParams, selectedAdminCities);
 
     if (organizerOwnerClause) {
       whereParts.push(organizerOwnerClause.sql);
@@ -3707,22 +3806,37 @@ try {
     };
 
     const allowedForUser = hasDeveloperAccess ? ADMIN_AREAS.slice() : userAllowedCities;
-    const formCity = String(editEvent?.city || selectedCity);
-    const cityOptions = allowedForUser.map((c) => {
-      const sel = formCity === c ? "selected" : "";
+    const buildAreaOptionsMarkup = (selectedValue) => allowedForUser.map((c) => {
+      const sel = String(selectedValue || "") === c ? "selected" : "";
       return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
     }).join("");
+    const formCity = String(editEvent?.city || selectedAdminPrimaryCity);
+    const cityOptions = buildAreaOptionsMarkup(formCity);
     const buildCitySwitchHref = (cityValue) => {
       const sp = new URLSearchParams(req.query || {});
       sp.set("city", cityValue);
+      sp.delete("workspace");
       sp.delete("pg");
       const qs = sp.toString();
       return `${req.baseUrl || "/admin"}${req.path === "/" ? "" : (req.path || "")}${qs ? `?${qs}` : ""}`;
     };
-    const cityListHtml = allowedForUser.map((c) => {
-      const active = selectedCity === c ? " is-active" : "";
-      return `<a class="sb-city-opt${active}" data-city="${esc(c)}" href="${esc(buildCitySwitchHref(c))}">${esc(c)}</a>`;
-    }).join("");
+    const buildWorkspaceSwitchHref = (workspaceValue) => {
+      const sp = new URLSearchParams(req.query || {});
+      sp.set("workspace", workspaceValue);
+      sp.delete("city");
+      sp.delete("pg");
+      const qs = sp.toString();
+      return `${req.baseUrl || "/admin"}${req.path === "/" ? "" : (req.path || "")}${qs ? `?${qs}` : ""}`;
+    };
+    const cityListHtml = showSidebarAreaSwitcher
+      ? allowedForUser.map((c) => {
+          const active = selectedCity === c ? " is-active" : "";
+          return `<a class="sb-city-opt${active}" data-city="${esc(c)}" href="${esc(buildCitySwitchHref(c))}">${esc(c)}</a>`;
+        }).join("")
+      : adminWorkspaceOptions.map((workspaceName) => {
+          const active = selectedAdminWorkspace === workspaceName ? " is-active" : "";
+          return `<a class="sb-city-opt${active}" href="${esc(buildWorkspaceSwitchHref(workspaceName))}">${esc(workspaceName)}</a>`;
+        }).join("");
 
     const listHtml = events.length
       ? events
@@ -3846,10 +3960,7 @@ return `
     } else {
       if (statusMode === "archived") dashParts.push("1=0");
     }
-    if (selectedCity) {
-      dashParts.push("city = ?");
-      dashParams.push(selectedCity);
-    }
+    pushCityScopeCondition(dashParts, dashParams, selectedAdminCities);
     if (organizerOwnerClause) {
       dashParts.push(organizerOwnerClause.sql);
       dashParams.push(...organizerOwnerClause.params);
@@ -4555,10 +4666,7 @@ return `
     // Venue dashboard metrics
     const venueDashParams = [];
     const venueDashWhere = [];
-    if (selectedCity) {
-      venueDashWhere.push("city = ?");
-      venueDashParams.push(selectedCity);
-    }
+    pushCityScopeCondition(venueDashWhere, venueDashParams, selectedAdminCities);
     if (isOrganizerUser && organizerVenueOwnerClause) {
       venueDashWhere.push(organizerVenueOwnerClause.sql);
       venueDashParams.push(...organizerVenueOwnerClause.params);
@@ -5434,16 +5542,17 @@ return `
     let analyticsSideSub = "Highest total event views";
     let analyticsSideBodyHtml = `<div class="mini mini-list">${topOrganizersHtml}</div>`;
     if (requestedEventId) {
+      const selectedEventScope = buildCityScopeSql("city", selectedAdminCities);
       const selectedEventRow = await get(
         `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule,
                 recurrenceDates, recurrenceStartDate, recurrenceUntilDate, featured, viewCount, uniqueViewCount, ticketClickCount,
                 goingCount, interestedCount
          FROM events
          WHERE id = ?
-         ${selectedCity ? "AND city = ?" : ""}
+         ${selectedEventScope.sql ? `AND ${selectedEventScope.sql}` : ""}
          ${organizerOwnerClause ? `AND ${organizerOwnerClause.sql}` : ""}
          ${hasArchiveCols2 ? "AND (isArchived IS NULL OR isArchived = 0)" : ""}`,
-        [requestedEventId, ...(selectedCity ? [selectedCity] : []), ...(organizerOwnerClause ? organizerOwnerClause.params : [])]
+        [requestedEventId, ...selectedEventScope.params, ...(organizerOwnerClause ? organizerOwnerClause.params : [])]
       );
       if (selectedEventRow) {
         const eventRow = normalizeRowTimes(selectedEventRow);
@@ -7138,10 +7247,7 @@ return `
     if (showJobsExisting) {
       const jobWhere = [];
       const jobParams = [];
-      if (selectedCity) {
-        jobWhere.push("city = ?");
-        jobParams.push(selectedCity);
-      }
+      pushCityScopeCondition(jobWhere, jobParams, selectedAdminCities);
       if (isOrganizerUser && organizerVenueOwnerClause) {
         jobWhere.push(organizerVenueOwnerClause.sql);
         jobParams.push(...organizerVenueOwnerClause.params);
@@ -7194,10 +7300,7 @@ return `
     if (showJobsApplicants) {
       const applicantWhere = [];
       const applicantParams = [];
-      if (selectedCity) {
-        applicantWhere.push("j.city = ?");
-        applicantParams.push(selectedCity);
-      }
+      pushCityScopeCondition(applicantWhere, applicantParams, selectedAdminCities, "j.city");
       if (isOrganizerUser && organizerVenueOwnerClause) {
         applicantWhere.push(`j.${organizerVenueOwnerClause.sql}`);
         applicantParams.push(...organizerVenueOwnerClause.params);
@@ -7249,10 +7352,7 @@ return `
     if (showJobsAnalytics || showDashboard) {
       const jobCityWhere = [];
       const jobCityParams = [];
-      if (selectedCity) {
-        jobCityWhere.push("city = ?");
-        jobCityParams.push(selectedCity);
-      }
+      pushCityScopeCondition(jobCityWhere, jobCityParams, selectedAdminCities);
       if (isOrganizerUser && organizerVenueOwnerClause) {
         jobCityWhere.push(organizerVenueOwnerClause.sql);
         jobCityParams.push(...organizerVenueOwnerClause.params);
@@ -7294,10 +7394,7 @@ return `
       if (!showJobsApplicants) {
         const jobApplicantWhere = [];
         const jobApplicantParams = [];
-        if (selectedCity) {
-          jobApplicantWhere.push("j.city = ?");
-          jobApplicantParams.push(selectedCity);
-        }
+        pushCityScopeCondition(jobApplicantWhere, jobApplicantParams, selectedAdminCities, "j.city");
         if (isOrganizerUser && organizerVenueOwnerClause) {
           jobApplicantWhere.push(`j.${organizerVenueOwnerClause.sql}`);
           jobApplicantParams.push(...organizerVenueOwnerClause.params);
@@ -7329,10 +7426,7 @@ return `
       await ensureAdSchema();
       const adWhere = [];
       const adParams = [];
-      if (selectedCity) {
-        adWhere.push("city = ?");
-        adParams.push(selectedCity);
-      }
+      pushCityScopeCondition(adWhere, adParams, selectedAdminCities);
       if (q) {
         const like = "%" + q + "%";
         adWhere.push("(name LIKE ? OR slug LIKE ? OR placement LIKE ? OR COALESCE(placementsJson, '') LIKE ? OR targetUrl LIKE ? OR CAST(id AS TEXT) LIKE ?)");
@@ -7357,10 +7451,7 @@ return `
       if (showAdsAnalytics || showDashboard) {
         const adDashWhere = [];
         const adDashParams = [];
-        if (selectedCity) {
-          adDashWhere.push("city = ?");
-          adDashParams.push(selectedCity);
-        }
+        pushCityScopeCondition(adDashWhere, adDashParams, selectedAdminCities);
         const adDashWhereSql = adDashWhere.length ? ("WHERE " + adDashWhere.join(" AND ")) : "";
 
         const row = await get(
@@ -7465,10 +7556,7 @@ return `
     if (showVenueExisting || showVenueAnalytics) {
       const venueWhere = [];
       const venueParams = [];
-      if (selectedCity) {
-        venueWhere.push("city = ?");
-        venueParams.push(selectedCity);
-      }
+      pushCityScopeCondition(venueWhere, venueParams, selectedAdminCities);
       if (isOrganizerUser && organizerVenueOwnerClause) {
         venueWhere.push(organizerVenueOwnerClause.sql);
         venueParams.push(...organizerVenueOwnerClause.params);
@@ -7497,13 +7585,14 @@ return `
       }
 
       if (showVenueAnalytics) {
+        const venueByCityScope = buildCityScopeSql("city", selectedAdminCities);
         venueByCity = await all(
           `SELECT city, COUNT(*) AS n
            FROM venues
-           ${selectedCity ? "WHERE city = ?" : ""}
+           ${venueByCityScope.sql ? `WHERE ${venueByCityScope.sql}` : ""}
            GROUP BY city
            ORDER BY n DESC, city ASC`,
-          selectedCity ? [selectedCity] : []
+          venueByCityScope.params
         );
       }
     }
@@ -7750,10 +7839,7 @@ return `
     if (showOrganizers) {
       const organizerWhereParts = [];
       const organizerWhereParams = [];
-      if (selectedCity) {
-        organizerWhereParts.push("city = ?");
-        organizerWhereParams.push(selectedCity);
-      }
+      pushCityScopeCondition(organizerWhereParts, organizerWhereParams, selectedAdminCities);
       if (hasArchiveCols2) {
         organizerWhereParts.push("(isArchived IS NULL OR isArchived = 0)");
       }
@@ -7866,6 +7952,7 @@ return `
 
       if (hasSourceTrackingTable) {
         try {
+          const organizerOverallSourceScope = buildCityScopeSql("e.city", selectedAdminCities);
           const overallSourceRow = await get(
             `SELECT
                COUNT(*) AS tracked,
@@ -7875,9 +7962,9 @@ return `
              FROM event_views ev
              JOIN events e ON e.id = ev.eventId
              WHERE 1=1
-             ${selectedCity ? "AND e.city = ?" : ""}
+             ${organizerOverallSourceScope.sql ? `AND ${organizerOverallSourceScope.sql}` : ""}
              ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}`,
-            selectedCity ? [selectedCity] : []
+            organizerOverallSourceScope.params
           );
           organizerPageSummary.allViews = Number(overallSourceRow?.tracked || 0);
           organizerPageSummary.directViews = Number(overallSourceRow?.directCount || 0);
@@ -7910,16 +7997,19 @@ return `
 
       const overallMonthlyViewRows = hasSourceTrackingTable
         ? await all(
-            `SELECT strftime('%Y-%m', ev.viewedAt) AS ym, COUNT(*) AS n
+            (() => {
+              const organizerOverallMonthlyScope = buildCityScopeSql("e.city", selectedAdminCities);
+              return `SELECT strftime('%Y-%m', ev.viewedAt) AS ym, COUNT(*) AS n
              FROM event_views ev
              JOIN events e ON e.id = ev.eventId
              WHERE 1=1
-             ${selectedCity ? "AND e.city = ?" : ""}
+             ${organizerOverallMonthlyScope.sql ? `AND ${organizerOverallMonthlyScope.sql}` : ""}
              ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}
              AND date(ev.viewedAt) >= date('now', 'start of month', '-11 month')
              GROUP BY ym
-             ORDER BY ym ASC`,
-            selectedCity ? [selectedCity] : []
+             ORDER BY ym ASC`;
+            })(),
+            buildCityScopeSql("e.city", selectedAdminCities).params
           )
         : [];
       const overallMonthlyViewMap = new Map((overallMonthlyViewRows || []).map((row) => [String(row.ym || ""), Number(row.n || 0)]));
@@ -7973,6 +8063,7 @@ return `
 
         if (hasSourceTrackingTable) {
           try {
+            const organizerDetailSourceScope = buildCityScopeSql("e.city", selectedAdminCities);
             const sourceRow = await get(
               `SELECT
                  COUNT(*) AS tracked,
@@ -7982,9 +8073,9 @@ return `
                FROM event_views ev
                JOIN events e ON e.id = ev.eventId
                WHERE COALESCE(NULLIF(TRIM(e.organizer), ''), '(unknown)') = ?
-               ${selectedCity ? "AND e.city = ?" : ""}
+               ${organizerDetailSourceScope.sql ? `AND ${organizerDetailSourceScope.sql}` : ""}
                ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}`,
-              selectedCity ? [selectedOrganizer, selectedCity] : [selectedOrganizer]
+              [selectedOrganizer, ...organizerDetailSourceScope.params]
             );
             organizerSummary.allViews = Number(sourceRow?.tracked || 0);
             organizerSummary.directViews = Number(sourceRow?.directCount || 0);
@@ -8022,16 +8113,19 @@ return `
 
         const monthlyViewRows = hasSourceTrackingTable
           ? await all(
-              `SELECT strftime('%Y-%m', ev.viewedAt) AS ym, COUNT(*) AS n
+              (() => {
+                const organizerDetailMonthlyScope = buildCityScopeSql("e.city", selectedAdminCities);
+                return `SELECT strftime('%Y-%m', ev.viewedAt) AS ym, COUNT(*) AS n
                FROM event_views ev
                JOIN events e ON e.id = ev.eventId
                WHERE COALESCE(NULLIF(TRIM(e.organizer), ''), '(unknown)') = ?
-               ${selectedCity ? "AND e.city = ?" : ""}
+               ${organizerDetailMonthlyScope.sql ? `AND ${organizerDetailMonthlyScope.sql}` : ""}
                ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}
                AND date(ev.viewedAt) >= date('now', 'start of month', '-11 month')
                GROUP BY ym
-               ORDER BY ym ASC`,
-              selectedCity ? [selectedOrganizer, selectedCity] : [selectedOrganizer]
+               ORDER BY ym ASC`;
+              })(),
+              [selectedOrganizer, ...buildCityScopeSql("e.city", selectedAdminCities).params]
             )
           : [];
         const monthlyViewMap = new Map((monthlyViewRows || []).map((row) => [String(row.ym || ""), Number(row.n || 0)]));
@@ -11057,13 +11151,19 @@ return `
           </div>
             <div class="sb-city-wrap">
               <div class="sb-city-dd" id="sbCityDD">
-                <button type="button" class="sb-city-btn" id="sbCityBtn" aria-haspopup="listbox" aria-expanded="false" onclick="var dd=document.getElementById('sbCityDD'); if(!dd) return false; var next=!dd.classList.contains('is-open'); dd.classList.toggle('is-open', next); this.setAttribute('aria-expanded', next ? 'true' : 'false'); return false;">
-                  <span id="sbCityLabel">${esc(selectedCity)}</span>
-                  <span class="caret" aria-hidden="true"></span>
-                </button>
-                <div class="sb-city-menu" id="sbCityMenu" role="listbox" aria-label="City">
-                  ${cityListHtml}
-                </div>
+                ${showSidebarAreaSwitcher ? `
+                  <button type="button" class="sb-city-btn" id="sbCityBtn" aria-haspopup="listbox" aria-expanded="false" onclick="var dd=document.getElementById('sbCityDD'); if(!dd) return false; var next=!dd.classList.contains('is-open'); dd.classList.toggle('is-open', next); this.setAttribute('aria-expanded', next ? 'true' : 'false'); return false;">
+                    <span id="sbCityLabel">${esc(selectedAdminLabel)}</span>
+                    <span class="caret" aria-hidden="true"></span>
+                  </button>
+                  <div class="sb-city-menu" id="sbCityMenu" role="listbox" aria-label="City">
+                    ${cityListHtml}
+                  </div>
+                ` : `
+                  <div class="sb-city-btn" style="cursor:default;">
+                    <span id="sbCityLabel">${esc(selectedAdminLabel)}</span>
+                  </div>
+                `}
               </div>
             </div>
           </div>
@@ -11781,7 +11881,7 @@ return `
             </div>
           </div>
           ${inviteLimitNoticeHtml}
-          <form method="POST" action="/admin/invites?city=${encodeURIComponent(selectedCity)}" style="display:grid; gap:12px; max-width:520px;">
+          <form method="POST" action="/admin/invites?city=${encodeURIComponent(selectedAdminPrimaryCity)}" style="display:grid; gap:12px; max-width:520px;">
             <div class="field">
               <label>Email (optional, to lock invite)</label>
               <input type="email" name="email" placeholder="name@example.com" />
@@ -11793,10 +11893,16 @@ return `
               </select>
             </div>
             <div class="field">
-              <label>City</label>
-              <select name="city" ${hasDeveloperAccess ? "" : "disabled"}>
-                ${allowedForUser.map(c => `<option value="${esc(c)}" ${c === selectedCity ? "selected" : ""}>${esc(c)}</option>`).join("")}
+              <label>Access preset</label>
+              <select name="workspace" ${hasDeveloperAccess ? "" : "disabled"}>
+                ${[
+                  ...allowedForUser.map((c) => ({ value: c, label: c })),
+                  ...(ADMIN_WORKSPACE_GROUPS["Plateau Events"].every((city) => allowedForUser.includes(city))
+                    ? [{ value: "Plateau Events", label: "Plateau Events" }]
+                    : []),
+                ].map((option) => `<option value="${esc(option.value)}" ${option.value === selectedAdminWorkspace ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
               </select>
+              <div class="note" style="margin-top:8px;">Choose one area or the Plateau Events preset to grant Buckley, Wilkeson, Carbonado, and South Prairie together.</div>
             </div>
             <div class="field">
               <label>Expires in (days)</label>
@@ -12450,7 +12556,7 @@ return `
               <div>
                 <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                   <h2 style="margin:0;">${editEvent ? "Edit event" : "Create event"}</h2>
-                  <span class="pill">${esc(selectedCity)}</span>
+                  <span class="pill">${esc(selectedAdminLabel)}</span>
                 </div>
                 <p class="sub">This saves to SQLite and powers your API</p>
               </div>
@@ -12986,13 +13092,22 @@ return `
                 <p class="sub">Saved to SQLite and used across event pages</p>
               </div>
               <div class="right">
-                <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
+                <span class="pill">${esc(selectedAdminLabel)}</span>
               </div>
             </div>
 
             <form method="POST" action="/admin/venues" enctype="multipart/form-data">
               ${editVenue ? `<input type="hidden" name="id" value="${esc(editVenue.id)}" />` : ""}
-              <input type="hidden" name="city" value="${esc(editVenue?.city || selectedCity)}" />
+              <div class="rec-box" style="margin-top:0; border-color:rgba(16,185,129,.22); background:linear-gradient(180deg, rgba(16,185,129,.06), rgba(16,185,129,.03));">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
+                  <label for="venueCity" style="margin:0; font-size:16px; font-weight:800; letter-spacing:-0.01em;">Area</label>
+                  <span class="pill" style="background:rgba(16,185,129,.14); border-color:rgba(16,185,129,.24); color:#166534;">Choose where this venue lives</span>
+                </div>
+                <div class="note" style="margin:0 0 10px 0; color:#42526b;">This controls which area site this venue belongs to.</div>
+                <select class="ctrl" name="city" id="venueCity" required>
+                  ${buildAreaOptionsMarkup(String(editVenue?.city || selectedAdminPrimaryCity))}
+                </select>
+              </div>
 
               <label>Venue Name</label>
               <input class="ctrl" name="name" value="${esc(editVenue?.name || "")}" required />
@@ -13367,13 +13482,22 @@ return `
                 <p class="sub">Publish local job listings</p>
               </div>
               <div class="right">
-                <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
+                <span class="pill">${esc(selectedAdminLabel)}</span>
               </div>
             </div>
 
             <form method="POST" action="/admin/jobs" enctype="multipart/form-data">
               ${editJob ? `<input type="hidden" name="id" value="${esc(editJob.id)}" />` : ""}
-              <input type="hidden" name="city" value="${esc(editJob?.city || selectedCity)}" />
+              <div class="rec-box" style="margin-top:0; border-color:rgba(16,185,129,.22); background:linear-gradient(180deg, rgba(16,185,129,.06), rgba(16,185,129,.03));">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
+                  <label for="jobCity" style="margin:0; font-size:16px; font-weight:800; letter-spacing:-0.01em;">Area</label>
+                  <span class="pill" style="background:rgba(16,185,129,.14); border-color:rgba(16,185,129,.24); color:#166534;">Choose where this job will publish</span>
+                </div>
+                <div class="note" style="margin:0 0 10px 0; color:#42526b;">This controls which area site this job is added to.</div>
+                <select class="ctrl" name="city" id="jobCity" required>
+                  ${buildAreaOptionsMarkup(String(editJob?.city || selectedAdminPrimaryCity))}
+                </select>
+              </div>
 
               <label>Job Title</label>
               <input class="ctrl" name="title" value="${esc(editJob?.title || "")}" required />
@@ -13735,13 +13859,22 @@ return `
                 <p class="sub">Manage a rotating ad with weighted visibility</p>
               </div>
               <div class="right">
-                <span class="pill">/${esc(selectedCity.toLowerCase())}</span>
+                <span class="pill">${esc(selectedAdminLabel)}</span>
               </div>
             </div>
 
             <form method="POST" action="/admin/ads" enctype="multipart/form-data">
               ${editAd ? `<input type="hidden" name="id" value="${esc(editAd.id)}" />` : ""}
-              <input type="hidden" name="city" value="${esc(editAd?.city || selectedCity)}" />
+              <div class="rec-box" style="margin-top:0; border-color:rgba(16,185,129,.22); background:linear-gradient(180deg, rgba(16,185,129,.06), rgba(16,185,129,.03));">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
+                  <label for="adCity" style="margin:0; font-size:16px; font-weight:800; letter-spacing:-0.01em;">Area</label>
+                  <span class="pill" style="background:rgba(16,185,129,.14); border-color:rgba(16,185,129,.24); color:#166534;">Choose where this ad will publish</span>
+                </div>
+                <div class="note" style="margin:0 0 10px 0; color:#42526b;">This controls which area site this ad is added to.</div>
+                <select class="ctrl" name="city" id="adCity" required>
+                  ${buildAreaOptionsMarkup(String(editAd?.city || selectedAdminPrimaryCity))}
+                </select>
+              </div>
 
               <label>Ad Name</label>
               <input class="ctrl" name="name" value="${esc(editAd?.name || "")}" required />
@@ -17082,7 +17215,12 @@ router.post("/invites", async (req, res) => {
     const sessionUser = await resolveSessionUser(req);
     const email = String(req.body?.email || "").trim().toLowerCase() || null;
     const role = normalizeRoleValue(req.body?.role || "organizer");
-    const city = String(req.body?.city || req.query.city || "Enumclaw");
+    const requestedWorkspace = String(req.body?.workspace || req.body?.city || req.query.workspace || req.query.city || "Enumclaw").trim();
+    const workspaceCities = Object.prototype.hasOwnProperty.call(ADMIN_WORKSPACE_GROUPS, requestedWorkspace)
+      ? ADMIN_WORKSPACE_GROUPS[requestedWorkspace].slice()
+      : [requestedWorkspace];
+    const normalizedCities = normalizeCityAccessList(workspaceCities, req.query.city || "Enumclaw");
+    const city = normalizedCities[0] || "Enumclaw";
     const days = Math.max(1, Math.min(30, parseInt(req.body?.days || "7", 10)));
     if (!isLiveRole(role)) {
       return res.status(400).send("Invalid role.");
@@ -17091,13 +17229,20 @@ router.post("/invites", async (req, res) => {
     const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
     const permissionsJson = role === "organizer"
-      ? stringifyOrganizerPermissions({ ...DEFAULT_ORGANIZER_PERMISSIONS, cityAccess: [city] })
+      ? stringifyOrganizerPermissions({ ...DEFAULT_ORGANIZER_PERMISSIONS, cityAccess: normalizedCities })
       : null;
     await run(
       "INSERT INTO invites (email, tokenHash, role, city, permissionsJson, expiresAt, createdByUserId) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [email, tokenHash, role, city, permissionsJson, expiresAt, sessionUser?.id || null]
     );
-    return res.redirect(`/admin/invites?invite=${encodeURIComponent(token)}&city=${encodeURIComponent(city)}`);
+    const redirectParams = new URLSearchParams({
+      invite: token,
+      city,
+    });
+    if (Object.prototype.hasOwnProperty.call(ADMIN_WORKSPACE_GROUPS, requestedWorkspace)) {
+      redirectParams.set("workspace", requestedWorkspace);
+    }
+    return res.redirect(`/admin/invites?${redirectParams.toString()}`);
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to create invite.");
