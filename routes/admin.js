@@ -6124,24 +6124,12 @@ return `
           ORDER BY datetime(COALESCE(sentAt, createdAt)) DESC, id DESC`,
         [newsletterContextCity]
       );
-      const recipientRows = await all(
-        `SELECT campaignId, firstOpenedAt, firstClickedAt, clickCount
-           FROM newsletter_recipients
-          WHERE city = ?
-          ORDER BY id DESC`,
-        [newsletterContextCity]
-      );
-
       const selectedCampaignRow = requestedNewsletterCampaignId
         ? (campaignRows.find((row) => Number(row.id || 0) === Number(requestedNewsletterCampaignId)) || null)
         : null;
       const campaignStatsRows = selectedCampaignRow
         ? campaignRows.filter((row) => Number(row.id || 0) === Number(selectedCampaignRow.id))
         : campaignRows;
-      const filteredRecipientRows = selectedCampaignRow
-        ? recipientRows.filter((row) => Number(row.campaignId || 0) === Number(selectedCampaignRow.id))
-        : recipientRows;
-      const openRows = filteredRecipientRows.filter((row) => String(row.firstOpenedAt || "").trim());
 
       const totalEmailsSent = campaignStatsRows.reduce((sum, row) => sum + Number(row.sentCount || 0), 0);
       const openedEmails = campaignStatsRows.reduce((sum, row) => sum + Number(row.uniqueOpenCount || 0), 0);
@@ -6330,10 +6318,10 @@ return `
           yearly: buildNewsletterSeries("yearly", campaignStatsRows, "sentAt", (row) => row.sentCount),
         },
         views: {
-          daily: buildNewsletterSeries("daily", openRows, "firstOpenedAt", () => 1),
-          weekly: buildNewsletterSeries("weekly", openRows, "firstOpenedAt", () => 1),
-          monthly: buildNewsletterSeries("monthly", openRows, "firstOpenedAt", () => 1),
-          yearly: buildNewsletterSeries("yearly", openRows, "firstOpenedAt", () => 1),
+          daily: buildNewsletterSeries("daily", campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
+          weekly: buildNewsletterSeries("weekly", campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
+          monthly: buildNewsletterSeries("monthly", campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
+          yearly: buildNewsletterSeries("yearly", campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
         },
       };
       newsletterChartDataJson = esc(JSON.stringify(newsletterChartSets));
