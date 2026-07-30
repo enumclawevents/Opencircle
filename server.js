@@ -25,6 +25,7 @@ const NEWSLETTER_PUBLIC_CITIES = Object.freeze([
   "Wilkeson",
   "Carbonado",
   "South Prairie",
+  "Plateau Regional",
 ]);
 let publicNewsletterSchemaEnsured = false;
 

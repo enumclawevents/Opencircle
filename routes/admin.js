@@ -2039,6 +2039,9 @@ function buildNewsletterEventUrl(req, eventRow) {
 async function getNewsletterEventCandidates(city, { startAtMs = Date.now(), endAtMs = null } = {}) {
   await ensurePickSchema();
   const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  const scopeCities = getNewsletterScopeCities(normalizedCity);
+  const targetCities = scopeCities.length ? scopeCities : [normalizedCity];
+  const cityPlaceholders = targetCities.map(() => "?").join(", ");
   const selectionStartUtcMs = Number.isFinite(Number(startAtMs)) ? Number(startAtMs) : Date.now();
   const selectionEndUtcMs = Number.isFinite(Number(endAtMs)) ? Number(endAtMs) : null;
   const futureWindowUtcMs = selectionStartUtcMs + (370 * 24 * 60 * 60 * 1000);
@@ -2064,11 +2067,11 @@ async function getNewsletterEventCandidates(city, { startAtMs = Date.now(), endA
          featured,
          eddiesPick
        FROM events
-       WHERE city = ?
+       WHERE city IN (${cityPlaceholders})
          AND COALESCE(archived, 0) = 0
        ORDER BY datetime(startDateTime) ASC, id ASC
        LIMIT 250`,
-      [normalizedCity]
+      targetCities
     );
   } catch (_) {
     rows = await all(
@@ -2091,10 +2094,10 @@ async function getNewsletterEventCandidates(city, { startAtMs = Date.now(), endA
          0 AS featured,
          0 AS eddiesPick
        FROM events
-       WHERE city = ?
+       WHERE city IN (${cityPlaceholders})
        ORDER BY datetime(startDateTime) ASC, id ASC
        LIMIT 250`,
-      [normalizedCity]
+      targetCities
     );
   }
   const prepared = [];
@@ -2800,6 +2803,14 @@ const ADMIN_AREAS = Object.freeze([
   "Carbonado",
   "South Prairie",
 ]);
+const NEWSLETTER_SCOPE_GROUPS = Object.freeze({
+  "Plateau Regional": Object.freeze([
+    "Buckley",
+    "Wilkeson",
+    "Carbonado",
+    "South Prairie",
+  ]),
+});
 
 function formatOrganizerPermissionLabel(key) {
   if (key === "featureEvents") return "Feature Events";
@@ -2923,6 +2934,61 @@ function pickAccessibleCity(requestedCity, user, { fallbackCity = "Enumclaw" } =
   const preferred = String(requestedCity || "").trim();
   if (preferred && allowedCities.includes(preferred)) return preferred;
   return allowedCities[0] || fallbackCity || "Enumclaw";
+}
+
+function getNewsletterScopeCities(scope) {
+  const normalized = String(scope || "").trim();
+  if (!normalized) return ["Enumclaw"];
+  if (Object.prototype.hasOwnProperty.call(NEWSLETTER_SCOPE_GROUPS, normalized)) {
+    return NEWSLETTER_SCOPE_GROUPS[normalized].slice();
+  }
+  if (ADMIN_AREAS.includes(normalized)) return [normalized];
+  return [];
+}
+
+function getUserAllowedNewsletterScopes(user, fallbackCity = "Enumclaw") {
+  const allowedCities = getUserAllowedCities(user, fallbackCity);
+  const scopes = [];
+  const seen = new Set();
+  const pushScope = (value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    scopes.push(normalized);
+  };
+
+  allowedCities.forEach(pushScope);
+  for (const [scopeName, memberCities] of Object.entries(NEWSLETTER_SCOPE_GROUPS)) {
+    if (memberCities.every((city) => allowedCities.includes(city))) pushScope(scopeName);
+  }
+
+  if (!scopes.length) pushScope(fallbackCity || "Enumclaw");
+  return scopes;
+}
+
+function pickAccessibleNewsletterScope(requestedScope, user, { fallbackScope = "", fallbackCity = "Enumclaw" } = {}) {
+  const allowedScopes = getUserAllowedNewsletterScopes(user, fallbackCity);
+  const preferred = String(requestedScope || "").trim();
+  if (preferred && allowedScopes.includes(preferred)) return preferred;
+  const normalizedFallback = String(fallbackScope || "").trim();
+  if (normalizedFallback && allowedScopes.includes(normalizedFallback)) return normalizedFallback;
+  return allowedScopes[0] || fallbackCity || "Enumclaw";
+}
+
+function buildNewsletterAdminPath(pathname, { city = "", newsletterScope = "", extraParams = {} } = {}) {
+  const params = new URLSearchParams();
+  const normalizedCity = String(city || "").trim();
+  const normalizedScope = String(newsletterScope || "").trim();
+  if (normalizedCity) params.set("city", normalizedCity);
+  if (normalizedScope) params.set("newsletterScope", normalizedScope);
+  for (const [key, value] of Object.entries(extraParams || {})) {
+    if (value === null || value === undefined) continue;
+    const normalizedValue = String(value).trim();
+    if (!normalizedValue) continue;
+    params.set(key, normalizedValue);
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 function normalizeOrganizerIdentity(value) {
@@ -3062,6 +3128,21 @@ let whereParams = [];
     // City (from URL unless locked)
     const userCity = String(req.user?.city || currentUser?.city || "Enumclaw");
     const selectedCity = pickAccessibleCity(req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity: userCity });
+    const newsletterScopeOptions = getUserAllowedNewsletterScopes(
+      hasDeveloperAccess ? { role: "developer" } : currentUser,
+      userCity
+    );
+    const selectedNewsletterScope = pickAccessibleNewsletterScope(
+      req.query.newsletterScope || req.query.city,
+      hasDeveloperAccess ? { role: "developer" } : currentUser,
+      { fallbackScope: selectedCity, fallbackCity: userCity }
+    );
+    const buildNewsletterHref = (pathname, extraParams = {}) =>
+      buildNewsletterAdminPath(pathname, {
+        city: selectedCity,
+        newsletterScope: selectedNewsletterScope,
+        extraParams,
+      });
     const canUseMessages = !!currentUser?.id;
     const canManageEvents = hasDeveloperAccess || sectionPermissions.events;
     const canApproveEvents = hasDeveloperAccess;
@@ -5752,7 +5833,30 @@ return `
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">One or more email addresses were invalid.</div>`
           : "")
       : "";
-    let newsletterSettings = getDefaultNewsletterSettings(selectedCity);
+    const isNewsletterScopedView = showNewsletter || showNewsletterPreview || showNewsletterAudience || showNewsletterAnalytics;
+    const newsletterContextCity = isNewsletterScopedView ? selectedNewsletterScope : selectedCity;
+    const newsletterScopeSwitcherAction = showNewsletterPreview
+      ? "/admin/newsletter/preview"
+      : showNewsletterAudience
+      ? "/admin/newsletter/audience"
+      : showNewsletterAnalytics
+      ? "/admin/newsletter/analytics"
+      : "/admin/newsletter";
+    const newsletterScopeSwitcherHtml = newsletterScopeOptions.length > 1 ? `
+      <form method="GET" action="${newsletterScopeSwitcherAction}" class="newsletter-scope-switch" style="display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin-bottom:16px;">
+        ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
+        ${showNewsletterAnalytics ? `<input type="hidden" name="chartView" value="${esc(chartViewMode)}" />` : ``}
+        <div style="min-width:280px; max-width:420px; flex:1 1 320px;">
+          <label for="newsletterScopeSelect">Newsletter list</label>
+          <select class="ctrl" id="newsletterScopeSelect" name="newsletterScope" onchange="this.form.submit()">
+            ${newsletterScopeOptions.map((scope) => `<option value="${esc(scope)}" ${scope === selectedNewsletterScope ? "selected" : ""}>${esc(scope)}</option>`).join("")}
+          </select>
+          <div class="note">Choose which audience and event pool this newsletter should use.</div>
+        </div>
+        <noscript><button class="btn" type="submit">Switch</button></noscript>
+      </form>
+    ` : "";
+    let newsletterSettings = getDefaultNewsletterSettings(newsletterContextCity);
     let newsletterAudienceRows = [];
     let newsletterFeaturedEvent = null;
     let newsletterEditorialPickEvent = null;
@@ -5770,8 +5874,8 @@ return `
       showNewsletterAnalytics ||
       (showDashboard && canSeeNewsletterAnalytics)
     ) {
-      newsletterSettings = await getNewsletterSettingsForCity(selectedCity);
-      newsletterAudienceRows = await getNewsletterAudienceForCity(selectedCity);
+      newsletterSettings = await getNewsletterSettingsForCity(newsletterContextCity);
+      newsletterAudienceRows = await getNewsletterAudienceForCity(newsletterContextCity);
       newsletterNextSendLabel = Number(newsletterSettings.scheduleEnabled || 0) === 1
         ? getNextNewsletterSlotDateTime(newsletterSettings, DateTime.now().setZone(DEFAULT_TZ)).toFormat("cccc, LLL d 'at' h:mm a")
         : "Automatic sending is off";
@@ -5784,7 +5888,7 @@ return `
         const previewBase = getNewsletterPreviewBaseDateTime(newsletterSettings);
         const contentStart = getNewsletterContentStartDateTime(newsletterSettings, previewBase);
         const contentEnd = getNewsletterContentEndDateTime(newsletterSettings, previewBase);
-        const newsletterCandidates = await getNewsletterEventCandidates(selectedCity, {
+        const newsletterCandidates = await getNewsletterEventCandidates(newsletterContextCity, {
           startAtMs: contentStart.toMillis(),
           endAtMs: contentEnd.toMillis(),
         });
@@ -5794,7 +5898,7 @@ return `
         newsletterShowcaseEvents = selection.showcaseEvents;
         if (showNewsletterPreview) {
           const previewMessage = buildNewsletterEmail({
-            city: selectedCity,
+            city: newsletterContextCity,
             settings: newsletterSettings,
             featuredEvent: newsletterFeaturedEvent,
             editorialPickEvent: newsletterEditorialPickEvent,
@@ -5802,10 +5906,10 @@ return `
             req,
           });
           newsletterPreviewSubject = String(previewMessage?.subject || "").trim();
-          newsletterPreviewText = normalizeNewsletterPreviewText(newsletterSettings.previewText, selectedCity);
+          newsletterPreviewText = normalizeNewsletterPreviewText(newsletterSettings.previewText, newsletterContextCity);
           newsletterPreviewHtml = String(previewMessage?.html || "").trim();
           newsletterPreviewFrameHtml = newsletterPreviewHtml
-            ? `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${esc(newsletterPreviewSubject || buildDefaultNewsletterSubject(selectedCity))}</title></head><body style="margin:0;">${newsletterPreviewHtml.replace("max-width:720px; margin:0 auto;", "max-width:1100px; margin:0 auto;")}</body></html>`
+            ? `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${esc(newsletterPreviewSubject || buildDefaultNewsletterSubject(newsletterContextCity))}</title></head><body style="margin:0;">${newsletterPreviewHtml.replace("max-width:720px; margin:0 auto;", "max-width:1100px; margin:0 auto;")}</body></html>`
             : "";
         }
       }
@@ -5827,8 +5931,7 @@ return `
     let newsletterChartDataJson = esc(JSON.stringify({ events: {}, views: {} }));
     let newsletterChartSvgByMode = { daily: "", weekly: "", monthly: "", yearly: "" };
     const buildNewsletterAnalyticsChartHref = (mode) =>
-      `/admin/newsletter/analytics?chartView=${encodeURIComponent(String(mode || "daily"))}` +
-      `${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+      buildNewsletterHref("/admin/newsletter/analytics", { chartView: String(mode || "daily") });
 
     if (showNewsletterAnalytics || (showDashboard && canSeeNewsletterAnalytics)) {
       await ensureNewsletterSchema();
@@ -5837,7 +5940,7 @@ return `
            FROM newsletter_campaigns
           WHERE city = ?
           ORDER BY datetime(COALESCE(sentAt, createdAt)) DESC, id DESC`,
-        [selectedCity]
+        [newsletterContextCity]
       );
       const openRows = await all(
         `SELECT firstOpenedAt
@@ -5845,7 +5948,7 @@ return `
           WHERE city = ?
             AND firstOpenedAt IS NOT NULL
           ORDER BY datetime(firstOpenedAt) DESC, id DESC`,
-        [selectedCity]
+        [newsletterContextCity]
       );
 
       const totalEmailsSent = campaignRows.reduce((sum, row) => sum + Number(row.sentCount || 0), 0);
@@ -5879,7 +5982,7 @@ return `
             return `
               <div class="insight-row">
                 <div class="label">
-                  <div style="font-weight:700; color:var(--text);">${esc(String(row.subject || buildDefaultNewsletterSubject(selectedCity)))}</div>
+                  <div style="font-weight:700; color:var(--text);">${esc(String(row.subject || buildDefaultNewsletterSubject(newsletterContextCity)))}</div>
                   <div class="muted" style="font-size:12px; margin-top:4px;">${esc(modeLabel)} send${sentDt && sentDt.isValid ? ` · ${sentDt.toFormat("LLL d, yyyy 'at' h:mm a")}` : ""}</div>
                 </div>
                 <div class="value">${sentCount.toLocaleString("en-US")} sent · ${openCount.toLocaleString("en-US")} opens · ${reopenCount.toLocaleString("en-US")} re-opens</div>
@@ -5898,7 +6001,7 @@ return `
           const rate = sentCount > 0 ? `${Math.round((openCount / sentCount) * 100)}%` : "0%";
           return `
             <div class="kv">
-              <div class="k">${esc(String(row.subject || buildDefaultNewsletterSubject(selectedCity)))}</div>
+              <div class="k">${esc(String(row.subject || buildDefaultNewsletterSubject(newsletterContextCity)))}</div>
               <div class="v">${openCount.toLocaleString("en-US")} opens · ${reopenCount.toLocaleString("en-US")} re-opens · ${rate}</div>
             </div>
           `;
@@ -10993,11 +11096,11 @@ return `
           <div class="sb-divider"></div>` : ``}
 
           ${canManageNewsletter ? `<div class="nav-group nav-collapsible ${newsletterMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="/admin/newsletter${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${newsletterMenuOpen ? "page" : "false"}"><i class="fa-regular fa-envelope nav-title-icon" aria-hidden="true"></i><span>Newsletter</span></a>
+            <a class="nav-title-btn" href="${buildNewsletterHref("/admin/newsletter")}" aria-current="${newsletterMenuOpen ? "page" : "false"}"><i class="fa-regular fa-envelope nav-title-icon" aria-hidden="true"></i><span>Newsletter</span></a>
             <div class="nav-sub" data-nav-sub>
-              <a class="subnav-link ${showNewsletter ? "active" : ""}" href="/admin/newsletter${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Settings</a>
-              <a class="subnav-link ${showNewsletterPreview ? "active" : ""}" href="/admin/newsletter/preview${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Preview</a>
-              <a class="subnav-link ${showNewsletterAudience ? "active" : ""}" href="/admin/newsletter/audience${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Audience</a>
+              <a class="subnav-link ${showNewsletter ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter")}">Settings</a>
+              <a class="subnav-link ${showNewsletterPreview ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter/preview")}">Preview</a>
+              <a class="subnav-link ${showNewsletterAudience ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter/audience")}">Audience</a>
             </div>
           </div>
           <div class="sb-divider"></div>` : ``}
@@ -11036,7 +11139,7 @@ return `
             <div class="nav-sub" data-nav-sub>
               ${canSeeEventsAnalytics ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events</a>` : ``}
               ${canSeeOrganizerAnalytics ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
-              ${canSeeNewsletterAnalytics ? `<a class="subnav-link ${showNewsletterAnalytics ? "active" : ""}" href="/admin/newsletter/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Newsletter</a>` : ``}
+              ${canSeeNewsletterAnalytics ? `<a class="subnav-link ${showNewsletterAnalytics ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter/analytics")}">Newsletter</a>` : ``}
               ${canSeeVenueAnalytics ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venues</a>` : ``}
               ${canSeeJobAnalytics ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Jobs</a>` : ``}
               ${canSeeAdsAnalytics ? `<a class="subnav-link ${showAdsAnalytics ? "active" : ""}" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads</a>` : ``}
@@ -11865,6 +11968,7 @@ return `
 
         ${showNewsletterAnalytics ? `
         <div data-newsletter-search-root id="newsletter-analytics-root">
+        ${newsletterScopeSwitcherHtml}
         <section class="metrics" id="newsletter-analytics-metrics">
           <div class="metric" data-newsletter-search-item>
             <div>
@@ -11990,14 +12094,16 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Newsletter</h2>
-                <p class="sub">Set the basics for the ${esc(selectedCity)} weekly newsletter.</p>
+                <p class="sub">Set the basics for the ${esc(selectedNewsletterScope)} newsletter.</p>
               </div>
             </div>
+            ${newsletterScopeSwitcherHtml}
             ${newsletterNoticeHtml}
             <div class="card">
               <div class="sectionTitle"><div><h2>Settings</h2></div></div>
               <form method="POST" action="/admin/newsletter/settings" enctype="multipart/form-data">
                 <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                <input type="hidden" name="newsletterScope" value="${esc(selectedNewsletterScope)}" />
 
                 <div data-newsletter-search-item>
                 <div class="rec-box" style="margin-top:0;">
@@ -12039,13 +12145,13 @@ return `
 
                 <div data-newsletter-search-item>
                 <label style="margin-top:14px;">Email subject</label>
-                <input class="ctrl" type="text" name="emailSubject" value="${esc(newsletterSettings.emailSubject || "")}" maxlength="160" placeholder="${esc(buildDefaultNewsletterSubject(selectedCity))}" />
+                <input class="ctrl" type="text" name="emailSubject" value="${esc(newsletterSettings.emailSubject || "")}" maxlength="160" placeholder="${esc(buildDefaultNewsletterSubject(selectedNewsletterScope))}" />
                 <div class="note">This is the subject line people will see in their inbox.</div>
                 </div>
 
                 <div data-newsletter-search-item>
                 <label style="margin-top:14px;">Preview text</label>
-                <textarea class="ctrl" name="previewText" rows="3" maxlength="220" placeholder="${esc(buildDefaultNewsletterPreviewText(selectedCity))}">${esc(newsletterSettings.previewText || "")}</textarea>
+                <textarea class="ctrl" name="previewText" rows="3" maxlength="220" placeholder="${esc(buildDefaultNewsletterPreviewText(selectedNewsletterScope))}">${esc(newsletterSettings.previewText || "")}</textarea>
                 <div class="note">This is the short preview snippet that appears next to the subject in many inboxes.</div>
                 </div>
 
@@ -12107,16 +12213,17 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Newsletter preview</h2>
-                <p class="sub">Preview what will go out for ${esc(selectedCity)} and send yourself a test email.</p>
+                <p class="sub">Preview what will go out for ${esc(selectedNewsletterScope)} and send yourself a test email.</p>
               </div>
             </div>
+            ${newsletterScopeSwitcherHtml}
             ${newsletterNoticeHtml}
             <div class="newsletter-preview-layout">
               <div class="card" data-newsletter-search-item data-newsletter-search-text="preview newsletter email layout images events header">
                 <div class="sectionTitle">
                   <div>
                     <h2>Preview</h2>
-                    <p class="sub">This is the actual newsletter layout the API will send for ${esc(selectedCity)}.</p>
+                    <p class="sub">This is the actual newsletter layout the API will send for ${esc(selectedNewsletterScope)}.</p>
                   </div>
                 </div>
                 ${newsletterPreviewFrameHtml ? `
@@ -12138,12 +12245,12 @@ return `
                   <div class="sectionTitle">
                     <div>
                       <h2>Newsletter details</h2>
-                      <p class="sub">Quick snapshot of what is about to send for ${esc(selectedCity)}.</p>
+                      <p class="sub">Quick snapshot of what is about to send for ${esc(selectedNewsletterScope)}.</p>
                     </div>
                   </div>
                   <div class="mini">
-                    <div class="insight-row"><div class="label">Subject</div><div class="value">${esc(newsletterPreviewSubject || buildDefaultNewsletterSubject(selectedCity))}</div></div>
-                    <div class="insight-row"><div class="label">Preview text</div><div class="value">${esc(newsletterPreviewText || buildDefaultNewsletterPreviewText(selectedCity))}</div></div>
+                    <div class="insight-row"><div class="label">Subject</div><div class="value">${esc(newsletterPreviewSubject || buildDefaultNewsletterSubject(selectedNewsletterScope))}</div></div>
+                    <div class="insight-row"><div class="label">Preview text</div><div class="value">${esc(newsletterPreviewText || buildDefaultNewsletterPreviewText(selectedNewsletterScope))}</div></div>
                     <div class="insight-row"><div class="label">Schedule</div><div class="value">${esc(formatNewsletterScheduleSummary(newsletterSettings))}</div></div>
                     <div class="insight-row"><div class="label">Days ahead</div><div class="value">${esc(String(clampNewsletterDaysAhead(newsletterSettings.daysAhead)))}</div></div>
                     <div class="insight-row"><div class="label">Days shown</div><div class="value">${esc(String(clampNewsletterDaysToShow(newsletterSettings.daysToShow)))}</div></div>
@@ -12159,9 +12266,10 @@ return `
                   <div class="sectionTitle"><div><h2>Send a test email</h2></div></div>
                   <form method="POST" action="/admin/newsletter/test">
                     <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                    <input type="hidden" name="newsletterScope" value="${esc(selectedNewsletterScope)}" />
                     <label>Test email address</label>
                     <input class="ctrl" type="email" name="testEmail" value="${esc(currentUser?.email || "")}" placeholder="name@example.com" required />
-                    <div class="note">This sends a preview using the current ${esc(selectedCity)} settings.</div>
+                    <div class="note">This sends a preview using the current ${esc(selectedNewsletterScope)} settings.</div>
                     <div class="actions">
                       <button class="btn btn-primary" type="submit">Send test email</button>
                     </div>
@@ -12179,15 +12287,17 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Newsletter audience</h2>
-                <p class="sub">Add and manage email addresses for the ${esc(selectedCity)} newsletter list.</p>
+                <p class="sub">Add and manage email addresses for the ${esc(selectedNewsletterScope)} newsletter list.</p>
               </div>
             </div>
+            ${newsletterScopeSwitcherHtml}
             ${newsletterNoticeHtml}
             <div class="newsletter-audience-layout">
               <div class="card" data-newsletter-search-item data-newsletter-search-text="add emails audience subscribe newsletter list">
                 <div class="sectionTitle"><div><h2>Add emails</h2></div></div>
                 <form method="POST" action="/admin/newsletter/audience">
                   <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                  <input type="hidden" name="newsletterScope" value="${esc(selectedNewsletterScope)}" />
                   <label>Email list</label>
                   <textarea class="ctrl" name="emails" rows="8" placeholder="one@example.com&#10;two@example.com"></textarea>
                   <div class="note">Paste one email per line, or separate them with commas.</div>
@@ -12200,7 +12310,7 @@ return `
                 <div class="sectionTitle">
                   <div>
                     <h2>Current audience</h2>
-                    <p class="sub">${esc(String(newsletterAudienceRows.length))} email${newsletterAudienceRows.length === 1 ? "" : "s"} in ${esc(selectedCity)}</p>
+                    <p class="sub">${esc(String(newsletterAudienceRows.length))} email${newsletterAudienceRows.length === 1 ? "" : "s"} in ${esc(selectedNewsletterScope)}</p>
                   </div>
                 </div>
                 <div class="mini">
@@ -12211,6 +12321,7 @@ return `
                         <span>${esc(DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "")}</span>
                         <form method="POST" action="/admin/newsletter/audience/${esc(String(row.id))}/delete" style="margin:0;">
                           <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                          <input type="hidden" name="newsletterScope" value="${esc(selectedNewsletterScope)}" />
                           <button class="btn" type="submit" style="height:34px; padding:0 10px;">Remove</button>
                         </form>
                       </div>
@@ -16595,7 +16706,12 @@ router.post("/newsletter/settings", upload.single("headerImageFile"), async (req
     if (!(hasDeveloperAccess || sectionPermissions.events)) return res.status(403).send("Forbidden");
 
     const fallbackCity = String(req.user?.city || currentUser?.city || "Enumclaw").trim() || "Enumclaw";
-    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const selectedCity = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const newsletterScope = pickAccessibleNewsletterScope(
+      req.body?.newsletterScope || req.query.newsletterScope || selectedCity,
+      hasDeveloperAccess ? { role: "developer" } : currentUser,
+      { fallbackScope: selectedCity, fallbackCity }
+    );
     const showcaseCount = clampNewsletterShowcaseCount(req.body?.showcaseCount);
     const daysAhead = clampNewsletterDaysAhead(req.body?.daysAhead);
     const daysToShow = clampNewsletterDaysToShow(req.body?.daysToShow);
@@ -16608,16 +16724,16 @@ router.post("/newsletter/settings", upload.single("headerImageFile"), async (req
     const scheduleEnabled = String(req.body?.scheduleEnabled || "") === "1" ? 1 : 0;
     const sendDayOfWeek = normalizeNewsletterWeekday(req.body?.sendDayOfWeek);
     const sendTimeLocal = normalizeNewsletterTime(req.body?.sendTimeLocal);
-    const emailSubject = normalizeNewsletterSubject(req.body?.emailSubject, city);
-    const previewText = normalizeNewsletterPreviewText(req.body?.previewText, city);
-    const existingSettings = await getNewsletterSettingsForCity(city);
+    const emailSubject = normalizeNewsletterSubject(req.body?.emailSubject, newsletterScope);
+    const previewText = normalizeNewsletterPreviewText(req.body?.previewText, newsletterScope);
+    const existingSettings = await getNewsletterSettingsForCity(newsletterScope);
     let lastSentAt = String(existingSettings?.lastSentAt || "").trim() || null;
 
     if (scheduleEnabled === 1) {
       const now = DateTime.now().setZone(DEFAULT_TZ);
       const nextSettings = {
         ...existingSettings,
-        city,
+        city: newsletterScope,
         showcaseCount,
         daysAhead,
         daysToShow,
@@ -16654,14 +16770,18 @@ router.post("/newsletter/settings", upload.single("headerImageFile"), async (req
          sendDayOfWeek = excluded.sendDayOfWeek,
          sendTimeLocal = excluded.sendTimeLocal,
          emailSubject = excluded.emailSubject,
-         previewText = excluded.previewText,
-         lastSentAt = excluded.lastSentAt,
-         updatedByUserId = excluded.updatedByUserId,
-         updatedAt = datetime('now')`,
-      [city, showcaseCount, daysAhead, daysToShow, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt, Number(currentUser?.id || 0) || null]
+        previewText = excluded.previewText,
+        lastSentAt = excluded.lastSentAt,
+        updatedByUserId = excluded.updatedByUserId,
+        updatedAt = datetime('now')`,
+      [newsletterScope, showcaseCount, daysAhead, daysToShow, includeFeatured, headerImageUrl, includeEditorialPick, scheduleEnabled, sendDayOfWeek, sendTimeLocal, emailSubject, previewText, lastSentAt, Number(currentUser?.id || 0) || null]
     );
 
-    return res.redirect(`/admin/newsletter?city=${encodeURIComponent(city)}&newsletterNotice=saved`);
+    return res.redirect(buildNewsletterAdminPath("/admin/newsletter", {
+      city: selectedCity,
+      newsletterScope,
+      extraParams: { newsletterNotice: "saved" },
+    }));
   } catch (err) {
     console.error(err);
     return res.status(500).send("Internal server error");
@@ -16679,25 +16799,43 @@ router.post("/newsletter/test", async (req, res) => {
     if (!(hasDeveloperAccess || sectionPermissions.events)) return res.status(403).send("Forbidden");
 
     const fallbackCity = String(req.user?.city || currentUser?.city || "Enumclaw").trim() || "Enumclaw";
-    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const selectedCity = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const newsletterScope = pickAccessibleNewsletterScope(
+      req.body?.newsletterScope || req.query.newsletterScope || selectedCity,
+      hasDeveloperAccess ? { role: "developer" } : currentUser,
+      { fallbackScope: selectedCity, fallbackCity }
+    );
     const testEmail = normalizeNewsletterEmailAddress(req.body?.testEmail);
     if (!isValidNewsletterEmail(testEmail)) {
-      return res.redirect(`/admin/newsletter/preview?city=${encodeURIComponent(city)}&newsletterNotice=invalid_email`);
+      return res.redirect(buildNewsletterAdminPath("/admin/newsletter/preview", {
+        city: selectedCity,
+        newsletterScope,
+        extraParams: { newsletterNotice: "invalid_email" },
+      }));
     }
 
     const sendResult = await sendTrackedNewsletterCampaign({
-      city,
+      city: newsletterScope,
       recipients: [testEmail],
       reqLike: req,
       createdByUserId: Number(currentUser?.id || 0) || null,
       mode: "test",
     });
 
-    return res.redirect(`/admin/newsletter/preview?city=${encodeURIComponent(city)}&newsletterNotice=${Number(sendResult.sentCount || 0) > 0 ? "test_sent" : "test_failed"}`);
+    return res.redirect(buildNewsletterAdminPath("/admin/newsletter/preview", {
+      city: selectedCity,
+      newsletterScope,
+      extraParams: { newsletterNotice: Number(sendResult.sentCount || 0) > 0 ? "test_sent" : "test_failed" },
+    }));
   } catch (err) {
     console.error(err);
     const fallbackCity = String(req.body?.city || req.query.city || "Enumclaw").trim() || "Enumclaw";
-    return res.redirect(`/admin/newsletter/preview?city=${encodeURIComponent(fallbackCity)}&newsletterNotice=test_failed`);
+    const newsletterScope = String(req.body?.newsletterScope || req.query.newsletterScope || fallbackCity).trim() || fallbackCity;
+    return res.redirect(buildNewsletterAdminPath("/admin/newsletter/preview", {
+      city: fallbackCity,
+      newsletterScope,
+      extraParams: { newsletterNotice: "test_failed" },
+    }));
   }
 });
 
@@ -16712,10 +16850,19 @@ router.post("/newsletter/audience", async (req, res) => {
     if (!(hasDeveloperAccess || sectionPermissions.events)) return res.status(403).send("Forbidden");
 
     const fallbackCity = String(req.user?.city || currentUser?.city || "Enumclaw").trim() || "Enumclaw";
-    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const selectedCity = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const newsletterScope = pickAccessibleNewsletterScope(
+      req.body?.newsletterScope || req.query.newsletterScope || selectedCity,
+      hasDeveloperAccess ? { role: "developer" } : currentUser,
+      { fallbackScope: selectedCity, fallbackCity }
+    );
     const parsed = parseNewsletterEmails(req.body?.emails);
     if (!parsed.valid.length) {
-      return res.redirect(`/admin/newsletter/audience?city=${encodeURIComponent(city)}&newsletterNotice=invalid_email`);
+      return res.redirect(buildNewsletterAdminPath("/admin/newsletter/audience", {
+        city: selectedCity,
+        newsletterScope,
+        extraParams: { newsletterNotice: "invalid_email" },
+      }));
     }
 
     for (const email of parsed.valid) {
@@ -16723,12 +16870,16 @@ router.post("/newsletter/audience", async (req, res) => {
         `INSERT INTO newsletter_audience (city, email, createdByUserId, createdAt)
          VALUES (?, ?, ?, datetime('now'))
          ON CONFLICT(city, email) DO NOTHING`,
-        [city, email, Number(currentUser?.id || 0) || null]
+        [newsletterScope, email, Number(currentUser?.id || 0) || null]
       );
     }
 
     const notice = parsed.invalid.length ? "invalid_email" : "audience_added";
-    return res.redirect(`/admin/newsletter/audience?city=${encodeURIComponent(city)}&newsletterNotice=${notice}`);
+    return res.redirect(buildNewsletterAdminPath("/admin/newsletter/audience", {
+      city: selectedCity,
+      newsletterScope,
+      extraParams: { newsletterNotice: notice },
+    }));
   } catch (err) {
     console.error(err);
     return res.status(500).send("Internal server error");
@@ -16746,12 +16897,21 @@ router.post("/newsletter/audience/:id/delete", async (req, res) => {
     if (!(hasDeveloperAccess || sectionPermissions.events)) return res.status(403).send("Forbidden");
 
     const fallbackCity = String(req.user?.city || currentUser?.city || "Enumclaw").trim() || "Enumclaw";
-    const city = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const selectedCity = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const newsletterScope = pickAccessibleNewsletterScope(
+      req.body?.newsletterScope || req.query.newsletterScope || selectedCity,
+      hasDeveloperAccess ? { role: "developer" } : currentUser,
+      { fallbackScope: selectedCity, fallbackCity }
+    );
     const id = parseInt(String(req.params.id || ""), 10);
     if (Number.isInteger(id) && id > 0) {
-      await run("DELETE FROM newsletter_audience WHERE id = ? AND city = ?", [id, city]);
+      await run("DELETE FROM newsletter_audience WHERE id = ? AND city = ?", [id, newsletterScope]);
     }
-    return res.redirect(`/admin/newsletter/audience?city=${encodeURIComponent(city)}&newsletterNotice=audience_removed`);
+    return res.redirect(buildNewsletterAdminPath("/admin/newsletter/audience", {
+      city: selectedCity,
+      newsletterScope,
+      extraParams: { newsletterNotice: "audience_removed" },
+    }));
   } catch (err) {
     console.error(err);
     return res.status(500).send("Internal server error");
