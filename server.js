@@ -9,7 +9,7 @@ const { hashPassword, hashToken, verifyPassword } = require("./lib/auth");
 const { esc } = require("./lib/html");
 const { UPLOAD_DIR } = require("./lib/uploads");
 
-const { initDB, archiveExpiredEvents, get, run } = require("./db");
+const { initDB, archiveExpiredEvents, get, all, run } = require("./db");
 
 const eventsRouter = require("./routes/events");
 const adminRouter = require("./routes/admin");
@@ -99,6 +99,7 @@ const PUBLIC_PREFIXES = [
   "/events/feature",
   "/events",
   "/venues",
+  "/newsletter/click",
   "/newsletter/open",
   "/newsletter/subscribe",
   "/ads",
@@ -118,11 +119,71 @@ async function ensurePublicNewsletterSchema() {
       createdAt TEXT DEFAULT (datetime('now'))
     )
   `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS newsletter_campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      city TEXT NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'scheduled',
+      subject TEXT,
+      previewText TEXT,
+      totalRecipients INTEGER NOT NULL DEFAULT 0,
+      sentCount INTEGER NOT NULL DEFAULT 0,
+      failedCount INTEGER NOT NULL DEFAULT 0,
+      openCount INTEGER NOT NULL DEFAULT 0,
+      uniqueOpenCount INTEGER NOT NULL DEFAULT 0,
+      clickCount INTEGER NOT NULL DEFAULT 0,
+      uniqueClickCount INTEGER NOT NULL DEFAULT 0,
+      createdByUserId INTEGER,
+      sentAt TEXT,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS newsletter_recipients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaignId INTEGER NOT NULL,
+      city TEXT NOT NULL,
+      email TEXT NOT NULL,
+      deliveryStatus TEXT NOT NULL DEFAULT 'pending',
+      openToken TEXT UNIQUE,
+      openCount INTEGER NOT NULL DEFAULT 0,
+      clickCount INTEGER NOT NULL DEFAULT 0,
+      firstOpenedAt TEXT,
+      lastOpenedAt TEXT,
+      firstClickedAt TEXT,
+      lastClickedAt TEXT,
+      sentAt TEXT,
+      errorText TEXT,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  try {
+    const campaignCols = new Set((await all("PRAGMA table_info(newsletter_campaigns)")).map((row) => String(row.name || "")));
+    if (!campaignCols.has("clickCount")) await run("ALTER TABLE newsletter_campaigns ADD COLUMN clickCount INTEGER NOT NULL DEFAULT 0");
+    if (!campaignCols.has("uniqueClickCount")) await run("ALTER TABLE newsletter_campaigns ADD COLUMN uniqueClickCount INTEGER NOT NULL DEFAULT 0");
+  } catch (_) {}
+  try {
+    const recipientCols = new Set((await all("PRAGMA table_info(newsletter_recipients)")).map((row) => String(row.name || "")));
+    if (!recipientCols.has("clickCount")) await run("ALTER TABLE newsletter_recipients ADD COLUMN clickCount INTEGER NOT NULL DEFAULT 0");
+    if (!recipientCols.has("firstClickedAt")) await run("ALTER TABLE newsletter_recipients ADD COLUMN firstClickedAt TEXT");
+    if (!recipientCols.has("lastClickedAt")) await run("ALTER TABLE newsletter_recipients ADD COLUMN lastClickedAt TEXT");
+  } catch (_) {}
   try {
     await run("CREATE INDEX IF NOT EXISTS idx_newsletter_audience_city ON newsletter_audience(city, createdAt DESC)");
   } catch (_) {}
   try {
     await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_audience_city_email ON newsletter_audience(city, email)");
+  } catch (_) {}
+  try {
+    await run("CREATE INDEX IF NOT EXISTS idx_newsletter_recipients_campaignId ON newsletter_recipients(campaignId, id DESC)");
+  } catch (_) {}
+  try {
+    await run("CREATE INDEX IF NOT EXISTS idx_newsletter_recipients_city_sentAt ON newsletter_recipients(city, sentAt DESC, id DESC)");
+  } catch (_) {}
+  try {
+    await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_recipients_openToken ON newsletter_recipients(openToken)");
   } catch (_) {}
   publicNewsletterSchemaEnsured = true;
 }
@@ -776,6 +837,7 @@ app.use(requireLogin);
 app.get("/newsletter/open/:token.gif", async (req, res) => {
   const token = String(req.params.token || "").trim();
   try {
+    await ensurePublicNewsletterSchema();
     if (token) {
       const row = await get(
         "SELECT id, campaignId, openCount FROM newsletter_recipients WHERE openToken = ? LIMIT 1",
@@ -816,6 +878,51 @@ app.get("/newsletter/open/:token.gif", async (req, res) => {
   res.set("ETag", `"newsletter-open-${Date.now()}-${Math.random().toString(36).slice(2, 8)}"`);
   res.status(200);
   return res.end(gif);
+});
+app.get("/newsletter/click/:token", async (req, res) => {
+  const token = String(req.params.token || "").trim();
+  const fallbackUrl = "https://enumclawevents.org/events";
+  const requestedUrl = String(req.query.url || "").trim();
+  let targetUrl = fallbackUrl;
+  try {
+    const parsed = new URL(requestedUrl);
+    if (/^https?:$/i.test(parsed.protocol)) targetUrl = parsed.toString();
+  } catch (_) {}
+  try {
+    await ensurePublicNewsletterSchema();
+    if (token) {
+      const row = await get(
+        "SELECT id, campaignId, clickCount FROM newsletter_recipients WHERE openToken = ? LIMIT 1",
+        [token]
+      );
+      if (row?.id) {
+        const wasClicked = Number(row.clickCount || 0) > 0;
+        await run(
+          `UPDATE newsletter_recipients
+              SET clickCount = COALESCE(clickCount, 0) + 1,
+                  firstClickedAt = COALESCE(firstClickedAt, datetime('now')),
+                  lastClickedAt = datetime('now'),
+                  updatedAt = datetime('now')
+            WHERE id = ?`,
+          [row.id]
+        );
+        await run(
+          `UPDATE newsletter_campaigns
+              SET clickCount = COALESCE(clickCount, 0) + 1,
+                  uniqueClickCount = COALESCE(uniqueClickCount, 0) + ?,
+                  updatedAt = datetime('now')
+            WHERE id = ?`,
+          [wasClicked ? 0 : 1, row.campaignId]
+        );
+      }
+    }
+  } catch (err) {
+    console.error("[NEWSLETTER] Click tracking failed:", err);
+  }
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, private, max-age=0, s-maxage=0");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  return res.redirect(302, targetUrl);
 });
 app.use("/events", eventsRouter);
 app.use("/venues", venuesRouter);

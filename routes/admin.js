@@ -1757,6 +1757,8 @@ async function ensureNewsletterSchema() {
       failedCount INTEGER NOT NULL DEFAULT 0,
       openCount INTEGER NOT NULL DEFAULT 0,
       uniqueOpenCount INTEGER NOT NULL DEFAULT 0,
+      clickCount INTEGER NOT NULL DEFAULT 0,
+      uniqueClickCount INTEGER NOT NULL DEFAULT 0,
       createdByUserId INTEGER,
       sentAt TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
@@ -1772,8 +1774,11 @@ async function ensureNewsletterSchema() {
       deliveryStatus TEXT NOT NULL DEFAULT 'pending',
       openToken TEXT UNIQUE,
       openCount INTEGER NOT NULL DEFAULT 0,
+      clickCount INTEGER NOT NULL DEFAULT 0,
       firstOpenedAt TEXT,
       lastOpenedAt TEXT,
+      firstClickedAt TEXT,
+      lastClickedAt TEXT,
       sentAt TEXT,
       errorText TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
@@ -1791,6 +1796,17 @@ async function ensureNewsletterSchema() {
     if (!settingCols.has("emailSubject")) await run("ALTER TABLE newsletter_settings ADD COLUMN emailSubject TEXT");
     if (!settingCols.has("previewText")) await run("ALTER TABLE newsletter_settings ADD COLUMN previewText TEXT");
     if (!settingCols.has("lastSentAt")) await run("ALTER TABLE newsletter_settings ADD COLUMN lastSentAt TEXT");
+  } catch (_) {}
+  try {
+    const campaignCols = new Set((await all("PRAGMA table_info(newsletter_campaigns)")).map((row) => String(row.name || "")));
+    if (!campaignCols.has("clickCount")) await run("ALTER TABLE newsletter_campaigns ADD COLUMN clickCount INTEGER NOT NULL DEFAULT 0");
+    if (!campaignCols.has("uniqueClickCount")) await run("ALTER TABLE newsletter_campaigns ADD COLUMN uniqueClickCount INTEGER NOT NULL DEFAULT 0");
+  } catch (_) {}
+  try {
+    const recipientCols = new Set((await all("PRAGMA table_info(newsletter_recipients)")).map((row) => String(row.name || "")));
+    if (!recipientCols.has("clickCount")) await run("ALTER TABLE newsletter_recipients ADD COLUMN clickCount INTEGER NOT NULL DEFAULT 0");
+    if (!recipientCols.has("firstClickedAt")) await run("ALTER TABLE newsletter_recipients ADD COLUMN firstClickedAt TEXT");
+    if (!recipientCols.has("lastClickedAt")) await run("ALTER TABLE newsletter_recipients ADD COLUMN lastClickedAt TEXT");
   } catch (_) {}
   try { await run("CREATE INDEX IF NOT EXISTS idx_newsletter_audience_city ON newsletter_audience(city, createdAt DESC)"); } catch (_) {}
   try { await run("CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_audience_city_email ON newsletter_audience(city, email)"); } catch (_) {}
@@ -2066,11 +2082,10 @@ async function getNewsletterEventCandidates(city, { startAtMs = Date.now(), endA
          ticketUrl,
          featured,
          eddiesPick
-       FROM events
-       WHERE city IN (${cityPlaceholders})
-         AND COALESCE(archived, 0) = 0
-       ORDER BY datetime(startDateTime) ASC, id ASC
-       LIMIT 250`,
+      FROM events
+      WHERE city IN (${cityPlaceholders})
+        AND COALESCE(archived, 0) = 0
+      `,
       targetCities
     );
   } catch (_) {
@@ -2095,8 +2110,7 @@ async function getNewsletterEventCandidates(city, { startAtMs = Date.now(), endA
          0 AS eddiesPick
        FROM events
        WHERE city IN (${cityPlaceholders})
-       ORDER BY datetime(startDateTime) ASC, id ASC
-       LIMIT 250`,
+       `,
       targetCities
     );
   }
@@ -2191,14 +2205,14 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
     const image = normalizeHttpUrl(event.imageUrl || "");
     return `
       <div style="border:1px solid #dbe4ee; border-radius:16px; overflow:hidden; background:#ffffff; margin:0 0 20px;">
-        ${image ? `<a href="${href}" style="display:block; text-decoration:none;"><img src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:260px; object-fit:cover; background:#eef4f8;" /></a>` : ``}
-        <div style="padding:20px;">
+        ${image ? `<a href="${href}" style="display:block; text-decoration:none;"><img class="oc-feature-img" src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:260px; object-fit:cover; background:#eef4f8;" /></a>` : ``}
+        <div class="oc-feature-body" style="padding:20px;">
           <div style="font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#0ea5e9; margin-bottom:8px;">${esc(label)}</div>
-          <div style="font-size:24px; line-height:1.2; font-weight:800; margin-bottom:10px;"><a href="${href}" style="color:#0f172a; text-decoration:none;">${title}</a></div>
+          <div class="oc-feature-title" style="font-size:24px; line-height:1.2; font-weight:800; margin-bottom:10px;"><a href="${href}" style="color:#0f172a; text-decoration:none;">${title}</a></div>
           <div style="font-size:14px; color:#526377; margin-bottom:6px;">${dateLine}</div>
           <div style="font-size:14px; color:#526377; margin-bottom:6px;">${location}</div>
           <div style="font-size:14px; color:#526377; margin-bottom:12px;">${organizer}</div>
-          ${body ? `<div style="font-size:15px; line-height:1.6; color:#334155; margin-bottom:16px;">${body}</div>` : ``}
+          ${body ? `<div class="oc-feature-copy" style="font-size:15px; line-height:1.6; color:#334155; margin-bottom:16px;">${body}</div>` : ``}
           <a href="${href}" style="display:inline-block; padding:11px 16px; border-radius:999px; background:#00c08b; color:#ffffff; font-weight:700; text-decoration:none;">View event</a>
         </div>
       </div>
@@ -2235,13 +2249,13 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
       const image = normalizeHttpUrl(event.imageUrl || "");
       return `
         <div style="border:1px solid #e5edf4; border-radius:14px; overflow:hidden; background:#ffffff;">
-          ${image ? `<a href="${href}" style="display:block; text-decoration:none;"><img src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:220px; object-fit:cover; background:#eef4f8;" /></a>` : ``}
-          <div style="padding:16px;">
-            <div style="font-size:18px; line-height:1.35; font-weight:800; margin-bottom:6px;"><a href="${href}" style="color:#0f172a; text-decoration:none;">${title}</a></div>
-            <div style="font-size:14px; color:#526377; margin-bottom:4px;">${dateLine}</div>
-            <div style="font-size:14px; color:#526377; margin-bottom:4px;">${location}</div>
-            <div style="font-size:14px; color:#526377; margin-bottom:10px;">${organizer}</div>
-            <a href="${href}" style="color:#0ea5e9; font-weight:700; text-decoration:none;">Open event</a>
+          ${image ? `<a href="${href}" style="display:block; text-decoration:none;"><img class="oc-grid-img" src="${esc(image)}" alt="${title}" style="display:block; width:100%; max-height:220px; object-fit:cover; background:#eef4f8;" /></a>` : ``}
+          <div class="oc-grid-body" style="padding:16px;">
+            <div class="oc-grid-title" style="font-size:18px; line-height:1.35; font-weight:800; margin-bottom:6px;"><a href="${href}" style="color:#0f172a; text-decoration:none;">${title}</a></div>
+            <div class="oc-grid-meta" style="font-size:14px; color:#526377; margin-bottom:4px;">${dateLine}</div>
+            <div class="oc-grid-meta" style="font-size:14px; color:#526377; margin-bottom:4px;">${location}</div>
+            <div class="oc-grid-meta" style="font-size:14px; color:#526377; margin-bottom:10px;">${organizer}</div>
+            <a class="oc-grid-link" href="${href}" style="color:#0ea5e9; font-weight:700; text-decoration:none;">Open event</a>
           </div>
         </div>
       `;
@@ -2252,13 +2266,13 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
       const right = itemCards[i + 1] || "";
       rows.push(`
         <tr>
-          <td valign="top" width="50%" style="width:50%; padding:0 10px 20px 0;">${left}</td>
-          <td valign="top" width="50%" style="width:50%; padding:0 0 20px 10px;">${right || "&nbsp;"}</td>
+          <td class="oc-grid-cell" valign="top" width="50%" style="width:50%; padding:0 10px 20px 0;">${left}</td>
+          <td class="oc-grid-cell" valign="top" width="50%" style="width:50%; padding:0 0 20px 10px;">${right || "&nbsp;"}</td>
         </tr>
       `);
     }
     const itemsHtml = `
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse; margin-top:16px;">
+      <table class="oc-grid-wrap" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse; margin-top:16px;">
         ${rows.join("")}
       </table>
     `;
@@ -2289,24 +2303,45 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
   return {
     subject,
     html: `
-      <div style="margin:0; padding:24px; background:#edf2f7; font-family:Arial, sans-serif;">
-        <div style="max-width:720px; margin:0 auto;">
+      <style>
+        @media only screen and (max-width: 600px) {
+          .oc-wrap { padding: 12px !important; }
+          .oc-shell { max-width: 100% !important; }
+          .oc-header-img { max-height: 180px !important; }
+          .oc-title { font-size: 26px !important; line-height: 1.12 !important; }
+          .oc-preview { font-size: 15px !important; line-height: 1.5 !important; }
+          .oc-feature-img { max-height: 180px !important; }
+          .oc-feature-body { padding: 14px !important; }
+          .oc-feature-title { font-size: 20px !important; line-height: 1.2 !important; }
+          .oc-feature-copy { font-size: 14px !important; line-height: 1.5 !important; }
+          .oc-grid-wrap { margin-top: 12px !important; }
+          .oc-grid-cell { padding: 0 4px 12px !important; }
+          .oc-grid-img { max-height: 120px !important; }
+          .oc-grid-body { padding: 12px !important; }
+          .oc-grid-title { font-size: 15px !important; line-height: 1.28 !important; }
+          .oc-grid-meta { font-size: 12px !important; line-height: 1.45 !important; }
+          .oc-grid-link { font-size: 13px !important; }
+          .oc-footer-btn { padding: 11px 16px !important; font-size: 14px !important; }
+        }
+      </style>
+      <div class="oc-wrap" style="margin:0; padding:24px; background:#edf2f7; font-family:Arial, sans-serif;">
+        <div class="oc-shell" style="max-width:720px; margin:0 auto;">
           <div style="display:none!important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden;">${esc(previewText)}</div>
           ${headerImageUrl ? `
           <div style="margin:0 0 20px; border-radius:18px; overflow:hidden; background:#ffffff; border:1px solid #dbe4ee;">
             <a href="${homeHref}" style="display:block; text-decoration:none;">
-              <img src="${esc(headerImageUrl)}" alt="${esc(normalizedCity)} newsletter header" style="display:block; width:100%; max-height:320px; object-fit:cover; background:#eef4f8;" />
+              <img class="oc-header-img" src="${esc(headerImageUrl)}" alt="${esc(normalizedCity)} newsletter header" style="display:block; width:100%; max-height:320px; object-fit:cover; background:#eef4f8;" />
             </a>
           </div>
           ` : ``}
           <div style="padding:0 0 20px;">
             <div style="font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#00c08b; margin-bottom:8px;">OpenCircle Newsletter</div>
-            <div style="font-size:34px; line-height:1.1; font-weight:900; color:#0f172a; margin-bottom:10px;">${esc(subject)}</div>
-            <div style="font-size:16px; line-height:1.6; color:#526377; margin-bottom:8px;">${esc(previewText)}</div>
+            <div class="oc-title" style="font-size:34px; line-height:1.1; font-weight:900; color:#0f172a; margin-bottom:10px;">${esc(subject)}</div>
+            <div class="oc-preview" style="font-size:16px; line-height:1.6; color:#526377; margin-bottom:8px;">${esc(previewText)}</div>
           </div>
           ${pieces.join("")}
           <div style="padding:24px 0 0; text-align:center;">
-            <a href="${allEventsHref}" style="display:inline-block; padding:12px 18px; border-radius:999px; background:#0ea5e9; color:#ffffff; font-weight:800; text-decoration:none;">See all events</a>
+            <a class="oc-footer-btn" href="${allEventsHref}" style="display:inline-block; padding:12px 18px; border-radius:999px; background:#0ea5e9; color:#ffffff; font-weight:800; text-decoration:none;">See all events</a>
           </div>
         </div>
       </div>
@@ -2376,13 +2411,35 @@ function buildNewsletterOpenPixelUrl(reqLike, token) {
   return `${base}/newsletter/open/${encodeURIComponent(String(token || "").trim())}.gif`;
 }
 
+function decodeNewsletterHtmlAttribute(value) {
+  return String(value || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function buildNewsletterClickUrl(reqLike, token, targetUrl) {
+  const base = String(buildNewsletterApiBaseUrl(reqLike) || "").replace(/\/+$/, "");
+  const normalizedToken = String(token || "").trim();
+  const normalizedTarget = String(targetUrl || "").trim();
+  return `${base}/newsletter/click/${encodeURIComponent(normalizedToken)}?url=${encodeURIComponent(normalizedTarget)}`;
+}
+
 function buildTrackedNewsletterHtml(html, reqLike, openToken) {
   const sourceHtml = String(html || "");
   const token = String(openToken || "").trim();
   if (!sourceHtml || !token) return sourceHtml;
   const pixelUrl = buildNewsletterOpenPixelUrl(reqLike, token);
   const pixelHtml = `<div style="font-size:0; line-height:0; max-height:1px; overflow:hidden;"><img src="${esc(pixelUrl)}" alt="" width="1" height="1" style="display:block !important; width:1px !important; height:1px !important; max-width:1px !important; max-height:1px !important; opacity:0.01; border:0; margin:0; padding:0;" /></div>`;
-  return `${sourceHtml}${pixelHtml}`;
+  const trackedHtml = sourceHtml.replace(/href="([^"]+)"/gi, (match, hrefValue) => {
+    const decodedHref = decodeNewsletterHtmlAttribute(hrefValue);
+    if (!/^https?:\/\//i.test(decodedHref)) return match;
+    if (/\/newsletter\/(?:open|click)\//i.test(decodedHref)) return match;
+    return `href="${esc(buildNewsletterClickUrl(reqLike, token, decodedHref))}"`;
+  });
+  return `${trackedHtml}${pixelHtml}`;
 }
 
 async function createNewsletterCampaignLog({ city, mode, subject, previewText, totalRecipients, createdByUserId, sentAt }) {
@@ -3176,6 +3233,7 @@ const analyticsMetricHelp = {
   openedEmails: "How many newsletter emails have been opened at least once.",
   reopens: "How many extra opens happened after the first open.",
   openRate: "The share of sent newsletter emails that were opened.",
+  linkClicks: "How many times people clicked links inside the newsletter.",
   newsletterCampaigns: "The number of newsletter sends that have been logged.",
   audienceSize: "How many email addresses are currently on this newsletter list.",
   testEmails: "How many test newsletter emails have been sent.",
@@ -4985,6 +5043,14 @@ return `
     const chartViewMode = ["daily", "weekly", "monthly", "yearly"].includes(requestedChartView)
       ? requestedChartView
       : "daily";
+    const requestedNewsletterCampaignIdRaw = parseInt(String(req.query.campaignId || ""), 10);
+    const requestedNewsletterCampaignId = Number.isInteger(requestedNewsletterCampaignIdRaw) && requestedNewsletterCampaignIdRaw > 0
+      ? requestedNewsletterCampaignIdRaw
+      : null;
+    const requestedNewsletterCampaignPageRaw = parseInt(String(req.query.campaignPage || ""), 10);
+    const requestedNewsletterCampaignPage = Number.isInteger(requestedNewsletterCampaignPageRaw) && requestedNewsletterCampaignPageRaw > 0
+      ? requestedNewsletterCampaignPageRaw
+      : 1;
     const buildEventAnalyticsHref = (id) =>
       `/admin/events-analytics?event=${encodeURIComponent(String(id || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
     const buildAnalyticsChartHref = (mode) =>
@@ -6031,73 +6097,144 @@ return `
       totalEmailsSent: 0,
       openedEmails: 0,
       reopens: 0,
+      linkClicks: 0,
       openRatePct: "0%",
       audienceSize: 0,
       failedEmails: 0,
     };
+    let newsletterSelectedCampaignId = 0;
+    let newsletterSelectedCampaignNoticeHtml = "";
     let newsletterRecentCampaignsHtml = `<div class="muted">No newsletter sends yet.</div>`;
     let newsletterTopCampaignsHtml = `<div class="muted">No newsletter open data yet.</div>`;
     let newsletterChartDataJson = esc(JSON.stringify({ events: {}, views: {} }));
     let newsletterChartSvgByMode = { daily: "", weekly: "", monthly: "", yearly: "" };
     const buildNewsletterAnalyticsChartHref = (mode) =>
-      buildNewsletterHref("/admin/newsletter/analytics", { chartView: String(mode || "daily") });
+      buildNewsletterHref("/admin/newsletter/analytics", {
+        chartView: String(mode || "daily"),
+        campaignId: requestedNewsletterCampaignId ? String(requestedNewsletterCampaignId) : "",
+        campaignPage: String(requestedNewsletterCampaignPage || 1),
+      });
 
     if (showNewsletterAnalytics || (showDashboard && canSeeNewsletterAnalytics)) {
       await ensureNewsletterSchema();
       const campaignRows = await all(
-        `SELECT id, city, mode, subject, previewText, totalRecipients, sentCount, failedCount, openCount, uniqueOpenCount, sentAt, createdAt
+        `SELECT id, city, mode, subject, previewText, totalRecipients, sentCount, failedCount, openCount, uniqueOpenCount, clickCount, uniqueClickCount, sentAt, createdAt
            FROM newsletter_campaigns
           WHERE city = ?
           ORDER BY datetime(COALESCE(sentAt, createdAt)) DESC, id DESC`,
         [newsletterContextCity]
       );
-      const openRows = await all(
-        `SELECT firstOpenedAt
+      const recipientRows = await all(
+        `SELECT campaignId, firstOpenedAt, firstClickedAt, clickCount
            FROM newsletter_recipients
           WHERE city = ?
-            AND firstOpenedAt IS NOT NULL
-          ORDER BY datetime(firstOpenedAt) DESC, id DESC`,
+          ORDER BY id DESC`,
         [newsletterContextCity]
       );
 
-      const totalEmailsSent = campaignRows.reduce((sum, row) => sum + Number(row.sentCount || 0), 0);
-      const openedEmails = campaignRows.reduce((sum, row) => sum + Number(row.uniqueOpenCount || 0), 0);
-      const totalOpenEvents = campaignRows.reduce((sum, row) => sum + Number(row.openCount || 0), 0);
+      const selectedCampaignRow = requestedNewsletterCampaignId
+        ? (campaignRows.find((row) => Number(row.id || 0) === Number(requestedNewsletterCampaignId)) || null)
+        : null;
+      const campaignStatsRows = selectedCampaignRow
+        ? campaignRows.filter((row) => Number(row.id || 0) === Number(selectedCampaignRow.id))
+        : campaignRows;
+      const filteredRecipientRows = selectedCampaignRow
+        ? recipientRows.filter((row) => Number(row.campaignId || 0) === Number(selectedCampaignRow.id))
+        : recipientRows;
+      const openRows = filteredRecipientRows.filter((row) => String(row.firstOpenedAt || "").trim());
+
+      const totalEmailsSent = campaignStatsRows.reduce((sum, row) => sum + Number(row.sentCount || 0), 0);
+      const openedEmails = campaignStatsRows.reduce((sum, row) => sum + Number(row.uniqueOpenCount || 0), 0);
+      const totalOpenEvents = campaignStatsRows.reduce((sum, row) => sum + Number(row.openCount || 0), 0);
       const reopens = Math.max(0, totalOpenEvents - openedEmails);
-      const failedEmails = campaignRows.reduce((sum, row) => sum + Number(row.failedCount || 0), 0);
-      const scheduledCampaigns = campaignRows.filter((row) => String(row.mode || "scheduled") !== "test").length;
-      const testCampaigns = campaignRows.filter((row) => String(row.mode || "") === "test").length;
+      const linkClicks = campaignStatsRows.reduce((sum, row) => sum + Number(row.clickCount || 0), 0);
+      const failedEmails = campaignStatsRows.reduce((sum, row) => sum + Number(row.failedCount || 0), 0);
+      const scheduledCampaigns = campaignStatsRows.filter((row) => String(row.mode || "scheduled") !== "test").length;
+      const testCampaigns = campaignStatsRows.filter((row) => String(row.mode || "") === "test").length;
       newsletterAnalyticsStats = {
-        campaigns: campaignRows.length,
+        campaigns: campaignStatsRows.length,
         scheduledCampaigns,
         testCampaigns,
         totalEmailsSent,
         openedEmails,
         reopens,
+        linkClicks,
         openRatePct: totalEmailsSent > 0 ? `${Math.round((openedEmails / totalEmailsSent) * 100)}%` : "0%",
         audienceSize: newsletterAudienceRows.length,
         failedEmails,
       };
 
+      if (selectedCampaignRow) {
+        newsletterSelectedCampaignId = Number(selectedCampaignRow.id || 0);
+        const selectedSentLabel = String(selectedCampaignRow.sentAt || selectedCampaignRow.createdAt || "").trim();
+        const selectedSentDt = selectedSentLabel ? DateTime.fromISO(selectedSentLabel, { zone: DEFAULT_TZ }) : null;
+        newsletterSelectedCampaignNoticeHtml = `
+          <div class="card" style="margin-bottom:var(--gap);" data-newsletter-search-item>
+            <div class="sectionTitle" style="margin-bottom:10px;">
+              <div>
+                <h2>Viewing one campaign</h2>
+                <p class="sub">The cards and chart below are filtered to this send only.</p>
+              </div>
+              <div class="right">
+                <a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignPage: String(requestedNewsletterCampaignPage || 1) })}">Clear filter</a>
+              </div>
+            </div>
+            <div class="mini">
+              <div class="kv"><div class="k">Subject</div><div class="v">${esc(String(selectedCampaignRow.subject || buildDefaultNewsletterSubject(newsletterContextCity)))}</div></div>
+              <div class="kv"><div class="k">Type</div><div class="v">${esc(String(selectedCampaignRow.mode || "scheduled") === "test" ? "Test send" : "Live send")}</div></div>
+              <div class="kv"><div class="k">Sent</div><div class="v">${esc(selectedSentDt && selectedSentDt.isValid ? selectedSentDt.toFormat("LLL d, yyyy 'at' h:mm a") : "Unknown")}</div></div>
+            </div>
+          </div>
+        `;
+      }
+
       newsletterRecentCampaignsHtml = campaignRows.length
-        ? campaignRows.slice(0, 6).map((row) => {
+        ? (() => {
+            const pageSize = 5;
+            const totalPages = Math.max(1, Math.ceil(campaignRows.length / pageSize));
+            const currentPage = Math.min(Math.max(1, requestedNewsletterCampaignPage), totalPages);
+            const pageRows = campaignRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+            const rowsHtml = pageRows.map((row) => {
             const sentCount = Number(row.sentCount || 0);
             const openCount = Number(row.uniqueOpenCount || 0);
             const reopenCount = Math.max(0, Number(row.openCount || 0) - openCount);
+            const clickCount = Number(row.clickCount || 0);
             const modeLabel = String(row.mode || "scheduled") === "test" ? "Test" : "Live";
             const rate = sentCount > 0 ? `${Math.round((openCount / sentCount) * 100)}%` : "0%";
             const sentLabel = String(row.sentAt || row.createdAt || "").trim();
             const sentDt = sentLabel ? DateTime.fromISO(sentLabel, { zone: DEFAULT_TZ }) : null;
+            const isSelected = Number(selectedCampaignRow?.id || 0) === Number(row.id || 0);
+            const analyticsHref = buildNewsletterHref("/admin/newsletter/analytics", {
+              chartView: chartViewMode,
+              campaignId: String(row.id || ""),
+              campaignPage: String(currentPage),
+            });
             return `
-              <div class="insight-row">
+              <div class="insight-row" style="gap:16px; align-items:flex-start;">
                 <div class="label">
                   <div style="font-weight:700; color:var(--text);">${esc(String(row.subject || buildDefaultNewsletterSubject(newsletterContextCity)))}</div>
                   <div class="muted" style="font-size:12px; margin-top:4px;">${esc(modeLabel)} send${sentDt && sentDt.isValid ? ` · ${sentDt.toFormat("LLL d, yyyy 'at' h:mm a")}` : ""}</div>
                 </div>
-                <div class="value">${sentCount.toLocaleString("en-US")} sent · ${openCount.toLocaleString("en-US")} opens · ${reopenCount.toLocaleString("en-US")} re-opens</div>
+                <div class="value" style="text-align:right; min-width:220px;">
+                  <div>${sentCount.toLocaleString("en-US")} sent · ${openCount.toLocaleString("en-US")} opens · ${reopenCount.toLocaleString("en-US")} re-opens · ${clickCount.toLocaleString("en-US")} clicks</div>
+                  <div style="margin-top:8px;">
+                    <a class="btn ${isSelected ? "btn-primary" : ""}" href="${analyticsHref}">${isSelected ? "Viewing" : "View analytics"}</a>
+                  </div>
+                </div>
               </div>
             `;
-          }).join("")
+            }).join("");
+            const paginationHtml = totalPages > 1 ? `
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:14px;">
+                <div class="muted" style="font-size:12px;">Page ${currentPage} of ${totalPages}</div>
+                <div style="display:flex; gap:8px;">
+                  ${currentPage > 1 ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignId: selectedCampaignRow ? String(selectedCampaignRow.id) : "", campaignPage: String(currentPage - 1) })}">Previous</a>` : ``}
+                  ${currentPage < totalPages ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignId: selectedCampaignRow ? String(selectedCampaignRow.id) : "", campaignPage: String(currentPage + 1) })}">Next</a>` : ``}
+                </div>
+              </div>
+            ` : "";
+            return `${rowsHtml}${paginationHtml}`;
+          })()
         : newsletterRecentCampaignsHtml;
 
       newsletterTopCampaignsHtml = [...campaignRows]
@@ -6107,11 +6244,12 @@ return `
           const sentCount = Number(row.sentCount || 0);
           const openCount = Number(row.uniqueOpenCount || 0);
           const reopenCount = Math.max(0, Number(row.openCount || 0) - openCount);
+          const clickCount = Number(row.clickCount || 0);
           const rate = sentCount > 0 ? `${Math.round((openCount / sentCount) * 100)}%` : "0%";
           return `
             <div class="kv">
               <div class="k">${esc(String(row.subject || buildDefaultNewsletterSubject(newsletterContextCity)))}</div>
-              <div class="v">${openCount.toLocaleString("en-US")} opens · ${reopenCount.toLocaleString("en-US")} re-opens · ${rate}</div>
+              <div class="v">${openCount.toLocaleString("en-US")} opens · ${reopenCount.toLocaleString("en-US")} re-opens · ${clickCount.toLocaleString("en-US")} clicks · ${rate}</div>
             </div>
           `;
         }).join("") || newsletterTopCampaignsHtml;
@@ -6186,10 +6324,10 @@ return `
 
       const newsletterChartSets = {
         events: {
-          daily: buildNewsletterSeries("daily", campaignRows, "sentAt", (row) => row.sentCount),
-          weekly: buildNewsletterSeries("weekly", campaignRows, "sentAt", (row) => row.sentCount),
-          monthly: buildNewsletterSeries("monthly", campaignRows, "sentAt", (row) => row.sentCount),
-          yearly: buildNewsletterSeries("yearly", campaignRows, "sentAt", (row) => row.sentCount),
+          daily: buildNewsletterSeries("daily", campaignStatsRows, "sentAt", (row) => row.sentCount),
+          weekly: buildNewsletterSeries("weekly", campaignStatsRows, "sentAt", (row) => row.sentCount),
+          monthly: buildNewsletterSeries("monthly", campaignStatsRows, "sentAt", (row) => row.sentCount),
+          yearly: buildNewsletterSeries("yearly", campaignStatsRows, "sentAt", (row) => row.sentCount),
         },
         views: {
           daily: buildNewsletterSeries("daily", openRows, "firstOpenedAt", () => 1),
@@ -11516,6 +11654,7 @@ return `
                 ${canSeeNewsletterAnalytics ? `<div class="insight-panel ${dashboardPrimaryInsightTarget === "newsletter" ? "is-active" : ""}" data-insight-panel="newsletter"><div class="insight-list">
                   <div class="insight-row"><div class="label">Emails sent</div><div class="value">${esc(String(newsletterAnalyticsStats.totalEmailsSent))}</div></div>
                   <div class="insight-row"><div class="label">Open rate</div><div class="value">${esc(String(newsletterAnalyticsStats.openRatePct))}</div></div>
+                  <div class="insight-row"><div class="label">Link clicks</div><div class="value">${esc(String(newsletterAnalyticsStats.linkClicks))}</div></div>
                   <div class="insight-row"><div class="label">Audience</div><div class="value">${esc(String(newsletterAnalyticsStats.audienceSize))}</div></div>
                   <div class="insight-row"><div class="label">Campaigns</div><div class="value">${esc(String(newsletterAnalyticsStats.campaigns))}</div></div>
                 </div></div>` : ``}
@@ -12075,6 +12214,7 @@ return `
         ${showNewsletterAnalytics ? `
         <div data-newsletter-search-root id="newsletter-analytics-root">
         ${newsletterScopeSwitcherHtml}
+        ${newsletterSelectedCampaignNoticeHtml}
         <section class="metrics" id="newsletter-analytics-metrics">
           <div class="metric" data-newsletter-search-item>
             <div>
@@ -12098,6 +12238,12 @@ return `
             <div>
               <div class="k">${analyticsMetricLabel("Open rate", analyticsMetricHelp.openRate)}</div>
               <div class="v">${newsletterAnalyticsStats.openRatePct}</div>
+            </div>
+          </div>
+          <div class="metric" data-newsletter-search-item>
+            <div>
+              <div class="k">${analyticsMetricLabel("Links clicked", analyticsMetricHelp.linkClicks)}</div>
+              <div class="v">${newsletterAnalyticsStats.linkClicks.toLocaleString("en-US")}</div>
             </div>
           </div>
           <div class="metric" data-newsletter-search-item>
@@ -12155,17 +12301,26 @@ return `
           <div class="card" data-newsletter-search-item>
             <div class="sectionTitle">
               <div>
-                <h2>Newsletter overview</h2>
-                <p class="sub">Current send setup and delivery snapshot</p>
+                <h2>${newsletterSelectedCampaignId ? "Campaign overview" : "Newsletter overview"}</h2>
+                <p class="sub">${newsletterSelectedCampaignId ? "Delivery details for the selected campaign" : "Current send setup and delivery snapshot"}</p>
               </div>
             </div>
             <div class="mini">
+              ${newsletterSelectedCampaignId ? `
+              <div class="kv"><div class="k">Emails sent</div><div class="v">${newsletterAnalyticsStats.totalEmailsSent.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Opened emails</div><div class="v">${newsletterAnalyticsStats.openedEmails.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Re-opens</div><div class="v">${newsletterAnalyticsStats.reopens.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Link clicks</div><div class="v">${newsletterAnalyticsStats.linkClicks.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Open rate</div><div class="v">${newsletterAnalyticsStats.openRatePct}</div></div>
+              <div class="kv"><div class="k">Failed emails</div><div class="v">${newsletterAnalyticsStats.failedEmails.toLocaleString("en-US")}</div></div>
+              ` : `
               <div class="kv"><div class="k">Automatic sending</div><div class="v">${Number(newsletterSettings.scheduleEnabled || 0) === 1 ? "On" : "Off"}</div></div>
               <div class="kv"><div class="k">Schedule</div><div class="v">${esc(formatNewsletterScheduleSummary(newsletterSettings))}</div></div>
               <div class="kv"><div class="k">Next send</div><div class="v">${esc(newsletterNextSendLabel)}</div></div>
               <div class="kv"><div class="k">Last sent</div><div class="v">${esc(newsletterLastSentLabel)}</div></div>
               <div class="kv"><div class="k">Live campaigns</div><div class="v">${newsletterAnalyticsStats.scheduledCampaigns.toLocaleString("en-US")}</div></div>
               <div class="kv"><div class="k">Failed emails</div><div class="v">${newsletterAnalyticsStats.failedEmails.toLocaleString("en-US")}</div></div>
+              `}
             </div>
           </div>
         </section>
