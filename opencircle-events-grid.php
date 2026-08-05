@@ -2409,6 +2409,16 @@ function oc_integration_render_admin_styles($active_tab) {
     .oc-admin-field textarea {
       min-height: 72px;
     }
+    .oc-admin-field .oc-admin-static {
+      display: block;
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #dcdcde;
+      border-radius: 4px;
+      background: #f6f7f7;
+      color: #1d2327;
+      box-sizing: border-box;
+    }
     .oc-admin-code {
       display: block;
       padding: 10px 12px;
@@ -2767,7 +2777,8 @@ function oc_integration_render_shortcodes_page() {
         <div class="oc-admin-fields">
           <div class="oc-admin-field">
             <label for="oc-newsletter-city">Coverage</label>
-            <input id="oc-newsletter-city" type="text" data-attr="city" value="<?php echo esc_attr(oc_integration_newsletter_scope()); ?>" readonly />
+            <input id="oc-newsletter-city" type="hidden" data-attr="city" value="<?php echo esc_attr(oc_integration_newsletter_scope()); ?>" />
+            <div class="oc-admin-static" aria-hidden="true"><?php echo esc_html(oc_integration_newsletter_scope()); ?></div>
           </div>
           <div class="oc-admin-field">
             <label for="oc-newsletter-title">Headline</label>
