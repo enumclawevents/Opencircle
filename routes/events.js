@@ -1,0 +1,2348 @@
+"use strict";
+
+const express = require("express");
+const router = express.Router();
+const { all, get, run } = require("../db");
+const crypto = require("crypto");
+const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
+const { safeParseJson } = require("../lib/json");
+const {
+  buildEventStructuredData,
+  buildSeoDescriptor,
+  deriveEventSeoFields,
+} = require("../lib/public-seo");
+const PAST_EVENTS_LIMIT = 24;
+const PAST_EVENTS_CACHE_MS = 5 * 60 * 1000;
+const pastEventsCache = new Map();
+
+/**
+ * Helpers
+ */
+
+function escapeXml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function toLocalISOWithOffset(dtLocal) {
+  const raw = String(dtLocal || "").trim();
+  if (!raw) return null;
+
+  const zonedLocal = DateTime.fromFormat(raw, "yyyy-MM-dd'T'HH:mm", { zone: DEFAULT_TZ });
+  if (zonedLocal.isValid) {
+    return zonedLocal.toISO({ suppressMilliseconds: true, includeOffset: true });
+  }
+
+  const zonedWithSeconds = DateTime.fromFormat(raw, "yyyy-MM-dd'T'HH:mm:ss", { zone: DEFAULT_TZ });
+  if (zonedWithSeconds.isValid) {
+    return zonedWithSeconds.toISO({ suppressMilliseconds: true, includeOffset: true });
+  }
+
+  const parsed = DateTime.fromISO(raw, { setZone: true });
+  if (parsed.isValid) {
+    return parsed.toISO({ suppressMilliseconds: true, includeOffset: true });
+  }
+
+  return null;
+}
+
+function normalizeCategoriesInput(val) {
+  if (Array.isArray(val)) {
+    return val.map((x) => String(x || "").trim()).filter(Boolean);
+  }
+  if (!val) return [];
+  return String(val)
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function normalizeMultiDaySchedule(val) {
+  if (!val) return [];
+  let parsed = val;
+  if (typeof val === "string") {
+    try {
+      parsed = JSON.parse(val);
+    } catch {
+      parsed = [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((item) => {
+      const date = String(item?.date || "").trim();
+      const startTime = String(item?.startTime || "").trim();
+      const endTime = String(item?.endTime || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      if (!/^\d{2}:\d{2}$/.test(startTime)) return null;
+      if (!/^\d{2}:\d{2}$/.test(endTime)) return null;
+      return { date, startTime, endTime };
+    })
+    .filter(Boolean);
+}
+
+function addHoursIso(iso, hours) {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    d.setHours(d.getHours() + hours);
+    return d.toISOString();
+  } catch {
+    return iso;
+  }
+}
+
+function toDateValue(iso) {
+  const s = String(iso || "").trim();
+  const match = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
+}
+
+function normalizeYmd(value) {
+  const s = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+function normalizeWeekdayList(input) {
+  const values = Array.isArray(input) ? input : (String(input || "").trim() ? [input] : []);
+  const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
+  const uniq = [];
+  values
+    .map((value) => String(value || "").trim().toUpperCase())
+    .filter(Boolean)
+    .forEach((value) => {
+      if (!allowed.has(value) || uniq.includes(value)) return;
+      uniq.push(value);
+    });
+  return uniq;
+}
+
+function normalizeRecurringItems(raw, fallbackStartIso, fallbackEndIso) {
+  let parsed = safeParseJson(raw, []);
+  if (!Array.isArray(parsed)) parsed = [];
+  const uniqDates = [];
+  const items = [];
+  for (const item of parsed) {
+    if (typeof item === "string") {
+      const date = normalizeYmd(item);
+      if (!date) continue;
+      if (!uniqDates.includes(date)) uniqDates.push(date);
+      if (fallbackStartIso && fallbackEndIso) {
+        items.push({
+          date,
+          start: date + String(fallbackStartIso).slice(10),
+          end: date + String(fallbackEndIso).slice(10),
+        });
+      }
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const start = String(item.start || "").trim();
+    const end = String(item.end || "").trim();
+    const date = normalizeYmd(item.date || (start ? start.slice(0, 10) : ""));
+    if (!date) continue;
+    if (!uniqDates.includes(date)) uniqDates.push(date);
+    if (start && end) items.push({ date, start, end });
+  }
+  uniqDates.sort();
+  items.sort((a, b) => String(a.start || "").localeCompare(String(b.start || "")));
+  return { uniqDates, items };
+}
+
+// Public submission endpoint (frontend form -> pending approvals)
+router.post("/submit", async (req, res) => {
+  try {
+    let body = req.body;
+    if (typeof body === "string" && body.trim()) {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    body = body && typeof body === "object" ? body : {};
+
+    const title = String(body.title || "").trim();
+    const description = String(body.description || "").trim();
+    const location = String(body.location || "").trim();
+    const organizer = String(body.organizer || "").trim();
+    const city = String(body.city || "Enumclaw").trim() || "Enumclaw";
+
+    let startDateTime = String(body.startDateTime || "").trim();
+    let endDateTime = String(body.endDateTime || "").trim();
+
+    if (!title || !description || !location || !startDateTime) {
+      return res.status(400).json({ ok: false, error: "Missing required fields." });
+    }
+
+    // Accept datetime-local and convert to ISO with offset
+    if (/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(startDateTime)) {
+      const iso = toLocalISOWithOffset(startDateTime);
+      if (iso) startDateTime = iso;
+    }
+    if (endDateTime && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(endDateTime)) {
+      const iso = toLocalISOWithOffset(endDateTime);
+      if (iso) endDateTime = iso;
+    }
+
+    // If no end time, default to +1 hour (can be edited in approvals)
+    if (!endDateTime) {
+      endDateTime = addHoursIso(startDateTime, 1);
+    }
+
+    const activeEvents = await all(
+      `SELECT id, title, startDateTime, endDateTime, location, organizer, ticketUrl, slug
+         FROM events
+        WHERE LOWER(city) = LOWER(?)
+          AND COALESCE(archived, 0) = 0
+        ORDER BY datetime(startDateTime) DESC
+        LIMIT 800`,
+      [city]
+    );
+
+    const pendingEvents = await all(
+      `SELECT id, title, startDateTime, endDateTime, location, organizer, ticketUrl, eventLink
+         FROM pending_events
+        WHERE LOWER(city) = LOWER(?)
+        ORDER BY datetime(startDateTime) DESC
+        LIMIT 800`,
+      [city]
+    );
+    const ticketUrl = String(body.ticketUrl || "").trim() || null;
+    const eventLink = String(body.eventLink || "").trim() || null;
+    const matches = findLikelyEventDuplicates(
+      {
+        title,
+        startDateTime,
+        endDateTime,
+        location,
+        organizer,
+        ticketUrl,
+        eventLink,
+      },
+      [
+        ...(activeEvents || []).map((row) => ({ ...row, source: "events" })),
+        ...(pendingEvents || []).map((row) => ({ ...row, source: "pending_events" })),
+      ]
+    );
+
+    if (matches.length > 0) {
+      const first = matches[0];
+      return res.status(409).json({
+        ok: false,
+        duplicate: true,
+        error: `Possible duplicate detected: "${first.title}" on ${first.startDateTime}.`,
+        matches: matches.slice(0, 10).map((row) => ({
+          id: row.id,
+          source: row.source,
+          title: row.title,
+          startDateTime: row.startDateTime,
+          endDateTime: row.endDateTime || null,
+          location: row.location || "",
+          organizer: row.organizer || "",
+          slug: row.slug || "",
+          score: row.score,
+          reasons: row.reasons,
+        })),
+      });
+    }
+
+    const cats = normalizeCategoriesInput(body.categories);
+    const categories = JSON.stringify(cats);
+
+    const imageUrl = String(body.imageUrl || "").trim() || null;
+    const ticketLabel = String(body.ticketLabel || "").trim() || "Tickets";
+    const eventDetails = String(body.eventDetails || "").trim() || "";
+    const goodToKnow = String(body.goodToKnow || "").trim() || "";
+    const eventTypeChoice = String(body.eventTypeChoice || "").trim().toLowerCase();
+    const hasRecurrenceFlag = String(body.hasRecurrence || "").trim() === "1" || eventTypeChoice === "recurring";
+    const recurrenceType = String(body.recurrenceType || "none").trim().toLowerCase();
+    const recurrenceInterval = Math.max(1, parseInt(String(body.recurrenceInterval || "1"), 10) || 1);
+    let hasRecurrence = hasRecurrenceFlag && recurrenceType !== "none" ? 1 : 0;
+    let recurrenceRule = null;
+    let recurrenceDatesJson = null;
+    let recurrenceStartDate = null;
+    let recurrenceUntilDate = null;
+    const multiDaySchedule = eventTypeChoice === "multi-day"
+      ? normalizeMultiDaySchedule(body.multiDayScheduleJson || body.multiDaySchedule)
+      : [];
+    const multiDayScheduleJson = multiDaySchedule.length ? JSON.stringify(multiDaySchedule) : null;
+
+    if (hasRecurrence) {
+      recurrenceStartDate = normalizeYmd(body.recurrenceStartDate) || normalizeYmd(toDateValue(startDateTime));
+      recurrenceUntilDate = normalizeYmd(body.recurrenceUntilDate) || normalizeYmd(toDateValue(endDateTime));
+
+      if (recurrenceType === "custom") {
+        const normalized = normalizeRecurringItems(
+          body.recurrenceDatesJson || body.recurrenceDates,
+          startDateTime,
+          endDateTime
+        );
+        recurrenceRule = normalized.items.length ? { type: "custom", items: normalized.items } : { type: "custom" };
+        recurrenceDatesJson = JSON.stringify(normalized.uniqDates);
+      } else if (recurrenceType === "weekly") {
+        recurrenceRule = {
+          type: "weekly",
+          interval: recurrenceInterval,
+          byDay: normalizeWeekdayList(body.weeklyByDay),
+        };
+      } else if (recurrenceType === "monthly") {
+        const monthlyMode = String(body.monthlyMode || "monthday").trim().toLowerCase();
+        if (monthlyMode === "nthweekday") {
+          recurrenceRule = {
+            type: "monthly",
+            interval: recurrenceInterval,
+            mode: "nthweekday",
+            setPos: parseInt(String(body.setPos || "1"), 10) || 1,
+            byDay: normalizeWeekdayList(body.monthlyByDay),
+          };
+        } else {
+          recurrenceRule = {
+            type: "monthly",
+            interval: recurrenceInterval,
+            mode: "monthday",
+            byMonthday: Math.max(1, Math.min(31, parseInt(String(body.byMonthday || "0"), 10) || 0)),
+          };
+        }
+      } else {
+        hasRecurrence = 0;
+      }
+    }
+
+    const submitterEmail = String(body.submitterEmail || "").trim() || "";
+    const approvalNotes = String(body.approvalNotes || "").trim() || "";
+    const source = String(body.source || "").trim() || "wp_frontend";
+    let submissionId = String(body.submissionId || "").trim();
+    if (!submissionId) {
+      submissionId = (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString("hex"));
+    }
+
+    const inserted = await run(
+      `INSERT INTO pending_events
+        (city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
+         startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
+         submitterEmail, approvalNotes, source, submissionId, hasRecurrence, recurrenceRule,
+         recurrenceDates, recurrenceStartDate, recurrenceUntilDate, multiDaySchedule)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
+        startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
+        submitterEmail, approvalNotes, source, submissionId, hasRecurrence,
+        recurrenceRule ? JSON.stringify(recurrenceRule) : null,
+        recurrenceDatesJson, recurrenceStartDate, recurrenceUntilDate, multiDayScheduleJson
+      ]
+    );
+
+    return res.json({ ok: true, id: inserted.lastID, submissionId });
+  } catch (err) {
+    console.error("[POST /events/submit] error:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
+// Feature purchase hook (WooCommerce -> submissionId)
+router.post("/feature", async (req, res) => {
+  try {
+    let body = req.body;
+    if (typeof body === "string" && body.trim()) {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    body = body && typeof body === "object" ? body : {};
+
+    const submissionId = String(body.submissionId || "").trim();
+    const orderId = String(body.orderId || "").trim();
+    if (!submissionId || !orderId) {
+      return res.status(400).json({ ok: false, error: "Missing submissionId or orderId" });
+    }
+
+    // Pending first
+    const pending = await get(
+      "SELECT id, startDateTime, endDateTime FROM pending_events WHERE submissionId = ? LIMIT 1",
+      [submissionId]
+    );
+    if (pending) {
+      const featuredUntil = String(pending.endDateTime || pending.startDateTime || "").trim();
+      await run(
+        `UPDATE pending_events
+         SET featuredOrderId = ?, featuredPurchasedAt = datetime('now'), featuredUntil = ?
+         WHERE id = ?`,
+        [orderId, featuredUntil, pending.id]
+      );
+      return res.json({ ok: true, target: "pending", pendingId: pending.id, featuredUntil });
+    }
+
+    // Else events
+    const evt = await get(
+      "SELECT id, startDateTime, endDateTime FROM events WHERE submissionId = ? LIMIT 1",
+      [submissionId]
+    );
+    if (evt) {
+      const featuredUntil = String(evt.endDateTime || evt.startDateTime || "").trim();
+      await run(
+        `UPDATE events
+         SET featured = 1, featuredOrderId = ?, featuredPurchasedAt = datetime('now'), featuredUntil = ?
+         WHERE id = ?`,
+        [orderId, featuredUntil, evt.id]
+      );
+      return res.json({ ok: true, target: "event", eventId: evt.id, featuredUntil });
+    }
+
+    return res.status(404).json({ ok: false, error: "Not found" });
+  } catch (err) {
+    console.error("[POST /events/feature] error:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
+async function buildEventSitemapXml(mode = "upcoming") {
+  const base = String(process.env.PUBLIC_BASE_URL || process.env.PUBLIC_SITE_URL || "https://enumclawevents.org").replace(/\/$/, "");
+  const info = await all("PRAGMA table_info(events)");
+  const colSet = new Set((info || []).map((r) => String(r.name)));
+  const cols = ["id", "slug", "archived", "multiDaySchedule"];
+  if (colSet.has("updatedAt")) cols.push("updatedAt");
+  if (colSet.has("createdAt")) cols.push("createdAt");
+  if (colSet.has("expireDate")) cols.push("expireDate");
+  if (colSet.has("startDateTime")) cols.push("startDateTime");
+  if (colSet.has("endDateTime")) cols.push("endDateTime");
+  if (colSet.has("hasRecurrence")) cols.push("hasRecurrence");
+  if (colSet.has("recurrenceRule")) cols.push("recurrenceRule");
+  if (colSet.has("recurrenceDates")) cols.push("recurrenceDates");
+  if (colSet.has("recurrenceStartDate")) cols.push("recurrenceStartDate");
+  if (colSet.has("recurrenceUntilDate")) cols.push("recurrenceUntilDate");
+
+  const rows = await all(
+    `SELECT ${cols.join(", ")}
+     FROM events
+     WHERE archived = 0
+       AND slug IS NOT NULL
+       AND trim(slug) <> ''`
+  );
+
+  const nowDate = new Date().toISOString().slice(0, 10);
+  const nowTs = Date.now();
+  const windowStartUtc = mode === "past"
+    ? nowTs - 3650 * 86400 * 1000
+    : nowTs - 5 * 60 * 1000;
+  const windowEndUtc = mode === "past"
+    ? nowTs + 5 * 60 * 1000
+    : nowTs + 365 * 86400 * 1000;
+
+  const urls = (rows || []).map((r) => {
+    const row = normalizeRowTimes(r);
+    const slug = String(r.slug || "").trim();
+    if (!slug) return null;
+
+    if (colSet.has("expireDate") && mode !== "past") {
+      const expireDate = String(r.expireDate || "").trim();
+      if (expireDate && expireDate < nowDate) return null;
+    }
+
+    const normalized = {
+      ...row,
+      categories: normalizeCats(row),
+      multiDaySchedule: normalizeMultiDaySchedule(row.multiDaySchedule),
+      hasRecurrence: Number(row.hasRecurrence || 0),
+      recurrenceRule: safeParseJson(row.recurrenceRule, null),
+      recurrenceDates: safeParseJson(row.recurrenceDates, []),
+      featured: readFeaturedActive(row),
+      eddiesPick: readEddiesPick(row),
+    };
+
+    let include = false;
+    if (normalized.hasRecurrence && normalized.recurrenceRule) {
+      const occurrences = generateOccurrences(normalized, windowStartUtc, windowEndUtc);
+      include = (occurrences || []).some((occurrence) => {
+        const endTs = Date.parse(String(occurrence.endDateTime || occurrence.startDateTime || ""));
+        if (!Number.isFinite(endTs)) return false;
+        return mode === "past" ? endTs < nowTs : endTs >= nowTs - 5 * 60 * 1000;
+      });
+    } else {
+      const endTs = effectiveEndTs(normalized);
+      if (Number.isFinite(endTs)) {
+        include = mode === "past" ? endTs < nowTs : endTs >= nowTs - 5 * 60 * 1000;
+      }
+    }
+    if (!include) return null;
+
+    const lastmod = String(r.updatedAt || r.createdAt || "").trim();
+    const loc = `${base}/events/${encodeURIComponent(slug)}`;
+    return `
+  <url>
+    <loc>${escapeXml(loc)}</loc>
+    ${lastmod ? `<lastmod>${escapeXml(lastmod)}</lastmod>` : ""}
+  </url>`;
+  }).filter(Boolean);
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.join("\n")}
+</urlset>`;
+}
+
+// Public sitemap for upcoming/current events
+router.get("/sitemap.xml", async (_req, res) => {
+  try {
+    const xml = await buildEventSitemapXml("upcoming");
+    res.setHeader("Content-Type", "application/xml");
+    return res.status(200).send(xml);
+  } catch (err) {
+    console.error("[GET /events/sitemap.xml] error:", err);
+    return res.status(500).send("Server error");
+  }
+});
+
+router.get("/sitemap-past.xml", async (_req, res) => {
+  try {
+    const xml = await buildEventSitemapXml("past");
+    res.setHeader("Content-Type", "application/xml");
+    return res.status(200).send(xml);
+  } catch (err) {
+    console.error("[GET /events/sitemap-past.xml] error:", err);
+    return res.status(500).send("Server error");
+  }
+});
+
+// --- helpers: parse rule + build occurrencesUpcoming correctly ---
+
+function safeJsonParse(v, fallback = null) {
+  if (!v) return fallback;
+  if (typeof v === "object") return v;
+  try { return JSON.parse(v); } catch { return fallback; }
+}
+
+function toIsoIfValid(s) {
+  const v = String(s || "").trim();
+  if (!v) return "";
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? "" : v;
+}
+
+function labelFromIso(iso) {
+  // Use the date portion of the ISO; keep it simple and stable.
+  // Example: "Feb 7, 2026"
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
+function buildOccurrencesUpcomingFromRule(event) {
+  const rr = safeJsonParse(event.recurrenceRule, null);
+  if (!rr || !rr.type) return [];
+
+  // ✅ CUSTOM: items already contain true per-date start/end
+  if (rr.type === "custom" && Array.isArray(rr.items)) {
+    const out = rr.items
+      .map((it) => {
+        const start = toIsoIfValid(it?.start);
+        const end   = toIsoIfValid(it?.end);
+
+        if (!start) return null;
+
+        return {
+          startDateTime: start,
+          endDateTime: end || "",
+          label: String(it?.label || "").trim() || labelFromIso(start),
+        };
+      })
+      .filter(Boolean);
+
+    // sort soonest first
+    out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+    return out;
+  }
+
+  // If you later support weekly/monthly RRULE generation server-side,
+  // you'd add it here. For now, fall back to any precomputed occurrencesUpcoming on the row if you store it.
+  return [];
+}
+
+function readFeatured(row) {
+  // supports legacy "Featured" column name too, and common checkbox strings
+  const v = (row && (row.featured ?? row.Featured)) ?? 0;
+  const s = String(v).trim().toLowerCase();
+  return (s === "1" || s === "true" || s === "yes" || s === "on") ? 1 : 0;
+}
+
+function readFeaturedActive(row) {
+  const isFeatured = readFeatured(row);
+  if (!isFeatured) return 0;
+  const until = String((row && (row.featuredUntil ?? row.featured_until)) || "").trim();
+  if (!until) return 1;
+  const ts = Date.parse(until);
+  if (!Number.isFinite(ts)) return 1;
+  return ts > Date.now() ? 1 : 0;
+}
+
+function readEddiesPick(row) {
+  const v = (row && (row.eddiesPick ?? row.eddies_pick ?? row.EddiesPick)) ?? 0;
+  const s = String(v).trim().toLowerCase();
+  return (s === "1" || s === "true" || s === "yes" || s === "on") ? 1 : 0;
+}
+
+function getCreatedTs(item) {
+  const candidates = [
+    "updatedAt", "updated_at",
+    "createdAt", "created_at",
+    "insertedAt", "inserted_at",
+    "addedAt", "added_at",
+    "publishedAt", "published_at",
+  ];
+
+  for (const k of candidates) {
+    const v = item && item[k];
+    if (!v) continue;
+    const t = Date.parse(String(v));
+    if (Number.isFinite(t)) return t;
+  }
+
+  // fallback: increasing id works as a rough "recent"
+  const id = Number(item && item.id) || 0;
+  return id > 0 ? id : 0;
+}
+
+function getTrendingScore(item) {
+  const candidates = [
+    "trendingScore", "trending_score",
+    "views", "viewCount", "view_count",
+    "clicks", "clickCount", "click_count",
+    "likes", "likeCount", "like_count",
+    "rsvps", "rsvpCount", "rsvp_count",
+    "popularity", "popularityScore",
+  ];
+
+  for (const k of candidates) {
+    if (item && item[k] !== undefined && item[k] !== null && item[k] !== "") {
+      const n = Number(item[k]);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return 0;
+}
+
+const { DateTime } = require("luxon");
+
+const DEFAULT_TZ = "America/Los_Angeles";
+
+/**
+ * If an ISO has +00:00 but represents local time, convert it to Pacific
+ * while keeping the same clock time (keepLocalTime: true).
+ * This also automatically chooses -08:00 vs -07:00 depending on date (DST).
+ */
+function normalizeIsoToTzKeepClock(iso, tz = DEFAULT_TZ) {
+  const s = String(iso || "").trim();
+  if (!s) return s;
+
+  // If it already has a non-UTC offset, leave it.
+  // (Example: -08:00 or -07:00)
+  if (/[+-]\d{2}:\d{2}$/.test(s) && !s.endsWith("+00:00")) return s;
+
+  // Only rewrite if it ends in +00:00 (your current problematic case)
+  if (!s.endsWith("+00:00")) return s;
+
+  const dt = DateTime.fromISO(s, { setZone: true });
+  if (!dt.isValid) return s;
+
+  // keepLocalTime means "20:00 stays 20:00", but we change the zone/offset.
+  const fixed = dt.setZone(tz, { keepLocalTime: true });
+
+  // Force full ISO with offset, no millis
+  return fixed.toISO({ suppressMilliseconds: true, includeOffset: true });
+}
+
+function normalizeRowTimes(row, tz = DEFAULT_TZ) {
+  if (!row) return row;
+  return {
+    ...row,
+    startDateTime: normalizeIsoToTzKeepClock(row.startDateTime, tz),
+    endDateTime: normalizeIsoToTzKeepClock(row.endDateTime, tz),
+  };
+}
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function toYmd(parts) {
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
+}
+
+function parseIsoParts(iso) {
+  const s = String(iso || "").trim();
+  const m = s.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?([+-]\d{2}:\d{2})$/
+  );
+  if (!m) return null;
+  return {
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: Number(m[4]),
+    minute: Number(m[5]),
+    second: Number(m[6] || "00"),
+    offset: m[7],
+  };
+}
+
+function offsetToMinutes(offset) {
+  const m = String(offset || "").match(/^([+-])(\d{2}):(\d{2})$/);
+  if (!m) return 0;
+  const sign = m[1] === "-" ? -1 : 1;
+  return sign * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+function partsToUtcMs(parts) {
+  const offMin = offsetToMinutes(parts.offset);
+  const localAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second || 0
+  );
+  return localAsUtc - offMin * 60 * 1000;
+}
+
+function utcMsToLocalParts(utcMs, offset) {
+  const offMin = offsetToMinutes(offset);
+  const localMs = utcMs + offMin * 60 * 1000;
+  const d = new Date(localMs);
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    hour: d.getUTCHours(),
+    minute: d.getUTCMinutes(),
+    second: d.getUTCSeconds(),
+    offset,
+  };
+}
+
+function partsToIso(parts) {
+  return (
+    `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}` +
+    `T${pad2(parts.hour)}:${pad2(parts.minute)}:${pad2(parts.second || 0)}` +
+    `${parts.offset}`
+  );
+}
+
+function daysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function weekdayKeyFromLocalParts(parts) {
+  const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0);
+  const d = new Date(localAsUtc);
+  const map = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+  return map[d.getUTCDay()];
+}
+
+function startOfWeekLocalDate(parts) {
+  const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, 0, 0, 0);
+  const d = new Date(localAsUtc);
+  const dow = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - dow);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
+function monthsDiff(y1, m1, y2, m2) {
+  return (y2 - y1) * 12 + (m2 - m1);
+}
+
+function formatLabelLocal(parts) {
+  const d = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12, 0, 0));
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function nthWeekdayOfMonth(year, month, weekdayKey, setPos) {
+  const map = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+  const target = map[weekdayKey];
+  if (target === undefined) return null;
+
+  const dim = daysInMonth(year, month);
+
+  if (setPos === -1) {
+    for (let day = dim; day >= 1; day--) {
+      const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      if (d.getUTCDay() === target) return day;
+    }
+    return null;
+  }
+
+  let count = 0;
+  for (let day = 1; day <= dim; day++) {
+    const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    if (d.getUTCDay() === target) {
+      count++;
+      if (count === setPos) return day;
+    }
+  }
+  return null;
+}
+
+/**
+ * ✅ FIX A:
+ * For recurrenceRule.type === "custom", prefer recurrenceRule.items[] (per-day start/end)
+ * so each date can have different hours.
+ *
+ * Falls back to old recurrenceDates[] behavior if items are missing.
+ */
+function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
+  // Base start/end (for duration fallback)
+  const baseStartUtc = Date.parse(eventRow.startDateTime);
+  const baseEndUtc = Date.parse(eventRow.endDateTime);
+  const durationMs = (Number.isFinite(baseStartUtc) && Number.isFinite(baseEndUtc))
+    ? Math.max(0, baseEndUtc - baseStartUtc)
+    : 0;
+
+  // 1) ✅ Preferred: recurrenceRule.items (true per-occurrence start/end)
+  const rule = safeParseJson(eventRow.recurrenceRule, null);
+  if (rule && String(rule.type || "").toLowerCase() === "custom" && Array.isArray(rule.items) && rule.items.length) {
+    const out = [];
+
+    for (const it of rule.items) {
+      const startIso = toIsoIfValid(it && it.start);
+      if (!startIso) continue;
+
+      const occStartUtc = Date.parse(startIso);
+      if (!Number.isFinite(occStartUtc)) continue;
+
+      let endIso = toIsoIfValid(it && it.end);
+      if (!endIso && durationMs > 0) {
+        // If item.end missing, compute end using base duration while keeping the item's offset
+        const sp = parseIsoParts(startIso);
+        if (sp) {
+          const occEndUtc = occStartUtc + durationMs;
+          const ep = utcMsToLocalParts(occEndUtc, sp.offset);
+          endIso = partsToIso(ep);
+        }
+      }
+      const occEndUtc = endIso ? Date.parse(endIso) : (durationMs > 0 ? occStartUtc + durationMs : occStartUtc);
+      if (!Number.isFinite(occEndUtc)) continue;
+      if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+      if (Number.isFinite(baseStartUtc) && occStartUtc < baseStartUtc) continue;
+
+      const sp = parseIsoParts(startIso);
+      const occurrenceDate =
+        (startIso.length >= 10 && /^\d{4}-\d{2}-\d{2}$/.test(startIso.slice(0, 10)))
+          ? startIso.slice(0, 10)
+          : (sp ? toYmd(sp) : "");
+
+      const label = String((it && it.label) || "").trim() || (sp ? formatLabelLocal(sp) : labelFromIso(startIso));
+
+      out.push({
+        occurrenceDate,
+        startDateTime: startIso,
+        endDateTime: endIso || "",
+        label,
+      });
+    }
+
+    out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+    return out;
+  }
+
+  // 2) Fallback: your old recurrenceDates[] list (date-only) using base start time
+  const startParts = parseIsoParts(eventRow.startDateTime);
+  if (!startParts) return [];
+
+  const startUtc = Date.parse(eventRow.startDateTime);
+  const endUtc = Date.parse(eventRow.endDateTime);
+  if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
+
+  const durationMs2 = Math.max(0, endUtc - startUtc);
+  const offset = startParts.offset;
+
+  const dates = safeParseJson(eventRow.recurrenceDates, []);
+  if (!Array.isArray(dates) || dates.length === 0) return [];
+
+  const out = [];
+  for (const d of dates) {
+    const s = String(d || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) continue;
+
+    const [yy, mm, dd] = s.split("-").map(Number);
+
+    const occLocalParts = {
+      year: yy,
+      month: mm,
+      day: dd,
+      hour: startParts.hour,
+      minute: startParts.minute,
+      second: startParts.second,
+      offset,
+    };
+
+    const occStartUtc = partsToUtcMs(occLocalParts);
+    const occEndUtc = occStartUtc + durationMs2;
+
+    if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+    if (occStartUtc < startUtc) continue;
+
+    const occEndParts = utcMsToLocalParts(occEndUtc, offset);
+
+    out.push({
+      occurrenceDate: toYmd(occLocalParts),
+      startDateTime: partsToIso(occLocalParts),
+      endDateTime: partsToIso(occEndParts),
+      label: formatLabelLocal(occLocalParts),
+    });
+  }
+
+  out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+  return out;
+}
+
+function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
+  const startISO = eventRow.startDateTime;
+  const endISO = eventRow.endDateTime;
+
+  const startParts = parseIsoParts(startISO);
+  const endParts = parseIsoParts(endISO);
+  if (!startParts || !endParts) return [];
+
+  const startUtc = Date.parse(startISO);
+  const endUtc = Date.parse(endISO);
+  if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
+
+  const durationMs = Math.max(0, endUtc - startUtc);
+  const offset = startParts.offset;
+
+  const rule = safeParseJson(eventRow.recurrenceRule, null);
+  if (!rule || Number(eventRow.hasRecurrence || 0) !== 1) return [];
+
+  const type = String(rule.type || "").toLowerCase();
+  const interval = Math.max(1, Number(rule.interval || 1));
+  const out = [];
+
+  if (type === "custom") {
+    return generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs);
+  }
+
+  const anchorLocal = {
+    year: startParts.year,
+    month: startParts.month,
+    day: startParts.day,
+    hour: startParts.hour,
+    minute: startParts.minute,
+    second: startParts.second,
+    offset,
+  };
+  const anchorWeekStart = startOfWeekLocalDate(anchorLocal);
+
+  if (type === "weekly") {
+    const byDay = Array.isArray(rule.byDay) ? rule.byDay : [];
+    const byDaySet = new Set(byDay);
+
+    const dayMs = 86400 * 1000;
+    for (let t = windowStartUtcMs; t <= windowEndUtcMs; t += dayMs) {
+      const lp = utcMsToLocalParts(t, offset);
+      const wk = weekdayKeyFromLocalParts(lp);
+      if (!byDaySet.has(wk)) continue;
+
+      const candWeekStart = startOfWeekLocalDate(lp);
+      const anchorWsUtc = Date.UTC(anchorWeekStart.year, anchorWeekStart.month - 1, anchorWeekStart.day, 0, 0, 0);
+      const candWsUtc = Date.UTC(candWeekStart.year, candWeekStart.month - 1, candWeekStart.day, 0, 0, 0);
+      const weekIndex = Math.floor((candWsUtc - anchorWsUtc) / (7 * dayMs));
+      if (weekIndex < 0) continue;
+      if (weekIndex % interval !== 0) continue;
+
+      const occLocalParts = {
+        year: lp.year,
+        month: lp.month,
+        day: lp.day,
+        hour: startParts.hour,
+        minute: startParts.minute,
+        second: startParts.second,
+        offset,
+      };
+
+      const occStartUtc = partsToUtcMs(occLocalParts);
+      const occEndUtc = occStartUtc + durationMs;
+
+      if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+      if (occStartUtc < startUtc) continue;
+
+      const occEndParts = utcMsToLocalParts(occEndUtc, offset);
+
+      out.push({
+        occurrenceDate: toYmd(occLocalParts),
+        startDateTime: partsToIso(occLocalParts),
+        endDateTime: partsToIso(occEndParts),
+        label: formatLabelLocal(occLocalParts),
+      });
+    }
+
+    out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+    return out;
+  }
+
+  if (type === "monthly") {
+    const mode = rule.mode === "nthweekday" ? "nthweekday" : "monthday";
+
+    const windowStartLocal = utcMsToLocalParts(windowStartUtcMs, offset);
+    const windowEndLocal = utcMsToLocalParts(windowEndUtcMs, offset);
+
+    const anchorY = anchorLocal.year;
+    const anchorM = anchorLocal.month;
+
+    const startMonthIndex = Math.max(0, monthsDiff(anchorY, anchorM, windowStartLocal.year, windowStartLocal.month));
+    const endMonthIndex = Math.max(0, monthsDiff(anchorY, anchorM, windowEndLocal.year, windowEndLocal.month));
+
+    for (let mi = startMonthIndex; mi <= endMonthIndex; mi++) {
+      if (mi % interval !== 0) continue;
+
+      const base = new Date(Date.UTC(anchorY, anchorM - 1, 1, 12, 0, 0));
+      base.setUTCMonth(base.getUTCMonth() + mi);
+      const y = base.getUTCFullYear();
+      const m = base.getUTCMonth() + 1;
+
+      let days = [];
+
+      if (mode === "monthday") {
+        const md = Number(rule.byMonthday || 0);
+        if (!md) continue;
+        days = [Math.min(md, daysInMonth(y, m))];
+      } else {
+        const setPos = Number(rule.setPos || 1);
+        const byDayRaw = Array.isArray(rule.byDay) ? rule.byDay : [rule.byDay];
+        const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
+        const byDays = byDayRaw
+          .map((d) => String(d || "").trim().toUpperCase())
+          .filter((d) => allowed.has(d));
+
+        const fallbackDay = weekdayKeyFromLocalParts(startParts);
+        if (!byDays.length) byDays.push(fallbackDay);
+
+        const uniq = [];
+        for (const wd of byDays) {
+          const day = nthWeekdayOfMonth(y, m, wd, setPos);
+          if (!day) continue;
+          if (!uniq.includes(day)) uniq.push(day);
+        }
+        days = uniq;
+      }
+
+      for (const day of days) {
+        const occLocalParts = {
+          year: y,
+          month: m,
+          day,
+          hour: startParts.hour,
+          minute: startParts.minute,
+          second: startParts.second,
+          offset,
+        };
+
+        const occStartUtc = partsToUtcMs(occLocalParts);
+        const occEndUtc = occStartUtc + durationMs;
+
+        if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+        if (occStartUtc < startUtc) continue;
+
+        const occEndParts = utcMsToLocalParts(occEndUtc, offset);
+
+        out.push({
+          occurrenceDate: toYmd(occLocalParts),
+          startDateTime: partsToIso(occLocalParts),
+          endDateTime: partsToIso(occEndParts),
+          label: formatLabelLocal(occLocalParts),
+        });
+      }
+    }
+
+    out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+    return out;
+  }
+
+  return [];
+}
+
+function expandEventIntoFeedItems(row, windowStartUtcMs, windowEndUtcMs) {
+  const rowFixed = row;
+  const cats = safeParseJson(row.categories, []);
+  const recurRuleObj = safeParseJson(row.recurrenceRule, null);
+  const recurDatesArr = safeParseJson(row.recurrenceDates, []);
+
+  const base = {
+    ...row,
+    categories: Array.isArray(cats) ? cats : [],
+    hasRecurrence: Number(row.hasRecurrence || 0),
+    recurrenceRule: recurRuleObj,
+    goingCount: Number(rowFixed.goingCount || 0),
+    interestedCount: Number(rowFixed.interestedCount || 0),
+    recurrenceDates: Array.isArray(recurDatesArr) ? recurDatesArr : [],
+    featured: readFeaturedActive(row),
+    eddiesPick: readEddiesPick(row),
+  };
+
+  const baseStartUtc = Date.parse(base.startDateTime);
+  const baseEndUtc = Date.parse(base.endDateTime);
+
+  if (!base.hasRecurrence || !base.recurrenceRule) {
+    if (
+      Number.isFinite(baseStartUtc) &&
+      Number.isFinite(baseEndUtc) &&
+      baseEndUtc >= windowStartUtcMs &&
+      baseStartUtc <= windowEndUtcMs
+    ) {
+      const p = parseIsoParts(base.startDateTime);
+      return [{
+        ...base,
+        instanceId: `e${base.id}_${base.startDateTime}`,
+        baseStartDateTime: base.startDateTime,
+        isOccurrence: false,
+        occurrenceDate: p ? toYmd(p) : "",
+      }];
+    }
+    return [];
+  }
+
+  const occ = generateOccurrences(base, windowStartUtcMs, windowEndUtcMs);
+
+  return occ.map((o) => ({
+    ...base,
+    startDateTime: o.startDateTime,
+    endDateTime: o.endDateTime,
+    instanceId: `e${base.id}_${o.startDateTime}`,
+    baseStartDateTime: row.startDateTime,
+    isOccurrence: true,
+    occurrenceDate: o.occurrenceDate,
+    occurrenceLabel: o.label,
+  }));
+}
+
+/**
+ * Feed filtering helpers
+ */
+function normalizeCats(row) {
+  const cats = safeParseJson(row.categories, []);
+  return Array.isArray(cats) ? cats : [];
+}
+
+function matchesCategory(item, category) {
+  if (!category) return true;
+  const target = String(category).trim().toLowerCase();
+  if (!target) return true;
+  const cats = Array.isArray(item.categories) ? item.categories : [];
+  return cats.some((c) => String(c || "").trim().toLowerCase() === target);
+}
+
+function matchesQuery(item, q) {
+  if (!q) return true;
+  const qq = String(q).trim().toLowerCase();
+  if (!qq) return true;
+  const t = String(item.title || "").toLowerCase();
+  const l = String(item.location || "").toLowerCase();
+  return t.includes(qq) || l.includes(qq);
+}
+
+function inIsoRange(item, fromISO, toISO) {
+  if (!fromISO && !toISO) return true;
+  const t = Date.parse(item.startDateTime);
+  if (!Number.isFinite(t)) return false;
+
+  const fromT = fromISO ? Date.parse(fromISO) : NaN;
+  const toT = toISO ? Date.parse(toISO) : NaN;
+
+  if (Number.isFinite(fromT) && t < fromT) return false;
+  if (Number.isFinite(toT) && t > toT) return false;
+  return true;
+}
+
+
+function isArchivedRow(item) {
+  const v = item && (item.archived ?? item.Archived);
+  const s = String(v ?? "0").trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
+}
+
+function setNoIndexHeader(res) {
+  res.set("X-Robots-Tag", "noindex, nofollow");
+}
+
+function effectiveEndTs(item) {
+  const endTs = Date.parse(String((item && item.endDateTime) || ""));
+  if (Number.isFinite(endTs)) return endTs;
+
+  const startTs = Date.parse(String((item && item.startDateTime) || ""));
+  return Number.isFinite(startTs) ? startTs : NaN;
+}
+
+function lifecycleStatus(item, nowTs) {
+  if (isArchivedRow(item)) return "archived";
+  const endTs = effectiveEndTs(item);
+  if (!Number.isFinite(endTs)) return "unknown";
+  return endTs < nowTs ? "past" : "upcoming";
+}
+
+function matchesLifecycleStatus(item, status, nowTs) {
+  const archived = isArchivedRow(item);
+
+  if (status === "archived") return archived;
+  if (status === "all") return true;
+
+  if (archived) return false;
+
+  const endTs = effectiveEndTs(item);
+  if (!Number.isFinite(endTs)) return false;
+
+  if (status === "past") return endTs < nowTs;
+
+  // default upcoming
+  return endTs >= nowTs;
+}
+
+function getEventDetailPath(item) {
+  const key = String(item?.slug || item?.id || "").trim();
+  return `/events/${encodeURIComponent(key)}`;
+}
+
+function getApiBaseUrl(req) {
+  return (
+    (process.env.API_BASE_URL || process.env.PUBLIC_API_BASE_URL || "").trim() ||
+    `${req.headers["x-forwarded-proto"] || req.protocol}://${req.headers["x-forwarded-host"] || req.get("host")}`
+  ).replace(/\/$/, "");
+}
+
+function getEventTicketTrackedUrl(req, item) {
+  const ticketUrl = String(item?.ticketUrl || "").trim();
+  if (!ticketUrl) return "";
+  const key = String(item?.slug || item?.id || "").trim();
+  if (!key) return "";
+  return `${getApiBaseUrl(req)}/events/${encodeURIComponent(key)}/tickets`;
+}
+
+function enrichEventDetailForSeo(req, detailData) {
+  const seoDefaults = deriveEventSeoFields(detailData);
+  const seo = buildSeoDescriptor({
+    req,
+    pathname: getEventDetailPath(detailData),
+    seoTitle: detailData.seoTitle,
+    fallbackTitle: seoDefaults.seoTitle,
+    metaDescription: detailData.metaDescription,
+    fallbackDescription: seoDefaults.metaDescription,
+    imageAlt: detailData.imageAlt,
+    fallbackImageAlt: seoDefaults.imageAlt,
+    updatedAt: detailData.updatedAt,
+    createdAt: detailData.createdAt,
+    indexable: detailData.status !== "archived",
+    robots: detailData.status === "archived" ? "noindex,nofollow" : "index,follow",
+  });
+
+  return {
+    ...detailData,
+    ticketTrackedUrl: getEventTicketTrackedUrl(req, detailData),
+    ...seo,
+    structuredData: buildEventStructuredData({
+      url: seo.publicUrl,
+      name: detailData.title,
+      description: detailData.description,
+      startDateTime: detailData.startDateTime,
+      endDateTime: detailData.endDateTime,
+      imageUrl: detailData.imageUrl,
+      locationName: detailData.location,
+      organizerName: detailData.organizer,
+      isScheduled: detailData.status === "upcoming",
+    }),
+  };
+}
+
+function pickRecurringDisplayOccurrence(occurrences, nowTs) {
+  const list = Array.isArray(occurrences) ? occurrences : [];
+  let active = null;
+  let next = null;
+
+  for (const occ of list) {
+    const startTs = Date.parse(String(occ?.startDateTime || ""));
+    const endTs = Date.parse(String(occ?.endDateTime || occ?.startDateTime || ""));
+    if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) continue;
+
+    if (startTs <= nowTs && endTs >= nowTs) {
+      if (!active || startTs < Date.parse(String(active.startDateTime || ""))) active = occ;
+      continue;
+    }
+
+    if (startTs > nowTs) {
+      if (!next || startTs < Date.parse(String(next.startDateTime || ""))) next = occ;
+    }
+  }
+
+  return active || next || null;
+}
+
+function paginate(items, limit, offset) {
+  const total = items.length;
+  const start = Math.max(0, offset);
+  const end = Math.min(total, start + limit);
+  const slice = items.slice(start, end);
+  const hasMore = end < total;
+  return {
+    data: slice,
+    meta: {
+      total,
+      limit,
+      offset: start,
+      hasMore,
+      nextOffset: hasMore ? end : null,
+    },
+  };
+}
+
+/**
+ * GET /events
+ * Supports:
+ *  city=Enumclaw
+ *  expand=1 (default) or expand=0
+ *  limit=40 offset=0
+ *  sort=soonest|latest
+ *  q=search text
+ *  category=music
+ *  featured=1
+ *  from=ISO to=ISO
+ *  status=upcoming|past|archived|all
+ *  windowDays=90 (optional)
+ */
+router.get("/", async (req, res) => {
+  try {
+    const city = String(req.query.city ?? "Enumclaw").trim();
+    const expand = String(req.query.expand ?? "1") !== "0";
+
+    const statusRaw = String(req.query.status ?? "upcoming").toLowerCase().trim();
+    const status = ["upcoming", "past", "archived", "all"].includes(statusRaw)
+      ? statusRaw
+      : "upcoming";
+    const userRole = String(req.user?.role || "").trim().toLowerCase();
+    if (status === "archived" && !["admin", "developer"].includes(userRole)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (status === "archived") setNoIndexHeader(res);
+
+    const sortDefault = (status === "past" || status === "archived") ? "latest" : "soonest";
+    const sortRaw = String(req.query.sort ?? sortDefault).toLowerCase().trim();
+
+    const sort =
+      (sortRaw === "latest" ||
+       sortRaw === "soonest" ||
+       sortRaw === "recent" ||
+       sortRaw === "trending" ||
+       sortRaw === "id_desc")
+        ? sortRaw
+        : sortDefault;
+
+    const q = String(req.query.q ?? "").trim();
+    const category = String(req.query.category ?? "").trim();
+    const featuredOnly = String(req.query.featured ?? "0") === "1";
+
+    const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit ?? "40"), 10)));
+    const offset = Math.max(0, parseInt(String(req.query.offset ?? "0"), 10));
+
+    const fromISO = String(req.query.from ?? "").trim();
+    const toISO = String(req.query.to ?? "").trim();
+
+    const nowUtc = Date.now();
+    const defaultWindowDays =
+      sort === "recent"
+        ? 365
+        : ((status === "past" || status === "archived" || status === "all") ? 365 : 90);
+
+    const parsedWindowDays = parseInt(String(req.query.windowDays ?? defaultWindowDays), 10);
+    const windowDays = Math.max(1, Math.min(3650, Number.isFinite(parsedWindowDays) ? parsedWindowDays : defaultWindowDays));
+
+    let windowStartUtc;
+    let windowEndUtc;
+
+    if (status === "past" || status === "archived") {
+      windowStartUtc = nowUtc - windowDays * 86400 * 1000;
+      windowEndUtc = nowUtc + 5 * 60 * 1000;
+    } else if (status === "all") {
+      windowStartUtc = nowUtc - windowDays * 86400 * 1000;
+      windowEndUtc = nowUtc + windowDays * 86400 * 1000;
+    } else {
+      windowStartUtc = nowUtc - 5 * 60 * 1000;
+      windowEndUtc = nowUtc + windowDays * 86400 * 1000;
+    }
+
+    let rows = await all(
+      "SELECT * FROM events WHERE LOWER(city) = LOWER(?) ORDER BY startDateTime ASC",
+      [city]
+    );
+
+    // normalize base times first so recurrence generation uses correct offset
+    rows = rows.map((r) => normalizeRowTimes(r));
+
+    // Normalize base rows
+    const normalizedRows = rows.map((r) => ({
+      ...r,
+      categories: normalizeCats(r),
+      multiDaySchedule: normalizeMultiDaySchedule(r.multiDaySchedule),
+      hasRecurrence: Number(r.hasRecurrence || 0),
+      recurrenceRule: safeParseJson(r.recurrenceRule, null),
+      recurrenceDates: safeParseJson(r.recurrenceDates, []),
+      featured: readFeaturedActive(r),
+      eddiesPick: readEddiesPick(r),
+    }));
+
+    // If no expand, treat each base row as one feed item (but still window/status filter)
+    if (!expand) {
+      let items = normalizedRows
+        .filter((it) => {
+          const windowTs = (status === "past" || status === "archived")
+            ? effectiveEndTs(it)
+            : Date.parse(it.startDateTime);
+
+          if (!Number.isFinite(windowTs)) return false;
+          if (windowTs < windowStartUtc || windowTs > windowEndUtc) return false;
+
+          if (!matchesLifecycleStatus(it, status, nowUtc)) return false;
+          if (featuredOnly && readFeaturedActive(it) !== 1) return false;
+          if (!matchesQuery(it, q)) return false;
+          if (!matchesCategory(it, category)) return false;
+          if (!inIsoRange(it, fromISO, toISO)) return false;
+          return true;
+        });
+
+      items.sort((a, b) => {
+        if (sort === "recent") {
+          const ca = getCreatedTs(a);
+          const cb = getCreatedTs(b);
+          if (cb !== ca) return cb - ca; // newest added first
+
+          // tie-break: upcoming sooner first
+          const at = Date.parse(a.startDateTime);
+          const bt = Date.parse(b.startDateTime);
+          return (at - bt);
+        }
+
+        if (sort === "trending") {
+          const sa = getTrendingScore(a);
+          const sb = getTrendingScore(b);
+          if (sb !== sa) return sb - sa;
+
+          // tie-break: upcoming sooner first
+          const at = Date.parse(a.startDateTime);
+          const bt = Date.parse(b.startDateTime);
+          return (at - bt);
+        }
+
+        if (sort === "id_desc") {
+          const ia = Number(a && a.id) || 0;
+          const ib = Number(b && b.id) || 0;
+          if (ib !== ia) return ib - ia;
+
+          // tie-break: newer startDateTime first
+          const at = Date.parse(a.startDateTime);
+          const bt = Date.parse(b.startDateTime);
+          return bt - at;
+        }
+
+        // soonest/latest
+        const at = Date.parse(a.startDateTime);
+        const bt = Date.parse(b.startDateTime);
+        return sort === "latest" ? (bt - at) : (at - bt);
+      });
+
+      return res.json(paginate(items, limit, offset));
+    }
+
+    // Expand into occurrences
+    let expanded = [];
+    for (const r of normalizedRows) {
+      const rowFixed = r;
+      expanded.push(...expandEventIntoFeedItems(rowFixed, windowStartUtc, windowEndUtc));
+    }
+
+    // Apply filters
+    expanded = expanded.filter((it) => {
+      if (!matchesLifecycleStatus(it, status, nowUtc)) return false;
+      if (featuredOnly && readFeaturedActive(it) !== 1) return false;
+      if (!matchesQuery(it, q)) return false;
+      if (!matchesCategory(it, category)) return false;
+      if (!inIsoRange(it, fromISO, toISO)) return false;
+      return true;
+    });
+
+    // Sort
+    expanded.sort((a, b) => {
+      if (sort === "recent") {
+        const ca = getCreatedTs(a);
+        const cb = getCreatedTs(b);
+        if (cb !== ca) return cb - ca; // newest added first
+
+        // tie-break: upcoming sooner first
+        const at = Date.parse(a.startDateTime);
+        const bt = Date.parse(b.startDateTime);
+        return (at - bt);
+      }
+
+      if (sort === "trending") {
+        const sa = getTrendingScore(a);
+        const sb = getTrendingScore(b);
+        if (sb !== sa) return sb - sa;
+
+        // tie-break: upcoming sooner first
+        const at = Date.parse(a.startDateTime);
+        const bt = Date.parse(b.startDateTime);
+        return (at - bt);
+      }
+
+      if (sort === "id_desc") {
+        const ia = Number(a && a.id) || 0;
+        const ib = Number(b && b.id) || 0;
+        if (ib !== ia) return ib - ia;
+
+        const at = Date.parse(a.startDateTime);
+        const bt = Date.parse(b.startDateTime);
+        return bt - at;
+      }
+
+      // soonest/latest
+      const at = Date.parse(a.startDateTime);
+      const bt = Date.parse(b.startDateTime);
+      return sort === "latest" ? (bt - at) : (at - bt);
+    });
+
+    // Paginate
+    return res.json(paginate(expanded, limit, offset));
+  } catch (err) {
+    console.error("[/events] error:", err && err.stack ? err.stack : err);
+    console.error("[/events] query:", req.query);
+    res.status(500).json({
+      data: [],
+      meta: { total: 0, limit: 40, offset: 0, hasMore: false, nextOffset: null },
+      error: "Server error",
+    });
+  }
+});
+
+// GET /events/past
+// Lightweight past listing for archive-style pages.
+router.get("/past", async (req, res) => {
+  try {
+    const city = String(req.query.city ?? "Enumclaw").trim();
+    const pageRaw = parseInt(String(req.query.page ?? "1"), 10);
+    const page = Math.max(1, Number.isFinite(pageRaw) ? pageRaw : 1);
+    const nowTs = Date.now();
+
+    const cacheKey = `${city.toLowerCase()}::${page}`;
+    const cached = pastEventsCache.get(cacheKey);
+    if (cached && cached.expiresAt > nowTs) {
+      res.set("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=60");
+      return res.json(cached.payload);
+    }
+
+    let rows = await all(
+      `SELECT *
+       FROM events
+       WHERE LOWER(city) = LOWER(?)
+         AND COALESCE(archived, 0) = 0
+      `,
+      [city]
+    );
+
+    rows = (rows || []).map((r) => normalizeRowTimes(r));
+
+    const windowStartUtc = nowTs - 3650 * 86400 * 1000;
+    const windowEndUtc = nowTs + 5 * 60 * 1000;
+    let expanded = [];
+    for (const row of rows) {
+      const normalized = {
+        ...row,
+        categories: normalizeCats(row),
+        multiDaySchedule: normalizeMultiDaySchedule(row.multiDaySchedule),
+        hasRecurrence: Number(row.hasRecurrence || 0),
+        recurrenceRule: safeParseJson(row.recurrenceRule, null),
+        recurrenceDates: safeParseJson(row.recurrenceDates, []),
+        featured: readFeaturedActive(row),
+        eddiesPick: readEddiesPick(row),
+      };
+      expanded.push(...expandEventIntoFeedItems(normalized, windowStartUtc, windowEndUtc));
+    }
+
+    expanded = expanded
+      .filter((r) => String(r.slug || "").trim())
+      .filter((r) => matchesLifecycleStatus(r, "past", nowTs))
+      .sort((a, b) => effectiveEndTs(b) - effectiveEndTs(a));
+
+    const total = expanded.length;
+    const pages = Math.max(1, Math.ceil(total / PAST_EVENTS_LIMIT));
+    const boundedPage = Math.min(page, pages);
+    const offset = (boundedPage - 1) * PAST_EVENTS_LIMIT;
+    const data = expanded.slice(offset, offset + PAST_EVENTS_LIMIT).map((r) => ({
+      title: String(r.title || ""),
+      slug: String(r.slug || ""),
+      startDateTime: r.startDateTime || null,
+      endDateTime: r.endDateTime || null,
+      location: String(r.location || ""),
+      imageUrl: r.imageUrl || null,
+      isOccurrence: Boolean(r.isOccurrence),
+    }));
+
+    const payload = {
+      data,
+      meta: {
+        page: boundedPage,
+        limit: PAST_EVENTS_LIMIT,
+        total,
+        pages,
+        hasPrev: boundedPage > 1,
+        hasNext: boundedPage < pages,
+      },
+    };
+
+    pastEventsCache.set(cacheKey, { expiresAt: nowTs + PAST_EVENTS_CACHE_MS, payload });
+    res.set("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=60");
+    return res.json(payload);
+  } catch (err) {
+    console.error("[/events/past] error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ data: [], meta: { page: 1, limit: PAST_EVENTS_LIMIT, total: 0, pages: 0 }, error: "Server error" });
+  }
+});
+
+
+// GET /events/slug/:slug
+router.get("/slug/:slug", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    if (!slug) return res.status(400).json({ error: "Invalid slug" });
+
+    const row = await get("SELECT * FROM events WHERE LOWER(slug) = LOWER(?) LIMIT 1", [slug]);
+    if (!row) return res.status(404).json({ error: "Event not found" });
+
+    // ✅ IMPORTANT: use normalized row for the response + recurrence generation
+    const rowFixed = normalizeRowTimes(row);
+
+    const cats = safeParseJson(rowFixed.categories, []);
+    const recurRuleObj = safeParseJson(rowFixed.recurrenceRule, null);
+
+    const base = {
+      ...rowFixed,
+      categories: Array.isArray(cats) ? cats : [],
+      hasRecurrence: Number(rowFixed.hasRecurrence || 0),
+      recurrenceRule: recurRuleObj,
+      recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),
+      featured: readFeaturedActive(rowFixed),
+      eddiesPick: readEddiesPick(rowFixed),
+      ticketClickCount: Number(rowFixed.ticketClickCount || 0),
+
+      // pass through (these columns exist in DB)
+      recurrenceStartDate: rowFixed.recurrenceStartDate || null,
+      recurrenceUntilDate: rowFixed.recurrenceUntilDate || null,
+    };
+    if (isArchivedRow(base)) setNoIndexHeader(res);
+
+    const nowUtc = Date.now();
+    const state = lifecycleStatus(base, nowUtc);
+    const windowDays = 90;
+    const windowStartUtc = nowUtc - 5 * 60 * 1000;
+    const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
+
+    const occurrences = base.hasRecurrence && base.recurrenceRule
+      ? generateOccurrences(base, windowStartUtc, windowEndUtc)
+      : [];
+
+    const occurrencesUpcoming = occurrences
+      .filter((o) => {
+        const startTs = Date.parse(o.startDateTime);
+        const endTs = Date.parse(o.endDateTime || o.startDateTime);
+        return Number.isFinite(startTs) && Number.isFinite(endTs) && endTs >= windowStartUtc;
+      })
+      .slice(0, 200)
+      .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
+
+    const displayOccurrence = base.hasRecurrence && base.recurrenceRule
+      ? pickRecurringDisplayOccurrence(occurrencesUpcoming, nowUtc)
+      : null;
+
+    const detailData = {
+      ...base,
+      occurrencesUpcoming,
+      status: state,
+      eventEnded: state === "past" || state === "archived",
+      statusLabel: state === "past" || state === "archived" ? "Event ended." : "",
+    };
+
+    if (displayOccurrence) {
+      detailData.baseStartDateTime = base.startDateTime;
+      detailData.startDateTime = displayOccurrence.startDateTime;
+      detailData.endDateTime = displayOccurrence.endDateTime;
+      detailData.occurrenceLabel = displayOccurrence.label || "";
+      detailData.isOccurrence = true;
+      detailData.status = "upcoming";
+      detailData.eventEnded = false;
+      detailData.statusLabel = "";
+    }
+
+    res.json({
+      data: enrichEventDetailForSeo(req, detailData),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /events/rss (upcoming events)
+router.get("/rss", async (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit || "50", 10)));
+
+    const cityRaw = String(req.query.city || "").trim();
+    const hasCity = cityRaw !== "";
+
+    const weekendOnly =
+      String(req.query.weekend || "").trim() === "1" ||
+      String(req.query.window || "").trim().toLowerCase() === "next_weekend";
+
+    const layoutMode = String(req.query.layout || "").trim().toLowerCase();
+
+    const featuredMode = String(req.query.featured || "").trim().toLowerCase();
+    const prependFeatured = featuredMode === "prepend";
+
+    const pickMode = String(req.query.pick || "").trim().toLowerCase();
+    const includePick =
+      pickMode === "1" ||
+      pickMode === "true" ||
+      pickMode === "prepend" ||
+      layoutMode === "mailchimp";
+
+    let windowStartIso = null;
+    let windowEndIso = null;
+    if (weekendOnly) {
+      const now = new Date();
+      const dow = now.getDay(); // 0 Sun .. 6 Sat
+      const daysToFri = (5 - dow + 7) % 7; // Fri = 5
+      const fri = new Date(now);
+      fri.setHours(0, 0, 0, 0);
+      fri.setDate(fri.getDate() + daysToFri);
+
+      const mon = new Date(fri);
+      mon.setDate(mon.getDate() + 3); // Mon 00:00 after Fri/Sat/Sun
+
+      windowStartIso = fri.toISOString();
+      windowEndIso = mon.toISOString();
+    }
+
+    const whereParts = [
+      "datetime(startDateTime) >= datetime('now')",
+    ];
+    const params = [];
+
+    if (hasCity) {
+      whereParts.push("LOWER(city) = LOWER(?)");
+      params.push(cityRaw);
+    }
+    if (windowStartIso && windowEndIso) {
+      whereParts.push("datetime(startDateTime) >= datetime(?)");
+      whereParts.push("datetime(startDateTime) < datetime(?)");
+      params.push(windowStartIso, windowEndIso);
+    }
+
+    const rows = await all(
+      `SELECT id, slug, title, description, startDateTime, imageUrl, eddiesPick
+       FROM events
+       WHERE ${whereParts.join(" AND ")}
+       ORDER BY datetime(startDateTime) ASC
+       LIMIT ?`,
+      [...params, limit]
+    );
+
+    let finalRows = rows || [];
+
+    if (featuredMode === "1" || featuredMode === "true") {
+      const fWhere = [...whereParts, "featured = 1", "(featuredUntil IS NULL OR trim(featuredUntil) = '' OR datetime(featuredUntil) > datetime('now'))"];
+      const fParams = [...params];
+      const featuredRows = await all(
+        `SELECT id, slug, title, description, startDateTime, imageUrl, eddiesPick
+         FROM events
+         WHERE ${fWhere.join(" AND ")}
+         ORDER BY datetime(startDateTime) ASC
+         LIMIT ?`,
+        [...fParams, limit]
+      );
+      finalRows = featuredRows || [];
+    } else if (prependFeatured) {
+      const fWhere = [...whereParts, "featured = 1", "(featuredUntil IS NULL OR trim(featuredUntil) = '' OR datetime(featuredUntil) > datetime('now'))"];
+      const fParams = [...params];
+      const featuredRows = await all(
+        `SELECT id, slug, title, description, startDateTime, imageUrl, eddiesPick
+         FROM events
+         WHERE ${fWhere.join(" AND ")}
+         ORDER BY datetime(startDateTime) ASC
+         LIMIT 1`,
+        fParams
+      );
+      if (featuredRows && featuredRows.length) {
+        const f = featuredRows[0];
+        const filtered = (finalRows || []).filter(
+          (e) => String(e.id) !== String(f.id)
+        );
+        finalRows = [f, ...filtered];
+      }
+    }
+
+    let pickRows = [];
+    if (includePick) {
+      const pWhere = [...whereParts, "eddiesPick = 1"];
+      const pParams = [...params];
+      pickRows = await all(
+        `SELECT id, slug, title, description, startDateTime, imageUrl, eddiesPick
+         FROM events
+         WHERE ${pWhere.join(" AND ")}
+         ORDER BY datetime(startDateTime) ASC
+         LIMIT 1`,
+        pParams
+      );
+
+      if (pickMode === "1" || pickMode === "true") {
+        finalRows = pickRows || [];
+      } else if (pickRows && pickRows.length) {
+        const p = pickRows[0];
+        finalRows = (finalRows || []).filter((e) => String(e.id) !== String(p.id));
+      }
+    }
+
+    const siteBase =
+      (process.env.PUBLIC_SITE_URL || process.env.EVENTS_SITE_URL || "").trim() ||
+      `${req.headers["x-forwarded-proto"] || req.protocol}://${req.headers["x-forwarded-host"] || req.get("host")}`;
+
+    const escXml = (s) =>
+      String(s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+
+    const channelTitle = "OpenCircle Events";
+    const channelLink = `${siteBase}/events`;
+    const channelDesc = "Upcoming events";
+
+    const rssTz = "America/Los_Angeles";
+    const formatDate = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleDateString("en-US", { timeZone: rssTz, month: "short", day: "numeric", year: "numeric" });
+    };
+
+    const formatTime = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleTimeString("en-US", { timeZone: rssTz, hour: "numeric", minute: "2-digit" }).toLowerCase();
+    };
+
+    const stripHtml = (html) =>
+      String(html || "")
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const excerpt = (html, max = 220) => {
+      const txt = stripHtml(html);
+      if (txt.length <= max) return txt;
+      return txt.slice(0, max).replace(/\s+\S*$/, "") + "...";
+    };
+
+    const buildCardHtml = (e, variant) => {
+      const key = e.slug ? String(e.slug) : String(e.id);
+      const link = `${siteBase}/events/${encodeURIComponent(key)}/`;
+      const title = String(e.title || "Event");
+      const img = String(e.imageUrl || "").trim();
+      const date = formatDate(e.startDateTime);
+      const time = formatTime(e.startDateTime);
+      const blurb = excerpt(e.description || "", 240);
+
+      const imgHtml = img
+        ? `<div style="width:100%;overflow:hidden;border-radius:${variant === "featured" ? "14px" : "8px"};background:#f3f4f6;">
+             <img src="${img}" alt="" style="width:100%;height:auto;display:block;max-width:${variant === "featured" ? "600px" : "280px"};" />
+           </div>`
+        : "";
+
+      const bodyFont = "font-family:'Open Sans', Arial, sans-serif;";
+      if (variant === "featured") {
+        return `
+          <div style="text-align:center;padding:40px 44px 24px;${bodyFont}">
+            <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
+              <div style="position:relative;">
+                ${imgHtml}
+                <div style="position:absolute;top:16px;left:16px;background:#00add4;color:#fff;font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;letter-spacing:.08em;text-transform:uppercase;">
+                  Featured
+                </div>
+              </div>
+              <div style="font-size:28px;font-weight:700;${bodyFont}color:#111;line-height:1.2;margin:24px 0 12px;">
+                ${escXml(title)}
+              </div>
+              <div style="font-size:13px;${bodyFont}letter-spacing:.08em;color:#6b7280;margin:0 0 20px;text-transform:uppercase;">
+                ${escXml(date)}${time ? " • " + escXml(time) : ""}
+              </div>
+            </a>
+            ${blurb ? `<div style="font-size:15px;${bodyFont}color:#4b5563;line-height:1.6;margin:0 0 32px;">${escXml(blurb)}</div>` : ""}
+            <a href="${link}" style="display:inline-block;padding:12px 24px;border-radius:999px;background:#48a7c7;color:#fff;text-decoration:none;font-weight:600;font-size:14px;${bodyFont}">
+              View Event
+            </a>
+          </div>
+        `;
+      }
+
+      if (variant === "pick") {
+        return `
+          <div style="padding:18px 22px;background:#00add4;color:#fff;${bodyFont}">
+            <a href="${link}" style="text-decoration:none;color:inherit;display:block;">
+              <div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;opacity:.75;margin-bottom:10px;">Eddie's Pick</div>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                <tr>
+                  <td width="34%" valign="top" style="padding:0;">
+                    ${img ? `<img src="${img}" alt="" style="width:100%;height:auto;display:block;border-radius:8px;">` : ""}
+                  </td>
+                  <td width="66%" valign="top" style="padding:0 0 0 16px;">
+                    <div style="font-size:20px;font-weight:700;${bodyFont}line-height:1.25;margin:0 0 8px;">
+                      ${escXml(title)}
+                    </div>
+                    <div style="font-size:13px;${bodyFont}opacity:.85;margin:0;text-transform:uppercase;letter-spacing:.06em;">
+                      ${escXml(date)}${time ? " • " + escXml(time) : ""}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </a>
+          </div>
+        `;
+      }
+
+      return `
+        <a href="${link}" style="text-decoration:none;color:inherit;display:block;${bodyFont}">
+          ${imgHtml}
+          <div style="font-size:18px;font-weight:700;${bodyFont}color:#111;line-height:1.2;margin:10px 0 6px;">${escXml(title)}</div>
+          <div style="font-size:13px;${bodyFont}color:#6b7280;margin:0 0 6px;text-transform:uppercase;letter-spacing:.06em;">${escXml(date)}${time ? " • " + escXml(time) : ""}</div>
+        </a>
+      `;
+    };
+
+    let itemsXml = "";
+
+    if (layoutMode === "mailchimp") {
+      const list = finalRows || [];
+      const useFeatured = (featuredMode === "prepend" || featuredMode === "1" || featuredMode === "true");
+      const featured = useFeatured && list.length ? list[0] : null;
+      const pick = (pickRows && pickRows.length) ? pickRows[0] : null;
+      const pickIsFeatured = pick && featured && String(pick.id) === String(featured.id);
+      const safePick = pickIsFeatured ? null : pick;
+
+      const rest = useFeatured ? (list.length > 1 ? list.slice(1) : []) : list;
+
+      const featuredHtml = featured
+        ? `<div style="margin:48px 0 64px;">${buildCardHtml(featured, "featured")}</div>`
+        : "";
+
+      const pickHtml = safePick
+        ? `<div style="margin:0 0 32px;">${buildCardHtml(safePick, "pick")}</div>`
+        : "";
+
+      const picksHeader = safePick
+        ? ``
+        : "";
+
+      const moreHeader = rest.length
+        ? `<div style="text-align:center;margin:0 0 24px;font-family:'Open Sans', Arial, sans-serif;color:#111;">
+             <div style="font-size:20px;font-weight:700;margin-top:6px;">More Events</div>
+           </div>`
+        : "";
+
+      const gridHtml = rest.length
+        ? `${moreHeader}
+           <div style="font-size:0;padding:0 20px;">
+            ${rest
+              .map(
+                (e) => `
+                <div style="display:inline-block;width:48%;vertical-align:top;margin:0 1% 32px;font-size:16px;">
+                  ${buildCardHtml(e, "grid")}
+                </div>`
+              )
+              .join("")}
+           </div>`
+        : "";
+
+      const descriptionHtml = `${featuredHtml}${picksHeader}${pickHtml}${gridHtml}`;
+      const link = channelLink;
+      const pubDate = new Date().toUTCString();
+
+      itemsXml = `
+  <item>
+    <title>${escXml(channelTitle)}</title>
+    <link>${escXml(link)}</link>
+    <guid isPermaLink="true">${escXml(link)}</guid>
+    <description><![CDATA[${descriptionHtml}]]></description>
+    <pubDate>${escXml(pubDate)}</pubDate>
+  </item>`;
+    } else {
+      itemsXml = (finalRows || [])
+        .map((e) => {
+          const key = e.slug ? String(e.slug) : String(e.id);
+          const link = `${siteBase}/events/${encodeURIComponent(key)}/`;
+          const title = escXml(e.title || "Event");
+          const descRaw = String(e.description || "");
+          const img = String(e.imageUrl || "").trim();
+          const imgTag = img ? `<img src="${escXml(img)}" alt="" style="max-width:100%;height:auto;" />` : "";
+          const desc = escXml(imgTag + descRaw);
+          const pubDate = e.startDateTime ? new Date(e.startDateTime).toUTCString() : new Date().toUTCString();
+
+          return `
+  <item>
+    <title>${title}</title>
+    <link>${escXml(link)}</link>
+    <guid isPermaLink="true">${escXml(link)}</guid>
+    <description>${desc}</description>
+    ${img ? `<media:content url="${escXml(img)}" medium="image" />` : ""}
+    <pubDate>${escXml(pubDate)}</pubDate>
+  </item>`;
+        })
+        .join("");
+    }
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+<channel>
+  <title>${escXml(channelTitle)}</title>
+  <link>${escXml(channelLink)}</link>
+  <description>${escXml(channelDesc)}</description>
+  ${itemsXml}
+</channel>
+</rss>`;
+
+    res.setHeader("Content-Type", "application/rss+xml; charset=utf-8");
+    return res.send(xml);
+  } catch (err) {
+    console.error("[/events/rss] error:", err && err.stack ? err.stack : err);
+    return res.status(500).send("Server error");
+  }
+});
+
+// GET /events/:idOrSlug
+router.get("/:idOrSlug", async (req, res) => {
+  try {
+    const raw = String(req.params.idOrSlug || "").trim();
+    if (!raw) return res.status(400).json({ error: "Missing id/slug" });
+
+    const asId = Number(raw);
+    const isId = Number.isInteger(asId) && asId > 0;
+
+    const row = isId
+      ? await get("SELECT * FROM events WHERE id = ?", [asId])
+      : await get("SELECT * FROM events WHERE slug = ?", [raw]);
+
+    if (!row) return res.status(404).json({ error: "Event not found" });
+
+    // ✅ normalize here too
+    const rowFixed = normalizeRowTimes(row);
+
+    const cats = safeParseJson(rowFixed.categories, []);
+    const recurRuleObj = safeParseJson(rowFixed.recurrenceRule, null);
+
+    const base = {
+      ...rowFixed,
+      categories: Array.isArray(cats) ? cats : [],
+      multiDaySchedule: normalizeMultiDaySchedule(rowFixed.multiDaySchedule),
+      hasRecurrence: Number(rowFixed.hasRecurrence || 0),
+      recurrenceRule: recurRuleObj,
+      recurrenceDates: safeParseJson(rowFixed.recurrenceDates, []),
+      featured: readFeaturedActive(rowFixed),
+      recurrenceStartDate: rowFixed.recurrenceStartDate || null,
+      recurrenceUntilDate: rowFixed.recurrenceUntilDate || null,
+    };
+    if (isArchivedRow(base)) setNoIndexHeader(res);
+
+    const nowUtc = Date.now();
+    const state = lifecycleStatus(base, nowUtc);
+    const windowDays = 90;
+    const windowStartUtc = nowUtc - 5 * 60 * 1000;
+    const windowEndUtc = nowUtc + windowDays * 86400 * 1000;
+
+    const occurrences = base.hasRecurrence && base.recurrenceRule
+      ? generateOccurrences(base, windowStartUtc, windowEndUtc)
+      : [];
+
+    const occurrencesUpcoming = occurrences
+      .filter((o) => {
+        const startTs = Date.parse(o.startDateTime);
+        const endTs = Date.parse(o.endDateTime || o.startDateTime);
+        return Number.isFinite(startTs) && Number.isFinite(endTs) && endTs >= windowStartUtc;
+      })
+      .slice(0, 200)
+      .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
+
+    const displayOccurrence = base.hasRecurrence && base.recurrenceRule
+      ? pickRecurringDisplayOccurrence(occurrencesUpcoming, nowUtc)
+      : null;
+
+    const detailData = {
+      ...base,
+      occurrencesUpcoming,
+      status: state,
+      eventEnded: state === "past" || state === "archived",
+      statusLabel: state === "past" || state === "archived" ? "Event ended." : "",
+    };
+
+    if (displayOccurrence) {
+      detailData.baseStartDateTime = base.startDateTime;
+      detailData.startDateTime = displayOccurrence.startDateTime;
+      detailData.endDateTime = displayOccurrence.endDateTime;
+      detailData.occurrenceLabel = displayOccurrence.label || "";
+      detailData.isOccurrence = true;
+      detailData.status = "upcoming";
+      detailData.eventEnded = false;
+      detailData.statusLabel = "";
+    }
+
+    res.json({
+      data: enrichEventDetailForSeo(req, detailData),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+function sha256(s) {
+  return crypto.createHash("sha256").update(String(s || "")).digest("hex");
+}
+
+// POST /events/:idOrSlug/view
+router.post("/:idOrSlug/view", async (req, res) => {
+  try {
+    const raw = String(req.params.idOrSlug || "").trim();
+    if (!raw) return res.status(400).json({ error: "Missing id/slug" });
+
+    const asId = Number(raw);
+    const isId = Number.isInteger(asId) && asId > 0;
+
+    const row = isId
+      ? await get("SELECT id FROM events WHERE id = ? LIMIT 1", [asId])
+      : await get("SELECT id FROM events WHERE LOWER(slug) = LOWER(?) LIMIT 1", [raw.toLowerCase()]);
+
+    if (!row) return res.status(404).json({ error: "Event not found" });
+
+    const eventId = Number(row.id);
+
+    const occurrenceDate = String(req.body?.occurrenceDate || "").trim() || null;
+
+    // Privacy-friendly dedupe key:
+    const sid = String(req.body?.sid || "").trim() || null;
+    const sourceType = String(req.body?.sourceType || req.body?.source || "").trim().toLowerCase();
+    const sourceHost = String(req.body?.sourceHost || "").trim().toLowerCase();
+    const utmSource = String(req.body?.utmSource || "").trim().toLowerCase();
+
+    const ip =
+      (req.headers["x-forwarded-for"]?.toString().split(",")[0] || req.socket.remoteAddress || "").trim();
+    const ua = (req.headers["user-agent"] || "").toString().slice(0, 255);
+    const bodyRef = String(req.body?.referrer || req.body?.ref || "").trim();
+    const headerRef = (req.headers["referer"] || req.headers["referrer"] || "").toString().trim();
+
+    let ref = bodyRef || headerRef;
+    if (!ref && sourceType === "direct") ref = "__direct__";
+    const srcTag = [sourceType, sourceHost, utmSource].filter(Boolean).join("|");
+    if (srcTag) {
+      ref = ref ? (`[src:${srcTag}] ${ref}`) : (`[src:${srcTag}]`);
+    }
+    ref = String(ref || "").slice(0, 500);
+
+    const ipHash = sid ? sha256(`sid:${sid}`) : sha256(`ip:${ip}|ua:${ua}`);
+
+    const UNIQUE_WINDOW_HOURS = 12;
+
+    const existing = await get(
+      `
+      SELECT id
+      FROM event_views
+      WHERE eventId = ?
+        AND ipHash = ?
+        AND viewedAt >= datetime('now', ?)
+      LIMIT 1
+      `,
+      [eventId, ipHash, `-${UNIQUE_WINDOW_HOURS} hours`]
+    );
+
+    // log hit
+    await run(
+      `
+      INSERT INTO event_views (eventId, occurrenceDate, ipHash, ua, ref, sid)
+      VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [eventId, occurrenceDate, ipHash, ua, ref, sid]
+    );
+
+    // update aggregates
+    if (!existing) {
+      await run(
+        `
+        UPDATE events
+        SET viewCount = COALESCE(viewCount,0) + 1,
+            uniqueViewCount = COALESCE(uniqueViewCount,0) + 1,
+            lastViewedAt = datetime('now')
+        WHERE id = ?
+        `,
+        [eventId]
+      );
+    } else {
+      await run(
+        `
+        UPDATE events
+        SET viewCount = COALESCE(viewCount,0) + 1,
+            lastViewedAt = datetime('now')
+        WHERE id = ?
+        `,
+        [eventId]
+      );
+    }
+
+    return res.json({ ok: true, unique: !existing });
+  } catch (err) {
+    console.error("[view] error:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /events/:idOrSlug/ticket-click
+router.post("/:idOrSlug/ticket-click", async (req, res) => {
+  try {
+    const raw = String(req.params.idOrSlug || "").trim();
+    if (!raw) return res.status(400).json({ error: "Missing id/slug" });
+
+    const asId = Number(raw);
+    const isId = Number.isInteger(asId) && asId > 0;
+
+    const row = isId
+      ? await get("SELECT id, ticketUrl, ticketClickCount FROM events WHERE id = ? LIMIT 1", [asId])
+      : await get("SELECT id, ticketUrl, ticketClickCount FROM events WHERE LOWER(slug) = LOWER(?) LIMIT 1", [raw.toLowerCase()]);
+
+    if (!row) return res.status(404).json({ error: "Event not found" });
+    if (!String(row.ticketUrl || "").trim()) return res.status(400).json({ error: "No ticket URL configured" });
+
+    await run(
+      `UPDATE events
+          SET ticketClickCount = COALESCE(ticketClickCount, 0) + 1,
+              updatedAt = datetime('now')
+        WHERE id = ?`,
+      [row.id]
+    );
+
+    const updated = await get("SELECT ticketClickCount FROM events WHERE id = ?", [row.id]);
+    return res.json({
+      ok: true,
+      ticketUrl: String(row.ticketUrl || "").trim(),
+      ticketClickCount: Number(updated?.ticketClickCount || 0),
+    });
+  } catch (err) {
+    console.error("[ticket-click] error:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /events/:idOrSlug/tickets
+router.get("/:idOrSlug/tickets", async (req, res) => {
+  try {
+    const raw = String(req.params.idOrSlug || "").trim();
+    if (!raw) return res.status(400).send("Missing id/slug");
+
+    const asId = Number(raw);
+    const isId = Number.isInteger(asId) && asId > 0;
+
+    const row = isId
+      ? await get("SELECT id, ticketUrl FROM events WHERE id = ? LIMIT 1", [asId])
+      : await get("SELECT id, ticketUrl FROM events WHERE LOWER(slug) = LOWER(?) LIMIT 1", [raw.toLowerCase()]);
+
+    if (!row) return res.status(404).send("Event not found");
+
+    const ticketUrl = String(row.ticketUrl || "").trim();
+    if (!ticketUrl) return res.status(400).send("No ticket URL configured");
+
+    await run(
+      `UPDATE events
+          SET ticketClickCount = COALESCE(ticketClickCount, 0) + 1,
+              updatedAt = datetime('now')
+        WHERE id = ?`,
+      [row.id]
+    );
+
+    return res.redirect(ticketUrl);
+  } catch (err) {
+    console.error("[tickets redirect] error:", err);
+    return res.status(500).send("Server error");
+  }
+});
+
+
+// POST /events/:idOrSlug/engagement
+// Body supports either:
+//   { goingDelta: 1 } or { goingDelta: -1 }
+//   { interestedDelta: 1 } or { interestedDelta: -1 }
+//   OR absolute set: { going: 12, interested: 5 }
+router.post("/:idOrSlug/engagement", async (req, res) => {
+  try {
+    const raw = String(req.params.idOrSlug || "").trim();
+    if (!raw) return res.status(400).json({ error: "Missing id/slug" });
+
+    // allow id or slug
+    const asId = Number(raw);
+    const isId = Number.isInteger(asId) && asId > 0;
+
+    const row = isId
+      ? await get("SELECT id FROM events WHERE id = ? LIMIT 1", [asId])
+      : await get("SELECT id FROM events WHERE slug = ? LIMIT 1", [raw]);
+
+    if (!row) return res.status(404).json({ error: "Event not found" });
+
+    const id = Number(row.id);
+
+    const body = req.body || {};
+    const hasAbsolute =
+      typeof body.going !== "undefined" || typeof body.interested !== "undefined";
+
+    if (hasAbsolute) {
+      const going = Math.max(0, parseInt(body.going ?? 0, 10) || 0);
+      const interested = Math.max(0, parseInt(body.interested ?? 0, 10) || 0);
+
+      await run(
+        `UPDATE events
+         SET goingCount = ?, interestedCount = ?, updatedAt = datetime('now')
+         WHERE id = ?`,
+        [going, interested, id]
+      );
+    } else {
+      const goingDelta = parseInt(body.goingDelta ?? 0, 10) || 0;
+      const interestedDelta = parseInt(body.interestedDelta ?? 0, 10) || 0;
+
+      await run(
+        `UPDATE events
+         SET
+           goingCount = MAX(0, COALESCE(goingCount, 0) + ?),
+           interestedCount = MAX(0, COALESCE(interestedCount, 0) + ?),
+           updatedAt = datetime('now')
+         WHERE id = ?`,
+        [goingDelta, interestedDelta, id]
+      );
+    }
+
+    const updated = await get(
+      `SELECT goingCount, interestedCount FROM events WHERE id = ?`,
+      [id]
+    );
+
+    res.json({
+      ok: true,
+      id,
+      goingCount: Number(updated?.goingCount || 0),
+      interestedCount: Number(updated?.interestedCount || 0),
+    });
+  } catch (err) {
+    console.error("[engagement] error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+module.exports = router;
