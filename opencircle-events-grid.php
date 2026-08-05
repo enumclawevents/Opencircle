@@ -2771,30 +2771,29 @@ function oc_integration_render_shortcodes_page() {
         </div>
       </div>
 
-      <div class="oc-admin-card" data-oc-builder data-shortcode="opencircle_newsletter_signup">
+      <div class="oc-admin-card" data-oc-builder data-shortcode="opencircle_newsletter_signup" data-fixed-attrs='{"city":"<?php echo esc_attr(oc_integration_newsletter_scope()); ?>"}'>
         <h2>Newsletter Signup</h2>
         <p>Public newsletter signup form that adds subscribers to the OpenCircle newsletter audience for the Plateau Area.</p>
         <div class="oc-admin-fields">
           <div class="oc-admin-field">
-            <label for="oc-newsletter-city">Coverage</label>
-            <input id="oc-newsletter-city" type="hidden" data-attr="city" value="<?php echo esc_attr(oc_integration_newsletter_scope()); ?>" />
+            <label>Coverage</label>
             <div class="oc-admin-static" aria-hidden="true"><?php echo esc_html(oc_integration_newsletter_scope()); ?></div>
           </div>
           <div class="oc-admin-field">
             <label for="oc-newsletter-title">Headline</label>
-            <input id="oc-newsletter-title" type="text" data-attr="title" value="Stay in the loop" />
+            <input id="oc-newsletter-title" type="text" data-attr="title" value="Stay in the loop" autocomplete="off" autocapitalize="off" spellcheck="false" />
           </div>
           <div class="oc-admin-field">
             <label for="oc-newsletter-description">Description</label>
-            <textarea id="oc-newsletter-description" data-attr="description">Get local event highlights, updates, and newsletter picks delivered to your inbox.</textarea>
+            <textarea id="oc-newsletter-description" data-attr="description" autocomplete="off" autocapitalize="off" spellcheck="false">Get local event highlights, updates, and newsletter picks delivered to your inbox.</textarea>
           </div>
           <div class="oc-admin-field">
             <label for="oc-newsletter-button">Button Label</label>
-            <input id="oc-newsletter-button" type="text" data-attr="button" value="Sign Up" />
+            <input id="oc-newsletter-button" type="text" data-attr="button" value="Sign Up" autocomplete="off" autocapitalize="off" spellcheck="false" />
           </div>
           <div class="oc-admin-field">
             <label for="oc-newsletter-placeholder">Email Placeholder</label>
-            <input id="oc-newsletter-placeholder" type="text" data-attr="placeholder" value="Enter your email address" />
+            <input id="oc-newsletter-placeholder" type="text" data-attr="placeholder" value="Enter your email address" autocomplete="off" autocapitalize="off" spellcheck="false" />
           </div>
         </div>
         <code class="oc-admin-code" data-oc-output></code>
@@ -2919,21 +2918,21 @@ function oc_integration_render_shortcodes_page() {
       <p class="oc-admin-subpanel-copy">Jobs directory and single-job detail shortcodes with application handling.</p>
       <div class="oc-admin-grid">
 
-      <div class="oc-admin-card" data-oc-builder data-shortcode="opencircle_jobs">
+      <div class="oc-admin-card" data-oc-builder data-shortcode="opencircle_jobs" data-fixed-attrs='{"city":"<?php echo esc_attr(oc_integration_jobs_scope()); ?>"}'>
         <h2>Jobs Directory</h2>
         <p>Render a jobs directory with an in-page popup detail view, similar to Indeed, plus website application support when the API allows it. Jobs are shown Plateau-wide.</p>
         <div class="oc-admin-fields">
           <div class="oc-admin-field">
-            <label for="oc-jobs-city">Coverage</label>
-            <input id="oc-jobs-city" type="text" data-attr="city" value="<?php echo esc_attr(oc_integration_jobs_scope_label()); ?>" readonly />
+            <label>Coverage</label>
+            <div class="oc-admin-static" aria-hidden="true"><?php echo esc_html(oc_integration_jobs_scope_label()); ?></div>
           </div>
           <div class="oc-admin-field">
             <label for="oc-jobs-title">Title</label>
-            <input id="oc-jobs-title" type="text" data-attr="title" value="" data-omit-empty="1" />
+            <input id="oc-jobs-title" type="text" data-attr="title" value="" data-omit-empty="1" autocomplete="off" autocapitalize="off" spellcheck="false" />
           </div>
           <div class="oc-admin-field">
             <label for="oc-jobs-description">Description</label>
-            <textarea id="oc-jobs-description" data-attr="description" data-omit-empty="1"></textarea>
+            <textarea id="oc-jobs-description" data-attr="description" data-omit-empty="1" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
           </div>
           <div class="oc-admin-field">
             <label for="oc-jobs-limit">Jobs Per Directory</label>
@@ -2941,15 +2940,15 @@ function oc_integration_render_shortcodes_page() {
           </div>
           <div class="oc-admin-field">
             <label for="oc-jobs-q">Initial Search</label>
-            <input id="oc-jobs-q" type="text" data-attr="q" value="" data-omit-empty="1" />
+            <input id="oc-jobs-q" type="text" data-attr="q" value="" data-omit-empty="1" autocomplete="off" autocapitalize="off" spellcheck="false" />
           </div>
           <div class="oc-admin-field">
             <label for="oc-jobs-class">Extra Wrapper Class</label>
-            <input id="oc-jobs-class" type="text" data-attr="class" value="" data-omit-empty="1" />
+            <input id="oc-jobs-class" type="text" data-attr="class" value="" data-omit-empty="1" autocomplete="off" autocapitalize="off" spellcheck="false" />
           </div>
           <div class="oc-admin-field">
             <label for="oc-jobs-fallback">Fallback HTML/Text</label>
-            <textarea id="oc-jobs-fallback" data-attr="fallback" data-omit-empty="1"></textarea>
+            <textarea id="oc-jobs-fallback" data-attr="fallback" data-omit-empty="1" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
           </div>
         </div>
         <code class="oc-admin-code" data-oc-output></code>
@@ -3035,6 +3034,19 @@ function oc_integration_render_shortcodes_page() {
           const shortcode = card.getAttribute('data-shortcode');
           const fields = card.querySelectorAll('[data-attr]');
           const parts = ['[' + shortcode];
+          var fixedAttrs = {};
+
+          try {
+            fixedAttrs = JSON.parse(card.getAttribute('data-fixed-attrs') || '{}') || {};
+          } catch (e) {
+            fixedAttrs = {};
+          }
+
+          Object.keys(fixedAttrs).forEach(function (attr) {
+            const value = String(fixedAttrs[attr] || '').trim();
+            if (!attr || value === '') return;
+            parts.push(attr + '="' + escapeAttr(value) + '"');
+          });
 
           fields.forEach(function (field) {
             const attr = field.getAttribute('data-attr');
@@ -3164,7 +3176,7 @@ function oc_integration_render_settings_page() {
         <p><strong>Events Grid Page:</strong> <code><?php echo esc_html(oc_integration_get_events_grid_page_url()); ?></code></p>
         <p><strong>Coverage:</strong> This setting overrides the plugin’s accent blue anywhere it appears in event pages, venue pages, sliders, submission forms, featured badges, and plugin-specific admin helpers.</p>
         <p><strong>Category Section Shortcode:</strong> <code>[opencircle_category_section]</code> also uses these shared settings for its default area, browse links, and accent-driven styling.</p>
-        <p><strong>Newsletter Signup Shortcode:</strong> <code>[opencircle_newsletter_signup city="<?php echo esc_html(oc_integration_get_default_area()); ?>"]</code></p>
+        <p><strong>Newsletter Signup Shortcode:</strong> <code>[opencircle_newsletter_signup]</code></p>
         <p><strong>Default:</strong> <code><?php echo esc_html(oc_integration_default_accent_color()); ?></code></p>
         <p><strong>Current:</strong> <code><?php echo esc_html($colors['base']); ?></code></p>
       </div>
