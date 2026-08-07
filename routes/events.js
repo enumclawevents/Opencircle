@@ -784,6 +784,22 @@ function nthWeekdayOfMonth(year, month, weekdayKey, setPos) {
   return null;
 }
 
+function buildRecurrenceBounds(row, offset, windowStartUtcMs, windowEndUtcMs) {
+  let startMs = windowStartUtcMs;
+  let endMs = windowEndUtcMs;
+  const startDate = String(row?.recurrenceStartDate || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+    const [year, month, day] = startDate.split("-").map(Number);
+    startMs = Math.max(startMs, partsToUtcMs({ year, month, day, hour: 0, minute: 0, second: 0, offset }));
+  }
+  const untilDate = String(row?.recurrenceUntilDate || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(untilDate)) {
+    const [year, month, day] = untilDate.split("-").map(Number);
+    endMs = Math.min(endMs, partsToUtcMs({ year, month, day, hour: 23, minute: 59, second: 59, offset }));
+  }
+  return { startMs, endMs };
+}
+
 /**
  * ✅ FIX A:
  * For recurrenceRule.type === "custom", prefer recurrenceRule.items[] (per-day start/end)
@@ -798,6 +814,12 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   const durationMs = (Number.isFinite(baseStartUtc) && Number.isFinite(baseEndUtc))
     ? Math.max(0, baseEndUtc - baseStartUtc)
     : 0;
+  const startParts = parseIsoParts(eventRow.startDateTime);
+  if (!startParts) return [];
+  const bounds = buildRecurrenceBounds(eventRow, startParts.offset, windowStartUtcMs, windowEndUtcMs);
+  const boundedStart = bounds.startMs;
+  const boundedEnd = bounds.endMs;
+  if (boundedStart > boundedEnd) return [];
 
   // 1) ✅ Preferred: recurrenceRule.items (true per-occurrence start/end)
   const rule = safeParseJson(eventRow.recurrenceRule, null);
@@ -823,7 +845,7 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       }
       const occEndUtc = endIso ? Date.parse(endIso) : (durationMs > 0 ? occStartUtc + durationMs : occStartUtc);
       if (!Number.isFinite(occEndUtc)) continue;
-      if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+      if (occEndUtc < boundedStart || occStartUtc > boundedEnd) continue;
       if (Number.isFinite(baseStartUtc) && occStartUtc < baseStartUtc) continue;
 
       const sp = parseIsoParts(startIso);
@@ -847,9 +869,6 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   }
 
   // 2) Fallback: your old recurrenceDates[] list (date-only) using base start time
-  const startParts = parseIsoParts(eventRow.startDateTime);
-  if (!startParts) return [];
-
   const startUtc = Date.parse(eventRow.startDateTime);
   const endUtc = Date.parse(eventRow.endDateTime);
   if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc)) return [];
@@ -880,7 +899,7 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     const occStartUtc = partsToUtcMs(occLocalParts);
     const occEndUtc = occStartUtc + durationMs2;
 
-    if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+    if (occEndUtc < boundedStart || occStartUtc > boundedEnd) continue;
     if (occStartUtc < startUtc) continue;
 
     const occEndParts = utcMsToLocalParts(occEndUtc, offset);
@@ -911,9 +930,13 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
 
   const durationMs = Math.max(0, endUtc - startUtc);
   const offset = startParts.offset;
+  const bounds = buildRecurrenceBounds(eventRow, offset, windowStartUtcMs, windowEndUtcMs);
+  const boundedStart = bounds.startMs;
+  const boundedEnd = bounds.endMs;
 
   const rule = safeParseJson(eventRow.recurrenceRule, null);
   if (!rule || Number(eventRow.hasRecurrence || 0) !== 1) return [];
+  if (boundedStart > boundedEnd) return [];
 
   const type = String(rule.type || "").toLowerCase();
   const interval = Math.max(1, Number(rule.interval || 1));
@@ -939,7 +962,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     const byDaySet = new Set(byDay);
 
     const dayMs = 86400 * 1000;
-    for (let t = windowStartUtcMs; t <= windowEndUtcMs; t += dayMs) {
+    for (let t = boundedStart; t <= boundedEnd; t += dayMs) {
       const lp = utcMsToLocalParts(t, offset);
       const wk = weekdayKeyFromLocalParts(lp);
       if (!byDaySet.has(wk)) continue;
@@ -964,7 +987,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       const occStartUtc = partsToUtcMs(occLocalParts);
       const occEndUtc = occStartUtc + durationMs;
 
-      if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+      if (occEndUtc < boundedStart || occStartUtc > boundedEnd) continue;
       if (occStartUtc < startUtc) continue;
 
       const occEndParts = utcMsToLocalParts(occEndUtc, offset);
@@ -984,8 +1007,8 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   if (type === "monthly") {
     const mode = rule.mode === "nthweekday" ? "nthweekday" : "monthday";
 
-    const windowStartLocal = utcMsToLocalParts(windowStartUtcMs, offset);
-    const windowEndLocal = utcMsToLocalParts(windowEndUtcMs, offset);
+    const windowStartLocal = utcMsToLocalParts(boundedStart, offset);
+    const windowEndLocal = utcMsToLocalParts(boundedEnd, offset);
 
     const anchorY = anchorLocal.year;
     const anchorM = anchorLocal.month;
@@ -1041,7 +1064,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
         const occStartUtc = partsToUtcMs(occLocalParts);
         const occEndUtc = occStartUtc + durationMs;
 
-        if (occEndUtc < windowStartUtcMs || occStartUtc > windowEndUtcMs) continue;
+        if (occEndUtc < boundedStart || occStartUtc > boundedEnd) continue;
         if (occStartUtc < startUtc) continue;
 
         const occEndParts = utcMsToLocalParts(occEndUtc, offset);

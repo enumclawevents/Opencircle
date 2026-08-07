@@ -673,8 +673,9 @@ function generateAdminOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
 
   const durationMs = Math.max(0, endUtc - startUtc);
   const offset = startParts.offset;
-  const boundedStart = windowStartUtcMs;
-  const boundedEnd = windowEndUtcMs;
+  const bounds = buildRecurrenceBounds(eventRow, offset, windowStartUtcMs, windowEndUtcMs);
+  const boundedStart = bounds.startMs;
+  const boundedEnd = bounds.endMs;
   if (boundedStart > boundedEnd) return [];
 
   const type = String(rule.type || "").toLowerCase();
