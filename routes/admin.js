@@ -2114,8 +2114,9 @@ async function getNewsletterEventCandidates(city, { startAtMs = Date.now(), endA
       targetCities
     );
   }
+  rows = (Array.isArray(rows) ? rows : []).map((row) => normalizeRowTimes(row));
   const prepared = [];
-  for (const row of Array.isArray(rows) ? rows : []) {
+  for (const row of rows) {
     const hasRecurring = Number(row?.hasRecurrence || 0) === 1 || hasRecurringData(row);
     if (hasRecurring) {
       const occurrences = generateAdminOccurrences(row, selectionStartUtcMs, futureWindowUtcMs);
