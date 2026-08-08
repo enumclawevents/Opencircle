@@ -76,10 +76,7 @@ class OpenCircle_Event_Submissions {
       </style>
       <h2 class="oc-submit-title"><?php echo esc_html($title); ?></h2>
 
-      <div class="oc-submit-disclaimer">
-        All events are subject to admin approval. If you have any questions, please email us at
-        <a href="mailto:info@enumclawevents.org">info@enumclawevents.org</a>.
-      </div>
+      <div class="oc-submit-disclaimer">All events are subject to admin approval.</div>
 
       <form class="oc-submit-form" method="POST" action="<?php echo esc_url(admin_url('admin-ajax.php')); ?>" novalidate enctype="multipart/form-data">
         <input type="hidden" name="action" value="oc_submit_event" />
