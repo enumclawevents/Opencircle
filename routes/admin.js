@@ -2377,6 +2377,33 @@ async function getNewsletterAudienceForCity(city) {
   return Array.isArray(rows) ? rows : [];
 }
 
+async function getNewsletterAudienceAnalyticsForCity(city) {
+  await ensureNewsletterSchema();
+  const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  const rows = await all(
+    `SELECT
+        lower(r.email) AS emailKey,
+        MIN(r.email) AS email,
+        COALESCE(SUM(CASE WHEN COALESCE(r.deliveryStatus, '') = 'sent' THEN 1 ELSE 0 END), 0) AS receivedCount,
+        COALESCE(SUM(CASE WHEN COALESCE(r.deliveryStatus, '') = 'failed' THEN 1 ELSE 0 END), 0) AS bouncedCount,
+        COALESCE(SUM(CASE WHEN COALESCE(r.openCount, 0) > 0 THEN 1 ELSE 0 END), 0) AS openedCount,
+        COALESCE(SUM(CASE WHEN COALESCE(r.openCount, 0) > 1 THEN COALESCE(r.openCount, 0) - 1 ELSE 0 END), 0) AS reopenCount,
+        COALESCE(SUM(COALESCE(r.clickCount, 0)), 0) AS clickCount,
+        MAX(COALESCE(r.sentAt, r.createdAt)) AS lastSentAt,
+        MAX(r.lastOpenedAt) AS lastOpenedAt,
+        MAX(r.lastClickedAt) AS lastClickedAt
+      FROM newsletter_recipients r
+      LEFT JOIN newsletter_campaigns c
+        ON c.id = r.campaignId
+     WHERE r.city = ?
+       AND COALESCE(c.mode, 'scheduled') <> 'test'
+     GROUP BY lower(r.email)
+     ORDER BY lower(r.email) ASC`,
+    [normalizedCity]
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+
 async function buildNewsletterCampaign(city, reqLike, { baseDateTime = null } = {}) {
   const settings = await getNewsletterSettingsForCity(city);
   const previewBase = baseDateTime && DateTime.isDateTime(baseDateTime)
@@ -6035,6 +6062,15 @@ return `
     ` : "";
     let newsletterSettings = getDefaultNewsletterSettings(newsletterContextCity);
     let newsletterAudienceRows = [];
+    let newsletterAudienceAnalyticsRows = [];
+    let newsletterAudienceAnalyticsSummary = {
+      members: 0,
+      received: 0,
+      bounced: 0,
+      opened: 0,
+      reopens: 0,
+      clicks: 0,
+    };
     let newsletterFeaturedEvent = null;
     let newsletterEditorialPickEvent = null;
     let newsletterShowcaseEvents = [];
@@ -6053,6 +6089,42 @@ return `
     ) {
       newsletterSettings = await getNewsletterSettingsForCity(newsletterContextCity);
       newsletterAudienceRows = await getNewsletterAudienceForCity(newsletterContextCity);
+      if (showNewsletterAudience) {
+        newsletterAudienceAnalyticsRows = await getNewsletterAudienceAnalyticsForCity(newsletterContextCity);
+        const analyticsByEmail = new Map(
+          newsletterAudienceAnalyticsRows.map((row) => [normalizeNewsletterEmailAddress(row.email), row])
+        );
+        newsletterAudienceRows = newsletterAudienceRows.map((row) => {
+          const stats = analyticsByEmail.get(normalizeNewsletterEmailAddress(row.email)) || {};
+          return {
+            ...row,
+            receivedCount: Number(stats.receivedCount || 0),
+            bouncedCount: Number(stats.bouncedCount || 0),
+            openedCount: Number(stats.openedCount || 0),
+            reopenCount: Number(stats.reopenCount || 0),
+            clickCount: Number(stats.clickCount || 0),
+            lastSentAt: String(stats.lastSentAt || "").trim(),
+            lastOpenedAt: String(stats.lastOpenedAt || "").trim(),
+            lastClickedAt: String(stats.lastClickedAt || "").trim(),
+          };
+        });
+        newsletterAudienceAnalyticsSummary = newsletterAudienceRows.reduce((acc, row) => {
+          acc.members += 1;
+          acc.received += Number(row.receivedCount || 0);
+          acc.bounced += Number(row.bouncedCount || 0);
+          acc.opened += Number(row.openedCount || 0);
+          acc.reopens += Number(row.reopenCount || 0);
+          acc.clicks += Number(row.clickCount || 0);
+          return acc;
+        }, {
+          members: 0,
+          received: 0,
+          bounced: 0,
+          opened: 0,
+          reopens: 0,
+          clicks: 0,
+        });
+      }
       newsletterNextSendLabel = Number(newsletterSettings.scheduleEnabled || 0) === 1
         ? getNextNewsletterSlotDateTime(newsletterSettings, DateTime.now().setZone(DEFAULT_TZ)).toFormat("cccc, LLL d 'at' h:mm a")
         : "Automatic sending is off";
@@ -9438,6 +9510,84 @@ return `
         gap:var(--gap);
         align-items:start;
       }
+      .newsletter-audience-summary{
+        display:grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap:12px;
+        margin-bottom:var(--gap);
+      }
+      .newsletter-audience-stat{
+        border:1px solid var(--line);
+        border-radius:var(--radius-inner);
+        background:#f8fbff;
+        padding:14px 16px;
+      }
+      .newsletter-audience-stat .k{
+        font-size:12px;
+        font-weight:700;
+        letter-spacing:.02em;
+        color:var(--muted);
+        text-transform:uppercase;
+      }
+      .newsletter-audience-stat .v{
+        margin-top:6px;
+        font-size:28px;
+        line-height:1;
+        font-weight:800;
+        color:var(--text);
+      }
+      .newsletter-audience-row{
+        border:1px solid var(--line);
+        border-radius:var(--radius-inner);
+        background:#fbfdff;
+        padding:14px 16px;
+      }
+      .newsletter-audience-row + .newsletter-audience-row{
+        margin-top:12px;
+      }
+      .newsletter-audience-row-top{
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-start;
+        gap:14px;
+      }
+      .newsletter-audience-row-meta{
+        margin-top:4px;
+        font-size:12px;
+        color:var(--muted);
+        line-height:1.45;
+      }
+      .newsletter-audience-row-stats{
+        display:grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap:10px;
+        margin-top:12px;
+      }
+      .newsletter-audience-row-stat{
+        border:1px solid rgba(148,163,184,.20);
+        border-radius:12px;
+        background:#ffffff;
+        padding:10px 12px;
+        min-width:0;
+      }
+      .newsletter-audience-row-stat .k{
+        font-size:11px;
+        font-weight:700;
+        text-transform:uppercase;
+        letter-spacing:.03em;
+        color:var(--muted);
+      }
+      .newsletter-audience-row-stat .v{
+        margin-top:4px;
+        font-size:20px;
+        font-weight:800;
+        color:var(--text);
+        line-height:1.1;
+      }
+      .newsletter-audience-row-stat .sub{
+        margin-top:4px;
+        font-size:11px;
+      }
       .newsletter-preview-tools > .card,
       .newsletter-preview-layout > .card{
         height:100%;
@@ -9559,6 +9709,23 @@ return `
         .newsletter-preview-tools,
         .newsletter-preview-layout{
           grid-template-columns: 1fr;
+        }
+        .newsletter-audience-summary{
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .newsletter-audience-row-stats{
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 700px){
+        .newsletter-audience-summary{
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .newsletter-audience-row-top{
+          flex-direction:column;
+        }
+        .newsletter-audience-row-stats{
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
 
@@ -12543,6 +12710,33 @@ return `
             </div>
             ${newsletterScopeSwitcherHtml}
             ${newsletterNoticeHtml}
+            <div class="newsletter-audience-summary">
+              <div class="newsletter-audience-stat" data-newsletter-search-item>
+                <div class="k">Audience members</div>
+                <div class="v">${newsletterAudienceAnalyticsSummary.members.toLocaleString("en-US")}</div>
+              </div>
+              <div class="newsletter-audience-stat" data-newsletter-search-item>
+                <div class="k">Emails received</div>
+                <div class="v">${newsletterAudienceAnalyticsSummary.received.toLocaleString("en-US")}</div>
+              </div>
+              <div class="newsletter-audience-stat" data-newsletter-search-item>
+                <div class="k">Bounced</div>
+                <div class="v">${newsletterAudienceAnalyticsSummary.bounced.toLocaleString("en-US")}</div>
+              </div>
+              <div class="newsletter-audience-stat" data-newsletter-search-item>
+                <div class="k">Opened emails</div>
+                <div class="v">${newsletterAudienceAnalyticsSummary.opened.toLocaleString("en-US")}</div>
+              </div>
+              <div class="newsletter-audience-stat" data-newsletter-search-item>
+                <div class="k">Re-opens</div>
+                <div class="v">${newsletterAudienceAnalyticsSummary.reopens.toLocaleString("en-US")}</div>
+              </div>
+              <div class="newsletter-audience-stat" data-newsletter-search-item>
+                <div class="k">Clicks</div>
+                <div class="v">${newsletterAudienceAnalyticsSummary.clicks.toLocaleString("en-US")}</div>
+              </div>
+            </div>
+            <div class="note" style="margin-bottom:var(--gap);">“Bounced” currently counts newsletter sends that failed delivery.</div>
             <div class="newsletter-audience-layout">
               <div class="card" data-newsletter-search-item data-newsletter-search-text="add emails audience subscribe newsletter list">
                 <div class="sectionTitle"><div><h2>Add emails</h2></div></div>
@@ -12561,21 +12755,65 @@ return `
                 <div class="sectionTitle">
                   <div>
                     <h2>Current audience</h2>
-                    <p class="sub">${esc(String(newsletterAudienceRows.length))} email${newsletterAudienceRows.length === 1 ? "" : "s"} in ${esc(selectedNewsletterScope)}</p>
+                    <p class="sub">${esc(String(newsletterAudienceRows.length))} email${newsletterAudienceRows.length === 1 ? "" : "s"} in ${esc(selectedNewsletterScope)} with individual newsletter stats.</p>
                   </div>
                 </div>
                 <div class="mini">
                   ${newsletterAudienceRows.length ? newsletterAudienceRows.map((row) => `
-                    <div class="insight-row" style="gap:12px;" data-newsletter-search-item data-newsletter-search-text="${esc([row.email || "", DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : ""].join(" "))}">
-                      <div class="label" style="overflow-wrap:anywhere;">${esc(row.email || "")}</div>
-                      <div class="value" style="display:flex; align-items:center; gap:10px;">
-                        <span>${esc(DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "")}</span>
+                    <div class="newsletter-audience-row" data-newsletter-search-item data-newsletter-search-text="${esc([
+                      row.email || "",
+                      DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "",
+                      `received ${Number(row.receivedCount || 0)}`,
+                      `bounced ${Number(row.bouncedCount || 0)}`,
+                      `opened ${Number(row.openedCount || 0)}`,
+                      `reopens ${Number(row.reopenCount || 0)}`,
+                      `clicks ${Number(row.clickCount || 0)}`
+                    ].join(" "))}">
+                      <div class="newsletter-audience-row-top">
+                        <div style="min-width:0; flex:1 1 auto;">
+                          <div class="label" style="overflow-wrap:anywhere; font-size:16px; font-weight:800; color:var(--text);">${esc(row.email || "")}</div>
+                          <div class="newsletter-audience-row-meta">
+                            Added ${esc(DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "recently")}
+                            ${String(row.lastSentAt || "").trim() && DateTime.fromISO(String(row.lastSentAt || ""), { zone: DEFAULT_TZ }).isValid ? ` · Last email ${esc(DateTime.fromISO(String(row.lastSentAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy"))}` : ``}
+                            ${String(row.lastOpenedAt || "").trim() && DateTime.fromISO(String(row.lastOpenedAt || ""), { zone: DEFAULT_TZ }).isValid ? ` · Last open ${esc(DateTime.fromISO(String(row.lastOpenedAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy"))}` : ``}
+                            ${String(row.lastClickedAt || "").trim() && DateTime.fromISO(String(row.lastClickedAt || ""), { zone: DEFAULT_TZ }).isValid ? ` · Last click ${esc(DateTime.fromISO(String(row.lastClickedAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy"))}` : ``}
+                          </div>
+                        </div>
+                        <div class="value" style="display:flex; align-items:flex-start; gap:10px;">
                         <form method="POST" action="/admin/newsletter/audience/${esc(String(row.id))}/delete" style="margin:0;">
                           <input type="hidden" name="city" value="${esc(selectedCity)}" />
                           <input type="hidden" name="newsletterScope" value="${esc(selectedNewsletterScope)}" />
                           <button class="btn" type="submit" style="height:34px; padding:0 10px;">Remove</button>
                         </form>
                       </div>
+                    </div>
+                    <div class="newsletter-audience-row-stats">
+                      <div class="newsletter-audience-row-stat">
+                        <div class="k">Received</div>
+                        <div class="v">${Number(row.receivedCount || 0).toLocaleString("en-US")}</div>
+                      </div>
+                      <div class="newsletter-audience-row-stat">
+                        <div class="k">Bounced</div>
+                        <div class="v">${Number(row.bouncedCount || 0).toLocaleString("en-US")}</div>
+                      </div>
+                      <div class="newsletter-audience-row-stat">
+                        <div class="k">Opened</div>
+                        <div class="v">${Number(row.openedCount || 0).toLocaleString("en-US")}</div>
+                        <div class="sub">${Number(row.receivedCount || 0) > 0 ? `${Math.round((Number(row.openedCount || 0) / Math.max(1, Number(row.receivedCount || 0))) * 100)}% open rate` : `0% open rate`}</div>
+                      </div>
+                      <div class="newsletter-audience-row-stat">
+                        <div class="k">Re-opens</div>
+                        <div class="v">${Number(row.reopenCount || 0).toLocaleString("en-US")}</div>
+                      </div>
+                      <div class="newsletter-audience-row-stat">
+                        <div class="k">Clicks</div>
+                        <div class="v">${Number(row.clickCount || 0).toLocaleString("en-US")}</div>
+                      </div>
+                      <div class="newsletter-audience-row-stat">
+                        <div class="k">Status</div>
+                        <div class="v" style="font-size:16px;">${Number(row.bouncedCount || 0) > 0 && Number(row.receivedCount || 0) === 0 ? `Needs attention` : Number(row.receivedCount || 0) > 0 ? `Active` : `No sends yet`}</div>
+                      </div>
+                    </div>
                     </div>
                   `).join("") : `<div class="note">No emails have been added for this area yet.</div>`}
                 </div>
