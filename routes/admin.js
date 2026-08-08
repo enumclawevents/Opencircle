@@ -5080,6 +5080,7 @@ return `
     const requestedNewsletterCampaignPage = Number.isInteger(requestedNewsletterCampaignPageRaw) && requestedNewsletterCampaignPageRaw > 0
       ? requestedNewsletterCampaignPageRaw
       : 1;
+    const requestedNewsletterAudienceEmail = normalizeNewsletterEmailAddress(req.query.audienceEmail || "");
     const buildEventAnalyticsHref = (id) =>
       `/admin/events-analytics?event=${encodeURIComponent(String(id || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
     const buildAnalyticsChartHref = (mode) =>
@@ -6063,6 +6064,7 @@ return `
     let newsletterSettings = getDefaultNewsletterSettings(newsletterContextCity);
     let newsletterAudienceRows = [];
     let newsletterAudienceAnalyticsRows = [];
+    let newsletterSelectedAudienceRow = null;
     let newsletterAudienceAnalyticsSummary = {
       members: 0,
       received: 0,
@@ -6089,7 +6091,7 @@ return `
     ) {
       newsletterSettings = await getNewsletterSettingsForCity(newsletterContextCity);
       newsletterAudienceRows = await getNewsletterAudienceForCity(newsletterContextCity);
-      if (showNewsletterAudience) {
+      if (showNewsletterAudience || showNewsletterAnalytics || (showDashboard && canSeeNewsletterAnalytics)) {
         newsletterAudienceAnalyticsRows = await getNewsletterAudienceAnalyticsForCity(newsletterContextCity);
         const analyticsByEmail = new Map(
           newsletterAudienceAnalyticsRows.map((row) => [normalizeNewsletterEmailAddress(row.email), row])
@@ -6108,6 +6110,9 @@ return `
             lastClickedAt: String(stats.lastClickedAt || "").trim(),
           };
         });
+        newsletterSelectedAudienceRow = requestedNewsletterAudienceEmail
+          ? (newsletterAudienceRows.find((row) => normalizeNewsletterEmailAddress(row.email) === requestedNewsletterAudienceEmail) || null)
+          : null;
         newsletterAudienceAnalyticsSummary = newsletterAudienceRows.reduce((acc, row) => {
           acc.members += 1;
           acc.received += Number(row.receivedCount || 0);
@@ -6177,16 +6182,28 @@ return `
       failedEmails: 0,
     };
     let newsletterSelectedCampaignId = 0;
+    let newsletterSelectedAudienceEmailValue = "";
     let newsletterSelectedCampaignNoticeHtml = "";
+    let newsletterSelectedAudienceNoticeHtml = "";
     let newsletterRecentCampaignsHtml = `<div class="muted">No newsletter sends yet.</div>`;
     let newsletterTopCampaignsHtml = `<div class="muted">No newsletter open data yet.</div>`;
+    let newsletterAudienceAnalyticsListHtml = `<div class="muted">No audience members yet.</div>`;
     let newsletterChartDataJson = esc(JSON.stringify({ events: {}, views: {} }));
     let newsletterChartSvgByMode = { daily: "", weekly: "", monthly: "", yearly: "" };
     const buildNewsletterAnalyticsChartHref = (mode) =>
       buildNewsletterHref("/admin/newsletter/analytics", {
         chartView: String(mode || "daily"),
-        campaignId: requestedNewsletterCampaignId ? String(requestedNewsletterCampaignId) : "",
+        campaignId: requestedNewsletterCampaignId && !requestedNewsletterAudienceEmail ? String(requestedNewsletterCampaignId) : "",
+        audienceEmail: requestedNewsletterAudienceEmail ? requestedNewsletterAudienceEmail : "",
         campaignPage: String(requestedNewsletterCampaignPage || 1),
+      });
+    const buildNewsletterAudienceAnalyticsHref = (email, extraParams = {}) =>
+      buildNewsletterHref("/admin/newsletter/analytics", {
+        chartView: chartViewMode,
+        campaignId: "",
+        audienceEmail: normalizeNewsletterEmailAddress(email),
+        campaignPage: String(requestedNewsletterCampaignPage || 1),
+        ...extraParams,
       });
 
     if (showNewsletterAnalytics || (showDashboard && canSeeNewsletterAnalytics)) {
@@ -6198,23 +6215,90 @@ return `
           ORDER BY datetime(COALESCE(sentAt, createdAt)) DESC, id DESC`,
         [newsletterContextCity]
       );
+      const recipientRows = await all(
+        `SELECT
+            r.id,
+            r.campaignId,
+            r.city,
+            r.email,
+            r.deliveryStatus,
+            r.openCount,
+            r.clickCount,
+            r.firstOpenedAt,
+            r.lastOpenedAt,
+            r.firstClickedAt,
+            r.lastClickedAt,
+            COALESCE(r.sentAt, r.createdAt) AS sentAt,
+            r.createdAt,
+            COALESCE(c.mode, 'scheduled') AS campaignMode,
+            c.subject AS campaignSubject
+           FROM newsletter_recipients r
+           LEFT JOIN newsletter_campaigns c
+             ON c.id = r.campaignId
+          WHERE r.city = ?
+            AND COALESCE(c.mode, 'scheduled') <> 'test'
+          ORDER BY datetime(COALESCE(r.sentAt, r.createdAt)) DESC, r.id DESC`,
+        [newsletterContextCity]
+      );
       const selectedCampaignRow = requestedNewsletterCampaignId
         ? (campaignRows.find((row) => Number(row.id || 0) === Number(requestedNewsletterCampaignId)) || null)
         : null;
-      const campaignStatsRows = selectedCampaignRow
+      const selectedAudienceEmail = newsletterSelectedAudienceRow
+        ? normalizeNewsletterEmailAddress(newsletterSelectedAudienceRow.email)
+        : "";
+      newsletterSelectedAudienceEmailValue = selectedAudienceEmail;
+      const selectedAudienceRecipientRows = selectedAudienceEmail
+        ? recipientRows.filter((row) => normalizeNewsletterEmailAddress(row.email) === selectedAudienceEmail)
+        : [];
+      const audienceCampaignIds = new Set(
+        selectedAudienceRecipientRows
+          .map((row) => Number(row.campaignId || 0))
+          .filter((id) => id > 0)
+      );
+      const visibleCampaignRows = selectedAudienceEmail
+        ? campaignRows.filter((row) => audienceCampaignIds.has(Number(row.id || 0)))
+        : campaignRows;
+      const campaignStatsRows = selectedAudienceEmail
+        ? []
+        : selectedCampaignRow
         ? campaignRows.filter((row) => Number(row.id || 0) === Number(selectedCampaignRow.id))
         : campaignRows;
-
-      const totalEmailsSent = campaignStatsRows.reduce((sum, row) => sum + Number(row.sentCount || 0), 0);
-      const openedEmails = campaignStatsRows.reduce((sum, row) => sum + Number(row.uniqueOpenCount || 0), 0);
-      const totalOpenEvents = campaignStatsRows.reduce((sum, row) => sum + Number(row.openCount || 0), 0);
+      const memberSeriesRows = selectedAudienceRecipientRows.map((row) => ({
+        sentAt: row.sentAt,
+        sentCount: String(row.deliveryStatus || "") === "sent" ? 1 : 0,
+        failedCount: String(row.deliveryStatus || "") === "failed" ? 1 : 0,
+        uniqueOpenCount: Number(row.openCount || 0) > 0 ? 1 : 0,
+        openCount: Number(row.openCount || 0),
+        clickCount: Number(row.clickCount || 0),
+        campaignId: row.campaignId,
+        email: row.email,
+      }));
+      const totalEmailsSent = selectedAudienceEmail
+        ? memberSeriesRows.reduce((sum, row) => sum + Number(row.sentCount || 0), 0)
+        : campaignStatsRows.reduce((sum, row) => sum + Number(row.sentCount || 0), 0);
+      const openedEmails = selectedAudienceEmail
+        ? memberSeriesRows.reduce((sum, row) => sum + Number(row.uniqueOpenCount || 0), 0)
+        : campaignStatsRows.reduce((sum, row) => sum + Number(row.uniqueOpenCount || 0), 0);
+      const totalOpenEvents = selectedAudienceEmail
+        ? memberSeriesRows.reduce((sum, row) => sum + Number(row.openCount || 0), 0)
+        : campaignStatsRows.reduce((sum, row) => sum + Number(row.openCount || 0), 0);
       const reopens = Math.max(0, totalOpenEvents - openedEmails);
-      const linkClicks = campaignStatsRows.reduce((sum, row) => sum + Number(row.clickCount || 0), 0);
-      const failedEmails = campaignStatsRows.reduce((sum, row) => sum + Number(row.failedCount || 0), 0);
-      const scheduledCampaigns = campaignStatsRows.filter((row) => String(row.mode || "scheduled") !== "test").length;
-      const testCampaigns = campaignStatsRows.filter((row) => String(row.mode || "") === "test").length;
+      const linkClicks = selectedAudienceEmail
+        ? memberSeriesRows.reduce((sum, row) => sum + Number(row.clickCount || 0), 0)
+        : campaignStatsRows.reduce((sum, row) => sum + Number(row.clickCount || 0), 0);
+      const failedEmails = selectedAudienceEmail
+        ? memberSeriesRows.reduce((sum, row) => sum + Number(row.failedCount || 0), 0)
+        : campaignStatsRows.reduce((sum, row) => sum + Number(row.failedCount || 0), 0);
+      const scheduledCampaigns = selectedAudienceEmail
+        ? new Set(memberSeriesRows.filter((row) => Number(row.sentCount || 0) > 0).map((row) => Number(row.campaignId || 0))).size
+        : campaignStatsRows.filter((row) => String(row.mode || "scheduled") !== "test").length;
+      const testCampaigns = selectedAudienceEmail
+        ? 0
+        : campaignStatsRows.filter((row) => String(row.mode || "") === "test").length;
       newsletterAnalyticsStats = {
-        campaigns: campaignStatsRows.length,
+        campaigns: selectedAudienceEmail
+          ? new Set(selectedAudienceRecipientRows.map((row) => Number(row.campaignId || 0)).filter((id) => id > 0)).size
+          : campaignStatsRows.length,
         scheduledCampaigns,
         testCampaigns,
         totalEmailsSent,
@@ -6226,7 +6310,27 @@ return `
         failedEmails,
       };
 
-      if (selectedCampaignRow) {
+      if (newsletterSelectedAudienceRow) {
+        newsletterSelectedAudienceNoticeHtml = `
+          <div class="card" style="margin-bottom:var(--gap);" data-newsletter-search-item>
+            <div class="sectionTitle" style="margin-bottom:10px;">
+              <div>
+                <h2>Viewing one audience member</h2>
+                <p class="sub">The cards and chart below are filtered to this subscriber.</p>
+              </div>
+              <div class="right">
+                <a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignPage: String(requestedNewsletterCampaignPage || 1) })}">Clear filter</a>
+              </div>
+            </div>
+            <div class="mini">
+              <div class="kv"><div class="k">Email</div><div class="v">${esc(newsletterSelectedAudienceRow.email || "")}</div></div>
+              <div class="kv"><div class="k">Received</div><div class="v">${Number(newsletterSelectedAudienceRow.receivedCount || 0).toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Opened</div><div class="v">${Number(newsletterSelectedAudienceRow.openedCount || 0).toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Clicks</div><div class="v">${Number(newsletterSelectedAudienceRow.clickCount || 0).toLocaleString("en-US")}</div></div>
+            </div>
+          </div>
+        `;
+      } else if (selectedCampaignRow) {
         newsletterSelectedCampaignId = Number(selectedCampaignRow.id || 0);
         const selectedSentLabel = String(selectedCampaignRow.sentAt || selectedCampaignRow.createdAt || "").trim();
         const selectedSentDt = selectedSentLabel ? DateTime.fromISO(selectedSentLabel, { zone: DEFAULT_TZ }) : null;
@@ -6250,12 +6354,12 @@ return `
         `;
       }
 
-      newsletterRecentCampaignsHtml = campaignRows.length
+      newsletterRecentCampaignsHtml = visibleCampaignRows.length
         ? (() => {
             const pageSize = 5;
-            const totalPages = Math.max(1, Math.ceil(campaignRows.length / pageSize));
+            const totalPages = Math.max(1, Math.ceil(visibleCampaignRows.length / pageSize));
             const currentPage = Math.min(Math.max(1, requestedNewsletterCampaignPage), totalPages);
-            const pageRows = campaignRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+            const pageRows = visibleCampaignRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
             const rowsHtml = pageRows.map((row) => {
             const sentCount = Number(row.sentCount || 0);
             const openCount = Number(row.uniqueOpenCount || 0);
@@ -6269,6 +6373,7 @@ return `
             const analyticsHref = buildNewsletterHref("/admin/newsletter/analytics", {
               chartView: chartViewMode,
               campaignId: String(row.id || ""),
+              audienceEmail: "",
               campaignPage: String(currentPage),
             });
             return `
@@ -6290,8 +6395,8 @@ return `
               <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:14px;">
                 <div class="muted" style="font-size:12px;">Page ${currentPage} of ${totalPages}</div>
                 <div style="display:flex; gap:8px;">
-                  ${currentPage > 1 ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignId: selectedCampaignRow ? String(selectedCampaignRow.id) : "", campaignPage: String(currentPage - 1) })}">Previous</a>` : ``}
-                  ${currentPage < totalPages ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignId: selectedCampaignRow ? String(selectedCampaignRow.id) : "", campaignPage: String(currentPage + 1) })}">Next</a>` : ``}
+                  ${currentPage > 1 ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignId: selectedAudienceEmail ? "" : (selectedCampaignRow ? String(selectedCampaignRow.id) : ""), audienceEmail: selectedAudienceEmail || "", campaignPage: String(currentPage - 1) })}">Previous</a>` : ``}
+                  ${currentPage < totalPages ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignId: selectedAudienceEmail ? "" : (selectedCampaignRow ? String(selectedCampaignRow.id) : ""), audienceEmail: selectedAudienceEmail || "", campaignPage: String(currentPage + 1) })}">Next</a>` : ``}
                 </div>
               </div>
             ` : "";
@@ -6299,7 +6404,7 @@ return `
           })()
         : newsletterRecentCampaignsHtml;
 
-      newsletterTopCampaignsHtml = [...campaignRows]
+      newsletterTopCampaignsHtml = [...visibleCampaignRows]
         .sort((a, b) => Number(b.uniqueOpenCount || 0) - Number(a.uniqueOpenCount || 0) || Number(b.sentCount || 0) - Number(a.sentCount || 0) || Number(b.id || 0) - Number(a.id || 0))
         .slice(0, 6)
         .map((row) => {
@@ -6315,6 +6420,31 @@ return `
             </div>
           `;
         }).join("") || newsletterTopCampaignsHtml;
+
+      newsletterAudienceAnalyticsListHtml = newsletterAudienceRows.length
+        ? newsletterAudienceRows.map((row) => {
+            const email = normalizeNewsletterEmailAddress(row.email);
+            const href = buildNewsletterAudienceAnalyticsHref(email);
+            const isSelected = email && email === newsletterSelectedAudienceEmailValue;
+            const openRate = Number(row.receivedCount || 0) > 0
+              ? `${Math.round((Number(row.openedCount || 0) / Math.max(1, Number(row.receivedCount || 0))) * 100)}%`
+              : "0%";
+            return `
+              <div class="insight-row" style="gap:16px; align-items:flex-start;">
+                <div class="label" style="min-width:0;">
+                  <div style="font-weight:700; color:var(--text); overflow-wrap:anywhere;">${esc(row.email || "")}</div>
+                  <div class="muted" style="font-size:12px; margin-top:4px;">${Number(row.receivedCount || 0).toLocaleString("en-US")} received · ${Number(row.bouncedCount || 0).toLocaleString("en-US")} bounced · ${openRate} open rate</div>
+                </div>
+                <div class="value" style="text-align:right; min-width:220px;">
+                  <div>${Number(row.openedCount || 0).toLocaleString("en-US")} opens · ${Number(row.reopenCount || 0).toLocaleString("en-US")} re-opens · ${Number(row.clickCount || 0).toLocaleString("en-US")} clicks</div>
+                  <div style="margin-top:8px;">
+                    <a class="btn ${isSelected ? "btn-primary" : ""}" href="${href}">${isSelected ? "Viewing" : "View analytics"}</a>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join("")
+        : newsletterAudienceAnalyticsListHtml;
 
       const nowTz = DateTime.now().setZone(DEFAULT_TZ);
       function makeNewsletterDailyBuckets() {
@@ -6386,16 +6516,16 @@ return `
 
       const newsletterChartSets = {
         events: {
-          daily: buildNewsletterSeries("daily", campaignStatsRows, "sentAt", (row) => row.sentCount),
-          weekly: buildNewsletterSeries("weekly", campaignStatsRows, "sentAt", (row) => row.sentCount),
-          monthly: buildNewsletterSeries("monthly", campaignStatsRows, "sentAt", (row) => row.sentCount),
-          yearly: buildNewsletterSeries("yearly", campaignStatsRows, "sentAt", (row) => row.sentCount),
+          daily: buildNewsletterSeries("daily", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.sentCount),
+          weekly: buildNewsletterSeries("weekly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.sentCount),
+          monthly: buildNewsletterSeries("monthly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.sentCount),
+          yearly: buildNewsletterSeries("yearly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.sentCount),
         },
         views: {
-          daily: buildNewsletterSeries("daily", campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
-          weekly: buildNewsletterSeries("weekly", campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
-          monthly: buildNewsletterSeries("monthly", campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
-          yearly: buildNewsletterSeries("yearly", campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
+          daily: buildNewsletterSeries("daily", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
+          weekly: buildNewsletterSeries("weekly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
+          monthly: buildNewsletterSeries("monthly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
+          yearly: buildNewsletterSeries("yearly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
         },
       };
       newsletterChartDataJson = esc(JSON.stringify(newsletterChartSets));
@@ -12371,6 +12501,7 @@ return `
         ${showNewsletterAnalytics ? `
         <div data-newsletter-search-root id="newsletter-analytics-root">
         ${newsletterScopeSwitcherHtml}
+        ${newsletterSelectedAudienceNoticeHtml}
         ${newsletterSelectedCampaignNoticeHtml}
         <section class="metrics" id="newsletter-analytics-metrics">
           <div class="metric" data-newsletter-search-item>
@@ -12458,12 +12589,19 @@ return `
           <div class="card" data-newsletter-search-item>
             <div class="sectionTitle">
               <div>
-                <h2>${newsletterSelectedCampaignId ? "Campaign overview" : "Newsletter overview"}</h2>
-                <p class="sub">${newsletterSelectedCampaignId ? "Delivery details for the selected campaign" : "Current send setup and delivery snapshot"}</p>
+                <h2>${newsletterSelectedAudienceEmailValue ? "Audience member overview" : (newsletterSelectedCampaignId ? "Campaign overview" : "Newsletter overview")}</h2>
+                <p class="sub">${newsletterSelectedAudienceEmailValue ? "Delivery and engagement for the selected subscriber" : (newsletterSelectedCampaignId ? "Delivery details for the selected campaign" : "Current send setup and delivery snapshot")}</p>
               </div>
             </div>
             <div class="mini">
-              ${newsletterSelectedCampaignId ? `
+              ${newsletterSelectedAudienceEmailValue ? `
+              <div class="kv"><div class="k">Email</div><div class="v">${esc(newsletterSelectedAudienceRow?.email || "")}</div></div>
+              <div class="kv"><div class="k">Emails received</div><div class="v">${newsletterAnalyticsStats.totalEmailsSent.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Opened emails</div><div class="v">${newsletterAnalyticsStats.openedEmails.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Re-opens</div><div class="v">${newsletterAnalyticsStats.reopens.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Link clicks</div><div class="v">${newsletterAnalyticsStats.linkClicks.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Failed emails</div><div class="v">${newsletterAnalyticsStats.failedEmails.toLocaleString("en-US")}</div></div>
+              ` : newsletterSelectedCampaignId ? `
               <div class="kv"><div class="k">Emails sent</div><div class="v">${newsletterAnalyticsStats.totalEmailsSent.toLocaleString("en-US")}</div></div>
               <div class="kv"><div class="k">Opened emails</div><div class="v">${newsletterAnalyticsStats.openedEmails.toLocaleString("en-US")}</div></div>
               <div class="kv"><div class="k">Re-opens</div><div class="v">${newsletterAnalyticsStats.reopens.toLocaleString("en-US")}</div></div>
@@ -12486,8 +12624,8 @@ return `
           <div class="card" data-newsletter-search-item>
             <div class="sectionTitle">
               <div>
-                <h2>Recent newsletter sends</h2>
-                <p class="sub">Latest live and test campaigns</p>
+                <h2>${newsletterSelectedAudienceEmailValue ? "Campaigns sent to this audience member" : "Recent newsletter sends"}</h2>
+                <p class="sub">${newsletterSelectedAudienceEmailValue ? "Campaign history for the selected subscriber" : "Latest live and test campaigns"}</p>
               </div>
             </div>
             <div class="mini">${newsletterRecentCampaignsHtml}</div>
@@ -12496,8 +12634,20 @@ return `
           <div class="card" data-newsletter-search-item>
             <div class="sectionTitle">
               <div>
+                <h2>Audience members</h2>
+                <p class="sub">Open one subscriber to see their individual email analytics</p>
+              </div>
+            </div>
+            <div class="mini mini-list">${newsletterAudienceAnalyticsListHtml}</div>
+          </div>
+        </section>
+
+        <section class="gridMain single">
+          <div class="card" data-newsletter-search-item>
+            <div class="sectionTitle">
+              <div>
                 <h2>Top campaigns by opens</h2>
-                <p class="sub">Best performing newsletter sends</p>
+                <p class="sub">${newsletterSelectedAudienceEmailValue ? "Best performing campaigns for this subscriber" : "Best performing newsletter sends"}</p>
               </div>
             </div>
             <div class="mini mini-list">${newsletterTopCampaignsHtml}</div>
@@ -12710,33 +12860,6 @@ return `
             </div>
             ${newsletterScopeSwitcherHtml}
             ${newsletterNoticeHtml}
-            <div class="newsletter-audience-summary">
-              <div class="newsletter-audience-stat" data-newsletter-search-item>
-                <div class="k">Audience members</div>
-                <div class="v">${newsletterAudienceAnalyticsSummary.members.toLocaleString("en-US")}</div>
-              </div>
-              <div class="newsletter-audience-stat" data-newsletter-search-item>
-                <div class="k">Emails received</div>
-                <div class="v">${newsletterAudienceAnalyticsSummary.received.toLocaleString("en-US")}</div>
-              </div>
-              <div class="newsletter-audience-stat" data-newsletter-search-item>
-                <div class="k">Bounced</div>
-                <div class="v">${newsletterAudienceAnalyticsSummary.bounced.toLocaleString("en-US")}</div>
-              </div>
-              <div class="newsletter-audience-stat" data-newsletter-search-item>
-                <div class="k">Opened emails</div>
-                <div class="v">${newsletterAudienceAnalyticsSummary.opened.toLocaleString("en-US")}</div>
-              </div>
-              <div class="newsletter-audience-stat" data-newsletter-search-item>
-                <div class="k">Re-opens</div>
-                <div class="v">${newsletterAudienceAnalyticsSummary.reopens.toLocaleString("en-US")}</div>
-              </div>
-              <div class="newsletter-audience-stat" data-newsletter-search-item>
-                <div class="k">Clicks</div>
-                <div class="v">${newsletterAudienceAnalyticsSummary.clicks.toLocaleString("en-US")}</div>
-              </div>
-            </div>
-            <div class="note" style="margin-bottom:var(--gap);">“Bounced” currently counts newsletter sends that failed delivery.</div>
             <div class="newsletter-audience-layout">
               <div class="card" data-newsletter-search-item data-newsletter-search-text="add emails audience subscribe newsletter list">
                 <div class="sectionTitle"><div><h2>Add emails</h2></div></div>
@@ -12755,63 +12878,29 @@ return `
                 <div class="sectionTitle">
                   <div>
                     <h2>Current audience</h2>
-                    <p class="sub">${esc(String(newsletterAudienceRows.length))} email${newsletterAudienceRows.length === 1 ? "" : "s"} in ${esc(selectedNewsletterScope)} with individual newsletter stats.</p>
+                    <p class="sub">${esc(String(newsletterAudienceRows.length))} email${newsletterAudienceRows.length === 1 ? "" : "s"} in ${esc(selectedNewsletterScope)}. View individual performance from Newsletter Analytics.</p>
                   </div>
                 </div>
                 <div class="mini">
                   ${newsletterAudienceRows.length ? newsletterAudienceRows.map((row) => `
                     <div class="newsletter-audience-row" data-newsletter-search-item data-newsletter-search-text="${esc([
                       row.email || "",
-                      DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "",
-                      `received ${Number(row.receivedCount || 0)}`,
-                      `bounced ${Number(row.bouncedCount || 0)}`,
-                      `opened ${Number(row.openedCount || 0)}`,
-                      `reopens ${Number(row.reopenCount || 0)}`,
-                      `clicks ${Number(row.clickCount || 0)}`
+                      DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : ""
                     ].join(" "))}">
                       <div class="newsletter-audience-row-top">
                         <div style="min-width:0; flex:1 1 auto;">
                           <div class="label" style="overflow-wrap:anywhere; font-size:16px; font-weight:800; color:var(--text);">${esc(row.email || "")}</div>
                           <div class="newsletter-audience-row-meta">
                             Added ${esc(DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "recently")}
-                            ${String(row.lastSentAt || "").trim() && DateTime.fromISO(String(row.lastSentAt || ""), { zone: DEFAULT_TZ }).isValid ? ` · Last email ${esc(DateTime.fromISO(String(row.lastSentAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy"))}` : ``}
-                            ${String(row.lastOpenedAt || "").trim() && DateTime.fromISO(String(row.lastOpenedAt || ""), { zone: DEFAULT_TZ }).isValid ? ` · Last open ${esc(DateTime.fromISO(String(row.lastOpenedAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy"))}` : ``}
-                            ${String(row.lastClickedAt || "").trim() && DateTime.fromISO(String(row.lastClickedAt || ""), { zone: DEFAULT_TZ }).isValid ? ` · Last click ${esc(DateTime.fromISO(String(row.lastClickedAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy"))}` : ``}
                           </div>
                         </div>
                         <div class="value" style="display:flex; align-items:flex-start; gap:10px;">
+                        <a class="btn" href="${buildNewsletterAudienceAnalyticsHref(row.email)}" style="height:34px; padding:0 10px;">View analytics</a>
                         <form method="POST" action="/admin/newsletter/audience/${esc(String(row.id))}/delete" style="margin:0;">
                           <input type="hidden" name="city" value="${esc(selectedCity)}" />
                           <input type="hidden" name="newsletterScope" value="${esc(selectedNewsletterScope)}" />
                           <button class="btn" type="submit" style="height:34px; padding:0 10px;">Remove</button>
                         </form>
-                      </div>
-                    </div>
-                    <div class="newsletter-audience-row-stats">
-                      <div class="newsletter-audience-row-stat">
-                        <div class="k">Received</div>
-                        <div class="v">${Number(row.receivedCount || 0).toLocaleString("en-US")}</div>
-                      </div>
-                      <div class="newsletter-audience-row-stat">
-                        <div class="k">Bounced</div>
-                        <div class="v">${Number(row.bouncedCount || 0).toLocaleString("en-US")}</div>
-                      </div>
-                      <div class="newsletter-audience-row-stat">
-                        <div class="k">Opened</div>
-                        <div class="v">${Number(row.openedCount || 0).toLocaleString("en-US")}</div>
-                        <div class="sub">${Number(row.receivedCount || 0) > 0 ? `${Math.round((Number(row.openedCount || 0) / Math.max(1, Number(row.receivedCount || 0))) * 100)}% open rate` : `0% open rate`}</div>
-                      </div>
-                      <div class="newsletter-audience-row-stat">
-                        <div class="k">Re-opens</div>
-                        <div class="v">${Number(row.reopenCount || 0).toLocaleString("en-US")}</div>
-                      </div>
-                      <div class="newsletter-audience-row-stat">
-                        <div class="k">Clicks</div>
-                        <div class="v">${Number(row.clickCount || 0).toLocaleString("en-US")}</div>
-                      </div>
-                      <div class="newsletter-audience-row-stat">
-                        <div class="k">Status</div>
-                        <div class="v" style="font-size:16px;">${Number(row.bouncedCount || 0) > 0 && Number(row.receivedCount || 0) === 0 ? `Needs attention` : Number(row.receivedCount || 0) > 0 ? `Active` : `No sends yet`}</div>
                       </div>
                     </div>
                     </div>
