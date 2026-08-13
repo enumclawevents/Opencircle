@@ -5080,6 +5080,10 @@ return `
     const requestedNewsletterCampaignPage = Number.isInteger(requestedNewsletterCampaignPageRaw) && requestedNewsletterCampaignPageRaw > 0
       ? requestedNewsletterCampaignPageRaw
       : 1;
+    const requestedNewsletterAudiencePageRaw = parseInt(String(req.query.audiencePage || ""), 10);
+    const requestedNewsletterAudiencePage = Number.isInteger(requestedNewsletterAudiencePageRaw) && requestedNewsletterAudiencePageRaw > 0
+      ? requestedNewsletterAudiencePageRaw
+      : 1;
     const requestedNewsletterAudienceEmail = normalizeNewsletterEmailAddress(req.query.audienceEmail || "");
     const buildEventAnalyticsHref = (id) =>
       `/admin/events-analytics?event=${encodeURIComponent(String(id || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
@@ -12860,6 +12864,21 @@ return `
             </div>
             ${newsletterScopeSwitcherHtml}
             ${newsletterNoticeHtml}
+            ${(() => {
+              const audiencePageSize = 10;
+              const audienceTotalPages = Math.max(1, Math.ceil(newsletterAudienceRows.length / audiencePageSize));
+              const audienceCurrentPage = Math.min(Math.max(1, requestedNewsletterAudiencePage), audienceTotalPages);
+              const audiencePageRows = newsletterAudienceRows.slice((audienceCurrentPage - 1) * audiencePageSize, audienceCurrentPage * audiencePageSize);
+              const audiencePaginationHtml = audienceTotalPages > 1 ? `
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:14px;">
+                  <div class="muted" style="font-size:12px;">Page ${audienceCurrentPage} of ${audienceTotalPages}</div>
+                  <div style="display:flex; gap:8px;">
+                    ${audienceCurrentPage > 1 ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/audience", { audiencePage: String(audienceCurrentPage - 1) })}">Previous</a>` : ``}
+                    ${audienceCurrentPage < audienceTotalPages ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/audience", { audiencePage: String(audienceCurrentPage + 1) })}">Next</a>` : ``}
+                  </div>
+                </div>
+              ` : "";
+              return `
             <div class="newsletter-audience-layout">
               <div class="card" data-newsletter-search-item data-newsletter-search-text="add emails audience subscribe newsletter list">
                 <div class="sectionTitle"><div><h2>Add emails</h2></div></div>
@@ -12882,7 +12901,7 @@ return `
                   </div>
                 </div>
                 <div class="mini">
-                  ${newsletterAudienceRows.length ? newsletterAudienceRows.map((row) => `
+                  ${newsletterAudienceRows.length ? audiencePageRows.map((row) => `
                     <div class="newsletter-audience-row" data-newsletter-search-item data-newsletter-search-text="${esc([
                       row.email || "",
                       DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : ""
@@ -12905,9 +12924,12 @@ return `
                     </div>
                     </div>
                   `).join("") : `<div class="note">No emails have been added for this area yet.</div>`}
+                  ${audiencePaginationHtml}
                 </div>
               </div>
             </div>
+            `;
+            })()}
           </div>
         </section>
         ` : ``}
