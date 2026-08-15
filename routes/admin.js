@@ -5088,6 +5088,7 @@ return `
       const raw = String(req.query.audienceSort || "").trim().toLowerCase();
       return ["name-asc", "name-desc", "recent", "engaged"].includes(raw) ? raw : "recent";
     })();
+    const requestedNewsletterAudienceQuery = String(req.query.audienceQ || "").trim();
     const requestedNewsletterAudienceEmail = normalizeNewsletterEmailAddress(req.query.audienceEmail || "");
     const buildEventAnalyticsHref = (id) =>
       `/admin/events-analytics?event=${encodeURIComponent(String(id || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
@@ -12899,19 +12900,55 @@ return `
                 { value: "name-asc", label: "Name (A-Z)" },
                 { value: "name-desc", label: "Name (Z-A)" },
               ];
+              const audienceQuery = requestedNewsletterAudienceQuery.toLowerCase();
+              const audienceFilteredRows = audienceSortedRows.filter((row) => {
+                if (!audienceQuery) return true;
+                const createdLabel = DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid
+                  ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy")
+                  : "";
+                const haystack = [
+                  String(row.email || ""),
+                  createdLabel,
+                  `received ${Number(row.receivedCount || 0)}`,
+                  `opened ${Number(row.openedCount || 0)}`,
+                  `clicks ${Number(row.clickCount || 0)}`,
+                ].join(" ").toLowerCase();
+                return haystack.indexOf(audienceQuery) !== -1;
+              });
               const audiencePageSize = 10;
-              const audienceTotalPages = Math.max(1, Math.ceil(audienceSortedRows.length / audiencePageSize));
+              const audienceTotal = audienceFilteredRows.length;
+              const audienceTotalPages = Math.max(1, Math.ceil(audienceTotal / audiencePageSize));
               const audienceCurrentPage = Math.min(Math.max(1, requestedNewsletterAudiencePage), audienceTotalPages);
-              const audiencePageRows = audienceSortedRows.slice((audienceCurrentPage - 1) * audiencePageSize, audienceCurrentPage * audiencePageSize);
-              const audiencePaginationHtml = audienceTotalPages > 1 ? `
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:14px;">
-                  <div class="muted" style="font-size:12px;">Page ${audienceCurrentPage} of ${audienceTotalPages}</div>
-                  <div style="display:flex; gap:8px;">
-                    ${audienceCurrentPage > 1 ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/audience", { audiencePage: String(audienceCurrentPage - 1), audienceSort: requestedNewsletterAudienceSort })}">Previous</a>` : ``}
-                    ${audienceCurrentPage < audienceTotalPages ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/audience", { audiencePage: String(audienceCurrentPage + 1), audienceSort: requestedNewsletterAudienceSort })}">Next</a>` : ``}
+              const audiencePageRows = audienceFilteredRows.slice((audienceCurrentPage - 1) * audiencePageSize, audienceCurrentPage * audiencePageSize);
+              const audienceShowingFrom = audienceTotal ? ((audienceCurrentPage - 1) * audiencePageSize) + 1 : 0;
+              const audienceShowingTo = Math.min(audienceCurrentPage * audiencePageSize, audienceTotal);
+              function buildAudienceUrl(page, sortValue, queryValue) {
+                return buildNewsletterHref("/admin/newsletter/audience", {
+                  audiencePage: String(page),
+                  audienceSort: sortValue || requestedNewsletterAudienceSort,
+                  audienceQ: String(queryValue || "").trim(),
+                });
+              }
+              const audiencePagerHtml = `
+                <div class="pager">
+                  <div class="pager-left">
+                    <span class="muted">Total: <strong style="color:var(--text)">${audienceTotal}</strong></span>
+                    <span class="muted">Showing ${audienceShowingFrom}–${audienceShowingTo}</span>
+                  </div>
+                  <div class="pager-right">
+                    <a class="btn" href="${buildAudienceUrl(1)}" ${audienceCurrentPage === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>First</a>
+                    <a class="btn" href="${buildAudienceUrl(Math.max(1, audienceCurrentPage - 1))}" ${audienceCurrentPage <= 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>Prev</a>
+                    <span class="muted" style="padding:0 8px;">Page <strong style="color:var(--text)">${audienceCurrentPage}</strong> / ${audienceTotalPages}</span>
+                    <a class="btn" href="${buildAudienceUrl(Math.min(audienceTotalPages, audienceCurrentPage + 1))}" ${audienceCurrentPage >= audienceTotalPages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Next</a>
+                    <a class="btn" href="${buildAudienceUrl(audienceTotalPages)}" ${audienceCurrentPage === audienceTotalPages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Last</a>
                   </div>
                 </div>
-              ` : "";
+              `;
+              const audienceSortTabsHtml = `
+                <div class="eventsFilterTabs">
+                  ${audienceSortOptions.map((option) => `<a class="btn ${option.value === requestedNewsletterAudienceSort ? "btn-primary" : ""}" href="${buildAudienceUrl(1, option.value, requestedNewsletterAudienceQuery)}">${esc(option.label)}</a>`).join("")}
+                </div>
+              `;
               return `
             <div class="newsletter-audience-layout">
               <div class="card" data-newsletter-search-item data-newsletter-search-text="add emails audience subscribe newsletter list">
@@ -12934,21 +12971,31 @@ return `
                     <p class="sub">${esc(String(newsletterAudienceRows.length))} email${newsletterAudienceRows.length === 1 ? "" : "s"} in ${esc(selectedNewsletterScope)}. View individual performance from Newsletter Analytics.</p>
                   </div>
                 </div>
-                <form method="GET" action="/admin/newsletter/audience" style="display:grid; gap:10px; margin-bottom:14px;">
-                  <input type="hidden" name="city" value="${esc(selectedCity)}" />
-                  <input type="hidden" name="newsletterScope" value="${esc(selectedNewsletterScope)}" />
-                  <input type="hidden" name="audiencePage" value="1" />
-                  <div style="max-width:320px;">
-                    <label for="newsletterAudienceSort">Sort audience by</label>
-                    <select class="ctrl" id="newsletterAudienceSort" name="audienceSort" onchange="this.form.submit()">
-                      ${audienceSortOptions.map((option) => `<option value="${esc(option.value)}" ${option.value === requestedNewsletterAudienceSort ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
-                    </select>
-                    <div class="note">Most engaged sorts by clicks first, then opens, re-opens, and emails received.</div>
-                  </div>
-                  <noscript><button class="btn" type="submit">Apply sort</button></noscript>
-                </form>
+                <div class="eventsFilters" style="margin-bottom:14px;">
+                  ${audienceSortTabsHtml}
+                  <form class="listSearchRow" method="GET" action="/admin/newsletter/audience">
+                    <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                    <input type="hidden" name="newsletterScope" value="${esc(selectedNewsletterScope)}" />
+                    <input type="hidden" name="audiencePage" value="1" />
+                    <div class="filterField">
+                      <label for="newsletterAudienceSearch">Search</label>
+                      <input id="newsletterAudienceSearch" name="audienceQ" class="ctrl" type="text" placeholder="Search email address" value="${esc(requestedNewsletterAudienceQuery)}" />
+                    </div>
+                    <div class="filterField">
+                      <label for="newsletterAudienceSort">Sort by</label>
+                      <select class="ctrl" id="newsletterAudienceSort" name="audienceSort">
+                        ${audienceSortOptions.map((option) => `<option value="${esc(option.value)}" ${option.value === requestedNewsletterAudienceSort ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
+                      </select>
+                    </div>
+                    <div class="filterActions">
+                      <button type="submit" class="btn btn-primary">Apply</button>
+                      <a class="btn" href="${buildAudienceUrl(1, "recent", "")}">Reset</a>
+                    </div>
+                  </form>
+                </div>
+                ${audiencePagerHtml}
                 <div class="mini">
-                  ${newsletterAudienceRows.length ? audiencePageRows.map((row) => `
+                  ${audienceFilteredRows.length ? audiencePageRows.map((row) => `
                     <div class="newsletter-audience-row" data-newsletter-search-item data-newsletter-search-text="${esc([
                       row.email || "",
                       DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : ""
@@ -12970,8 +13017,8 @@ return `
                       </div>
                     </div>
                     </div>
-                  `).join("") : `<div class="note">No emails have been added for this area yet.</div>`}
-                  ${audiencePaginationHtml}
+                  `).join("") : `<div class="note">No audience members match these filters yet.</div>`}
+                  ${audiencePagerHtml}
                 </div>
               </div>
             </div>
