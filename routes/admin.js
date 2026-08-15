@@ -14829,16 +14829,33 @@ return `
       // ---- pagination scroll restore ----
       (function(){
         var storageKey = 'oc_pagination_scroll_restore';
+        function applyScrollRestore(y){
+          var top = Math.max(0, Number(y) || 0);
+          if (!top) return;
+          function restore(){
+            window.scrollTo({ top: top, left: 0, behavior: 'auto' });
+          }
+          restore();
+          requestAnimationFrame(restore);
+          window.setTimeout(restore, 80);
+          window.addEventListener('load', function(){
+            window.setTimeout(restore, 0);
+          }, { once: true });
+        }
         try {
           var raw = sessionStorage.getItem(storageKey);
           if (raw) {
             var saved = JSON.parse(raw);
-            var samePath = saved && saved.path === window.location.pathname;
+            var currentPath = window.location.pathname;
+            var refPath = "";
+            try {
+              refPath = document.referrer ? new URL(document.referrer, window.location.origin).pathname : "";
+            } catch (_) {}
+            var samePath = saved && (saved.path === currentPath || saved.targetPath === currentPath);
+            var sameReferrer = saved && refPath && saved.path === refPath && refPath.indexOf('/admin') === 0;
             var fresh = saved && typeof saved.ts === 'number' && (Date.now() - saved.ts) < 10000;
-            if (samePath && fresh && typeof saved.y === 'number') {
-              requestAnimationFrame(function(){
-                window.scrollTo({ top: Math.max(0, saved.y), left: 0, behavior: 'auto' });
-              });
+            if ((samePath || sameReferrer) && fresh && typeof saved.y === 'number') {
+              applyScrollRestore(saved.y);
             }
             sessionStorage.removeItem(storageKey);
           }
@@ -14850,8 +14867,10 @@ return `
           var href = String(link.getAttribute('href') || '');
           if (!href || href.charAt(0) === '#') return;
           try {
+            var url = new URL(href, window.location.origin);
             sessionStorage.setItem(storageKey, JSON.stringify({
               path: window.location.pathname,
+              targetPath: url.pathname,
               y: window.scrollY || window.pageYOffset || 0,
               ts: Date.now(),
             }));
@@ -15284,14 +15303,26 @@ return `
       // Server-side filter (applies across all pages)
       (function(){
         var scrollStorageKey = "oc_admin_scroll_state";
+        var scrollFallbackKey = "oc_admin_scroll_fallback_state";
         function storeScrollForTarget(targetPath){
           try {
             sessionStorage.setItem(scrollStorageKey, JSON.stringify({
+              sourcePath: String(window.location.pathname || ""),
               path: String(targetPath || window.location.pathname || ""),
+              targetPath: String(targetPath || window.location.pathname || ""),
               y: window.scrollY || window.pageYOffset || 0,
               ts: Date.now(),
             }));
             sessionStorage.setItem("oc_admin_scroll", String(window.scrollY || 0));
+          } catch (_) {}
+        }
+        function storeFallbackScroll(){
+          try {
+            sessionStorage.setItem(scrollFallbackKey, JSON.stringify({
+              sourcePath: String(window.location.pathname || ""),
+              y: window.scrollY || window.pageYOffset || 0,
+              ts: Date.now(),
+            }));
           } catch (_) {}
         }
 
@@ -15341,6 +15372,8 @@ return `
           if (!el.matches('select, input[type="checkbox"], input[type="radio"]')) return;
           storeScrollForTarget(window.location.pathname);
         }, true);
+        window.addEventListener("beforeunload", storeFallbackScroll, true);
+        window.addEventListener("pagehide", storeFallbackScroll, true);
 
         var form = document.querySelector('.listSearchRow[action="/admin/existing-events"], form.listSearchRow[action="/admin/existing-events"]');
         var input = document.getElementById('eventSearch');
@@ -15424,18 +15457,60 @@ return `
 
       // Restore scroll position after actions
       (function(){
+        function applyScrollRestore(y){
+          var top = Math.max(0, Number(y) || 0);
+          if (!top) return;
+          function restore(){
+            window.scrollTo({ top: top, left: 0, behavior: "auto" });
+          }
+          restore();
+          requestAnimationFrame(restore);
+          window.setTimeout(restore, 80);
+          window.addEventListener("load", function(){
+            window.setTimeout(restore, 0);
+          }, { once: true });
+        }
+        function canRestoreState(state){
+          if (!state) return false;
+          var age = Number(state.ts || 0);
+          var yPos = parseInt(String(state.y || "0"), 10);
+          if (!age || (Date.now() - age) >= 120000 || isNaN(yPos) || yPos <= 0) return false;
+          var currentPath = window.location.pathname;
+          var sourcePath = String(state.sourcePath || "");
+          var targetPath = String(state.targetPath || state.path || "");
+          var refPath = "";
+          try {
+            refPath = document.referrer ? new URL(document.referrer, window.location.origin).pathname : "";
+          } catch (_) {}
+          return (
+            sourcePath === currentPath ||
+            targetPath === currentPath ||
+            (!!refPath && refPath.indexOf("/admin") === 0 && sourcePath === refPath)
+          );
+        }
         try {
+          if (history && "scrollRestoration" in history) {
+            history.scrollRestoration = "manual";
+          }
           var restored = false;
           var rawState = sessionStorage.getItem("oc_admin_scroll_state");
           if (rawState) {
             sessionStorage.removeItem("oc_admin_scroll_state");
             var state = JSON.parse(rawState);
-            var path = String((state && state.path) || "");
-            var age = Number((state && state.ts) || 0);
-            var yPos = parseInt(String((state && state.y) || "0"), 10);
-            if (path === window.location.pathname && !isNaN(yPos) && yPos > 0 && age && (Date.now() - age) < 120000) {
+            if (canRestoreState(state)) {
               restored = true;
-              window.scrollTo({ top: yPos, left: 0, behavior: "auto" });
+              applyScrollRestore(state.y);
+            }
+          }
+          if (!restored) {
+            var rawFallback = sessionStorage.getItem("oc_admin_scroll_fallback_state");
+            if (rawFallback) {
+              sessionStorage.removeItem("oc_admin_scroll_fallback_state");
+              var fallbackState = JSON.parse(rawFallback);
+              if (canRestoreState(fallbackState)) {
+                restored = true;
+                applyScrollRestore(fallbackState.y);
+              }
             }
           }
           if (!restored) {
@@ -15443,10 +15518,11 @@ return `
             if (y !== null) {
               sessionStorage.removeItem("oc_admin_scroll");
               var n = parseInt(y, 10);
-              if (!isNaN(n) && n > 0) window.scrollTo({ top: n, left: 0, behavior: "auto" });
+              if (!isNaN(n) && n > 0) applyScrollRestore(n);
             }
           } else {
             sessionStorage.removeItem("oc_admin_scroll");
+            sessionStorage.removeItem("oc_admin_scroll_fallback_state");
           }
         } catch (_) {}
       })();
