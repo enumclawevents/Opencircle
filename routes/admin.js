@@ -5084,6 +5084,10 @@ return `
     const requestedNewsletterAudiencePage = Number.isInteger(requestedNewsletterAudiencePageRaw) && requestedNewsletterAudiencePageRaw > 0
       ? requestedNewsletterAudiencePageRaw
       : 1;
+    const requestedNewsletterAudienceSort = (() => {
+      const raw = String(req.query.audienceSort || "").trim().toLowerCase();
+      return ["name-asc", "name-desc", "recent", "engaged"].includes(raw) ? raw : "recent";
+    })();
     const requestedNewsletterAudienceEmail = normalizeNewsletterEmailAddress(req.query.audienceEmail || "");
     const buildEventAnalyticsHref = (id) =>
       `/admin/events-analytics?event=${encodeURIComponent(String(id || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
@@ -12865,16 +12869,46 @@ return `
             ${newsletterScopeSwitcherHtml}
             ${newsletterNoticeHtml}
             ${(() => {
+              const audienceSortedRows = [...newsletterAudienceRows].sort((a, b) => {
+                const emailA = String(a.email || "").toLowerCase();
+                const emailB = String(b.email || "").toLowerCase();
+                if (requestedNewsletterAudienceSort === "name-asc") {
+                  return emailA.localeCompare(emailB) || Number(b.id || 0) - Number(a.id || 0);
+                }
+                if (requestedNewsletterAudienceSort === "name-desc") {
+                  return emailB.localeCompare(emailA) || Number(b.id || 0) - Number(a.id || 0);
+                }
+                if (requestedNewsletterAudienceSort === "engaged") {
+                  return (
+                    Number(b.clickCount || 0) - Number(a.clickCount || 0) ||
+                    Number(b.openedCount || 0) - Number(a.openedCount || 0) ||
+                    Number(b.reopenCount || 0) - Number(a.reopenCount || 0) ||
+                    Number(b.receivedCount || 0) - Number(a.receivedCount || 0) ||
+                    emailA.localeCompare(emailB)
+                  );
+                }
+                const createdA = DateTime.fromISO(String(a.createdAt || ""), { zone: DEFAULT_TZ });
+                const createdB = DateTime.fromISO(String(b.createdAt || ""), { zone: DEFAULT_TZ });
+                const createdMsA = createdA.isValid ? createdA.toMillis() : 0;
+                const createdMsB = createdB.isValid ? createdB.toMillis() : 0;
+                return createdMsB - createdMsA || emailA.localeCompare(emailB);
+              });
+              const audienceSortOptions = [
+                { value: "recent", label: "Recently signed up" },
+                { value: "engaged", label: "Most engaged" },
+                { value: "name-asc", label: "Name (A-Z)" },
+                { value: "name-desc", label: "Name (Z-A)" },
+              ];
               const audiencePageSize = 10;
-              const audienceTotalPages = Math.max(1, Math.ceil(newsletterAudienceRows.length / audiencePageSize));
+              const audienceTotalPages = Math.max(1, Math.ceil(audienceSortedRows.length / audiencePageSize));
               const audienceCurrentPage = Math.min(Math.max(1, requestedNewsletterAudiencePage), audienceTotalPages);
-              const audiencePageRows = newsletterAudienceRows.slice((audienceCurrentPage - 1) * audiencePageSize, audienceCurrentPage * audiencePageSize);
+              const audiencePageRows = audienceSortedRows.slice((audienceCurrentPage - 1) * audiencePageSize, audienceCurrentPage * audiencePageSize);
               const audiencePaginationHtml = audienceTotalPages > 1 ? `
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:14px;">
                   <div class="muted" style="font-size:12px;">Page ${audienceCurrentPage} of ${audienceTotalPages}</div>
                   <div style="display:flex; gap:8px;">
-                    ${audienceCurrentPage > 1 ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/audience", { audiencePage: String(audienceCurrentPage - 1) })}">Previous</a>` : ``}
-                    ${audienceCurrentPage < audienceTotalPages ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/audience", { audiencePage: String(audienceCurrentPage + 1) })}">Next</a>` : ``}
+                    ${audienceCurrentPage > 1 ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/audience", { audiencePage: String(audienceCurrentPage - 1), audienceSort: requestedNewsletterAudienceSort })}">Previous</a>` : ``}
+                    ${audienceCurrentPage < audienceTotalPages ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/audience", { audiencePage: String(audienceCurrentPage + 1), audienceSort: requestedNewsletterAudienceSort })}">Next</a>` : ``}
                   </div>
                 </div>
               ` : "";
@@ -12900,6 +12934,19 @@ return `
                     <p class="sub">${esc(String(newsletterAudienceRows.length))} email${newsletterAudienceRows.length === 1 ? "" : "s"} in ${esc(selectedNewsletterScope)}. View individual performance from Newsletter Analytics.</p>
                   </div>
                 </div>
+                <form method="GET" action="/admin/newsletter/audience" style="display:grid; gap:10px; margin-bottom:14px;">
+                  <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                  <input type="hidden" name="newsletterScope" value="${esc(selectedNewsletterScope)}" />
+                  <input type="hidden" name="audiencePage" value="1" />
+                  <div style="max-width:320px;">
+                    <label for="newsletterAudienceSort">Sort audience by</label>
+                    <select class="ctrl" id="newsletterAudienceSort" name="audienceSort" onchange="this.form.submit()">
+                      ${audienceSortOptions.map((option) => `<option value="${esc(option.value)}" ${option.value === requestedNewsletterAudienceSort ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
+                    </select>
+                    <div class="note">Most engaged sorts by clicks first, then opens, re-opens, and emails received.</div>
+                  </div>
+                  <noscript><button class="btn" type="submit">Apply sort</button></noscript>
+                </form>
                 <div class="mini">
                   ${newsletterAudienceRows.length ? audiencePageRows.map((row) => `
                     <div class="newsletter-audience-row" data-newsletter-search-item data-newsletter-search-text="${esc([
