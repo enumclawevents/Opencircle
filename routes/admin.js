@@ -6569,16 +6569,20 @@ return `
               ? `${Math.round((Number(row.openedCount || 0) / Math.max(1, Number(row.receivedCount || 0))) * 100)}%`
               : "0%";
             return `
-              <div class="insight-row" style="gap:16px; align-items:flex-start;">
-                <div class="label" style="min-width:0;">
-                  <div style="font-weight:700; color:var(--text); overflow-wrap:anywhere;">${esc(row.email || "")}</div>
-                  <div class="muted" style="font-size:12px; margin-top:4px;">${Number(row.receivedCount || 0).toLocaleString("en-US")} received · ${Number(row.bouncedCount || 0).toLocaleString("en-US")} bounced · ${openRate} open rate</div>
+              <div class="newsletter-audience-analytics-row">
+                <div class="newsletter-audience-analytics-identity">
+                  <div class="newsletter-audience-analytics-email">${esc(row.email || "")}</div>
+                  <div class="newsletter-audience-analytics-meta">${openRate} open rate</div>
                 </div>
-                <div class="value" style="text-align:right; min-width:220px;">
-                  <div>${Number(row.openedCount || 0).toLocaleString("en-US")} opens · ${Number(row.reopenCount || 0).toLocaleString("en-US")} re-opens · ${Number(row.clickCount || 0).toLocaleString("en-US")} clicks</div>
-                  <div style="margin-top:8px;">
-                    <a class="btn ${isSelected ? "btn-primary" : ""}" href="${href}">${isSelected ? "Viewing" : "View analytics"}</a>
-                  </div>
+                <div class="newsletter-audience-analytics-stats" aria-label="Audience analytics quick stats">
+                  <span class="newsletter-audience-analytics-pill"><span class="k">Received</span><span class="v">${Number(row.receivedCount || 0).toLocaleString("en-US")}</span></span>
+                  <span class="newsletter-audience-analytics-pill"><span class="k">Bounced</span><span class="v">${Number(row.bouncedCount || 0).toLocaleString("en-US")}</span></span>
+                  <span class="newsletter-audience-analytics-pill"><span class="k">Opens</span><span class="v">${Number(row.openedCount || 0).toLocaleString("en-US")}</span></span>
+                  <span class="newsletter-audience-analytics-pill"><span class="k">Re-opens</span><span class="v">${Number(row.reopenCount || 0).toLocaleString("en-US")}</span></span>
+                  <span class="newsletter-audience-analytics-pill"><span class="k">Clicks</span><span class="v">${Number(row.clickCount || 0).toLocaleString("en-US")}</span></span>
+                </div>
+                <div class="newsletter-audience-analytics-actions">
+                  <a class="btn ${isSelected ? "btn-primary" : ""}" href="${href}">${isSelected ? "Viewing" : "View analytics"}</a>
                 </div>
               </div>
             `;
@@ -9987,6 +9991,8 @@ return `
         .grid4{ grid-template-columns: 1fr; }
         .venue-analytics-grid2{ grid-template-columns: 1fr; }
         .gridMain{ grid-template-columns: 1fr; }
+        .newsletter-audience-analytics-row{ grid-template-columns:minmax(0, 1fr); align-items:start; }
+        .newsletter-audience-analytics-actions{ justify-self:start; }
         .messages-layout{ grid-template-columns: 1fr; }
         .rail{ display:none; }
         .mobile-sidebar-toggle{ display:inline-flex; }
@@ -11224,6 +11230,64 @@ return `
       .insight-row .value{
         font-weight:700;
         color: var(--text);
+      }
+      .newsletter-audience-analytics-row{
+        display:grid;
+        grid-template-columns:minmax(0, 1.15fr) minmax(320px, 1fr) auto;
+        gap:14px;
+        align-items:center;
+        padding:12px 0;
+        border-bottom:1px solid var(--line);
+      }
+      .newsletter-audience-analytics-row:last-child{
+        border-bottom:0;
+        padding-bottom:0;
+      }
+      .newsletter-audience-analytics-identity{
+        min-width:0;
+      }
+      .newsletter-audience-analytics-email{
+        font-weight:800;
+        color:var(--text);
+        overflow-wrap:anywhere;
+        line-height:1.3;
+      }
+      .newsletter-audience-analytics-meta{
+        margin-top:4px;
+        font-size:12px;
+        color:var(--muted);
+        line-height:1.45;
+      }
+      .newsletter-audience-analytics-stats{
+        display:flex;
+        flex-wrap:wrap;
+        gap:8px 10px;
+        align-items:center;
+        min-width:0;
+      }
+      .newsletter-audience-analytics-pill{
+        display:inline-flex;
+        align-items:center;
+        gap:6px;
+        padding:7px 11px;
+        border-radius:999px;
+        border:1px solid rgba(148,163,184,.16);
+        background:#fff;
+        white-space:nowrap;
+      }
+      .newsletter-audience-analytics-pill .k{
+        font-size:12px;
+        font-weight:700;
+        color:var(--muted);
+      }
+      .newsletter-audience-analytics-pill .v{
+        font-size:13px;
+        font-weight:800;
+        color:var(--text);
+        line-height:1;
+      }
+      .newsletter-audience-analytics-actions{
+        justify-self:end;
       }
       .activity-list{
         display:grid;
