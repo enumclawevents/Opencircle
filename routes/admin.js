@@ -9991,8 +9991,8 @@ return `
         .grid4{ grid-template-columns: 1fr; }
         .venue-analytics-grid2{ grid-template-columns: 1fr; }
         .gridMain{ grid-template-columns: 1fr; }
-        .newsletter-audience-analytics-row{ grid-template-columns:minmax(0, 1fr); align-items:start; }
-        .newsletter-audience-analytics-actions{ justify-self:start; }
+        .newsletter-audience-analytics-row{ grid-template-columns:minmax(0, 1fr); }
+        .newsletter-audience-analytics-actions{ justify-self:start; align-self:start; }
         .messages-layout{ grid-template-columns: 1fr; }
         .rail{ display:none; }
         .mobile-sidebar-toggle{ display:inline-flex; }
@@ -11233,9 +11233,9 @@ return `
       }
       .newsletter-audience-analytics-row{
         display:grid;
-        grid-template-columns:minmax(0, 1.15fr) minmax(320px, 1fr) auto;
+        grid-template-columns:minmax(0, 1fr) auto;
         gap:14px;
-        align-items:center;
+        align-items:start;
         padding:12px 0;
         border-bottom:1px solid var(--line);
       }
@@ -11245,11 +11245,13 @@ return `
       }
       .newsletter-audience-analytics-identity{
         min-width:0;
+        grid-column:1 / -1;
       }
       .newsletter-audience-analytics-email{
         font-weight:800;
         color:var(--text);
-        overflow-wrap:anywhere;
+        overflow-wrap:break-word;
+        word-break:break-word;
         line-height:1.3;
       }
       .newsletter-audience-analytics-meta{
@@ -11288,6 +11290,7 @@ return `
       }
       .newsletter-audience-analytics-actions{
         justify-self:end;
+        align-self:center;
       }
       .activity-list{
         display:grid;
