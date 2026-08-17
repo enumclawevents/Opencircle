@@ -35,7 +35,7 @@ async function sendEmail({ to, subject, html, text, from, replyTo }) {
     console.warn("[MAIL] SMTP not configured. Skipping email to:", to);
     return false;
   }
-  await mailer.sendMail({
+  return mailer.sendMail({
     from: from || SMTP_FROM,
     replyTo: replyTo || undefined,
     to,
@@ -43,7 +43,6 @@ async function sendEmail({ to, subject, html, text, from, replyTo }) {
     html,
     text,
   });
-  return true;
 }
 
 module.exports = {

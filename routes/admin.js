@@ -2385,7 +2385,7 @@ async function getNewsletterAudienceAnalyticsForCity(city) {
         lower(r.email) AS emailKey,
         MIN(r.email) AS email,
         COALESCE(SUM(CASE WHEN COALESCE(r.deliveryStatus, '') = 'sent' THEN 1 ELSE 0 END), 0) AS receivedCount,
-        COALESCE(SUM(CASE WHEN COALESCE(r.deliveryStatus, '') = 'failed' THEN 1 ELSE 0 END), 0) AS bouncedCount,
+        COALESCE(SUM(CASE WHEN COALESCE(r.deliveryStatus, '') IN ('failed', 'bounced') THEN 1 ELSE 0 END), 0) AS bouncedCount,
         COALESCE(SUM(CASE WHEN COALESCE(r.openCount, 0) > 0 THEN 1 ELSE 0 END), 0) AS openedCount,
         COALESCE(SUM(CASE WHEN COALESCE(r.openCount, 0) > 1 THEN COALESCE(r.openCount, 0) - 1 ELSE 0 END), 0) AS reopenCount,
         COALESCE(SUM(COALESCE(r.clickCount, 0)), 0) AS clickCount,
@@ -2506,9 +2506,50 @@ async function createNewsletterRecipientLog({ campaignId, city, email, openToken
   return Number(result?.lastID || 0) || 0;
 }
 
-async function markNewsletterRecipientDelivery(recipientId, ok, errorText) {
+function classifyNewsletterDeliveryResult(result, intendedEmail) {
+  const normalizedTarget = normalizeNewsletterEmailAddress(intendedEmail);
+  if (!result || typeof result !== "object") {
+    return { status: "failed", errorText: "No SMTP response returned" };
+  }
+
+  const accepted = Array.isArray(result.accepted)
+    ? result.accepted.map((value) => normalizeNewsletterEmailAddress(value))
+    : [];
+  const rejected = Array.isArray(result.rejected)
+    ? result.rejected.map((value) => normalizeNewsletterEmailAddress(value))
+    : [];
+  const pending = Array.isArray(result.pending)
+    ? result.pending.map((value) => normalizeNewsletterEmailAddress(value))
+    : [];
+  const responseText = String(result.response || "").trim();
+
+  if (normalizedTarget && rejected.includes(normalizedTarget)) {
+    return { status: "bounced", errorText: responseText || "Recipient rejected by SMTP server" };
+  }
+  if (normalizedTarget && pending.includes(normalizedTarget)) {
+    return { status: "bounced", errorText: responseText || "Recipient delivery is pending or deferred" };
+  }
+  if (normalizedTarget && accepted.includes(normalizedTarget)) {
+    return { status: "sent", errorText: "" };
+  }
+  if (accepted.length > 0 && rejected.length === 0 && pending.length === 0) {
+    return { status: "sent", errorText: "" };
+  }
+  if (rejected.length > 0 || pending.length > 0) {
+    return { status: "bounced", errorText: responseText || "SMTP server did not accept recipient" };
+  }
+  return { status: "failed", errorText: responseText || "SMTP response could not be classified" };
+}
+
+function isNewsletterBounceStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return normalized === "failed" || normalized === "bounced";
+}
+
+async function markNewsletterRecipientDelivery(recipientId, status, errorText) {
   await ensureNewsletterSchema();
-  const isOk = !!ok;
+  const normalizedStatus = String(status || "failed").trim().toLowerCase();
+  const isSent = normalizedStatus === "sent";
   await run(
     `UPDATE newsletter_recipients
         SET deliveryStatus = ?,
@@ -2517,9 +2558,9 @@ async function markNewsletterRecipientDelivery(recipientId, ok, errorText) {
             updatedAt = datetime('now')
       WHERE id = ?`,
     [
-      isOk ? "sent" : "failed",
-      isOk ? 1 : 0,
-      isOk ? null : String(errorText || "").slice(0, 500),
+      isSent ? "sent" : (normalizedStatus === "bounced" ? "bounced" : "failed"),
+      isSent ? 1 : 0,
+      isSent ? null : String(errorText || "").slice(0, 500),
       Number(recipientId || 0),
     ]
   );
@@ -2588,16 +2629,17 @@ async function sendTrackedNewsletterCampaign({ city, recipients, reqLike, create
         from: PASSWORD_RESET_FROM,
         replyTo: PASSWORD_RESET_REPLY_TO,
       });
-      if (sent) {
+      const delivery = classifyNewsletterDeliveryResult(sent, email);
+      if (delivery.status === "sent") {
         sentCount += 1;
-        await markNewsletterRecipientDelivery(recipientId, true, "");
+        await markNewsletterRecipientDelivery(recipientId, "sent", "");
       } else {
         failedCount += 1;
-        await markNewsletterRecipientDelivery(recipientId, false, "sendEmail returned false");
+        await markNewsletterRecipientDelivery(recipientId, delivery.status, delivery.errorText);
       }
     } catch (err) {
       failedCount += 1;
-      await markNewsletterRecipientDelivery(recipientId, false, err && err.message ? err.message : "Send failed");
+      await markNewsletterRecipientDelivery(recipientId, "failed", err && err.message ? err.message : "Send failed");
     }
   }
 
@@ -6363,7 +6405,7 @@ return `
       const memberSeriesRows = selectedAudienceRecipientRows.map((row) => ({
         sentAt: row.sentAt,
         sentCount: String(row.deliveryStatus || "") === "sent" ? 1 : 0,
-        failedCount: String(row.deliveryStatus || "") === "failed" ? 1 : 0,
+        failedCount: isNewsletterBounceStatus(row.deliveryStatus) ? 1 : 0,
         uniqueOpenCount: Number(row.openCount || 0) > 0 ? 1 : 0,
         openCount: Number(row.openCount || 0),
         clickCount: Number(row.clickCount || 0),
