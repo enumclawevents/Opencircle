@@ -9778,11 +9778,46 @@ return `
         align-items:flex-start;
         gap:14px;
       }
+      .newsletter-audience-row-main{
+        display:flex;
+        align-items:flex-start;
+        gap:18px;
+        flex:1 1 auto;
+        min-width:0;
+      }
       .newsletter-audience-row-meta{
         margin-top:4px;
         font-size:12px;
         color:var(--muted);
         line-height:1.45;
+      }
+      .newsletter-audience-row-quickstats{
+        display:grid;
+        grid-template-columns: repeat(5, minmax(72px, 1fr));
+        gap:10px;
+        flex:1 1 620px;
+        min-width:0;
+      }
+      .newsletter-audience-row-quickstat{
+        border:1px solid rgba(148,163,184,.18);
+        border-radius:12px;
+        background:#fff;
+        padding:10px 12px;
+        min-width:0;
+      }
+      .newsletter-audience-row-quickstat .k{
+        font-size:11px;
+        font-weight:700;
+        text-transform:uppercase;
+        letter-spacing:.03em;
+        color:var(--muted);
+      }
+      .newsletter-audience-row-quickstat .v{
+        margin-top:4px;
+        font-size:18px;
+        font-weight:800;
+        line-height:1.1;
+        color:var(--text);
       }
       .newsletter-audience-row-stats{
         display:grid;
@@ -9940,6 +9975,13 @@ return `
         .newsletter-audience-summary{
           grid-template-columns: repeat(3, minmax(0, 1fr));
         }
+        .newsletter-audience-row-main{
+          flex-direction:column;
+        }
+        .newsletter-audience-row-quickstats{
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          width:100%;
+        }
         .newsletter-audience-row-stats{
           grid-template-columns: repeat(3, minmax(0, 1fr));
         }
@@ -9950,6 +9992,9 @@ return `
         }
         .newsletter-audience-row-top{
           flex-direction:column;
+        }
+        .newsletter-audience-row-quickstats{
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
         .newsletter-audience-row-stats{
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -13089,10 +13134,34 @@ return `
                       DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : ""
                     ].join(" "))}">
                       <div class="newsletter-audience-row-top">
-                        <div style="min-width:0; flex:1 1 auto;">
-                          <div class="label" style="overflow-wrap:anywhere; font-size:16px; font-weight:800; color:var(--text);">${esc(row.email || "")}</div>
-                          <div class="newsletter-audience-row-meta">
-                            Added ${esc(DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "recently")}
+                        <div class="newsletter-audience-row-main">
+                          <div style="min-width:0; flex:0 1 360px;">
+                            <div class="label" style="overflow-wrap:anywhere; font-size:16px; font-weight:800; color:var(--text);">${esc(row.email || "")}</div>
+                            <div class="newsletter-audience-row-meta">
+                              Added ${esc(DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "recently")}
+                            </div>
+                          </div>
+                          <div class="newsletter-audience-row-quickstats" aria-label="Audience quick stats">
+                            <div class="newsletter-audience-row-quickstat">
+                              <div class="k">Received</div>
+                              <div class="v">${Number(row.receivedCount || 0).toLocaleString("en-US")}</div>
+                            </div>
+                            <div class="newsletter-audience-row-quickstat">
+                              <div class="k">Bounced</div>
+                              <div class="v">${Number(row.bouncedCount || 0).toLocaleString("en-US")}</div>
+                            </div>
+                            <div class="newsletter-audience-row-quickstat">
+                              <div class="k">Opens</div>
+                              <div class="v">${Number(row.openedCount || 0).toLocaleString("en-US")}</div>
+                            </div>
+                            <div class="newsletter-audience-row-quickstat">
+                              <div class="k">Re-opens</div>
+                              <div class="v">${Number(row.reopenCount || 0).toLocaleString("en-US")}</div>
+                            </div>
+                            <div class="newsletter-audience-row-quickstat">
+                              <div class="k">Clicks</div>
+                              <div class="v">${Number(row.clickCount || 0).toLocaleString("en-US")}</div>
+                            </div>
                           </div>
                         </div>
                         <div class="value" style="display:flex; align-items:flex-start; gap:10px;">
