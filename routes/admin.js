@@ -2897,6 +2897,14 @@ const ADMIN_WORKSPACE_GROUPS = Object.freeze({
     "South Prairie",
   ]),
 });
+const ADMIN_SIDEBAR_GROUPS = Object.freeze({
+  "Plateau Regional": Object.freeze([
+    "Buckley",
+    "Wilkeson",
+    "Carbonado",
+    "South Prairie",
+  ]),
+});
 const NEWSLETTER_SCOPE_GROUPS = Object.freeze({
   "Plateau Regional": Object.freeze([
     "Buckley",
@@ -3060,6 +3068,74 @@ function getUserAdminWorkspaceOptions(user, fallbackCity = "Enumclaw") {
 
   if (!options.length) pushOption(fallbackCity || "Enumclaw");
   return options;
+}
+
+function getAdminSidebarAreaOptions(user, fallbackCity = "Enumclaw") {
+  const allowedCities = getUserAllowedCities(user, fallbackCity);
+  const options = [];
+  const seen = new Set();
+  const coveredCities = new Set();
+  const groupedOptions = [];
+
+  const pushOption = (value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    options.push(normalized);
+  };
+
+  for (const [groupName, memberCities] of Object.entries(ADMIN_SIDEBAR_GROUPS)) {
+    if (memberCities.every((city) => allowedCities.includes(city))) {
+      groupedOptions.push(groupName);
+      memberCities.forEach((city) => coveredCities.add(city));
+    }
+  }
+
+  allowedCities.forEach((city) => {
+    if (!coveredCities.has(city)) pushOption(city);
+  });
+  groupedOptions.forEach(pushOption);
+
+  if (!options.length) pushOption(fallbackCity || "Enumclaw");
+  return options;
+}
+
+function getAdminSidebarAreaCities(area, user, fallbackCity = "Enumclaw") {
+  const allowedCities = getUserAllowedCities(user, fallbackCity);
+  const normalized = String(area || "").trim();
+  if (normalized && Object.prototype.hasOwnProperty.call(ADMIN_SIDEBAR_GROUPS, normalized)) {
+    return ADMIN_SIDEBAR_GROUPS[normalized].filter((city) => allowedCities.includes(city));
+  }
+  if (normalized) {
+    for (const [groupName, memberCities] of Object.entries(ADMIN_SIDEBAR_GROUPS)) {
+      if (memberCities.includes(normalized) && getAdminSidebarAreaOptions(user, fallbackCity).includes(groupName)) {
+        return memberCities.filter((city) => allowedCities.includes(city));
+      }
+    }
+  }
+  if (normalized && allowedCities.includes(normalized)) return [normalized];
+  return allowedCities.slice();
+}
+
+function pickAccessibleAdminSidebarArea(requestedArea, user, { fallbackCity = "Enumclaw" } = {}) {
+  const options = getAdminSidebarAreaOptions(user, fallbackCity);
+  const preferred = String(requestedArea || "").trim();
+  if (preferred) {
+    if (options.includes(preferred)) return preferred;
+    for (const [groupName, memberCities] of Object.entries(ADMIN_SIDEBAR_GROUPS)) {
+      if (memberCities.includes(preferred) && options.includes(groupName)) return groupName;
+    }
+  }
+
+  const normalizedFallback = String(fallbackCity || "").trim();
+  if (normalizedFallback) {
+    if (options.includes(normalizedFallback)) return normalizedFallback;
+    for (const [groupName, memberCities] of Object.entries(ADMIN_SIDEBAR_GROUPS)) {
+      if (memberCities.includes(normalizedFallback) && options.includes(groupName)) return groupName;
+    }
+  }
+
+  return options[0] || fallbackCity || "Enumclaw";
 }
 
 function getAdminWorkspaceCities(workspace, user, fallbackCity = "Enumclaw") {
@@ -3302,19 +3378,24 @@ let whereParams = [];
     // City/workspace (developers stay city-based; non-developers can be workspace-based)
     const userCity = String(req.user?.city || currentUser?.city || "Enumclaw");
     const selectedCity = pickAccessibleCity(req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity: userCity });
+    const selectedDeveloperSidebarArea = hasDeveloperAccess
+      ? pickAccessibleAdminSidebarArea(req.query.workspace || req.query.city, { role: "developer" }, { fallbackCity: userCity })
+      : "";
     const adminWorkspaceOptions = hasDeveloperAccess
-      ? ADMIN_AREAS.slice()
+      ? getAdminSidebarAreaOptions({ role: "developer" }, userCity)
       : getUserAdminWorkspaceOptions(currentUser, userCity);
     const selectedAdminWorkspace = hasDeveloperAccess
-      ? selectedCity
+      ? selectedDeveloperSidebarArea
       : pickAccessibleAdminWorkspace(req.query.workspace || req.query.city, currentUser, { fallbackWorkspace: userCity, fallbackCity: userCity });
     const selectedAdminCities = hasDeveloperAccess
-      ? [selectedCity]
+      ? getAdminSidebarAreaCities(selectedAdminWorkspace, { role: "developer" }, userCity)
       : getAdminWorkspaceCities(selectedAdminWorkspace, currentUser, userCity);
-    const selectedAdminLabel = hasDeveloperAccess ? selectedCity : selectedAdminWorkspace;
+    const selectedAdminLabel = hasDeveloperAccess
+      ? selectedAdminWorkspace
+      : (selectedAdminWorkspace === "Plateau Events" ? "Plateau Regional" : selectedAdminWorkspace);
     const selectedAdminPrimaryCity = selectedAdminCities[0] || selectedCity || userCity;
     const showSidebarAreaSwitcher = hasDeveloperAccess;
-    const defaultNewsletterScope = !hasDeveloperAccess && selectedAdminWorkspace === "Plateau Events"
+    const defaultNewsletterScope = selectedAdminLabel === "Plateau Regional"
       ? "Plateau Regional"
       : selectedCity;
     const newsletterScopeOptions = getUserAllowedNewsletterScopes(
@@ -3907,6 +3988,10 @@ try {
       const qs = sp.toString();
       return `${req.baseUrl || "/admin"}${req.path === "/" ? "" : (req.path || "")}${qs ? `?${qs}` : ""}`;
     };
+    const buildSidebarAreaSwitchHref = (areaValue) => {
+      const nextCities = getAdminSidebarAreaCities(areaValue, hasDeveloperAccess ? { role: "developer" } : currentUser, userCity);
+      return buildCitySwitchHref(nextCities[0] || areaValue);
+    };
     const buildWorkspaceSwitchHref = (workspaceValue) => {
       const sp = new URLSearchParams(req.query || {});
       sp.set("workspace", workspaceValue);
@@ -3916,14 +4001,17 @@ try {
       return `${req.baseUrl || "/admin"}${req.path === "/" ? "" : (req.path || "")}${qs ? `?${qs}` : ""}`;
     };
     const cityListHtml = showSidebarAreaSwitcher
-      ? allowedForUser.map((c) => {
-          const active = selectedCity === c ? " is-active" : "";
-          return `<a class="sb-city-opt${active}" data-city="${esc(c)}" href="${esc(buildCitySwitchHref(c))}">${esc(c)}</a>`;
+      ? adminWorkspaceOptions.map((areaName) => {
+          const active = selectedAdminWorkspace === areaName ? " is-active" : "";
+          return `<a class="sb-city-opt${active}" data-city="${esc(areaName)}" href="${esc(buildSidebarAreaSwitchHref(areaName))}">${esc(areaName)}</a>`;
         }).join("")
       : adminWorkspaceOptions.map((workspaceName) => {
           const active = selectedAdminWorkspace === workspaceName ? " is-active" : "";
           return `<a class="sb-city-opt${active}" href="${esc(buildWorkspaceSwitchHref(workspaceName))}">${esc(workspaceName)}</a>`;
         }).join("");
+    const selectedInviteWorkspace = selectedAdminLabel === "Plateau Regional"
+      ? "Plateau Events"
+      : selectedAdminWorkspace;
 
     const listHtml = events.length
       ? events
@@ -12335,7 +12423,7 @@ return `
                   ...(ADMIN_WORKSPACE_GROUPS["Plateau Events"].every((city) => allowedForUser.includes(city))
                     ? [{ value: "Plateau Events", label: "Plateau Events" }]
                     : []),
-                ].map((option) => `<option value="${esc(option.value)}" ${option.value === selectedAdminWorkspace ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
+                ].map((option) => `<option value="${esc(option.value)}" ${option.value === selectedInviteWorkspace ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
               </select>
               <div class="note" style="margin-top:8px;">Choose one area or the Plateau Events preset to grant Buckley, Wilkeson, Carbonado, and South Prairie together.</div>
             </div>
