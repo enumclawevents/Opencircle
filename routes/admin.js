@@ -958,14 +958,6 @@ function buildQuickAddEventDataFromHtml(html, sourceUrl) {
   if (!startDateTime) warnings.push("Review the date and time. They could not be read from that page.");
   if (!location) warnings.push("Review the location. It could not be read from that page.");
 
-  const generatedSections = buildQuickAddTextSections({
-    title,
-    description,
-    organizer,
-    location,
-    startDateTime,
-    endDateTime,
-  });
   const ticketInfo = extractQuickAddTicketInfo(html, pageUrl, eventNode, description);
 
   const startParts = parseIsoParts(startDateTime);
@@ -978,9 +970,9 @@ function buildQuickAddEventDataFromHtml(html, sourceUrl) {
     ticketUrl: ticketInfo.ticketUrl,
     ticketLabel: ticketInfo.ticketLabel,
     title,
-    description: generatedSections.description || description,
-    eventDetails: generatedSections.eventDetails,
-    goodToKnow: generatedSections.goodToKnow,
+    description: "",
+    eventDetails: "",
+    goodToKnow: "",
     startDateTime,
     endDateTime,
     location,
