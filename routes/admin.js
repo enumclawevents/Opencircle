@@ -390,21 +390,58 @@ function normalizeJsonLdImage(input, baseUrl) {
   return "";
 }
 
-function formatJsonLdAddress(input) {
+function escapeRegExp(input) {
+  return String(input || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function titleCaseStreetToken(token) {
+  const raw = String(token || "").trim();
+  if (!raw) return "";
+  if (/^(n|s|e|w|ne|nw|se|sw)$/i.test(raw)) return raw.toUpperCase();
+  if (/^\d/.test(raw)) return raw.toLowerCase();
+  return raw
+    .toLowerCase()
+    .split("-")
+    .map((part) => {
+      if (!part) return "";
+      return part.replace(/^[a-z]/, (ch) => ch.toUpperCase());
+    })
+    .join("-");
+}
+
+function normalizeStreetLine(input) {
+  const raw = decodeHtmlEntities(String(input || ""))
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!raw) return "";
+  return raw
+    .split(" ")
+    .map((token) => titleCaseStreetToken(token))
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+function formatStreetOnlyAddress(input, fallbackCity = "") {
   if (!input) return "";
-  if (typeof input === "string") return String(input).trim();
-  const street = String(input.streetAddress || input.addressLocality || "").trim();
-  const city = String(input.addressLocality || input.city || "").trim();
-  const state = String(input.addressRegion || input.state || "").trim();
-  const zip = String(input.postalCode || input.zip || "").trim();
-  const country = String(input.addressCountry || "").trim();
-  const parts = [];
-  if (street) parts.push(street);
-  const cityStateZip = [city, state].filter(Boolean).join(", ");
-  const cityLine = [cityStateZip, zip].filter(Boolean).join(" ").trim();
-  if (cityLine) parts.push(cityLine);
-  if (country && country.toLowerCase() !== "us" && country.toLowerCase() !== "usa") parts.push(country);
-  return parts.join(", ");
+  if (typeof input === "object") {
+    return normalizeStreetLine(
+      String(input.streetAddress || input.address1 || input.addressLine1 || "").trim()
+    );
+  }
+  let raw = decodeHtmlEntities(String(input || ""))
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!raw) return "";
+  raw = String(raw.split(",")[0] || raw).trim();
+  if (fallbackCity) {
+    raw = raw.replace(new RegExp(`\\s+${escapeRegExp(fallbackCity)}\\b.*$`, "i"), "").trim();
+  }
+  raw = raw
+    .replace(/\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?$/i, "")
+    .replace(/\s+\d{5}(?:-\d{4})?$/i, "")
+    .trim();
+  return normalizeStreetLine(raw);
 }
 
 function normalizeJsonLdLocation(input) {
@@ -417,10 +454,10 @@ function normalizeJsonLdLocation(input) {
       continue;
     }
     if (typeof item === "object") {
+      const address = formatStreetOnlyAddress(item.address || item);
+      if (address) return address;
       const name = String(item.name || item.venue_name || item.location_name || "").trim();
-      const address = formatJsonLdAddress(item.address || item);
-      const combined = [name, address].filter(Boolean).join(", ");
-      if (combined) return combined;
+      if (name) return name;
     }
   }
   return "";
@@ -589,22 +626,87 @@ function parseFacebookEventSummary(description = "", canonicalUrl = "") {
     const eventIndex = parts.findIndex((part) => part === "events");
     const venueSlug = eventIndex >= 0 ? String(parts[eventIndex + 1] || "").trim() : "";
     if (venueSlug) {
-      let pretty = venueSlug
+      const pretty = venueSlug
         .replace(/-united-states(?:-[a-z]+)?/gi, "")
         .replace(/-/g, " ")
-        .replace(/\bwa\b/gi, "WA")
-        .replace(/\bse\b/gi, "SE")
-        .replace(/\bnw\b/gi, "NW")
-        .replace(/\bne\b/gi, "NE")
-        .replace(/\bsw\b/gi, "SW")
         .replace(/\s{2,}/g, " ")
         .trim();
-      if (pretty) out.location = pretty;
+      const streetOnly = formatStreetOnlyAddress(pretty, out.city);
+      if (streetOnly) out.location = streetOnly;
     }
   } catch (_) {}
 
   if (!out.location && out.city) out.location = out.city;
   return out;
+}
+
+function isGenericQuickAddDescription(text = "") {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (!value) return true;
+  if (/^Event in .+ by .+ on .+$/i.test(value)) return true;
+  if (/^See more about/i.test(value)) return true;
+  return false;
+}
+
+function ensureTrailingPeriod(text = "") {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (!value) return "";
+  return /[.!?]$/.test(value) ? value : `${value}.`;
+}
+
+function formatQuickAddScheduleSentence(startDateTime, endDateTime) {
+  const start = DateTime.fromISO(String(startDateTime || ""), { zone: DEFAULT_TZ });
+  if (!start.isValid) return "";
+  const end = DateTime.fromISO(String(endDateTime || startDateTime || ""), { zone: DEFAULT_TZ });
+  if (end.isValid && start.hasSame(end, "day")) {
+    return `It is scheduled for ${start.toFormat("cccc, LLLL d, yyyy")} from ${start.toFormat("h:mm a")} to ${end.toFormat("h:mm a")}`;
+  }
+  if (end.isValid) {
+    return `It runs from ${start.toFormat("cccc, LLLL d, yyyy 'at' h:mm a")} to ${end.toFormat("cccc, LLLL d, yyyy 'at' h:mm a")}`;
+  }
+  return `It is scheduled for ${start.toFormat("cccc, LLLL d, yyyy 'at' h:mm a")}`;
+}
+
+function buildQuickAddTextSections({
+  title = "",
+  description = "",
+  organizer = "",
+  location = "",
+  startDateTime = "",
+  endDateTime = "",
+}) {
+  const cleanTitle = String(title || "").replace(/\s+/g, " ").trim();
+  const cleanDescription = String(description || "").replace(/\s+/g, " ").trim();
+  const cleanOrganizer = String(organizer || "").replace(/\s+/g, " ").trim();
+  const cleanLocation = String(location || "").replace(/\s+/g, " ").trim();
+  const scheduleSentence = formatQuickAddScheduleSentence(startDateTime, endDateTime);
+  const genericDescription = isGenericQuickAddDescription(cleanDescription);
+
+  let descriptionText = ensureTrailingPeriod(cleanDescription);
+  if (!descriptionText || genericDescription) {
+    const parts = [];
+    if (cleanTitle && cleanOrganizer) parts.push(`${cleanTitle} is hosted by ${cleanOrganizer}.`);
+    else if (cleanTitle) parts.push(`${cleanTitle} is coming up soon.`);
+    if (scheduleSentence) parts.push(ensureTrailingPeriod(scheduleSentence));
+    if (cleanLocation) parts.push(`The event will take place at ${cleanLocation}.`);
+    descriptionText = parts.join(" ").trim();
+  }
+
+  const detailsParts = [];
+  if (scheduleSentence) detailsParts.push(ensureTrailingPeriod(scheduleSentence));
+  if (cleanLocation) detailsParts.push(`The street address for this event is ${cleanLocation}.`);
+  if (cleanOrganizer) detailsParts.push(`${cleanOrganizer} is listed as the organizer.`);
+
+  const goodToKnowParts = [
+    "This event was imported from the source link, so please review the final details before publishing.",
+    "Double-check the time, ticket link, categories, and any special instructions to make sure everything looks right.",
+  ];
+
+  return {
+    description: descriptionText,
+    eventDetails: detailsParts.join(" ").trim(),
+    goodToKnow: goodToKnowParts.join(" ").trim(),
+  };
 }
 
 function buildQuickAddEventDataFromHtml(html, sourceUrl) {
@@ -642,7 +744,10 @@ function buildQuickAddEventDataFromHtml(html, sourceUrl) {
 
   let location = normalizeJsonLdLocation(eventNode?.location);
   if (!location) {
-    const fallbackText = stripHtmlTags(extractMetaContent(html, ["place:location:address"]));
+    const fallbackText = formatStreetOnlyAddress(
+      stripHtmlTags(extractMetaContent(html, ["place:location:address"])),
+      facebookSummary.city
+    );
     if (fallbackText) location = fallbackText;
   }
   if (!location && facebookSummary.location) location = facebookSummary.location;
@@ -669,6 +774,15 @@ function buildQuickAddEventDataFromHtml(html, sourceUrl) {
   if (!startDateTime) warnings.push("Review the date and time. They could not be read from that page.");
   if (!location) warnings.push("Review the location. It could not be read from that page.");
 
+  const generatedSections = buildQuickAddTextSections({
+    title,
+    description,
+    organizer,
+    location,
+    startDateTime,
+    endDateTime,
+  });
+
   const startParts = parseIsoParts(startDateTime);
   const endParts = parseIsoParts(endDateTime);
   const eventTypeChoice = startParts && endParts && toYmd(startParts) !== toYmd(endParts) ? "multi-day" : "single";
@@ -679,9 +793,9 @@ function buildQuickAddEventDataFromHtml(html, sourceUrl) {
     ticketUrl: "",
     ticketLabel: "",
     title,
-    description,
-    eventDetails: "",
-    goodToKnow: "",
+    description: generatedSections.description || description,
+    eventDetails: generatedSections.eventDetails,
+    goodToKnow: generatedSections.goodToKnow,
     startDateTime,
     endDateTime,
     location,
