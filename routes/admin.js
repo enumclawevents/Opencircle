@@ -460,24 +460,62 @@ function normalizeQuickAddDateTime(value, { fallbackTime = null } = {}) {
     }
   }
 
+  const hasExplicitTime = /\b\d{1,2}(?::\d{2})?\s*[ap]m\b/i.test(raw) || /\b\d{1,2}:\d{2}\b/.test(raw);
+  const dateFormats = [
+    "LLLL d, yyyy h:mm a",
+    "LLLL d yyyy h:mm a",
+    "LLL d, yyyy h:mm a",
+    "LLL d yyyy h:mm a",
+    "cccc, LLLL d, yyyy h:mm a",
+    "cccc, LLLL d yyyy h:mm a",
+    "cccc, LLL d, yyyy h:mm a",
+    "cccc, LLL d yyyy h:mm a",
+    "LLLL d, yyyy",
+    "LLLL d yyyy",
+    "LLL d, yyyy",
+    "LLL d yyyy",
+    "cccc, LLLL d, yyyy",
+    "cccc, LLLL d yyyy",
+    "cccc, LLL d, yyyy",
+    "cccc, LLL d yyyy",
+    "yyyy-MM-dd HH:mm",
+    "yyyy-MM-dd h:mm a",
+  ];
+
+  for (const format of dateFormats) {
+    const dt = DateTime.fromFormat(raw, format, { zone: DEFAULT_TZ });
+    if (dt && dt.isValid) {
+      let zoned = dt.setZone(DEFAULT_TZ);
+      if (!hasExplicitTime) {
+        zoned = zoned.set({
+          hour: fallbackTime && Number.isFinite(fallbackTime.hour) ? fallbackTime.hour : 9,
+          minute: fallbackTime && Number.isFinite(fallbackTime.minute) ? fallbackTime.minute : 0,
+          second: 0,
+          millisecond: 0,
+        });
+      }
+      return zoned.toISO({ suppressMilliseconds: true, includeOffset: true });
+    }
+  }
+
   const attempts = [
     () => DateTime.fromISO(raw, { setZone: true }),
     () => DateTime.fromRFC2822(raw, { setZone: true }),
     () => DateTime.fromHTTP(raw, { setZone: true }),
-    () => DateTime.fromFormat(raw, "LLLL d, yyyy h:mm a", { zone: DEFAULT_TZ }),
-    () => DateTime.fromFormat(raw, "LLLL d yyyy h:mm a", { zone: DEFAULT_TZ }),
-    () => DateTime.fromFormat(raw, "LLL d, yyyy h:mm a", { zone: DEFAULT_TZ }),
-    () => DateTime.fromFormat(raw, "LLL d yyyy h:mm a", { zone: DEFAULT_TZ }),
-    () => DateTime.fromFormat(raw, "cccc, LLLL d, yyyy h:mm a", { zone: DEFAULT_TZ }),
-    () => DateTime.fromFormat(raw, "cccc, LLL d, yyyy h:mm a", { zone: DEFAULT_TZ }),
-    () => DateTime.fromFormat(raw, "yyyy-MM-dd HH:mm", { zone: DEFAULT_TZ }),
-    () => DateTime.fromFormat(raw, "yyyy-MM-dd h:mm a", { zone: DEFAULT_TZ }),
   ];
 
   for (const build of attempts) {
     const dt = build();
     if (dt && dt.isValid) {
-      const zoned = dt.setZone(DEFAULT_TZ);
+      let zoned = dt.setZone(DEFAULT_TZ);
+      if (!hasExplicitTime) {
+        zoned = zoned.set({
+          hour: fallbackTime && Number.isFinite(fallbackTime.hour) ? fallbackTime.hour : 9,
+          minute: fallbackTime && Number.isFinite(fallbackTime.minute) ? fallbackTime.minute : 0,
+          second: 0,
+          millisecond: 0,
+        });
+      }
       return zoned.toISO({ suppressMilliseconds: true, includeOffset: true });
     }
   }
@@ -514,7 +552,7 @@ function parseQuickAddDateRangeFromText(input) {
     .trim();
   if (!text) return { startDateTime: "", endDateTime: "" };
 
-  const longPattern = /((?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+)?((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?(?:\s+at\s+\d{1,2}(?::\d{2})?\s*[ap]m(?:\s+[a-z]{2,4})?)?)(?:\s*-\s*(\d{1,2}(?::\d{2})?\s*[ap]m(?:\s+[a-z]{2,4})?|(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?(?:\s+at\s+\d{1,2}(?::\d{2})?\s*[ap]m(?:\s+[a-z]{2,4})?)?))?/i;
+  const longPattern = /((?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+)?((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}(?:,?\s*\d{4})?(?:\s+at\s+\d{1,2}(?::\d{2})?\s*[ap]m(?:\s+[a-z]{2,4})?)?)(?:\s*-\s*(\d{1,2}(?::\d{2})?\s*[ap]m(?:\s+[a-z]{2,4})?|(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}(?:,?\s*\d{4})?(?:\s+at\s+\d{1,2}(?::\d{2})?\s*[ap]m(?:\s+[a-z]{2,4})?)?))?/i;
   const match = text.match(longPattern);
   if (!match) return { startDateTime: "", endDateTime: "" };
 
@@ -529,6 +567,44 @@ function parseQuickAddDateRangeFromText(input) {
   }
   if (!endDateTime && startDateTime) endDateTime = addHoursIso(startDateTime, 2) || "";
   return { startDateTime, endDateTime };
+}
+
+function parseFacebookEventSummary(description = "", canonicalUrl = "") {
+  const text = String(description || "").trim();
+  const out = {
+    city: "",
+    organizer: "",
+    location: "",
+  };
+
+  const summaryMatch = text.match(/^Event in\s+(.+?)\s+by\s+(.+?)\s+on\s+.+$/i);
+  if (summaryMatch) {
+    out.city = String(summaryMatch[1] || "").trim();
+    out.organizer = String(summaryMatch[2] || "").trim();
+  }
+
+  try {
+    const url = new URL(String(canonicalUrl || ""));
+    const parts = url.pathname.split("/").filter(Boolean);
+    const eventIndex = parts.findIndex((part) => part === "events");
+    const venueSlug = eventIndex >= 0 ? String(parts[eventIndex + 1] || "").trim() : "";
+    if (venueSlug) {
+      let pretty = venueSlug
+        .replace(/-united-states(?:-[a-z]+)?/gi, "")
+        .replace(/-/g, " ")
+        .replace(/\bwa\b/gi, "WA")
+        .replace(/\bse\b/gi, "SE")
+        .replace(/\bnw\b/gi, "NW")
+        .replace(/\bne\b/gi, "NE")
+        .replace(/\bsw\b/gi, "SW")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      if (pretty) out.location = pretty;
+    }
+  } catch (_) {}
+
+  if (!out.location && out.city) out.location = out.city;
+  return out;
 }
 
 function buildQuickAddEventDataFromHtml(html, sourceUrl) {
@@ -555,6 +631,7 @@ function buildQuickAddEventDataFromHtml(html, sourceUrl) {
     eventNode?.description ||
     extractMetaContent(html, ["og:description", "twitter:description", "description"])
   );
+  const facebookSummary = parseFacebookEventSummary(description, pageUrl);
 
   const imageUrl = normalizeJsonLdImage(
     eventNode?.image ||
@@ -568,12 +645,13 @@ function buildQuickAddEventDataFromHtml(html, sourceUrl) {
     const fallbackText = stripHtmlTags(extractMetaContent(html, ["place:location:address"]));
     if (fallbackText) location = fallbackText;
   }
+  if (!location && facebookSummary.location) location = facebookSummary.location;
 
   const organizer = normalizeJsonLdName(
     eventNode?.organizer ||
     eventNode?.performer ||
     eventNode?.author
-  );
+  ) || facebookSummary.organizer;
 
   let startDateTime = normalizeQuickAddDateTime(eventNode?.startDate);
   let endDateTime = normalizeQuickAddDateTime(eventNode?.endDate);
