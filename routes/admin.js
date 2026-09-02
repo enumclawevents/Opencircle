@@ -213,6 +213,426 @@ function normalizeHttpUrl(input) {
   }
 }
 
+function decodeHtmlEntities(input) {
+  const raw = String(input || "");
+  if (!raw) return "";
+  const named = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    nbsp: " ",
+  };
+  return raw.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity) => {
+    const key = String(entity || "").toLowerCase();
+    if (key[0] === "#") {
+      const isHex = key[1] === "x";
+      const value = parseInt(key.slice(isHex ? 2 : 1), isHex ? 16 : 10);
+      return Number.isFinite(value) ? String.fromCodePoint(value) : match;
+    }
+    return Object.prototype.hasOwnProperty.call(named, key) ? named[key] : match;
+  });
+}
+
+function stripHtmlTags(input) {
+  return decodeHtmlEntities(
+    String(input || "")
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n\n")
+      .replace(/<[^>]*>/g, " ")
+  )
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function parseHtmlAttributes(tagSource) {
+  const attrs = {};
+  const re = /([^\s"'<>\/=]+)(?:\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  let match;
+  while ((match = re.exec(String(tagSource || "")))) {
+    const key = String(match[1] || "").toLowerCase();
+    if (!key || key === "meta" || key === "link") continue;
+    const value = match[3] ?? match[4] ?? match[5] ?? "";
+    attrs[key] = decodeHtmlEntities(value);
+  }
+  return attrs;
+}
+
+function extractMetaContent(html, keys = []) {
+  const wanted = new Set((keys || []).map((key) => String(key || "").trim().toLowerCase()).filter(Boolean));
+  if (!wanted.size) return "";
+  const metaRe = /<meta\b[^>]*>/gi;
+  let match;
+  while ((match = metaRe.exec(String(html || "")))) {
+    const attrs = parseHtmlAttributes(match[0]);
+    const key = String(attrs.property || attrs.name || attrs.itemprop || "").trim().toLowerCase();
+    if (!key || !wanted.has(key)) continue;
+    const content = String(attrs.content || "").trim();
+    if (content) return content;
+  }
+  return "";
+}
+
+function extractLinkHref(html, relName) {
+  const wanted = String(relName || "").trim().toLowerCase();
+  if (!wanted) return "";
+  const linkRe = /<link\b[^>]*>/gi;
+  let match;
+  while ((match = linkRe.exec(String(html || "")))) {
+    const attrs = parseHtmlAttributes(match[0]);
+    const rel = String(attrs.rel || "").trim().toLowerCase();
+    if (!rel) continue;
+    const relTokens = rel.split(/\s+/).filter(Boolean);
+    if (!relTokens.includes(wanted)) continue;
+    const href = String(attrs.href || "").trim();
+    if (href) return href;
+  }
+  return "";
+}
+
+function extractTitleTag(html) {
+  const match = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match ? decodeHtmlEntities(match[1]).replace(/\s+/g, " ").trim() : "";
+}
+
+function normalizeAbsoluteUrl(baseUrl, candidate) {
+  const normalized = normalizeHttpUrl(candidate);
+  if (normalized) return normalized;
+  const raw = String(candidate || "").trim();
+  if (!raw) return "";
+  try {
+    return new URL(raw, baseUrl).toString();
+  } catch (_) {
+    return "";
+  }
+}
+
+function collectJsonLdNodes(input, out = []) {
+  if (Array.isArray(input)) {
+    input.forEach((item) => collectJsonLdNodes(item, out));
+    return out;
+  }
+  if (!input || typeof input !== "object") return out;
+  out.push(input);
+  if (Array.isArray(input["@graph"])) {
+    input["@graph"].forEach((item) => collectJsonLdNodes(item, out));
+  }
+  return out;
+}
+
+function extractJsonLdNodes(html) {
+  const out = [];
+  const re = /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  while ((match = re.exec(String(html || "")))) {
+    const raw = decodeHtmlEntities(String(match[1] || "").trim());
+    if (!raw) continue;
+    const parsed = safeParseJson(raw, null);
+    if (!parsed) continue;
+    collectJsonLdNodes(parsed, out);
+  }
+  return out;
+}
+
+function getJsonLdTypes(node) {
+  const raw = node && node["@type"];
+  const items = Array.isArray(raw) ? raw : [raw];
+  return items.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
+}
+
+function isJsonLdEventNode(node) {
+  return getJsonLdTypes(node).some((type) => type === "event" || type.endsWith("event"));
+}
+
+function findPrimaryJsonLdEvent(nodes = []) {
+  const direct = nodes.find((node) => isJsonLdEventNode(node));
+  if (direct) return direct;
+  return null;
+}
+
+function normalizeJsonLdName(input) {
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const value = normalizeJsonLdName(item);
+      if (value) return value;
+    }
+    return "";
+  }
+  if (!input) return "";
+  if (typeof input === "string") return String(input).trim();
+  if (typeof input === "object") {
+    return String(input.name || input.legalName || input.alternateName || "").trim();
+  }
+  return "";
+}
+
+function normalizeJsonLdImage(input, baseUrl) {
+  const list = Array.isArray(input) ? input : [input];
+  for (const item of list) {
+    if (!item) continue;
+    if (typeof item === "string") {
+      const absolute = normalizeAbsoluteUrl(baseUrl, item);
+      if (absolute) return absolute;
+      continue;
+    }
+    if (typeof item === "object") {
+      const candidate = String(item.url || item.contentUrl || item.thumbnailUrl || "").trim();
+      const absolute = normalizeAbsoluteUrl(baseUrl, candidate);
+      if (absolute) return absolute;
+    }
+  }
+  return "";
+}
+
+function formatJsonLdAddress(input) {
+  if (!input) return "";
+  if (typeof input === "string") return String(input).trim();
+  const street = String(input.streetAddress || input.addressLocality || "").trim();
+  const city = String(input.addressLocality || input.city || "").trim();
+  const state = String(input.addressRegion || input.state || "").trim();
+  const zip = String(input.postalCode || input.zip || "").trim();
+  const country = String(input.addressCountry || "").trim();
+  const parts = [];
+  if (street) parts.push(street);
+  const cityStateZip = [city, state].filter(Boolean).join(", ");
+  const cityLine = [cityStateZip, zip].filter(Boolean).join(" ").trim();
+  if (cityLine) parts.push(cityLine);
+  if (country && country.toLowerCase() !== "us" && country.toLowerCase() !== "usa") parts.push(country);
+  return parts.join(", ");
+}
+
+function normalizeJsonLdLocation(input) {
+  const list = Array.isArray(input) ? input : [input];
+  for (const item of list) {
+    if (!item) continue;
+    if (typeof item === "string") {
+      const direct = String(item).trim();
+      if (direct) return direct;
+      continue;
+    }
+    if (typeof item === "object") {
+      const name = String(item.name || item.venue_name || item.location_name || "").trim();
+      const address = formatJsonLdAddress(item.address || item);
+      const combined = [name, address].filter(Boolean).join(", ");
+      if (combined) return combined;
+    }
+  }
+  return "";
+}
+
+function normalizeQuickAddKeywordList(input) {
+  const rawItems = Array.isArray(input) ? input : [input];
+  const out = [];
+  rawItems.forEach((item) => {
+    String(item || "")
+      .split(/[|,]/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .forEach((value) => out.push(value));
+  });
+  return out;
+}
+
+function normalizeQuickAddDateTime(value, { fallbackTime = null } = {}) {
+  const raw = decodeHtmlEntities(String(value || ""))
+    .replace(/\u2013|\u2014/g, "-")
+    .replace(/\bat\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!raw) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const dateOnly = DateTime.fromISO(raw, { zone: DEFAULT_TZ });
+    if (dateOnly.isValid) {
+      const withTime = dateOnly.set({
+        hour: fallbackTime && Number.isFinite(fallbackTime.hour) ? fallbackTime.hour : 9,
+        minute: fallbackTime && Number.isFinite(fallbackTime.minute) ? fallbackTime.minute : 0,
+        second: 0,
+        millisecond: 0,
+      });
+      return withTime.toISO({ suppressMilliseconds: true, includeOffset: true });
+    }
+  }
+
+  const attempts = [
+    () => DateTime.fromISO(raw, { setZone: true }),
+    () => DateTime.fromRFC2822(raw, { setZone: true }),
+    () => DateTime.fromHTTP(raw, { setZone: true }),
+    () => DateTime.fromFormat(raw, "LLLL d, yyyy h:mm a", { zone: DEFAULT_TZ }),
+    () => DateTime.fromFormat(raw, "LLLL d yyyy h:mm a", { zone: DEFAULT_TZ }),
+    () => DateTime.fromFormat(raw, "LLL d, yyyy h:mm a", { zone: DEFAULT_TZ }),
+    () => DateTime.fromFormat(raw, "LLL d yyyy h:mm a", { zone: DEFAULT_TZ }),
+    () => DateTime.fromFormat(raw, "cccc, LLLL d, yyyy h:mm a", { zone: DEFAULT_TZ }),
+    () => DateTime.fromFormat(raw, "cccc, LLL d, yyyy h:mm a", { zone: DEFAULT_TZ }),
+    () => DateTime.fromFormat(raw, "yyyy-MM-dd HH:mm", { zone: DEFAULT_TZ }),
+    () => DateTime.fromFormat(raw, "yyyy-MM-dd h:mm a", { zone: DEFAULT_TZ }),
+  ];
+
+  for (const build of attempts) {
+    const dt = build();
+    if (dt && dt.isValid) {
+      const zoned = dt.setZone(DEFAULT_TZ);
+      return zoned.toISO({ suppressMilliseconds: true, includeOffset: true });
+    }
+  }
+
+  const native = new Date(raw);
+  if (!Number.isNaN(native.getTime())) {
+    return DateTime.fromJSDate(native).setZone(DEFAULT_TZ).toISO({ suppressMilliseconds: true, includeOffset: true });
+  }
+
+  return "";
+}
+
+function normalizeTimeTextTo24Hour(value) {
+  const match = String(value || "").trim().match(/^(\d{1,2})(?::(\d{2}))?\s*([AP]M)$/i);
+  if (!match) return "";
+  const hourBase = Number(match[1] || 0) % 12;
+  const minute = Number(match[2] || 0);
+  const hour = String(match[3] || "").toUpperCase() === "PM" ? hourBase + 12 : hourBase;
+  return `${pad2(hour)}:${pad2(minute)}`;
+}
+
+function buildIsoFromDateAndTime(dateIso, timeText) {
+  const datePart = String(dateIso || "").trim().slice(0, 10);
+  const hhmm = normalizeTimeTextTo24Hour(timeText);
+  if (!datePart || !hhmm) return "";
+  return toLocalISOWithOffset(`${datePart}T${hhmm}`) || "";
+}
+
+function parseQuickAddDateRangeFromText(input) {
+  const text = decodeHtmlEntities(String(input || ""))
+    .replace(/\u00a0/g, " ")
+    .replace(/\u2013|\u2014/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return { startDateTime: "", endDateTime: "" };
+
+  const longPattern = /((?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+)?((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?(?:\s+at\s+\d{1,2}(?::\d{2})?\s*[ap]m(?:\s+[a-z]{2,4})?)?)(?:\s*-\s*(\d{1,2}(?::\d{2})?\s*[ap]m(?:\s+[a-z]{2,4})?|(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?(?:\s+at\s+\d{1,2}(?::\d{2})?\s*[ap]m(?:\s+[a-z]{2,4})?)?))?/i;
+  const match = text.match(longPattern);
+  if (!match) return { startDateTime: "", endDateTime: "" };
+
+  const startText = [match[1] || "", match[2] || ""].join("").trim();
+  const startDateTime = normalizeQuickAddDateTime(startText);
+  let endDateTime = "";
+  const endRaw = String(match[3] || "").trim();
+  if (endRaw) {
+    endDateTime = /(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)/i.test(endRaw)
+      ? normalizeQuickAddDateTime(endRaw)
+      : buildIsoFromDateAndTime(startDateTime, endRaw);
+  }
+  if (!endDateTime && startDateTime) endDateTime = addHoursIso(startDateTime, 2) || "";
+  return { startDateTime, endDateTime };
+}
+
+function buildQuickAddEventDataFromHtml(html, sourceUrl) {
+  const pageUrl = normalizeAbsoluteUrl(sourceUrl, extractLinkHref(html, "canonical")) || sourceUrl;
+  const jsonLdNodes = extractJsonLdNodes(html);
+  const eventNode = findPrimaryJsonLdEvent(jsonLdNodes);
+  const warnings = [];
+
+  const metaKeywords = extractMetaContent(html, ["keywords"]);
+  const keywordCandidates = normalizeQuickAddKeywordList([
+    metaKeywords,
+    eventNode?.keywords,
+    eventNode?.about,
+  ]);
+  const mappedCategories = normalizeCategories(mapCategoriesFromJson(keywordCandidates));
+
+  const title = String(
+    eventNode?.name ||
+    extractMetaContent(html, ["og:title", "twitter:title"]) ||
+    extractTitleTag(html)
+  ).replace(/\s+/g, " ").trim();
+
+  const description = stripHtmlTags(
+    eventNode?.description ||
+    extractMetaContent(html, ["og:description", "twitter:description", "description"])
+  );
+
+  const imageUrl = normalizeJsonLdImage(
+    eventNode?.image ||
+    eventNode?.photo ||
+    extractMetaContent(html, ["og:image", "twitter:image"]),
+    pageUrl
+  );
+
+  let location = normalizeJsonLdLocation(eventNode?.location);
+  if (!location) {
+    const fallbackText = stripHtmlTags(extractMetaContent(html, ["place:location:address"]));
+    if (fallbackText) location = fallbackText;
+  }
+
+  const organizer = normalizeJsonLdName(
+    eventNode?.organizer ||
+    eventNode?.performer ||
+    eventNode?.author
+  );
+
+  let startDateTime = normalizeQuickAddDateTime(eventNode?.startDate);
+  let endDateTime = normalizeQuickAddDateTime(eventNode?.endDate);
+  if (!startDateTime || !endDateTime) {
+    const fallbackRange = parseQuickAddDateRangeFromText([
+      extractMetaContent(html, ["og:description", "twitter:description", "description"]),
+      title,
+      stripHtmlTags(html).slice(0, 1200),
+    ].filter(Boolean).join(" "));
+    if (!startDateTime) startDateTime = fallbackRange.startDateTime;
+    if (!endDateTime) endDateTime = fallbackRange.endDateTime;
+  }
+
+  if (!endDateTime && startDateTime) endDateTime = addHoursIso(startDateTime, 2) || "";
+  if (!startDateTime) warnings.push("Review the date and time. They could not be read from that page.");
+  if (!location) warnings.push("Review the location. It could not be read from that page.");
+
+  const startParts = parseIsoParts(startDateTime);
+  const endParts = parseIsoParts(endDateTime);
+  const eventTypeChoice = startParts && endParts && toYmd(startParts) !== toYmd(endParts) ? "multi-day" : "single";
+
+  return {
+    sourceUrl: pageUrl,
+    eventLink: pageUrl,
+    ticketUrl: "",
+    ticketLabel: "",
+    title,
+    description,
+    eventDetails: "",
+    goodToKnow: "",
+    startDateTime,
+    endDateTime,
+    location,
+    organizer,
+    imageUrl,
+    categories: mappedCategories.slice(0, 3),
+    eventTypeChoice,
+    hasRecurrence: 0,
+    recurrenceType: "none",
+    warnings,
+  };
+}
+
+async function fetchQuickAddEventData(sourceUrl) {
+  const response = await fetch(sourceUrl, {
+    redirect: "follow",
+    headers: {
+      "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "user-agent": "OpenCircle Quick Add/1.0 (+https://api.opencircleapi.com)",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) {
+    throw new Error(`Source page returned ${response.status}`);
+  }
+  const html = await response.text();
+  return buildQuickAddEventDataFromHtml(html, response.url || sourceUrl);
+}
+
 function normalizeMultiDaySchedule(input) {
   const items = safeParseJson(input, []);
   if (!Array.isArray(items)) return [];
@@ -10882,6 +11302,28 @@ return `
       }
       .multi-day-shell{ display:none; }
       .multi-day-shell.is-visible{ display:block; }
+      .quick-add-box{
+        margin-top:14px;
+        border:1px solid rgba(37,99,235,.18);
+        background:linear-gradient(180deg, rgba(37,99,235,.05), rgba(37,99,235,.02));
+      }
+      .quick-add-grid{
+        display:grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap:12px;
+        align-items:end;
+      }
+      @media (max-width: 900px){
+        .quick-add-grid{ grid-template-columns: 1fr; }
+      }
+      .quick-add-status{
+        margin-top:10px;
+        font-size:13px;
+        line-height:1.5;
+        color:var(--muted);
+      }
+      .quick-add-status[data-tone="error"]{ color:#b91c1c; }
+      .quick-add-status[data-tone="success"]{ color:#166534; }
       .multi-day-list{
         display:grid;
         gap:12px;
@@ -13431,9 +13873,28 @@ return `
                 </select>
               </div>
               <input type="hidden" name="eventTypeChoice" id="eventTypeChoice" value="${esc(inferredEventType || "single")}" />
+              <input type="hidden" name="eventLink" id="eventLink" value="${esc(editEvent?.eventLink || "")}" />
 
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
               <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
+
+              <div class="rec-box quick-add-box">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
+                  <div>
+                    <div style="font-size:18px; font-weight:800; letter-spacing:-0.01em; color:var(--text);">Quick Add from Event Link</div>
+                    <div class="note" style="margin:6px 0 0 0;">Paste the public event URL and the API will try to fill the form for you.</div>
+                  </div>
+                  <span class="pill">Best for Facebook, Eventbrite, and public event pages</span>
+                </div>
+                <div class="quick-add-grid">
+                  <div>
+                    <label for="quickAddUrl" style="margin-top:0;">Event URL</label>
+                    <input id="quickAddUrl" class="ctrl" type="url" placeholder="https://..." />
+                  </div>
+                  <button id="quickAddFetch" type="button" class="btn btn-primary" style="min-width:170px;">Fill from link</button>
+                </div>
+                <div id="quickAddStatus" class="quick-add-status">Nothing is saved yet. This only fills the form below so you can review it before saving.</div>
+              </div>
 
               <div class="event-type-shell is-visible" id="eventTypeShell">
 
@@ -15298,10 +15759,10 @@ return `
         var picker = document.getElementById("eventTypePicker");
         var shell = document.getElementById("eventTypeShell");
         var hidden = document.getElementById("eventTypeChoice");
-        if (!picker || !shell || !hidden) return;
+        if (!shell || !hidden) return;
 
-        var buttons = Array.prototype.slice.call(picker.querySelectorAll("[data-event-type]"));
-        if (!buttons.length) return;
+        var buttons = picker ? Array.prototype.slice.call(picker.querySelectorAll("[data-event-type]")) : [];
+        var hasPicker = !!picker && !!buttons.length;
 
         var hasRecEl = document.getElementById("hasRecurrence");
         var typeEl = document.getElementById("recurrenceType");
@@ -15314,14 +15775,16 @@ return `
           el.dispatchEvent(new Event("change", { bubbles: true }));
         }
 
-        function setSelection(nextType){
+        function setSelection(nextType, options){
           var selected = String(nextType || "").trim().toLowerCase();
+          if (!selected) selected = "single";
+          var applyUi = hasPicker || !!(options && options.forceUI);
           hidden.value = selected;
           emitChange(hidden);
-          shell.classList.toggle("is-visible", !!selected);
-          shell.hidden = !selected;
-          shell.style.display = selected ? "block" : "none";
-          if (recurrenceSettings) recurrenceSettings.style.display = selected === "recurring" ? "" : "none";
+          shell.classList.toggle("is-visible", applyUi ? !!selected : true);
+          shell.hidden = applyUi ? !selected : false;
+          shell.style.display = applyUi ? (selected ? "block" : "none") : "block";
+          if (recurrenceSettings && applyUi) recurrenceSettings.style.display = selected === "recurring" ? "" : "none";
           if (multiDayShell) {
             multiDayShell.classList.toggle("is-visible", selected === "multi-day");
             multiDayShell.hidden = selected !== "multi-day";
@@ -15350,10 +15813,11 @@ return `
           }
           emitChange(typeEl);
         }
+        window.ocSetEventTypeSelection = setSelection;
 
         buttons.forEach(function(btn){
           btn.addEventListener("click", function(){
-            setSelection(btn.getAttribute("data-event-type") || "");
+            setSelection(btn.getAttribute("data-event-type") || "", { forceUI: true });
           });
         });
 
@@ -15365,7 +15829,152 @@ return `
           });
         }
 
-        setSelection(hidden.value || "");
+        if (hasPicker) setSelection(hidden.value || "", { forceUI: true });
+        else hidden.value = String(hidden.value || "single").trim().toLowerCase() || "single";
+      })();
+
+      // Quick add from URL -> prefill create event form
+      (function(){
+        var input = document.getElementById("quickAddUrl");
+        var btn = document.getElementById("quickAddFetch");
+        var status = document.getElementById("quickAddStatus");
+        var form = document.querySelector('form[action="/admin/events"]');
+        if (!input || !btn || !status || !form) return;
+
+        function setStatus(message, tone){
+          status.textContent = String(message || "");
+          if (tone) status.setAttribute("data-tone", tone);
+          else status.removeAttribute("data-tone");
+        }
+
+        function setValue(selector, value, options){
+          var el = typeof selector === "string" ? document.querySelector(selector) : selector;
+          if (!el || el.readOnly) return;
+          var next = value == null ? "" : String(value);
+          if (options && options.skipFilled && String(el.value || "").trim()) return;
+          el.value = next;
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+
+        function setDateTimeLocalValue(id, isoValue){
+          var el = document.getElementById(id);
+          if (!el) return;
+          if (!isoValue) {
+            setValue(el, "");
+            return;
+          }
+          var iso = String(isoValue || "").trim();
+          var local = iso.length >= 16 ? iso.slice(0, 16) : "";
+          if (local) setValue(el, local);
+        }
+
+        function clearCustomDateRows(){
+          var wrap = document.getElementById("customDatesWrap");
+          if (!wrap) return;
+          wrap.innerHTML = "";
+        }
+
+        function renderCustomDateRows(items){
+          var wrap = document.getElementById("customDatesWrap");
+          if (!wrap) return;
+          clearCustomDateRows();
+          (Array.isArray(items) ? items : []).forEach(function(item){
+            var date = String(item && item.date || "").trim();
+            var start = String(item && item.start || "").trim();
+            var end = String(item && item.end || "").trim();
+            var chip = document.createElement("span");
+            chip.className = "chip";
+            chip.innerHTML =
+              '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="' + (date || "") + '" />' +
+              '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="' + (start ? start.slice(11,16) : "") + '" />' +
+              '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="' + (end ? end.slice(11,16) : "") + '" />' +
+              '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
+            var removeBtn = chip.querySelector('[data-remove-date]');
+            if (removeBtn) {
+              removeBtn.onclick = function(){
+                chip.remove();
+              };
+            }
+            wrap.appendChild(chip);
+          });
+        }
+
+        function applyCategories(values){
+          var selects = form.querySelectorAll('select[name="categories"]');
+          var items = Array.isArray(values) ? values : [];
+          for (var i = 0; i < selects.length; i++) {
+            setValue(selects[i], items[i] || "");
+          }
+        }
+
+        btn.addEventListener("click", async function(){
+          var rawUrl = String(input.value || "").trim();
+          if (!rawUrl) {
+            setStatus("Paste an event URL first.", "error");
+            return;
+          }
+
+          btn.disabled = true;
+          setStatus("Reading the event page and filling the form...", "");
+
+          try {
+            var res = await fetch("/admin/events/quick-add", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "accept": "application/json",
+              },
+              body: JSON.stringify({ url: rawUrl }),
+            });
+            var json = await res.json().catch(function(){ return {}; });
+            if (!res.ok) {
+              throw new Error(String((json && json.error) || "Could not fill from that link."));
+            }
+
+            var data = json && json.data ? json.data : {};
+            if (window.ocSetEventTypeSelection) {
+              window.ocSetEventTypeSelection(data.eventTypeChoice || "single", { forceUI: true });
+            } else {
+              setValue("#eventTypeChoice", data.eventTypeChoice || "single");
+            }
+
+            setValue('input[name="title"]', data.title || "");
+            setValue('textarea[name="description"]', data.description || "");
+            setValue('textarea[name="eventDetails"]', data.eventDetails || "");
+            setValue('textarea[name="goodToKnow"]', data.goodToKnow || "");
+            setValue('#eventLink', data.eventLink || data.sourceUrl || rawUrl);
+            setValue('input[name="imageUrl"]', data.imageUrl || "");
+            setValue('input[name="ticketUrl"]', data.ticketUrl || "");
+            if (data.ticketLabel) setValue('input[name="ticketLabel"]', data.ticketLabel);
+            setValue('input[name="location"]', data.location || "");
+            var organizerField = document.querySelector('input[name="organizer"]');
+            if (organizerField && !organizerField.readOnly) {
+              setValue(organizerField, data.organizer || "");
+            }
+            setDateTimeLocalValue("startDateTime", data.startDateTime || "");
+            setDateTimeLocalValue("endDateTime", data.endDateTime || "");
+            applyCategories(data.categories || []);
+
+            var hasRecEl = document.getElementById("hasRecurrence");
+            var recurrenceTypeEl = document.getElementById("recurrenceType");
+            if (hasRecEl) hasRecEl.checked = String(data.hasRecurrence || "0") === "1" || Number(data.hasRecurrence || 0) === 1;
+            if (recurrenceTypeEl) recurrenceTypeEl.value = data.recurrenceType || "none";
+            if (window.ocSyncRecurrenceUI) window.ocSyncRecurrenceUI();
+            if (data.recurrenceType === "custom" && Array.isArray(data.recurrenceDates)) {
+              renderCustomDateRows(data.recurrenceDates);
+            }
+
+            var messages = [];
+            if (Array.isArray(json.warnings) && json.warnings.length) messages = json.warnings.slice();
+            messages.unshift("Form filled from link. Review it, then save.");
+            setStatus(messages.join(" "), json.warnings && json.warnings.length ? "success" : "success");
+          } catch (err) {
+            setStatus(String(err && err.message || "Could not fill from that link."), "error");
+          } finally {
+            btn.disabled = false;
+          }
+        });
       })();
 
       // Multi-day per-day schedule editor
@@ -18805,6 +19414,40 @@ router.post("/ads/:id/delete", async (req, res) => {
   }
 });
 
+router.post("/events/quick-add", express.json({ limit: "256kb" }), async (req, res) => {
+  try {
+    const role = normalizeRoleValue(req.user?.role || "organizer");
+    const sessionUser = await resolveSessionUser(req);
+    const sectionPermissions = getUserSectionPermissions(sessionUser || { role });
+    if (!(hasDeveloperAccessRole(role) || sectionPermissions.events)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const sourceUrl = normalizeHttpUrl(req.body?.url || "");
+    if (!sourceUrl) {
+      return res.status(400).json({ error: "Enter a valid event URL." });
+    }
+
+    const parsed = await fetchQuickAddEventData(sourceUrl);
+    if (!parsed.title && !parsed.description && !parsed.startDateTime && !parsed.location) {
+      return res.status(422).json({
+        error: "That page did not expose enough event info to prefill the form.",
+      });
+    }
+
+    return res.json({
+      ok: true,
+      data: parsed,
+      warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+    });
+  } catch (err) {
+    console.error("[quick add]", err);
+    return res.status(500).json({
+      error: "Could not read that event page right now. Please try another link or fill the form manually.",
+    });
+  }
+});
+
 router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
     const role = normalizeRoleValue(req.user?.role || "organizer");
@@ -18832,6 +19475,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       location,
       organizer,
       imageUrl,
+      eventLink,
       ticketUrl,
       ticketLabel,
       categories,
@@ -19203,6 +19847,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["location", location],
       ["organizer", organizer],
       ["imageUrl", imageUrl || null],
+      ["eventLink", normalizeHttpUrl(eventLink) || null],
       ["ticketUrl", ticketUrl || null],
       ["ticketLabel", finalTicketLabel],
       ["categories", catsJson],

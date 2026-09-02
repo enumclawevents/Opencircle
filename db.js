@@ -402,6 +402,7 @@ async function initDB() {
   await addCol("expireDate", `ALTER TABLE events ADD COLUMN expireDate TEXT;`);
   await addCol("host", `ALTER TABLE events ADD COLUMN host TEXT;`);
   await addCol("imageUrl", `ALTER TABLE events ADD COLUMN imageUrl TEXT;`);
+  await addCol("eventLink", `ALTER TABLE events ADD COLUMN eventLink TEXT;`);
   await addCol("featured", `ALTER TABLE events ADD COLUMN featured INTEGER NOT NULL DEFAULT 0;`);
   await addCol("submissionId", `ALTER TABLE events ADD COLUMN submissionId TEXT;`);
   await addCol("featuredUntil", `ALTER TABLE events ADD COLUMN featuredUntil TEXT;`);
