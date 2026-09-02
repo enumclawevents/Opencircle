@@ -13972,6 +13972,196 @@ return `
                   <button id="quickAddFetch" type="button" class="btn btn-primary" style="min-width:170px;" onclick="return window.ocRunQuickAddFromButton ? window.ocRunQuickAddFromButton(event) : false;">Fill from link</button>
                 </div>
                 <div id="quickAddStatus" class="quick-add-status">Nothing is saved yet. This only fills the form below so you can review it before saving.</div>
+                <script>
+                  (function(){
+                    function bindQuickAddUi(){
+                      var input = document.getElementById("quickAddUrl");
+                      var btn = document.getElementById("quickAddFetch");
+                      var status = document.getElementById("quickAddStatus");
+                      if (!input || !btn || !status) return false;
+                      if (btn.dataset.quickAddBound === "1") return true;
+                      btn.dataset.quickAddBound = "1";
+
+                      var form =
+                        (btn && typeof btn.closest === "function" ? btn.closest("form") : null) ||
+                        (input && input.form) ||
+                        document.querySelector('form[action="/admin/events"]') ||
+                        document.querySelector('form[action*="/admin/events"]');
+
+                      function setStatus(message, tone){
+                        status.textContent = String(message || "");
+                        if (tone) status.setAttribute("data-tone", tone);
+                        else status.removeAttribute("data-tone");
+                      }
+
+                      function setValue(selector, value){
+                        var el = typeof selector === "string" ? document.querySelector(selector) : selector;
+                        if (!el || el.readOnly) return;
+                        el.value = value == null ? "" : String(value);
+                        el.dispatchEvent(new Event("input", { bubbles: true }));
+                        el.dispatchEvent(new Event("change", { bubbles: true }));
+                      }
+
+                      function setDateTimeLocalValue(id, isoValue){
+                        var el = document.getElementById(id);
+                        if (!el) return;
+                        var iso = String(isoValue || "").trim();
+                        setValue(el, iso.length >= 16 ? iso.slice(0, 16) : "");
+                      }
+
+                      function clearCustomDateRows(){
+                        var wrap = document.getElementById("customDatesWrap");
+                        if (!wrap) return;
+                        wrap.innerHTML = "";
+                      }
+
+                      function renderCustomDateRows(items){
+                        var wrap = document.getElementById("customDatesWrap");
+                        if (!wrap) return;
+                        clearCustomDateRows();
+                        (Array.isArray(items) ? items : []).forEach(function(item){
+                          var date = String(item && item.date || "").trim();
+                          var start = String(item && item.start || "").trim();
+                          var end = String(item && item.end || "").trim();
+                          var chip = document.createElement("span");
+                          chip.className = "chip";
+                          chip.innerHTML =
+                            '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="' + (date || "") + '" />' +
+                            '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="' + (start ? start.slice(11,16) : "") + '" />' +
+                            '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="' + (end ? end.slice(11,16) : "") + '" />' +
+                            '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
+                          var removeBtn = chip.querySelector('[data-remove-date]');
+                          if (removeBtn) removeBtn.onclick = function(){ chip.remove(); };
+                          wrap.appendChild(chip);
+                        });
+                      }
+
+                      function applyCategories(values){
+                        var root = form || document;
+                        var selects = root.querySelectorAll('select[name="categories"]');
+                        var items = Array.isArray(values) ? values : [];
+                        for (var i = 0; i < selects.length; i++) {
+                          setValue(selects[i], items[i] || "");
+                        }
+                      }
+
+                      var quickAddBusy = false;
+                      var lastQuickAddUrl = "";
+
+                      async function runQuickAdd(rawUrl, options){
+                        var opts = options || {};
+                        var cleanedUrl = String(rawUrl || "").trim();
+                        if (!cleanedUrl) {
+                          if (opts.showEmptyError) setStatus("Paste an event URL first.", "error");
+                          return;
+                        }
+                        if (quickAddBusy && cleanedUrl === lastQuickAddUrl) return;
+
+                        quickAddBusy = true;
+                        lastQuickAddUrl = cleanedUrl;
+                        btn.disabled = true;
+                        setStatus("Reading the event page and filling the form...", "");
+
+                        try {
+                          var res = await fetch("/admin/events/quick-add", {
+                            method: "POST",
+                            credentials: "same-origin",
+                            headers: {
+                              "content-type": "application/json",
+                              "accept": "application/json",
+                            },
+                            body: JSON.stringify({ url: cleanedUrl }),
+                          });
+                          var json = await res.json().catch(function(){ return {}; });
+                          if (!res.ok) {
+                            throw new Error(String((json && json.error) || "Could not fill from that link."));
+                          }
+
+                          var data = json && json.data ? json.data : {};
+                          if (window.ocSetEventTypeSelection) {
+                            window.ocSetEventTypeSelection(data.eventTypeChoice || "single", { forceUI: true });
+                          } else {
+                            setValue("#eventTypeChoice", data.eventTypeChoice || "single");
+                          }
+
+                          setValue('input[name="title"]', data.title || "");
+                          setValue('textarea[name="description"]', data.description || "");
+                          setValue('textarea[name="eventDetails"]', data.eventDetails || "");
+                          setValue('textarea[name="goodToKnow"]', data.goodToKnow || "");
+                          setValue('#eventLink', data.eventLink || data.sourceUrl || cleanedUrl);
+                          setValue('input[name="imageUrl"]', data.imageUrl || "");
+                          setValue('input[name="ticketUrl"]', data.ticketUrl || "");
+                          if (data.ticketLabel) setValue('input[name="ticketLabel"]', data.ticketLabel);
+                          setValue('input[name="location"]', data.location || "");
+                          var organizerField = document.querySelector('input[name="organizer"]');
+                          if (organizerField && !organizerField.readOnly) {
+                            setValue(organizerField, data.organizer || "");
+                          }
+                          setDateTimeLocalValue("startDateTime", data.startDateTime || "");
+                          setDateTimeLocalValue("endDateTime", data.endDateTime || "");
+                          applyCategories(data.categories || []);
+
+                          var hasRecEl = document.getElementById("hasRecurrence");
+                          var recurrenceTypeEl = document.getElementById("recurrenceType");
+                          if (hasRecEl) hasRecEl.checked = String(data.hasRecurrence || "0") === "1" || Number(data.hasRecurrence || 0) === 1;
+                          if (recurrenceTypeEl) recurrenceTypeEl.value = data.recurrenceType || "none";
+                          if (window.ocSyncRecurrenceUI) window.ocSyncRecurrenceUI();
+                          if (data.recurrenceType === "custom" && Array.isArray(data.recurrenceDates)) {
+                            renderCustomDateRows(data.recurrenceDates);
+                          }
+
+                          var messages = [];
+                          if (Array.isArray(json.warnings) && json.warnings.length) messages = json.warnings.slice();
+                          messages.unshift("Form filled from link. Review it, then save.");
+                          setStatus(messages.join(" "), "success");
+                        } catch (err) {
+                          setStatus(String(err && err.message || "Could not fill from that link."), "error");
+                        } finally {
+                          quickAddBusy = false;
+                          btn.disabled = false;
+                        }
+                      }
+
+                      window.ocRunQuickAddFromButton = function(event){
+                        if (event && typeof event.preventDefault === "function") event.preventDefault();
+                        runQuickAdd(input.value, { showEmptyError: true });
+                        return false;
+                      };
+
+                      window.ocRunQuickAddMaybe = function(){
+                        runQuickAdd(input.value, { showEmptyError: false });
+                        return false;
+                      };
+
+                      btn.addEventListener("click", function(event){
+                        window.ocRunQuickAddFromButton(event);
+                      });
+                      input.addEventListener("keydown", function(event){
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        window.ocRunQuickAddFromButton(event);
+                      });
+                      input.addEventListener("change", function(){
+                        window.ocRunQuickAddMaybe();
+                      });
+                      input.addEventListener("paste", function(){
+                        setTimeout(function(){
+                          window.ocRunQuickAddMaybe();
+                        }, 0);
+                      });
+                      return true;
+                    }
+
+                    window.ocBindQuickAddUi = bindQuickAddUi;
+                    if (!bindQuickAddUi()) {
+                      if (document.readyState === "loading") {
+                        document.addEventListener("DOMContentLoaded", bindQuickAddUi, { once: true });
+                      }
+                      setTimeout(bindQuickAddUi, 0);
+                      setTimeout(bindQuickAddUi, 250);
+                    }
+                  })();
+                </script>
               </div>
 
               <div class="event-type-shell is-visible" id="eventTypeShell">
@@ -15913,6 +16103,10 @@ return `
 
       // Quick add from URL -> prefill create event form
       (function(){
+        if (window.ocBindQuickAddUi) {
+          window.ocBindQuickAddUi();
+          return;
+        }
         var input = document.getElementById("quickAddUrl");
         var btn = document.getElementById("quickAddFetch");
         var status = document.getElementById("quickAddStatus");
