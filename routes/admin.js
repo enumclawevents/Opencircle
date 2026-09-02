@@ -13882,7 +13882,7 @@ return `
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
                   <div>
                     <div style="font-size:18px; font-weight:800; letter-spacing:-0.01em; color:var(--text);">Quick Add from Event Link</div>
-                    <div class="note" style="margin:6px 0 0 0;">Paste the public event URL and the API will try to fill the form for you.</div>
+                    <div class="note" style="margin:6px 0 0 0;">Paste the public event URL and the API will try to fill the form for you automatically. You can also click the button.</div>
                   </div>
                   <span class="pill">Best for Facebook, Eventbrite, and public event pages</span>
                 </div>
@@ -15908,13 +15908,20 @@ return `
           }
         }
 
-        btn.addEventListener("click", async function(){
-          var rawUrl = String(input.value || "").trim();
-          if (!rawUrl) {
-            setStatus("Paste an event URL first.", "error");
+        var quickAddBusy = false;
+        var lastQuickAddUrl = "";
+
+        async function runQuickAdd(rawUrl, options){
+          var opts = options || {};
+          var cleanedUrl = String(rawUrl || "").trim();
+          if (!cleanedUrl) {
+            if (opts.showEmptyError) setStatus("Paste an event URL first.", "error");
             return;
           }
+          if (quickAddBusy && cleanedUrl === lastQuickAddUrl) return;
 
+          quickAddBusy = true;
+          lastQuickAddUrl = cleanedUrl;
           btn.disabled = true;
           setStatus("Reading the event page and filling the form...", "");
 
@@ -15925,7 +15932,7 @@ return `
                 "content-type": "application/json",
                 "accept": "application/json",
               },
-              body: JSON.stringify({ url: rawUrl }),
+              body: JSON.stringify({ url: cleanedUrl }),
             });
             var json = await res.json().catch(function(){ return {}; });
             if (!res.ok) {
@@ -15943,7 +15950,7 @@ return `
             setValue('textarea[name="description"]', data.description || "");
             setValue('textarea[name="eventDetails"]', data.eventDetails || "");
             setValue('textarea[name="goodToKnow"]', data.goodToKnow || "");
-            setValue('#eventLink', data.eventLink || data.sourceUrl || rawUrl);
+            setValue('#eventLink', data.eventLink || data.sourceUrl || cleanedUrl);
             setValue('input[name="imageUrl"]', data.imageUrl || "");
             setValue('input[name="ticketUrl"]', data.ticketUrl || "");
             if (data.ticketLabel) setValue('input[name="ticketLabel"]', data.ticketLabel);
@@ -15972,8 +15979,29 @@ return `
           } catch (err) {
             setStatus(String(err && err.message || "Could not fill from that link."), "error");
           } finally {
+            quickAddBusy = false;
             btn.disabled = false;
           }
+        }
+
+        btn.addEventListener("click", function(){
+          runQuickAdd(input.value, { showEmptyError: true });
+        });
+
+        input.addEventListener("keydown", function(event){
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          runQuickAdd(input.value, { showEmptyError: true });
+        });
+
+        input.addEventListener("change", function(){
+          runQuickAdd(input.value, { showEmptyError: false });
+        });
+
+        input.addEventListener("paste", function(){
+          setTimeout(function(){
+            runQuickAdd(input.value, { showEmptyError: false });
+          }, 0);
         });
       })();
 
