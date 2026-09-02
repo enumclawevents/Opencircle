@@ -313,6 +313,190 @@ function normalizeAbsoluteUrl(baseUrl, candidate) {
   }
 }
 
+function normalizeQuickAddSearchableHtml(input) {
+  return decodeHtmlEntities(String(input || ""))
+    .replace(/\\u002F/gi, "/")
+    .replace(/\\u003A/gi, ":")
+    .replace(/\\u003D/gi, "=")
+    .replace(/\\u0026/gi, "&")
+    .replace(/\\u0025/gi, "%")
+    .replace(/\\u002D/gi, "-")
+    .replace(/\\\//g, "/");
+}
+
+function decodeFacebookOutboundUrl(candidate, baseUrl = "") {
+  const absolute = normalizeAbsoluteUrl(baseUrl, candidate);
+  if (!absolute) return "";
+  try {
+    const parsed = new URL(absolute);
+    if (/^l\.facebook\.com$/i.test(parsed.hostname) && /^\/l\.php$/i.test(parsed.pathname)) {
+      const nested = normalizeAbsoluteUrl(baseUrl, parsed.searchParams.get("u") || "");
+      return nested || "";
+    }
+    return parsed.toString();
+  } catch (_) {
+    return "";
+  }
+}
+
+function quickAddTicketLabel(input = "") {
+  const raw = String(input || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!raw) return "";
+  const cleaned = raw
+    .replace(/^[\W_]+|[\W_]+$/g, "")
+    .replace(/\b(find|get|view|see)\s+tickets?\b/i, "Tickets")
+    .replace(/\b(buy|reserve|register|book)\s+(now\s+)?tickets?\b/i, "Tickets")
+    .replace(/\b(register|reserve|book)\b/i, "Tickets")
+    .replace(/\b(ticket link|ticketing)\b/i, "Tickets")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || "";
+}
+
+function isLikelyQuickAddTicketUrl(input = "") {
+  const url = String(input || "").trim().toLowerCase();
+  if (!url) return false;
+  if (/facebook\.com\/events\//i.test(url)) return false;
+  if (/static\.xx\.fbcdn\.net|google\.com|doubleclick\.net|facebook\.com\/login/i.test(url)) return false;
+  if (
+    /account\.venmo\.com\/u\/|venmo\.com\/u\/|eventbrite\.|ticketleap\.|simpletix\.|ticketspice\.|humanitix\.|ticketbud\.|showpass\.|holdmyticket\.|brushfire\.|eventcreate\.com\/tickets|checkout\.square\.site|app\.squareup\.com|square\.link|universe\.com|etix\.com|aftontickets\.com|zeffy\.com|givebutter\.com|fareharbor\.com|eventbee\.com|ticketstripe\.com|ticketfalcon\.com|ticketsocket\.com|onthestage\.tickets/i.test(url)
+  ) {
+    return true;
+  }
+  return /\/tickets?(?:[\/?#]|$)|[?&](?:ticket|tickets|register|registration|event_id)=/i.test(url);
+}
+
+function pushQuickAddTicketCandidate(out, seen, candidate, label = "", reason = "", baseUrl = "") {
+  const url = decodeFacebookOutboundUrl(candidate, baseUrl);
+  if (!url) return;
+  const key = url.toLowerCase();
+  if (seen.has(key)) return;
+  seen.add(key);
+  out.push({
+    url,
+    label: quickAddTicketLabel(label),
+    reason: String(reason || "").trim(),
+  });
+}
+
+function collectQuickAddTicketCandidatesFromJson(input, out, seen, baseUrl = "") {
+  if (Array.isArray(input)) {
+    input.forEach((item) => collectQuickAddTicketCandidatesFromJson(item, out, seen, baseUrl));
+    return;
+  }
+  if (!input || typeof input !== "object") return;
+
+  const typeTokens = getJsonLdTypes(input);
+  const name = String(input.name || input.label || input.title || "").trim();
+  const looksTicketish = typeTokens.some((type) => /(offer|ticket|buyaction|reserveaction|entrypoint)/i.test(type))
+    || /\b(ticket|register|reserve|book|buy)\b/i.test(name);
+
+  if (looksTicketish) {
+    [
+      input.url,
+      input.contentUrl,
+      input.link,
+      input.href,
+      input.urlTemplate,
+      input.target?.url,
+      input.target?.href,
+      input.target?.urlTemplate,
+    ].forEach((candidate) => pushQuickAddTicketCandidate(out, seen, candidate, name, "jsonld", baseUrl));
+  }
+
+  [
+    input.offers,
+    input.potentialAction,
+    input.action,
+    input.target,
+    input.subjectOf,
+    input.mainEntityOfPage,
+  ].forEach((value) => collectQuickAddTicketCandidatesFromJson(value, out, seen, baseUrl));
+}
+
+function extractQuickAddTicketInfo(html, baseUrl = "", eventNode = null, description = "") {
+  const candidates = [];
+  const seen = new Set();
+  const searchableHtml = normalizeQuickAddSearchableHtml(html);
+
+  collectQuickAddTicketCandidatesFromJson(eventNode, candidates, seen, baseUrl);
+
+  const anchorRe = /<a\b[^>]*href=(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))[^>]*>([\s\S]*?)<\/a>/gi;
+  let anchorMatch;
+  while ((anchorMatch = anchorRe.exec(String(html || "")))) {
+    const href = anchorMatch[1] || anchorMatch[2] || anchorMatch[3] || "";
+    const text = stripHtmlTags(anchorMatch[4] || "");
+    const ariaWindow = String(anchorMatch[0] || "");
+    const label = quickAddTicketLabel(
+      text
+      || parseHtmlAttributes(ariaWindow)["aria-label"]
+      || parseHtmlAttributes(ariaWindow).title
+    );
+    const looksTicketish = /\b(ticket|tickets|register|registration|reserve|book|buy)\b/i.test(`${text} ${ariaWindow}`);
+    if (looksTicketish || isLikelyQuickAddTicketUrl(href)) {
+      pushQuickAddTicketCandidate(candidates, seen, href, label || "Tickets", "anchor", baseUrl);
+    }
+  }
+
+  const attrRe = /<(?:a|button|div|span)\b[^>]*>/gi;
+  let attrMatch;
+  while ((attrMatch = attrRe.exec(String(html || "")))) {
+    const attrs = parseHtmlAttributes(attrMatch[0] || "");
+    const label = quickAddTicketLabel(attrs["aria-label"] || attrs.title || attrs["data-tooltip-content"] || "");
+    const isTickety = /\b(ticket|tickets|register|registration|reserve|book|buy)\b/i.test(`${attrs["aria-label"] || ""} ${attrs.title || ""} ${attrs["data-tooltip-content"] || ""}`);
+    if (!isTickety) continue;
+    [attrs.href, attrs["data-href"], attrs["data-url"], attrs["data-link"], attrs.content].forEach((candidate) => {
+      pushQuickAddTicketCandidate(candidates, seen, candidate, label || "Tickets", "attr", baseUrl);
+    });
+  }
+
+  const directUrlRe = /\bhttps?:\/\/[^\s"'<>`]+/gi;
+  const bareDomainRe = /\b(?:account\.venmo\.com\/u\/[a-z0-9._-]+|venmo\.com\/u\/[a-z0-9._-]+|(?:[\w-]+\.)+(?:eventbrite\.com|ticketleap\.com|simpletix\.com|ticketspice\.com|humanitix\.com|ticketbud\.com|showpass\.com|holdmyticket\.com|brushfire\.com|square\.link|checkout\.square\.site|app\.squareup\.com|universe\.com|etix\.com|aftontickets\.com|zeffy\.com|givebutter\.com|fareharbor\.com|eventbee\.com|ticketstripe\.com|ticketfalcon\.com|ticketsocket\.com|onthestage\.tickets)[^\s"'<>`)]*)/gi;
+  for (const match of searchableHtml.match(directUrlRe) || []) {
+    if (!isLikelyQuickAddTicketUrl(match)) continue;
+    pushQuickAddTicketCandidate(candidates, seen, match, "Tickets", "raw-url", baseUrl);
+  }
+  for (const match of searchableHtml.match(bareDomainRe) || []) {
+    pushQuickAddTicketCandidate(candidates, seen, match, "Tickets", "bare-url", baseUrl);
+  }
+
+  const textSources = [description, stripHtmlTags(searchableHtml)].filter(Boolean).join("\n");
+  const venmoHandleMatch = textSources.match(/\bvenmo\s*@([a-z0-9._-]{2,})\b/i);
+  if (venmoHandleMatch && venmoHandleMatch[1]) {
+    pushQuickAddTicketCandidate(
+      candidates,
+      seen,
+      `https://account.venmo.com/u/${venmoHandleMatch[1]}`,
+      "Tickets",
+      "venmo-handle",
+      baseUrl
+    );
+  }
+
+  const ranked = candidates
+    .map((item) => {
+      let score = 0;
+      const url = String(item.url || "").toLowerCase();
+      const label = String(item.label || "").toLowerCase();
+      if (isLikelyQuickAddTicketUrl(url)) score += 100;
+      if (/account\.venmo\.com\/u\/|venmo\.com\/u\//i.test(url)) score += 40;
+      if (/eventbrite\.|ticketleap\.|simpletix\.|ticketspice\.|humanitix\.|ticketbud\.|showpass\.|holdmyticket\.|brushfire\.|square\.link|checkout\.square\.site|app\.squareup\.com|universe\.com|etix\.com|aftontickets\.com|zeffy\.com|givebutter\.com|fareharbor\.com|eventbee\.com|ticketstripe\.com|ticketfalcon\.com|ticketsocket\.com|onthestage\.tickets/i.test(url)) score += 35;
+      if (/\b(ticket|tickets|register|registration|reserve|book|buy)\b/i.test(label)) score += 25;
+      if (item.reason === "jsonld") score += 20;
+      if (item.reason === "anchor") score += 15;
+      return { ...item, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  if (!ranked.length || Number(ranked[0].score || 0) <= 0) return { ticketUrl: "", ticketLabel: "" };
+  return {
+    ticketUrl: ranked[0].url,
+    ticketLabel: ranked[0].label || "Tickets",
+  };
+}
+
 function collectJsonLdNodes(input, out = []) {
   if (Array.isArray(input)) {
     input.forEach((item) => collectJsonLdNodes(item, out));
@@ -782,6 +966,7 @@ function buildQuickAddEventDataFromHtml(html, sourceUrl) {
     startDateTime,
     endDateTime,
   });
+  const ticketInfo = extractQuickAddTicketInfo(html, pageUrl, eventNode, description);
 
   const startParts = parseIsoParts(startDateTime);
   const endParts = parseIsoParts(endDateTime);
@@ -790,8 +975,8 @@ function buildQuickAddEventDataFromHtml(html, sourceUrl) {
   return {
     sourceUrl: pageUrl,
     eventLink: pageUrl,
-    ticketUrl: "",
-    ticketLabel: "",
+    ticketUrl: ticketInfo.ticketUrl,
+    ticketLabel: ticketInfo.ticketLabel,
     title,
     description: generatedSections.description || description,
     eventDetails: generatedSections.eventDetails,
@@ -814,7 +999,10 @@ async function fetchQuickAddEventData(sourceUrl) {
     redirect: "follow",
     headers: {
       "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "user-agent": "OpenCircle Quick Add/1.0 (+https://api.opencircleapi.com)",
+      "accept-language": "en-US,en;q=0.9",
+      "cache-control": "no-cache",
+      "pragma": "no-cache",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
     },
     signal: AbortSignal.timeout(15000),
   });
