@@ -13967,9 +13967,9 @@ return `
                 <div class="quick-add-grid">
                   <div>
                     <label for="quickAddUrl" style="margin-top:0;">Event URL</label>
-                    <input id="quickAddUrl" class="ctrl" type="url" placeholder="https://..." />
+                    <input id="quickAddUrl" class="ctrl" type="url" placeholder="https://..." onkeydown="if(event.key==='Enter'){ event.preventDefault(); return window.ocRunQuickAddFromButton ? window.ocRunQuickAddFromButton(event) : false; }" onchange="if(window.ocRunQuickAddMaybe){ window.ocRunQuickAddMaybe(); }" />
                   </div>
-                  <button id="quickAddFetch" type="button" class="btn btn-primary" style="min-width:170px;">Fill from link</button>
+                  <button id="quickAddFetch" type="button" class="btn btn-primary" style="min-width:170px;" onclick="return window.ocRunQuickAddFromButton ? window.ocRunQuickAddFromButton(event) : false;">Fill from link</button>
                 </div>
                 <div id="quickAddStatus" class="quick-add-status">Nothing is saved yet. This only fills the form below so you can review it before saving.</div>
               </div>
@@ -15916,8 +15916,12 @@ return `
         var input = document.getElementById("quickAddUrl");
         var btn = document.getElementById("quickAddFetch");
         var status = document.getElementById("quickAddStatus");
-        var form = document.querySelector('form[action="/admin/events"]');
-        if (!input || !btn || !status || !form) return;
+        var form =
+          (btn && typeof btn.closest === "function" ? btn.closest("form") : null) ||
+          (input && input.form) ||
+          document.querySelector('form[action="/admin/events"]') ||
+          document.querySelector('form[action*="/admin/events"]');
+        if (!input || !btn || !status) return;
 
         function setStatus(message, tone){
           status.textContent = String(message || "");
@@ -15979,7 +15983,8 @@ return `
         }
 
         function applyCategories(values){
-          var selects = form.querySelectorAll('select[name="categories"]');
+          var root = form || document;
+          var selects = root.querySelectorAll('select[name="categories"]');
           var items = Array.isArray(values) ? values : [];
           for (var i = 0; i < selects.length; i++) {
             setValue(selects[i], items[i] || "");
@@ -16062,8 +16067,19 @@ return `
           }
         }
 
-        btn.addEventListener("click", function(){
+        window.ocRunQuickAddFromButton = function(event){
+          if (event && typeof event.preventDefault === "function") event.preventDefault();
           runQuickAdd(input.value, { showEmptyError: true });
+          return false;
+        };
+
+        window.ocRunQuickAddMaybe = function(){
+          runQuickAdd(input.value, { showEmptyError: false });
+          return false;
+        };
+
+        btn.addEventListener("click", function(){
+          window.ocRunQuickAddFromButton();
         });
 
         input.addEventListener("keydown", function(event){
@@ -16073,12 +16089,12 @@ return `
         });
 
         input.addEventListener("change", function(){
-          runQuickAdd(input.value, { showEmptyError: false });
+          window.ocRunQuickAddMaybe();
         });
 
         input.addEventListener("paste", function(){
           setTimeout(function(){
-            runQuickAdd(input.value, { showEmptyError: false });
+            window.ocRunQuickAddMaybe();
           }, 0);
         });
       })();
