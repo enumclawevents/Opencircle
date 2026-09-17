@@ -3186,7 +3186,7 @@ function oc_integration_render_settings_page() {
 }
 
 function oc_events_grid_cache_key($city, $api, $event_base, $mode = 'upcoming') {
-  return 'oc_events_fallback_' . md5(strtolower(trim((string)$city)) . '|' . trim((string)$api) . '|' . trim((string)$event_base) . '|' . strtolower(trim((string)$mode)));
+  return 'oc_events_fallback_v2_' . md5(strtolower(trim((string)$city)) . '|' . trim((string)$api) . '|' . trim((string)$event_base) . '|' . strtolower(trim((string)$mode)));
 }
 
 function oc_events_grid_event_url($event, $event_base) {
@@ -3968,7 +3968,8 @@ function oc_events_grid_fetch_server_events($city, $api, $event_base, $limit = 8
     $offset = $next_offset;
   }
 
-  set_transient($cache_key, $combined, 300);
+  // Keep newly published API events nearly live on the public grid.
+  set_transient($cache_key, $combined, 5);
   return $combined;
 }
 

@@ -426,7 +426,7 @@ class OpenCircle_Multi_Filter_Slider {
       if ($default_city !== '') $cities = [$default_city];
     }
 
-    $cache_key = 'ocmf_' . md5($api_base . '|events|' . self::city_list_to_attr($cities) . '|' . intval($limit) . '|' . (string) $sort . '|' . (string) $expand);
+    $cache_key = 'ocmf_v2_' . md5($api_base . '|events|' . self::city_list_to_attr($cities) . '|' . intval($limit) . '|' . (string) $sort . '|' . (string) $expand);
     $cached = get_transient($cache_key);
     if (is_array($cached)) return $cached;
 
@@ -610,7 +610,8 @@ class OpenCircle_Multi_Filter_Slider {
 
     $t = strtolower(trim((string)$mode));
 
-    $ttl = 60;
+    // Keep newly published API events nearly live on public sliders.
+    $ttl = 5;
     $fetch_limit = max($limit * 4, 40);
 
     $api_sort = '';

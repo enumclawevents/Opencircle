@@ -386,7 +386,7 @@ class OpenCircle_Featured_Slider {
     $fetch_limit = min(100, $fetch_limit);
 
     $cache_scope = self::city_list_to_attr($cities);
-    $cache_key = 'ocfs_' . md5($api_base . '|featured|' . $cache_scope . '|' . intval($fetch_limit));
+    $cache_key = 'ocfs_v2_' . md5($api_base . '|featured|' . $cache_scope . '|' . intval($fetch_limit));
     $cached = get_transient($cache_key);
     if (is_array($cached)) return $cached;
 
@@ -451,7 +451,8 @@ class OpenCircle_Featured_Slider {
       return $effective_end >= time();
     }));
 
-    set_transient($cache_key, $events, 60);
+    // Keep newly published featured events nearly live on the website.
+    set_transient($cache_key, $events, 5);
     return $events;
   }
 
