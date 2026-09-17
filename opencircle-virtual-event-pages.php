@@ -388,13 +388,14 @@ function oc_resolve_occurrence_for_calendar($event, $requested_start_ts = 0, $re
   return $best;
 }
 
-function oc_build_event_calendar_url($event_key, $start_ts = 0, $end_ts = 0) {
+function oc_build_event_calendar_url($event_key, $start_ts = 0, $end_ts = 0, $provider = '') {
   $args = [
     'action' => 'oc_event_calendar',
     'event' => trim((string)$event_key),
   ];
   if ((int)$start_ts > 0) $args['start_ts'] = (int)$start_ts;
   if ((int)$end_ts > 0) $args['end_ts'] = (int)$end_ts;
+  if ($provider === 'google') $args['provider'] = 'google';
   return add_query_arg($args, admin_url('admin-ajax.php'));
 }
 
@@ -439,6 +440,23 @@ function oc_event_calendar_download() {
     return trim((string)$part) !== '';
   }));
   $location_line = implode(', ', $location_parts);
+
+  if (sanitize_key(wp_unslash($_GET['provider'] ?? '')) === 'google') {
+    $google_end_ts = $end_ts > $start_ts ? $end_ts : ($start_ts + HOUR_IN_SECONDS);
+    $google_details = $description;
+    if ($public_url !== '') {
+      $google_details = trim($google_details . "\n\n" . $public_url);
+    }
+    $google_url = add_query_arg([
+      'action' => 'TEMPLATE',
+      'text' => $title,
+      'dates' => oc_calendar_format_utc($start_ts) . '/' . oc_calendar_format_utc($google_end_ts),
+      'details' => $google_details,
+      'location' => $location_line,
+    ], 'https://calendar.google.com/calendar/render');
+    wp_redirect($google_url, 302, 'OpenCircle');
+    exit;
+  }
 
   $uid_key = sanitize_title($public_key !== '' ? $public_key : $event_key);
   if ($uid_key === '') $uid_key = 'event';
@@ -1709,6 +1727,12 @@ if ($city) {
     (int)($activeOccurrence['start_ts'] ?? $startTS),
     (int)($activeOccurrence['end_ts'] ?? $endTS)
   );
+  $googleCalendarUrl = oc_build_event_calendar_url(
+    $key_safe,
+    (int)($activeOccurrence['start_ts'] ?? $startTS),
+    (int)($activeOccurrence['end_ts'] ?? $endTS),
+    'google'
+  );
 ?>
 
 <div class="oc-sidebar-card oc-eng-card"
@@ -1770,12 +1794,23 @@ if ($city) {
     </a>
   <?php endif; ?>
 
-  <a class="oc-calendar-btn"
-     href="<?php echo esc_url($calendarUrl); ?>"
-     data-oc-calendar-btn
-     data-calendar-base="<?php echo esc_attr(oc_build_event_calendar_url($key_safe)); ?>">
-    Add to Calendar
-  </a>
+  <details class="oc-calendar-menu">
+    <summary class="oc-calendar-btn">Add to Calendar</summary>
+    <div class="oc-calendar-menu__options">
+      <a href="<?php echo esc_url($googleCalendarUrl); ?>"
+         target="_blank"
+         rel="noopener noreferrer"
+         data-oc-calendar-btn
+         data-calendar-base="<?php echo esc_attr(oc_build_event_calendar_url($key_safe, 0, 0, 'google')); ?>">
+        Google Calendar
+      </a>
+      <a href="<?php echo esc_url($calendarUrl); ?>"
+         data-oc-calendar-btn
+         data-calendar-base="<?php echo esc_attr(oc_build_event_calendar_url($key_safe)); ?>">
+        Download calendar file
+      </a>
+    </div>
+  </details>
 </div>
 
 <div class="oc-eng-mobile-lightbox" id="ocEngMobileLightbox" aria-hidden="true">
@@ -2141,6 +2176,51 @@ button.close {
   position: relative;
   overflow: hidden;
   box-sizing: border-box;
+  cursor: pointer;
+  list-style: none;
+}
+
+.oc-calendar-btn::-webkit-details-marker{ display: none; }
+.oc-calendar-btn::after{
+  content: "▾";
+  margin-left: 8px;
+  font-size: .8em;
+  transition: transform .18s ease;
+}
+
+.oc-calendar-menu{
+  position: relative;
+}
+
+.oc-calendar-menu[open] .oc-calendar-btn::after{
+  transform: rotate(180deg);
+}
+
+.oc-calendar-menu__options{
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  padding: 6px;
+  border: 1px solid rgba(0,0,0,.14);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(0,0,0,.14);
+}
+
+.oc-calendar-menu__options a{
+  display: block;
+  padding: 10px 12px;
+  border-radius: 6px;
+  color: #263238 !important;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.oc-calendar-menu__options a:hover{
+  background: rgba(63,171,209,.12);
+  color: var(--oc-accent, #3fabd1) !important;
 }
 
 .oc-calendar-btn:hover{
@@ -3046,7 +3126,6 @@ button.oc-hero-image.oc-hero-image__btn {
   const countdownLabelEls = Array.from(document.querySelectorAll("[data-oc-countdown-label]"));
   const happeningBadgeEls = Array.from(document.querySelectorAll("[data-oc-happening-badge]"));
   const heroBadgeWraps = Array.from(document.querySelectorAll("[data-oc-hero-badges]"));
-  const calendarButtons = Array.from(document.querySelectorAll("[data-oc-calendar-btn]"));
 
   function setText(el, txt) {
     if (!el) return;
@@ -3140,7 +3219,7 @@ button.oc-hero-image.oc-hero-image__btn {
       startCountdownTimer(card);
     });
 
-    calendarButtons.forEach(function (button) {
+    document.querySelectorAll("[data-oc-calendar-btn]").forEach(function (button) {
       const base = button.getAttribute("data-calendar-base") || "";
       if (!base) return;
       try {
