@@ -4514,6 +4514,54 @@ function recurrenceWhereClause() {
   return parts.length ? `(${parts.join(" OR ")})` : "";
 }
 
+function activeRecurrenceWhereClause() {
+  const recurring = recurrenceWhereClause();
+  if (!recurring) return "";
+
+  const activeParts = [];
+  if (colsForWhere.has("recurrenceUntilDate")) {
+    activeParts.push("date(NULLIF(trim(recurrenceUntilDate), '')) >= date('now')");
+  }
+
+  if (colsForWhere.has("recurrenceDates")) {
+    activeParts.push(`EXISTS (
+      SELECT 1
+        FROM json_each(
+          CASE WHEN json_valid(recurrenceDates) THEN recurrenceDates ELSE '[]' END
+        ) AS recurrence_date
+       WHERE date(
+         CASE
+           WHEN recurrence_date.type = 'object'
+             THEN COALESCE(
+               json_extract(recurrence_date.value, '$.date'),
+               substr(json_extract(recurrence_date.value, '$.start'), 1, 10)
+             )
+           ELSE trim(recurrence_date.value, '"')
+         END
+       ) >= date('now')
+    )`);
+  }
+
+  if (colsForWhere.has("recurrenceRule")) {
+    const noUntil = colsForWhere.has("recurrenceUntilDate")
+      ? "(recurrenceUntilDate IS NULL OR trim(recurrenceUntilDate) = '') AND "
+      : "";
+    activeParts.push(`(
+      ${noUntil}LOWER(COALESCE(
+        json_extract(
+          CASE WHEN json_valid(recurrenceRule) THEN recurrenceRule ELSE '{}' END,
+          '$.type'
+        ),
+        ''
+      )) IN ('weekly', 'monthly')
+    )`);
+  }
+
+  return activeParts.length
+    ? `COALESCE((${recurring} AND (${activeParts.join(" OR ")})), 0)`
+    : "";
+}
+
 if (recurringOnly) {
   if (hasRecurrenceColsForWhere) {
     const recWhere = recurrenceWhereClause();
@@ -4525,6 +4573,7 @@ if (recurringOnly) {
 
 const hasEndCol = colsForWhere.has("endDateTime");
 const hasStartCol = colsForWhere.has("startDateTime");
+const activeRecurrenceWhere = activeRecurrenceWhereClause();
 let lifecycleDateExpr = "";
 if (hasEndCol && hasStartCol) {
   lifecycleDateExpr = `datetime(COALESCE(NULLIF(trim(endDateTime), ''), NULLIF(trim(startDateTime), '')))`;
@@ -4543,9 +4592,13 @@ if (statusMode === "archived") {
   if (!lifecycleDateExpr) {
     whereParts.push("1=0");
   } else if (statusMode === "past") {
-    whereParts.push(`${lifecycleDateExpr} < datetime('now')`);
+    whereParts.push(activeRecurrenceWhere
+      ? `(${lifecycleDateExpr} < datetime('now') AND NOT ${activeRecurrenceWhere})`
+      : `${lifecycleDateExpr} < datetime('now')`);
   } else {
-    whereParts.push(`${lifecycleDateExpr} >= datetime('now')`);
+    whereParts.push(activeRecurrenceWhere
+      ? `(${lifecycleDateExpr} >= datetime('now') OR ${activeRecurrenceWhere})`
+      : `${lifecycleDateExpr} >= datetime('now')`);
   }
 }
 
