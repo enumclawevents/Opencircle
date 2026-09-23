@@ -4877,13 +4877,16 @@ try {
     };
     const buildSidebarAreaSwitchHref = (areaValue) => {
       const nextCities = getAdminSidebarAreaCities(areaValue, hasDeveloperAccess ? { role: "developer" } : currentUser, userCity);
-      return buildCitySwitchHref(nextCities[0] || areaValue);
+      const href = new URL(buildCitySwitchHref(nextCities[0] || areaValue), "http://localhost");
+      href.searchParams.set("newsletterScope", areaValue === "Plateau Regional" ? "Plateau Regional" : (nextCities[0] || areaValue));
+      return `${href.pathname}${href.search}`;
     };
     const buildWorkspaceSwitchHref = (workspaceValue) => {
       const sp = new URLSearchParams(req.query || {});
       sp.set("workspace", workspaceValue);
       sp.delete("city");
       sp.delete("pg");
+      sp.set("newsletterScope", workspaceValue === "Plateau Events" ? "Plateau Regional" : workspaceValue);
       const qs = sp.toString();
       return `${req.baseUrl || "/admin"}${req.path === "/" ? "" : (req.path || "")}${qs ? `?${qs}` : ""}`;
     };
