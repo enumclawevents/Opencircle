@@ -4236,7 +4236,7 @@ let whereParams = [];
       hasDeveloperAccess ? { role: "developer" } : currentUser,
       userCity
     );
-    const selectedNewsletterScope = pickAccessibleNewsletterScope(
+    let selectedNewsletterScope = pickAccessibleNewsletterScope(
       req.query.newsletterScope || req.query.city,
       hasDeveloperAccess ? { role: "developer" } : currentUser,
       { fallbackScope: defaultNewsletterScope, fallbackCity: userCity }
@@ -7022,6 +7022,13 @@ return `
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">One or more email addresses were invalid.</div>`
           : "")
       : "";
+    // The audience list is intentionally limited to the two subscriber pools we maintain.
+    const newsletterScopeSwitcherOptions = showNewsletterAudience
+      ? newsletterScopeOptions.filter((scope) => scope === "Enumclaw" || scope === "Plateau Regional")
+      : newsletterScopeOptions;
+    if (showNewsletterAudience && newsletterScopeSwitcherOptions.length && !newsletterScopeSwitcherOptions.includes(selectedNewsletterScope)) {
+      selectedNewsletterScope = newsletterScopeSwitcherOptions[0];
+    }
     const isNewsletterScopedView = showNewsletter || showNewsletterPreview || showNewsletterAudience || showNewsletterAnalytics;
     const newsletterContextCity = isNewsletterScopedView ? selectedNewsletterScope : selectedCity;
     const newsletterScopeSwitcherAction = showNewsletterPreview
@@ -7031,14 +7038,14 @@ return `
       : showNewsletterAnalytics
       ? "/admin/newsletter/analytics"
       : "/admin/newsletter";
-    const newsletterScopeSwitcherHtml = newsletterScopeOptions.length > 1 ? `
+    const newsletterScopeSwitcherHtml = newsletterScopeSwitcherOptions.length > 1 ? `
       <form method="GET" action="${newsletterScopeSwitcherAction}" class="newsletter-scope-switch" style="display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin-bottom:16px;">
         ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
         ${showNewsletterAnalytics ? `<input type="hidden" name="chartView" value="${esc(chartViewMode)}" />` : ``}
         <div style="min-width:280px; max-width:420px; flex:1 1 320px;">
           <label for="newsletterScopeSelect">Newsletter list</label>
           <select class="ctrl" id="newsletterScopeSelect" name="newsletterScope" onchange="this.form.submit()">
-            ${newsletterScopeOptions.map((scope) => `<option value="${esc(scope)}" ${scope === selectedNewsletterScope ? "selected" : ""}>${esc(scope)}</option>`).join("")}
+            ${newsletterScopeSwitcherOptions.map((scope) => `<option value="${esc(scope)}" ${scope === selectedNewsletterScope ? "selected" : ""}>${esc(scope)}</option>`).join("")}
           </select>
           <div class="note">Choose which audience and event pool this newsletter should use.</div>
         </div>
