@@ -4865,7 +4865,9 @@ try {
       const sel = String(selectedValue || "") === c ? "selected" : "";
       return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
     }).join("");
-    const formCity = String(editEvent?.city || selectedAdminPrimaryCity);
+    const formCity = String(editEvent?.city || "") === PLATEAU_SUBMISSION_AREA
+      ? ADMIN_SIDEBAR_GROUPS["Plateau Regional"][0]
+      : String(editEvent?.city || selectedAdminPrimaryCity);
     const cityOptions = buildAreaOptionsMarkup(formCity);
     const buildCitySwitchHref = (cityValue) => {
       const sp = new URLSearchParams(req.query || {});
