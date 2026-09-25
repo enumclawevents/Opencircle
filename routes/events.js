@@ -4,7 +4,6 @@ const express = require("express");
 const router = express.Router();
 const { all, get, run } = require("../db");
 const crypto = require("crypto");
-const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const { safeParseJson } = require("../lib/json");
 const {
   buildEventStructuredData,
@@ -166,7 +165,10 @@ router.post("/submit", async (req, res) => {
     const description = String(body.description || "").trim();
     const location = String(body.location || "").trim();
     const organizer = String(body.organizer || "").trim();
-    const city = String(body.city || "Enumclaw").trim() || "Enumclaw";
+    const requestedCity = String(body.city || "Enumclaw").trim() || "Enumclaw";
+    const city = ["plateau", "plateau area", "plateau regional"].includes(requestedCity.toLowerCase())
+      ? "Plateau Area"
+      : requestedCity;
 
     let startDateTime = String(body.startDateTime || "").trim();
     let endDateTime = String(body.endDateTime || "").trim();
@@ -190,62 +192,8 @@ router.post("/submit", async (req, res) => {
       endDateTime = addHoursIso(startDateTime, 1);
     }
 
-    const activeEvents = await all(
-      `SELECT id, title, startDateTime, endDateTime, location, organizer, ticketUrl, slug
-         FROM events
-        WHERE LOWER(city) = LOWER(?)
-          AND COALESCE(archived, 0) = 0
-        ORDER BY datetime(startDateTime) DESC
-        LIMIT 800`,
-      [city]
-    );
-
-    const pendingEvents = await all(
-      `SELECT id, title, startDateTime, endDateTime, location, organizer, ticketUrl, eventLink
-         FROM pending_events
-        WHERE LOWER(city) = LOWER(?)
-        ORDER BY datetime(startDateTime) DESC
-        LIMIT 800`,
-      [city]
-    );
     const ticketUrl = String(body.ticketUrl || "").trim() || null;
     const eventLink = String(body.eventLink || "").trim() || null;
-    const matches = findLikelyEventDuplicates(
-      {
-        title,
-        startDateTime,
-        endDateTime,
-        location,
-        organizer,
-        ticketUrl,
-        eventLink,
-      },
-      [
-        ...(activeEvents || []).map((row) => ({ ...row, source: "events" })),
-        ...(pendingEvents || []).map((row) => ({ ...row, source: "pending_events" })),
-      ]
-    );
-
-    if (matches.length > 0) {
-      const first = matches[0];
-      return res.status(409).json({
-        ok: false,
-        duplicate: true,
-        error: `Possible duplicate detected: "${first.title}" on ${first.startDateTime}.`,
-        matches: matches.slice(0, 10).map((row) => ({
-          id: row.id,
-          source: row.source,
-          title: row.title,
-          startDateTime: row.startDateTime,
-          endDateTime: row.endDateTime || null,
-          location: row.location || "",
-          organizer: row.organizer || "",
-          slug: row.slug || "",
-          score: row.score,
-          reasons: row.reasons,
-        })),
-      });
-    }
 
     const cats = normalizeCategoriesInput(body.categories);
     const categories = JSON.stringify(cats);

@@ -7623,11 +7623,15 @@ return `
     }
 
     let pendingRows = [];
+    const pendingScopeCities = selectedAdminLabel === "Plateau Regional"
+      ? ["Plateau Area", "Plateau Regional", ...ADMIN_SIDEBAR_GROUPS["Plateau Regional"]]
+      : [selectedCity];
+    const pendingScopePlaceholders = pendingScopeCities.map(() => "?").join(", ");
     if (showApprove) {
       try {
         pendingRows = await all(
-          "SELECT * FROM pending_events WHERE city = ? ORDER BY datetime(createdAt) DESC",
-          [selectedCity]
+          `SELECT * FROM pending_events WHERE city IN (${pendingScopePlaceholders}) ORDER BY datetime(createdAt) DESC`,
+          pendingScopeCities
         );
       } catch (_) {
         pendingRows = [];
@@ -7635,7 +7639,7 @@ return `
     }
     let pendingCount = 0;
     try {
-      const pc = await get("SELECT COUNT(*) AS n FROM pending_events WHERE city = ?", [selectedCity]);
+      const pc = await get(`SELECT COUNT(*) AS n FROM pending_events WHERE city IN (${pendingScopePlaceholders})`, pendingScopeCities);
       pendingCount = Number(pc?.n || 0);
     } catch (_) {
       pendingCount = 0;
@@ -19268,7 +19272,12 @@ router.get("/pending-count", async (req, res) => {
     await ensureMessageSchema();
     await ensureUserProfileSchema();
     const city = String(req.query.city || "Enumclaw");
-    const row = await get("SELECT COUNT(*) AS n FROM pending_events WHERE city = ?", [city]);
+    const plateauPendingCityValues = ["Plateau Area", "Plateau Regional", "Plateau Events", ...ADMIN_SIDEBAR_GROUPS["Plateau Regional"]];
+    const pendingCities = plateauPendingCityValues.includes(city)
+      ? ["Plateau Area", "Plateau Regional", ...ADMIN_SIDEBAR_GROUPS["Plateau Regional"]]
+      : [city];
+    const pendingPlaceholders = pendingCities.map(() => "?").join(", ");
+    const row = await get(`SELECT COUNT(*) AS n FROM pending_events WHERE city IN (${pendingPlaceholders})`, pendingCities);
     const currentUser = await resolveSessionUser(req);
     let messages = 0;
     if (currentUser?.id) {
