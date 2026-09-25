@@ -23,6 +23,7 @@ const {
   getJobEmploymentTypesForEdit,
   normalizeJobApplicationFields,
   normalizeJobApplicationMode,
+  normalizeJobEmploymentTypes,
 } = require("../lib/job-utils");
 const { bulkImportUpload, persistImportedImage, persistUploadedImage, upload } = require("../lib/uploads");
 
