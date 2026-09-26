@@ -5,6 +5,7 @@ const router = express.Router();
 const { all, get, run } = require("../db");
 const crypto = require("crypto");
 const { safeParseJson } = require("../lib/json");
+const { ALLOWED_CATEGORIES } = require("../lib/admin-constants");
 const {
   buildEventStructuredData,
   buildSeoDescriptor,
@@ -1095,12 +1096,69 @@ function normalizeCats(row) {
   return Array.isArray(cats) ? cats : [];
 }
 
+function normalizeCategoryKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function readOptionalQueryString(query, keys, { maxLength = 256 } = {}) {
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(query, key)) continue;
+    const value = query[key];
+    if (Array.isArray(value) || typeof value === "object") {
+      return { error: `Invalid query parameter: ${key}` };
+    }
+    const text = String(value ?? "").trim();
+    if (text.length > maxLength) return { error: `Query parameter too long: ${key}` };
+    return { value: text };
+  }
+  return { value: "" };
+}
+
+function readBoundedQueryInt(query, key, { defaultValue, min, max }) {
+  if (!Object.prototype.hasOwnProperty.call(query, key) || query[key] === "") {
+    return { value: defaultValue };
+  }
+  const raw = query[key];
+  if (Array.isArray(raw) || typeof raw === "object") return { error: `Invalid query parameter: ${key}` };
+  if (!/^[-+]?\d+$/.test(String(raw).trim())) return { error: `Invalid query parameter: ${key}` };
+  const value = Number.parseInt(String(raw), 10);
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    return { error: `Invalid query parameter: ${key}` };
+  }
+  return { value };
+}
+
+function readEnumQueryValue(query, key, { defaultValue, allowed }) {
+  if (!Object.prototype.hasOwnProperty.call(query, key) || query[key] === "") return { value: defaultValue };
+  const raw = query[key];
+  if (Array.isArray(raw) || typeof raw === "object") return { error: `Invalid query parameter: ${key}` };
+  const value = String(raw).trim().toLowerCase();
+  if (!allowed.includes(value)) return { error: `Invalid query parameter: ${key}` };
+  return { value };
+}
+
+function resolveCategoryFilter(value) {
+  const raw = String(value || "").trim();
+  const key = normalizeCategoryKey(raw);
+  if (!key) return "";
+  return ALLOWED_CATEGORIES.find((category) => normalizeCategoryKey(category) === key) || raw;
+}
+
+function compareEventIds(a, b) {
+  return (Number(a?.id) || 0) - (Number(b?.id) || 0);
+}
+
 function matchesCategory(item, category) {
   if (!category) return true;
-  const target = String(category).trim().toLowerCase();
+  const target = normalizeCategoryKey(category);
   if (!target) return true;
   const cats = Array.isArray(item.categories) ? item.categories : [];
-  return cats.some((c) => String(c || "").trim().toLowerCase() === target);
+  return cats.some((c) => normalizeCategoryKey(c) === target);
 }
 
 function matchesQuery(item, q) {
@@ -1114,14 +1172,17 @@ function matchesQuery(item, q) {
 
 function inIsoRange(item, fromISO, toISO) {
   if (!fromISO && !toISO) return true;
-  const t = Date.parse(item.startDateTime);
-  if (!Number.isFinite(t)) return false;
+  const startTs = Date.parse(item.startDateTime);
+  if (!Number.isFinite(startTs)) return false;
+  const endTs = effectiveEndTs(item);
 
   const fromT = fromISO ? Date.parse(fromISO) : NaN;
   const toT = toISO ? Date.parse(toISO) : NaN;
 
-  if (Number.isFinite(fromT) && t < fromT) return false;
-  if (Number.isFinite(toT) && t > toT) return false;
+  // A date range represents events occurring during that interval. For a
+  // missing/invalid end time effectiveEndTs safely falls back to the start.
+  if (Number.isFinite(fromT) && endTs < fromT) return false;
+  if (Number.isFinite(toT) && startTs > toT) return false;
   return true;
 }
 
@@ -1138,9 +1199,10 @@ function setNoIndexHeader(res) {
 
 function effectiveEndTs(item) {
   const endTs = Date.parse(String((item && item.endDateTime) || ""));
-  if (Number.isFinite(endTs)) return endTs;
-
   const startTs = Date.parse(String((item && item.startDateTime) || ""));
+  // Invalid legacy ranges (end before start) are treated as a point-in-time
+  // event at their start, rather than incorrectly becoming past early.
+  if (Number.isFinite(endTs) && (!Number.isFinite(startTs) || endTs >= startTs)) return endTs;
   return Number.isFinite(startTs) ? startTs : NaN;
 }
 
@@ -1272,7 +1334,9 @@ function paginate(items, limit, offset) {
  *  limit=40 offset=0
  *  sort=soonest|latest
  *  q=search text
- *  category=music
+ *  category=music (category name or normalized slug)
+ *  organizer=Adventure Van Expo
+ *  venue=Enumclaw Expo Center (or location=)
  *  featured=1
  *  from=ISO to=ISO
  *  status=upcoming|past|archived|all
@@ -1280,13 +1344,19 @@ function paginate(items, limit, offset) {
  */
 router.get("/", async (req, res) => {
   try {
-    const city = String(req.query.city ?? "Enumclaw").trim();
-    const expand = String(req.query.expand ?? "1") !== "0";
-
-    const statusRaw = String(req.query.status ?? "upcoming").toLowerCase().trim();
-    const status = ["upcoming", "past", "archived", "all"].includes(statusRaw)
-      ? statusRaw
-      : "upcoming";
+    const cityParam = readOptionalQueryString(req.query, ["city"]);
+    if (cityParam.error) {
+      return res.status(400).json({ data: [], meta: { total: 0, limit: 0, offset: 0, hasMore: false, nextOffset: null }, error: cityParam.error });
+    }
+    const city = cityParam.value || "Enumclaw";
+    const expandParam = readEnumQueryValue(req.query, "expand", { defaultValue: "1", allowed: ["0", "1"] });
+    const statusParam = readEnumQueryValue(req.query, "status", { defaultValue: "upcoming", allowed: ["upcoming", "past", "archived", "all"] });
+    if (expandParam.error || statusParam.error) {
+      const invalid = expandParam.error || statusParam.error;
+      return res.status(400).json({ data: [], meta: { total: 0, limit: 0, offset: 0, hasMore: false, nextOffset: null }, error: invalid });
+    }
+    const expand = expandParam.value !== "0";
+    const status = statusParam.value;
     const userRole = String(req.user?.role || "").trim().toLowerCase();
     if (status === "archived" && !["admin", "developer"].includes(userRole)) {
       return res.status(403).json({ error: "Forbidden" });
@@ -1294,26 +1364,54 @@ router.get("/", async (req, res) => {
     if (status === "archived") setNoIndexHeader(res);
 
     const sortDefault = (status === "past" || status === "archived") ? "latest" : "soonest";
-    const sortRaw = String(req.query.sort ?? sortDefault).toLowerCase().trim();
+    const sortParam = readEnumQueryValue(req.query, "sort", {
+      defaultValue: sortDefault,
+      allowed: ["latest", "soonest", "recent", "trending", "id_desc"],
+    });
+    if (sortParam.error) {
+      return res.status(400).json({ data: [], meta: { total: 0, limit: 0, offset: 0, hasMore: false, nextOffset: null }, error: sortParam.error });
+    }
+    const sort = sortParam.value;
 
-    const sort =
-      (sortRaw === "latest" ||
-       sortRaw === "soonest" ||
-       sortRaw === "recent" ||
-       sortRaw === "trending" ||
-       sortRaw === "id_desc")
-        ? sortRaw
-        : sortDefault;
+    const qParam = readOptionalQueryString(req.query, ["q"], { maxLength: 512 });
+    const categoryParam = readOptionalQueryString(req.query, ["category", "cat"]);
+    const organizerParam = readOptionalQueryString(req.query, ["organizer", "org"]);
+    const venueParam = readOptionalQueryString(req.query, ["venue", "location"]);
+    const invalidParam = [qParam, categoryParam, organizerParam, venueParam].find((param) => param.error);
+    if (invalidParam) {
+      return res.status(400).json({
+        data: [],
+        meta: { total: 0, limit: 0, offset: 0, hasMore: false, nextOffset: null },
+        error: invalidParam.error,
+      });
+    }
+    const q = qParam.value;
+    const category = resolveCategoryFilter(categoryParam.value);
+    const organizer = organizerParam.value;
+    const venue = venueParam.value;
+    const featuredParam = readEnumQueryValue(req.query, "featured", { defaultValue: "0", allowed: ["0", "1"] });
+    if (featuredParam.error) {
+      return res.status(400).json({ data: [], meta: { total: 0, limit: 0, offset: 0, hasMore: false, nextOffset: null }, error: featuredParam.error });
+    }
+    const featuredOnly = featuredParam.value === "1";
 
-    const q = String(req.query.q ?? "").trim();
-    const category = String(req.query.category ?? "").trim();
-    const featuredOnly = String(req.query.featured ?? "0") === "1";
-
-    const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit ?? "40"), 10)));
-    const offset = Math.max(0, parseInt(String(req.query.offset ?? "0"), 10));
-
-    const fromISO = String(req.query.from ?? "").trim();
-    const toISO = String(req.query.to ?? "").trim();
+    const limitParam = readBoundedQueryInt(req.query, "limit", { defaultValue: 40, min: 1, max: 100 });
+    const offsetParam = readBoundedQueryInt(req.query, "offset", { defaultValue: 0, min: 0, max: Number.MAX_SAFE_INTEGER });
+    const fromParam = readOptionalQueryString(req.query, ["from"], { maxLength: 64 });
+    const toParam = readOptionalQueryString(req.query, ["to"], { maxLength: 64 });
+    const invalidPagingOrDate = [limitParam, offsetParam, fromParam, toParam].find((param) => param.error);
+    if (invalidPagingOrDate) {
+      return res.status(400).json({ data: [], meta: { total: 0, limit: 0, offset: 0, hasMore: false, nextOffset: null }, error: invalidPagingOrDate.error });
+    }
+    const limit = limitParam.value;
+    const offset = offsetParam.value;
+    const fromISO = fromParam.value;
+    const toISO = toParam.value;
+    const fromTs = fromISO ? Date.parse(fromISO) : NaN;
+    const toTs = toISO ? Date.parse(toISO) : NaN;
+    if ((fromISO && !Number.isFinite(fromTs)) || (toISO && !Number.isFinite(toTs)) || (Number.isFinite(fromTs) && Number.isFinite(toTs) && fromTs > toTs)) {
+      return res.status(400).json({ data: [], meta: { total: 0, limit, offset, hasMore: false, nextOffset: null }, error: "Invalid date range" });
+    }
 
     const nowUtc = Date.now();
     const defaultWindowDays =
@@ -1321,8 +1419,11 @@ router.get("/", async (req, res) => {
         ? 365
         : ((status === "past" || status === "archived" || status === "all") ? 365 : 90);
 
-    const parsedWindowDays = parseInt(String(req.query.windowDays ?? defaultWindowDays), 10);
-    const windowDays = Math.max(1, Math.min(3650, Number.isFinite(parsedWindowDays) ? parsedWindowDays : defaultWindowDays));
+    const windowDaysParam = readBoundedQueryInt(req.query, "windowDays", { defaultValue: defaultWindowDays, min: 1, max: 3650 });
+    if (windowDaysParam.error) {
+      return res.status(400).json({ data: [], meta: { total: 0, limit, offset, hasMore: false, nextOffset: null }, error: windowDaysParam.error });
+    }
+    const windowDays = windowDaysParam.value;
 
     let windowStartUtc;
     let windowEndUtc;
@@ -1338,9 +1439,28 @@ router.get("/", async (req, res) => {
       windowEndUtc = nowUtc + windowDays * 86400 * 1000;
     }
 
+    const rowWhere = ["city = ? COLLATE NOCASE"];
+    const rowParams = [city];
+    if (category) {
+      rowWhere.push(`EXISTS (
+        SELECT 1
+        FROM json_each(CASE WHEN json_valid(categories) THEN categories ELSE '[]' END)
+        WHERE LOWER(TRIM(value)) = LOWER(TRIM(?))
+      )`);
+      rowParams.push(category);
+    }
+    if (organizer) {
+      rowWhere.push("LOWER(TRIM(COALESCE(organizer, ''))) = LOWER(TRIM(?))");
+      rowParams.push(organizer);
+    }
+    if (venue) {
+      rowWhere.push("LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))");
+      rowParams.push(venue);
+    }
+
     let rows = await all(
-      "SELECT * FROM events WHERE LOWER(city) = LOWER(?) ORDER BY startDateTime ASC",
-      [city]
+      `SELECT * FROM events WHERE ${rowWhere.join(" AND ")} ORDER BY startDateTime ASC`,
+      rowParams
     );
 
     // normalize base times first so recurrence generation uses correct offset
@@ -1362,12 +1482,10 @@ router.get("/", async (req, res) => {
     if (!expand) {
       let items = normalizedRows
         .filter((it) => {
-          const windowTs = (status === "past" || status === "archived")
-            ? effectiveEndTs(it)
-            : Date.parse(it.startDateTime);
-
-          if (!Number.isFinite(windowTs)) return false;
-          if (windowTs < windowStartUtc || windowTs > windowEndUtc) return false;
+          const startTs = Date.parse(it.startDateTime);
+          const endTs = effectiveEndTs(it);
+          if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) return false;
+          if (endTs < windowStartUtc || startTs > windowEndUtc) return false;
 
           if (!matchesLifecycleStatus(it, status, nowUtc)) return false;
           if (featuredOnly && readFeaturedActive(it) !== 1) return false;
@@ -1386,7 +1504,8 @@ router.get("/", async (req, res) => {
           // tie-break: upcoming sooner first
           const at = Date.parse(a.startDateTime);
           const bt = Date.parse(b.startDateTime);
-          return (at - bt);
+          if (at !== bt) return at - bt;
+          return compareEventIds(a, b);
         }
 
         if (sort === "trending") {
@@ -1397,7 +1516,8 @@ router.get("/", async (req, res) => {
           // tie-break: upcoming sooner first
           const at = Date.parse(a.startDateTime);
           const bt = Date.parse(b.startDateTime);
-          return (at - bt);
+          if (at !== bt) return at - bt;
+          return compareEventIds(a, b);
         }
 
         if (sort === "id_desc") {
@@ -1414,7 +1534,8 @@ router.get("/", async (req, res) => {
         // soonest/latest
         const at = Date.parse(a.startDateTime);
         const bt = Date.parse(b.startDateTime);
-        return sort === "latest" ? (bt - at) : (at - bt);
+        if (at !== bt) return sort === "latest" ? (bt - at) : (at - bt);
+        return compareEventIds(a, b);
       });
 
       return res.json(paginate(items, limit, offset));
@@ -1422,7 +1543,12 @@ router.get("/", async (req, res) => {
 
     // Expand into occurrences
     let expanded = [];
-    for (const r of normalizedRows) {
+    // These base-row predicates cannot change per recurrence occurrence, so
+    // apply them before the potentially expensive recurrence expansion.
+    const rowsForExpansion = normalizedRows.filter((row) => (
+      (!featuredOnly || readFeaturedActive(row) === 1) && matchesQuery(row, q)
+    ));
+    for (const r of rowsForExpansion) {
       const rowFixed = r;
       expanded.push(...expandEventIntoFeedItems(rowFixed, windowStartUtc, windowEndUtc));
     }
@@ -1447,7 +1573,8 @@ router.get("/", async (req, res) => {
         // tie-break: upcoming sooner first
         const at = Date.parse(a.startDateTime);
         const bt = Date.parse(b.startDateTime);
-        return (at - bt);
+        if (at !== bt) return at - bt;
+        return compareEventIds(a, b);
       }
 
       if (sort === "trending") {
@@ -1458,7 +1585,8 @@ router.get("/", async (req, res) => {
         // tie-break: upcoming sooner first
         const at = Date.parse(a.startDateTime);
         const bt = Date.parse(b.startDateTime);
-        return (at - bt);
+        if (at !== bt) return at - bt;
+        return compareEventIds(a, b);
       }
 
       if (sort === "id_desc") {
@@ -1474,7 +1602,8 @@ router.get("/", async (req, res) => {
       // soonest/latest
       const at = Date.parse(a.startDateTime);
       const bt = Date.parse(b.startDateTime);
-      return sort === "latest" ? (bt - at) : (at - bt);
+      if (at !== bt) return sort === "latest" ? (bt - at) : (at - bt);
+      return compareEventIds(a, b);
     });
 
     // Paginate

@@ -443,6 +443,7 @@ async function initDB() {
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_city ON events(city);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_startDateTime ON events(startDateTime);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_city_startDateTime ON events(city, startDateTime);`);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_city_nocase_startDateTime ON events(city COLLATE NOCASE, startDateTime);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_slug ON events(slug);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_archived ON events(archived);`);
 

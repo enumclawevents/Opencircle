@@ -351,7 +351,7 @@
       const q = (input.value || "").trim();
       const sortMode = selSort.value || (MODE === "past" ? "latest" : "soonest");
       const dateMode = selDate.value || "any";
-      const needsExpandedFetch = MODE === "past" || hasOrganizerFilter || hasVenueFilter || sortMode === "trending_week" || sortMode === "recent" || sortMode === "featured";
+      const needsExpandedFetch = MODE === "past" || sortMode === "trending_week" || sortMode === "recent" || sortMode === "featured";
       const apiSort =
         sortMode === "latest" ? "latest" :
         sortMode === "trending_week" ? "trending" :
@@ -376,6 +376,8 @@
       }
       if (q) u.searchParams.set("q", q);
       if (cat) u.searchParams.set("category", cat);
+      if (urlOrganizer) u.searchParams.set("organizer", urlOrganizer);
+      if (urlVenue) u.searchParams.set("venue", urlVenue);
 
       u.searchParams.set("_dateMode", dateMode);
       return u;
@@ -694,7 +696,7 @@
 
       try {
         let json;
-        if (hasOrganizerFilter || selSort.value === "trending_week" || selSort.value === "recent" || selSort.value === "featured") {
+        if (selSort.value === "trending_week" || selSort.value === "recent" || selSort.value === "featured") {
           json = await fetchAllOrganizerItems(url);
         } else {
           const resp = await fetch(url.toString(), { headers: { Accept: "application/json" } });
@@ -783,7 +785,7 @@
           sortedItems = sortItems(dedupeTrendingWeekItems(sortedItems), activeSortMode);
         }
 
-        if (MODE === "past" || hasOrganizerFilter || hasVenueFilter || selSort.value === "trending_week" || selSort.value === "recent" || selSort.value === "featured") {
+        if (MODE === "past" || selSort.value === "trending_week" || selSort.value === "recent" || selSort.value === "featured") {
           state.total = sortedItems.length;
           state.hasMore = state.total > state.page * state.limit;
           state.totalPages = Math.max(1, Math.ceil(state.total / state.limit));
@@ -797,7 +799,7 @@
 
         const pageStart = (state.page - 1) * state.limit;
         const pageEnd = pageStart + state.limit;
-        const pagedItems = (MODE === "past" || hasOrganizerFilter || hasVenueFilter || selSort.value === "trending_week" || selSort.value === "recent" || selSort.value === "featured")
+        const pagedItems = (MODE === "past" || selSort.value === "trending_week" || selSort.value === "recent" || selSort.value === "featured")
           ? sortedItems.slice(pageStart, pageEnd)
           : sortedItems;
 

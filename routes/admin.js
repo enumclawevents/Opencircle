@@ -3724,6 +3724,7 @@ const ADMIN_AREAS = Object.freeze([
   "Carbonado",
   "South Prairie",
 ]);
+const PLATEAU_SUBMISSION_AREA = "Plateau Area";
 const ADMIN_WORKSPACE_GROUPS = Object.freeze({
   "Plateau Events": Object.freeze([
     "Buckley",
@@ -4321,8 +4322,7 @@ let whereParams = [];
                AND (senderUserId = ? OR recipientUserId = ?)
              GROUP BY otherUserId
            ) latest ON latest.otherUserId = u.id
-           WHERE u.city = ?
-             AND u.id <> ?
+           WHERE u.id <> ?
              AND (? IS NULL OR u.id <> ?)
            ORDER BY
              CASE WHEN latest.latestAt IS NULL THEN 1 ELSE 0 END ASC,
@@ -4333,7 +4333,6 @@ let whereParams = [];
             selectedCity,
             currentUser.id,
             selectedCity,
-            currentUser.id,
             currentUser.id,
             currentUser.id,
             supportCircleUser?.id || null,
@@ -5057,7 +5056,7 @@ return `
     let totalOccurrences = 0;
     try {
       const occRows = await all(
-        `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
+        `SELECT id, title, slug, location, organizer, categories, viewCount, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
          FROM events
          ${dashWhereSql}`,
         dashParams
@@ -5094,7 +5093,7 @@ return `
       totalOccurrences = total;
       try {
         const fallbackRows = await all(
-          `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
+          `SELECT id, title, slug, location, organizer, categories, viewCount, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
            FROM events
            ${dashWhereSql}`,
           dashParams
@@ -6169,6 +6168,66 @@ return `
         return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
       })
       .join("");
+
+    // Category popularity is based on lifetime event views within the current workspace.
+    // An event can count toward each category assigned to it.
+    const categoryAnalytics = new Map();
+    for (const event of dashboardEventRows || []) {
+      const categories = Array.isArray(safeParseJson(event?.categories, []))
+        ? safeParseJson(event.categories, [])
+        : [];
+      const uniqueCategories = [...new Set(categories.map((category) => String(category || "").trim()).filter(Boolean))];
+      const views = Number(event?.viewCount || 0);
+      const organizer = String(event?.organizer || "").trim() || "(unknown)";
+      for (const category of uniqueCategories) {
+        if (!categoryAnalytics.has(category)) {
+          categoryAnalytics.set(category, { category, events: 0, views: 0, organizers: new Map() });
+        }
+        const categoryRow = categoryAnalytics.get(category);
+        categoryRow.events += 1;
+        categoryRow.views += views;
+        const organizerRow = categoryRow.organizers.get(organizer) || { organizer, events: 0, views: 0 };
+        organizerRow.events += 1;
+        organizerRow.views += views;
+        categoryRow.organizers.set(organizer, organizerRow);
+      }
+    }
+    const categoryAnalyticsRows = [...categoryAnalytics.values()]
+      .map((row) => {
+        const leader = [...row.organizers.values()]
+          .sort((a, b) => b.views - a.views || b.events - a.events || a.organizer.localeCompare(b.organizer))[0] || null;
+        return { ...row, leader };
+      })
+      .sort((a, b) => b.views - a.views || b.events - a.events || a.category.localeCompare(b.category));
+    const categoryPopularityHtml = categoryAnalyticsRows.length
+      ? categoryAnalyticsRows.slice(0, 10).map((row, index) => `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${esc(row.category)}</td>
+            <td>${row.events.toLocaleString("en-US")}</td>
+            <td>${row.views.toLocaleString("en-US")}</td>
+          </tr>
+        `).join("")
+      : `<tr><td colspan="4" class="muted">No categorized events in this workspace yet.</td></tr>`;
+    const categoryLeadersHtml = categoryAnalyticsRows.length
+      ? categoryAnalyticsRows.slice(0, 10).map((row) => {
+          const leader = row.leader;
+          const organizerHref = leader && leader.organizer !== "(unknown)"
+            ? `/admin/events-organizers?organizer=${encodeURIComponent(leader.organizer)}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`
+            : "";
+          const organizerLabel = leader
+            ? (organizerHref ? `<a href="${esc(organizerHref)}">${esc(leader.organizer)}</a>` : esc(leader.organizer))
+            : "—";
+          return `
+            <tr>
+              <td>${esc(row.category)}</td>
+              <td>${organizerLabel}</td>
+              <td>${Number(leader?.events || 0).toLocaleString("en-US")}</td>
+              <td>${Number(leader?.views || 0).toLocaleString("en-US")}</td>
+            </tr>
+          `;
+        }).join("")
+      : `<tr><td colspan="4" class="muted">No category leaders yet.</td></tr>`;
 
     // ------------------------------
     // Chart: Daily / Weekly / Monthly / Yearly
@@ -13363,6 +13422,40 @@ return `
         `}
         ` : ``}
 
+        <!-- Category analytics -->
+        ${showAnalytics && !selectedEventAnalytics ? `
+        <section class="grid2 analytics-main-grid">
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Most popular categories</h2>
+                <p class="sub">Ranked by lifetime event views in this workspace</p>
+              </div>
+            </div>
+            <div class="mini">
+              <table class="analytics-table">
+                <thead><tr><th>#</th><th>Category</th><th>Events</th><th>Views</th></tr></thead>
+                <tbody>${categoryPopularityHtml}</tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="sectionTitle">
+              <div>
+                <h2>Category leaders</h2>
+                <p class="sub">Organizer with the most views in each category</p>
+              </div>
+            </div>
+            <div class="mini">
+              <table class="analytics-table">
+                <thead><tr><th>Category</th><th>Leader</th><th>Events</th><th>Views</th></tr></thead>
+                <tbody>${categoryLeadersHtml}</tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+        ` : ``}
+
         <!-- Top events (views) -->
         ${showAnalytics ? `
         <section class="grid4">
@@ -17696,15 +17789,17 @@ return `
       window.ocShowEventsChartTipIndex = showSvgChartTip;
       window.ocHideEventsChartTip = hideSvgChartTip;
 
-      $svgHost.addEventListener("mousemove", function(ev){
+      const handleSvgChartPointerMove = function(ev){
         const index = getSvgHoverIndexFromEvent(ev);
         if (!Number.isInteger(index) || index < 0) {
           hideSvgChartTip();
           return;
         }
         showSvgChartTip(index, ev);
-      });
-      $svgHost.addEventListener("mouseleave", hideSvgChartTip);
+      };
+      // Pointer events cover mouse, trackpad, pen, and touch-enabled desktops.
+      $svgHost.addEventListener("pointermove", handleSvgChartPointerMove);
+      $svgHost.addEventListener("pointerleave", hideSvgChartTip);
       return;
     }
     if ($canvas) $canvas.style.display = "block";
@@ -20942,6 +21037,9 @@ router.post("/approve-events/:id/approve", async (req, res) => {
 
     const pending = await get("SELECT * FROM pending_events WHERE id = ?", [id]);
     if (!pending) return res.redirect("/admin/approve-events");
+    if (String(pending.city || "") === PLATEAU_SUBMISSION_AREA) {
+      return res.redirect(`/admin/create-events?pending=${encodeURIComponent(id)}&workspace=Plateau%20Regional`);
+    }
 
     const newId = await insertEventFromPending(pending);
     await run("DELETE FROM pending_events WHERE id = ?", [id]);

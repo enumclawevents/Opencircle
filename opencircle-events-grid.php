@@ -3302,12 +3302,12 @@ function oc_events_grid_paginate_local_events($events, $limit, $offset = 0) {
   ];
 }
 
-function oc_events_grid_fetch_archive_api_page($api, $city, $limit, $offset = 0) {
+function oc_events_grid_fetch_archive_api_page($api, $city, $limit, $offset = 0, $filters = []) {
   $api = rtrim((string)$api, '/');
   $city = trim((string)$city);
   $limit = max(1, (int)$limit);
   $offset = max(0, (int)$offset);
-  $url = add_query_arg([
+  $query_args = [
     'city' => $city,
     'status' => 'past',
     'expand' => 1,
@@ -3315,7 +3315,11 @@ function oc_events_grid_fetch_archive_api_page($api, $city, $limit, $offset = 0)
     'windowDays' => 3650,
     'limit' => $limit,
     'offset' => $offset,
-  ], $api . '/events');
+  ];
+  foreach (['category', 'organizer', 'venue'] as $key) {
+    if (!empty($filters[$key])) $query_args[$key] = sanitize_text_field($filters[$key]);
+  }
+  $url = add_query_arg($query_args, $api . '/events');
 
   $res = wp_remote_get($url, [
     'timeout' => 12,
@@ -3340,7 +3344,7 @@ function oc_events_grid_fetch_archive_api_page($api, $city, $limit, $offset = 0)
   ];
 }
 
-function oc_events_grid_fetch_initial_page($city, $api, $limit, $offset = 0, $mode = 'upcoming', $event_base = '/events/') {
+function oc_events_grid_fetch_initial_page($city, $api, $limit, $offset = 0, $mode = 'upcoming', $event_base = '/events/', $filters = []) {
   $city = trim((string)$city);
   $api = rtrim((string)$api, '/');
   $limit = max(1, (int) $limit);
@@ -3352,7 +3356,7 @@ function oc_events_grid_fetch_initial_page($city, $api, $limit, $offset = 0, $mo
   }
 
   if ($mode === 'past') {
-    $page = oc_events_grid_fetch_archive_api_page($api, $city, max(100, $limit), $offset);
+    $page = oc_events_grid_fetch_archive_api_page($api, $city, max(100, $limit), $offset, $filters);
     $rows = isset($page['rows']) && is_array($page['rows']) ? $page['rows'] : [];
     $meta = isset($page['meta']) && is_array($page['meta']) ? $page['meta'] : [];
     $now = new DateTimeImmutable('now', wp_timezone());
@@ -3375,13 +3379,17 @@ function oc_events_grid_fetch_initial_page($city, $api, $limit, $offset = 0, $mo
     ];
   }
 
-  $url = add_query_arg([
+  $query_args = [
     'city' => $city,
     'expand' => 1,
     'limit' => $limit,
     'offset' => $offset,
     'sort' => 'soonest',
-  ], $api . '/events');
+  ];
+  foreach (['category', 'organizer', 'venue'] as $key) {
+    if (!empty($filters[$key])) $query_args[$key] = sanitize_text_field($filters[$key]);
+  }
+  $url = add_query_arg($query_args, $api . '/events');
 
   $res = wp_remote_get($url, [
     'timeout' => 12,
@@ -4107,6 +4115,9 @@ function oc_events_grid_render_shortcode($atts, $mode = 'upcoming') {
   if ($venue === '' && isset($_GET['venue'])) {
     $venue = sanitize_text_field(wp_unslash($_GET['venue']));
   }
+  $category = '';
+  if (isset($_GET['cat'])) $category = sanitize_text_field(wp_unslash($_GET['cat']));
+  elseif (isset($_GET['category'])) $category = sanitize_text_field(wp_unslash($_GET['category']));
   $organizer_venue_url = '';
   if ($organizer !== '' && function_exists('oc_fetch_venue_match_for_location') && function_exists('oc_venue_page_url')) {
     $organizer_venue_match = oc_fetch_venue_match_for_location($organizer, $city);
@@ -4131,7 +4142,11 @@ function oc_events_grid_render_shortcode($atts, $mode = 'upcoming') {
 
   // Fallback image:
   $placeholder = 'https://via.placeholder.com/1200x675.png?text=Event';
-  $initial_payload = oc_events_grid_fetch_initial_page($city, $api, $limit, $offset, $mode, $event_base);
+  $initial_payload = oc_events_grid_fetch_initial_page($city, $api, $limit, $offset, $mode, $event_base, [
+    'category' => $category,
+    'organizer' => $organizer,
+    'venue' => $venue,
+  ]);
   $initial_events = isset($initial_payload['events']) && is_array($initial_payload['events']) ? $initial_payload['events'] : [];
   $initial_total = max(0, (int) ($initial_payload['total'] ?? 0));
   $initial_total_pages = max(1, (int) ($initial_payload['total_pages'] ?? 1));
