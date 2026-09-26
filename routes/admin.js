@@ -4230,6 +4230,10 @@ let whereParams = [];
       ? selectedAdminWorkspace
       : (selectedAdminWorkspace === "Plateau Events" ? "Plateau Regional" : selectedAdminWorkspace);
     const selectedAdminPrimaryCity = selectedAdminCities[0] || selectedCity || userCity;
+    const messagesWorkspaceQuery = selectedAdminWorkspace
+      ? `workspace=${encodeURIComponent(selectedAdminWorkspace)}`
+      : (selectedCity ? `city=${encodeURIComponent(selectedCity)}` : "");
+    const messagesAdminHref = `/admin/messages${messagesWorkspaceQuery ? `?${messagesWorkspaceQuery}` : ""}`;
     // Messages are scoped to the active admin workspace.  In particular, the
     // Plateau Regional sidebar option represents several cities rather than
     // only its primary (Buckley) city.
@@ -8188,7 +8192,7 @@ return `
     const messageContactsHtml = messageContacts.length
       ? messageContacts.map((user) => {
           const name = user.supportAlias ? "Support Circle" : (user.displayName || user.username || user.email || "User");
-          const href = `/admin/messages?user=${encodeURIComponent(String(user.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+          const href = `${messagesAdminHref}${messagesWorkspaceQuery ? "&" : "?"}user=${encodeURIComponent(String(user.id))}`;
           const latestLabel = user.latestAt
             ? fmtPendingDate(user.latestAt)
             : (user.supportAlias ? "Troubleshooting chat" : `${user.city || selectedCity} user`);
@@ -8240,7 +8244,7 @@ return `
           return `
             <div class="insight-row">
               <div class="label">
-                <a href="/admin/messages?user=${encodeURIComponent(String(user.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}" style="display:inline-flex; align-items:center; gap:8px; color:inherit; text-decoration:none;">
+                <a href="${messagesAdminHref}${messagesWorkspaceQuery ? "&" : "?"}user=${encodeURIComponent(String(user.id))}" style="display:inline-flex; align-items:center; gap:8px; color:inherit; text-decoration:none;">
                   ${onlineStatusMarkup(user.lastSeenAt, `${name} status`)}
                   <span>${esc(name)}</span>
                 </a>
@@ -13008,7 +13012,7 @@ return `
                   </div>
                 </div>
               </div>
-              ${canUseMessages ? `<a class="header-icon-btn header-message-icon" href="/admin/messages${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" title="Messages" aria-label="Messages">
+              ${canUseMessages ? `<a class="header-icon-btn header-message-icon" href="${messagesAdminHref}" title="Messages" aria-label="Messages">
                 <i class="fa-regular fa-envelope" aria-hidden="true"></i>
                 ${unreadMessagesCount > 0 ? `<span class="icon-badge">${unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}</span>` : ``}
               </a>` : ``}
@@ -13138,7 +13142,7 @@ return `
               <div class="card-body" id="dashboard-messages-body">
                 <div class="insight-list">${messagesDashboardHtml}</div>
                 <div style="margin-top:12px;">
-                  <a class="btn" href="/admin/messages${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Open messages</a>
+                  <a class="btn" href="${messagesAdminHref}">Open messages</a>
                 </div>
               </div>
             </details>` : ``}
