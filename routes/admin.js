@@ -16760,7 +16760,7 @@ return `
 
         function parseLocalDateTime(value){
           var s = String(value || "").trim();
-          var m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+          var m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2})(?::(\\d{2}))?$/);
           if (m) {
             return {
               year: Number(m[1]),
@@ -16771,7 +16771,7 @@ return `
               second: Number(m[6] || 0),
             };
           }
-          m = s.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/);
+          m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2}) (\\d{2}):(\\d{2})(?::(\\d{2}))?$/);
           if (m) {
             return {
               year: Number(m[1]),
@@ -16782,7 +16782,7 @@ return `
               second: Number(m[6] || 0),
             };
           }
-          m = s.match(/^(\d{2})\/(\d{2})\/(\d{4}),?\s+(\d{1,2}):(\d{2})\s*([AP]M)$/i);
+          m = s.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4}),?\\s+(\\d{1,2}):(\\d{2})\\s*([AP]M)$/i);
           if (m) {
             var hour12 = Number(m[4]) % 12;
             var meridiem = String(m[6] || "").toUpperCase();
@@ -16830,9 +16830,9 @@ return `
               var date = String((item && item.date) || "").trim();
               var startTime = String((item && item.startTime) || "").trim();
               var endTime = String((item && item.endTime) || "").trim();
-              if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-              if (!/^\d{2}:\d{2}$/.test(startTime)) return;
-              if (!/^\d{2}:\d{2}$/.test(endTime)) return;
+              if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return;
+              if (!/^\\d{2}:\\d{2}$/.test(startTime)) return;
+              if (!/^\\d{2}:\\d{2}$/.test(endTime)) return;
               out[date] = { startTime: startTime, endTime: endTime };
             });
             return out;
@@ -16850,9 +16850,9 @@ return `
             var endInput = row.querySelector('input[name="multiDayEnd"]');
             var startTime = startInput && startInput.value ? String(startInput.value).trim() : "";
             var endTime = endInput && endInput.value ? String(endInput.value).trim() : "";
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-            if (!/^\d{2}:\d{2}$/.test(startTime)) continue;
-            if (!/^\d{2}:\d{2}$/.test(endTime)) continue;
+            if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) continue;
+            if (!/^\\d{2}:\\d{2}$/.test(startTime)) continue;
+            if (!/^\\d{2}:\\d{2}$/.test(endTime)) continue;
             out[date] = { startTime: startTime, endTime: endTime };
           }
           return out;
@@ -17117,7 +17117,7 @@ return `
       // Newsletter tab search
       (function(){
         function normalize(value){
-          return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+          return String(value || "").toLowerCase().replace(/\\s+/g, " ").trim();
         }
 
         var headerForm = document.querySelector("form.search[data-newsletter-header-search]");
