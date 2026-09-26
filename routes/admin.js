@@ -10714,10 +10714,13 @@ return `
       .grid2 > .card:last-child .mini + .mini{ margin-top:var(--gap); }
       .category-analytics-grid{
         grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: stretch;
       }
       .category-analytics-grid > .card:first-child,
       .category-analytics-grid > .card:last-child{
         grid-column: span 1;
+        height: 100%;
+        align-self: stretch;
       }
       .newsletter-preview-tools{
         display:grid;
@@ -12805,7 +12808,7 @@ return `
             <div class="sb-city-wrap">
               <div class="sb-city-dd" id="sbCityDD">
                 ${showSidebarAreaSwitcher ? `
-                  <button type="button" class="sb-city-btn" id="sbCityBtn" aria-haspopup="listbox" aria-expanded="false" onclick="var dd=document.getElementById('sbCityDD'); if(!dd) return false; var next=!dd.classList.contains('is-open'); dd.classList.toggle('is-open', next); this.setAttribute('aria-expanded', next ? 'true' : 'false'); return false;">
+                  <button type="button" class="sb-city-btn" id="sbCityBtn" aria-haspopup="listbox" aria-expanded="false">
                     <span id="sbCityLabel">${esc(selectedAdminLabel)}</span>
                     <span class="caret" aria-hidden="true"></span>
                   </button>
@@ -17016,19 +17019,14 @@ return `
         menu.addEventListener("click", function(e){
           var opt = e.target.closest(".sb-city-opt");
           if (!opt) return;
-          var city = opt.getAttribute("data-city") || "";
-          if (city){
-            label.textContent = city;
-            if (hidden) hidden.value = city;
-            menu.querySelectorAll(".sb-city-opt").forEach(function(b){
-              b.classList.toggle("is-active", b === opt);
-            });
-            var url = new URL(window.location.href);
-            url.searchParams.set("city", city);
-            url.searchParams.delete("pg");
-            window.location.href = url.toString();
-          }
+          var href = String(opt.getAttribute("href") || "").trim();
           closeMenu();
+          // Area links carry the correct primary city and newsletter scope.
+          // Do not replace that URL with an area label in the city parameter.
+          if (href) {
+            e.preventDefault();
+            window.location.href = href;
+          }
         });
 
         document.addEventListener("click", function(e){
