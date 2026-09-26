@@ -4230,6 +4230,19 @@ let whereParams = [];
       ? selectedAdminWorkspace
       : (selectedAdminWorkspace === "Plateau Events" ? "Plateau Regional" : selectedAdminWorkspace);
     const selectedAdminPrimaryCity = selectedAdminCities[0] || selectedCity || userCity;
+    // Messages are scoped to the active admin workspace.  In particular, the
+    // Plateau Regional sidebar option represents several cities rather than
+    // only its primary (Buckley) city.
+    const messageScopeCities = [...new Set((selectedAdminCities.length ? selectedAdminCities : [selectedCity])
+      .map((city) => String(city || "").trim())
+      .filter(Boolean))];
+    const messageScopePlaceholders = messageScopeCities.map(() => "?").join(", ");
+    const messageScopeLabel = selectedAdminLabel || selectedCity;
+    const isCityInMessageScope = (city) => messageScopeCities.includes(String(city || "").trim());
+    const getMessageContactCity = (user) => {
+      const allowedCities = getUserAllowedCities(user, user?.city || selectedCity);
+      return allowedCities.find(isCityInMessageScope) || selectedCity;
+    };
     const showSidebarAreaSwitcher = hasDeveloperAccess;
     const defaultNewsletterScope = selectedAdminLabel === "Plateau Regional"
       ? "Plateau Regional"
@@ -4279,9 +4292,9 @@ let whereParams = [];
           `SELECT COUNT(*) AS count
              FROM messages
             WHERE recipientUserId = ?
-              AND city = ?
+              AND city IN (${messageScopePlaceholders})
               AND readAt IS NULL`,
-          [currentUser.id, selectedCity]
+          [currentUser.id, ...messageScopeCities]
         );
         unreadMessagesCount = Number(unreadRow?.count || 0);
       } catch (_) {
@@ -4306,7 +4319,7 @@ let whereParams = [];
              SELECT senderUserId AS otherUserId, COUNT(*) AS unreadCount
              FROM messages
              WHERE recipientUserId = ?
-               AND city = ?
+               AND city IN (${messageScopePlaceholders})
                AND readAt IS NULL
              GROUP BY senderUserId
            ) unread ON unread.otherUserId = u.id
@@ -4318,7 +4331,7 @@ let whereParams = [];
                END AS otherUserId,
                MAX(datetime(createdAt)) AS latestAt
              FROM messages
-             WHERE city = ?
+             WHERE city IN (${messageScopePlaceholders})
                AND (senderUserId = ? OR recipientUserId = ?)
              GROUP BY otherUserId
            ) latest ON latest.otherUserId = u.id
@@ -4330,9 +4343,9 @@ let whereParams = [];
              lower(COALESCE(u.displayName, u.username, u.email, '')) ASC`,
           [
             currentUser.id,
-            selectedCity,
+            ...messageScopeCities,
             currentUser.id,
-            selectedCity,
+            ...messageScopeCities,
             currentUser.id,
             currentUser.id,
             supportCircleUser?.id || null,
@@ -4340,7 +4353,7 @@ let whereParams = [];
           ]
         );
         messageContacts = (messageContacts || []).filter((row) =>
-          getUserAllowedCities(row, row?.city || "Enumclaw").includes(selectedCity)
+          getUserAllowedCities(row, row?.city || "Enumclaw").some(isCityInMessageScope)
         );
       } catch (_) {
         messageContacts = [];
@@ -4353,20 +4366,20 @@ let whereParams = [];
                FROM messages
               WHERE recipientUserId = ?
                 AND senderUserId = ?
-                AND city = ?
+                AND city IN (${messageScopePlaceholders})
                 AND readAt IS NULL`,
-            [currentUser.id, supportCircleUser.id, selectedCity]
+            [currentUser.id, supportCircleUser.id, ...messageScopeCities]
           );
           const supportLatestRow = await get(
             `SELECT MAX(datetime(createdAt)) AS latestAt
                FROM messages
-              WHERE city = ?
+              WHERE city IN (${messageScopePlaceholders})
                 AND (
                   (senderUserId = ? AND recipientUserId = ?)
                   OR
                   (senderUserId = ? AND recipientUserId = ?)
                 )`,
-            [selectedCity, currentUser.id, supportCircleUser.id, supportCircleUser.id, currentUser.id]
+            [...messageScopeCities, currentUser.id, supportCircleUser.id, supportCircleUser.id, currentUser.id]
           );
           const supportContact = {
             id: Number(supportCircleUser.id),
@@ -4427,23 +4440,23 @@ let whereParams = [];
                s.photoUrl AS senderPhotoUrl
              FROM messages m
              LEFT JOIN users s ON s.id = m.senderUserId
-             WHERE m.city = ?
+             WHERE m.city IN (${messageScopePlaceholders})
                AND (
                  (m.senderUserId = ? AND m.recipientUserId = ?)
                  OR
                  (m.senderUserId = ? AND m.recipientUserId = ?)
                )
              ORDER BY datetime(m.createdAt) ASC`,
-            [selectedCity, currentUser.id, selectedMessageContactId, selectedMessageContactId, currentUser.id]
+            [...messageScopeCities, currentUser.id, selectedMessageContactId, selectedMessageContactId, currentUser.id]
           );
           await run(
             `UPDATE messages
                 SET readAt = datetime('now')
               WHERE recipientUserId = ?
                 AND senderUserId = ?
-                AND city = ?
+                AND city IN (${messageScopePlaceholders})
                 AND readAt IS NULL`,
-            [currentUser.id, selectedMessageContactId, selectedCity]
+            [currentUser.id, selectedMessageContactId, ...messageScopeCities]
           );
           if (selectedMessageContact) selectedMessageContact.unreadCount = 0;
           unreadMessagesCount = Math.max(
@@ -6989,23 +7002,23 @@ return `
              s.photoUrl AS senderPhotoUrl
            FROM messages m
            LEFT JOIN users s ON s.id = m.senderUserId
-           WHERE m.city = ?
+           WHERE m.city IN (${messageScopePlaceholders})
              AND (
                (m.senderUserId = ? AND m.recipientUserId = ?)
                OR
                (m.senderUserId = ? AND m.recipientUserId = ?)
              )
            ORDER BY datetime(m.createdAt) ASC`,
-          [selectedCity, currentUser.id, selectedMessageContactId, selectedMessageContactId, currentUser.id]
+          [...messageScopeCities, currentUser.id, selectedMessageContactId, selectedMessageContactId, currentUser.id]
         );
         await run(
           `UPDATE messages
               SET readAt = datetime('now')
             WHERE recipientUserId = ?
               AND senderUserId = ?
-              AND city = ?
+              AND city IN (${messageScopePlaceholders})
               AND readAt IS NULL`,
-          [currentUser.id, selectedMessageContactId, selectedCity]
+          [currentUser.id, selectedMessageContactId, ...messageScopeCities]
         );
         unreadMessagesCount = Math.max(0, unreadMessagesCount - Number(selectedMessageContact.unreadCount || 0));
         selectedMessageContact.unreadCount = 0;
@@ -8192,7 +8205,11 @@ return `
             </a>
           `;
         }).join("")
-      : `<div class="messages-empty">No other users are available in ${esc(selectedCity)} yet.</div>`;
+      : `<div class="messages-empty">No other users are available in ${esc(messageScopeLabel)} yet.</div>`;
+
+    const messageComposeCity = selectedMessageContact && !selectedMessageContact.supportAlias
+      ? getMessageContactCity(selectedMessageContact)
+      : selectedCity;
 
     const messageConversationHtml = selectedMessageContact
       ? (messageConversationRows.length
@@ -13627,8 +13644,8 @@ return `
           <div class="card messages-card messages-contact-card">
             <div class="sectionTitle">
               <div>
-                <h2>${esc(selectedCity)} users</h2>
-                <p class="sub">Message people in your city, see who is online, or open Support Circle for troubleshooting help.</p>
+                <h2>${esc(messageScopeLabel)} users</h2>
+                <p class="sub">Message people in this workspace, see who is online, or open Support Circle for troubleshooting help.</p>
               </div>
             </div>
             ${messagesNoticeHtml}
@@ -13639,7 +13656,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>${selectedMessageContact ? esc(selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "Conversation")) : "Conversation"}</h2>
-                <p class="sub">${selectedMessageContact ? esc(selectedMessageContact.supportAlias ? "Troubleshooting chat" : `${selectedCity} conversation`) : `Choose a ${selectedCity} user to start messaging.`}</p>
+                <p class="sub">${selectedMessageContact ? esc(selectedMessageContact.supportAlias ? "Troubleshooting chat" : `${messageScopeLabel} conversation`) : `Choose a ${messageScopeLabel} user to start messaging.`}</p>
               </div>
             </div>
             <div class="messages-panel">
@@ -13649,7 +13666,7 @@ return `
                 ${onlineStatusMarkup(selectedMessageContact.lastSeenAt, `${selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User")} status`)}
                 <span>${esc(selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User"))}</span>
               </div>
-                  <div class="muted" style="margin-top:6px;">${selectedMessageContact.supportAlias ? `Direct troubleshooting help for ${esc(selectedCity)} users` : `Role: ${esc(formatRoleLabel(selectedMessageContact.role || "organizer"))} · City: ${esc(selectedMessageContact.city || selectedCity)}`}</div>
+                  <div class="muted" style="margin-top:6px;">${selectedMessageContact.supportAlias ? `Direct troubleshooting help for ${esc(messageScopeLabel)} users` : `Role: ${esc(formatRoleLabel(selectedMessageContact.role || "organizer"))} · City: ${esc(messageComposeCity)}`}</div>
             </div>
             ` : ``}
             <div class="messages-thread">${messageConversationHtml}</div>
@@ -13657,7 +13674,7 @@ return `
             ${selectedMessageContact ? `
             <form class="messages-compose" method="POST" action="/admin/messages" id="messagesComposeForm">
               <input type="hidden" name="recipientUserId" value="${esc(String(selectedMessageContact.id))}" />
-              ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
+              ${messageComposeCity ? `<input type="hidden" name="city" value="${esc(messageComposeCity)}" />` : ``}
               <textarea class="ctrl" name="body" id="messagesComposeBody" placeholder="Write a message to ${esc(selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "this user"))}..." required></textarea>
               <div><button class="btn btn-primary" type="submit">Send message</button></div>
             </form>
@@ -13668,7 +13685,7 @@ return `
         <script>
         (function(){
           var recipientUserId = ${selectedMessageContact ? Number(selectedMessageContact.id || 0) : 0};
-          var currentCity = ${JSON.stringify(String(selectedCity || ""))};
+          var currentCity = ${JSON.stringify(String(messageComposeCity || ""))};
           var bodyEl = document.getElementById("messagesComposeBody");
           var formEl = document.getElementById("messagesComposeForm");
           var typingEl = document.getElementById("messageTypingStatus");
@@ -19444,9 +19461,14 @@ router.get("/pending-count", async (req, res) => {
     const currentUser = await resolveSessionUser(req);
     let messages = 0;
     if (currentUser?.id) {
+      const messageScopeCities = ADMIN_SIDEBAR_GROUPS["Plateau Regional"].includes(city)
+        ? ADMIN_SIDEBAR_GROUPS["Plateau Regional"]
+        : [city];
+      const messagePlaceholders = messageScopeCities.map(() => "?").join(", ");
       const messageRow = await get(
-        "SELECT COUNT(*) AS count FROM messages WHERE recipientUserId = ? AND city = ? AND readAt IS NULL",
-        [currentUser.id, city]
+        `SELECT COUNT(*) AS count FROM messages
+          WHERE recipientUserId = ? AND city IN (${messagePlaceholders}) AND readAt IS NULL`,
+        [currentUser.id, ...messageScopeCities]
       );
       messages = Number(messageRow?.count || 0);
     }
