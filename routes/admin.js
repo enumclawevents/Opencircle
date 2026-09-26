@@ -6181,7 +6181,7 @@ return `
       const organizer = String(event?.organizer || "").trim() || "(unknown)";
       for (const category of uniqueCategories) {
         if (!categoryAnalytics.has(category)) {
-          categoryAnalytics.set(category, { category, events: 0, views: 0, organizers: new Map() });
+          categoryAnalytics.set(category, { category, events: 0, views: 0, organizers: new Map(), eventRows: new Map() });
         }
         const categoryRow = categoryAnalytics.get(category);
         categoryRow.events += 1;
@@ -6190,13 +6190,23 @@ return `
         organizerRow.events += 1;
         organizerRow.views += views;
         categoryRow.organizers.set(organizer, organizerRow);
+        const eventId = Number(event?.id || 0);
+        const eventRow = categoryRow.eventRows.get(eventId) || {
+          id: eventId,
+          title: String(event?.title || "Untitled event").trim() || "Untitled event",
+          views: 0,
+        };
+        eventRow.views += views;
+        categoryRow.eventRows.set(eventId, eventRow);
       }
     }
     const categoryAnalyticsRows = [...categoryAnalytics.values()]
       .map((row) => {
         const leader = [...row.organizers.values()]
           .sort((a, b) => b.views - a.views || b.events - a.events || a.organizer.localeCompare(b.organizer))[0] || null;
-        return { ...row, leader };
+        const eventLeader = [...row.eventRows.values()]
+          .sort((a, b) => b.views - a.views || a.title.localeCompare(b.title) || a.id - b.id)[0] || null;
+        return { ...row, leader, eventLeader };
       })
       .sort((a, b) => b.views - a.views || b.events - a.events || a.category.localeCompare(b.category));
     const categoryPopularityHtml = categoryAnalyticsRows.length
@@ -6223,6 +6233,25 @@ return `
               <td>${esc(row.category)}</td>
               <td>${organizerLabel}</td>
               <td>${Number(leader?.events || 0).toLocaleString("en-US")}</td>
+              <td>${Number(leader?.views || 0).toLocaleString("en-US")}</td>
+            </tr>
+          `;
+        }).join("")
+      : `<tr><td colspan="4" class="muted">No category leaders yet.</td></tr>`;
+    const categoryEventLeadersHtml = categoryAnalyticsRows.length
+      ? categoryAnalyticsRows.slice(0, 10).map((row) => {
+          const leader = row.eventLeader;
+          const eventHref = leader?.id
+            ? `/admin/events-analytics?event=${encodeURIComponent(String(leader.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`
+            : "";
+          const eventLabel = leader
+            ? (eventHref ? `<a href="${esc(eventHref)}">${esc(leader.title)}</a>` : esc(leader.title))
+            : "—";
+          return `
+            <tr>
+              <td>${esc(row.category)}</td>
+              <td>${eventLabel}</td>
+              <td>1</td>
               <td>${Number(leader?.views || 0).toLocaleString("en-US")}</td>
             </tr>
           `;
@@ -10683,6 +10712,13 @@ return `
 
       .grid2 > .card:last-child .sectionTitle{ margin-bottom:12px; }
       .grid2 > .card:last-child .mini + .mini{ margin-top:var(--gap); }
+      .category-analytics-grid{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .category-analytics-grid > .card:first-child,
+      .category-analytics-grid > .card:last-child{
+        grid-column: span 1;
+      }
       .newsletter-preview-tools{
         display:grid;
         grid-template-columns: 360px minmax(0, 1fr);
@@ -13424,7 +13460,7 @@ return `
 
         <!-- Category analytics -->
         ${showAnalytics && !selectedEventAnalytics ? `
-        <section class="grid2 analytics-main-grid">
+        <section class="grid2 analytics-main-grid category-analytics-grid">
           <div class="card">
             <div class="sectionTitle">
               <div>
@@ -13443,13 +13479,23 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Category leaders</h2>
-                <p class="sub">Organizer with the most views in each category</p>
+                <p class="sub" id="categoryLeaderSubtitle">Organizer with the most views in each category</p>
+              </div>
+              <div class="seg" data-category-leader-toggle aria-label="Category leader type">
+                <button type="button" class="on" data-category-leader-mode="organizer" aria-pressed="true">Organizer</button>
+                <button type="button" data-category-leader-mode="event" aria-pressed="false">Event</button>
               </div>
             </div>
-            <div class="mini">
+            <div class="mini" data-category-leader-panel="organizer">
               <table class="analytics-table">
                 <thead><tr><th>Category</th><th>Leader</th><th>Events</th><th>Views</th></tr></thead>
                 <tbody>${categoryLeadersHtml}</tbody>
+              </table>
+            </div>
+            <div class="mini" data-category-leader-panel="event" hidden>
+              <table class="analytics-table">
+                <thead><tr><th>Category</th><th>Top event</th><th>Events</th><th>Views</th></tr></thead>
+                <tbody>${categoryEventLeadersHtml}</tbody>
               </table>
             </div>
           </div>
@@ -19077,6 +19123,29 @@ return `
   initOrganizerChart();
   initVenueChart();
   initAdChart();
+
+  (function initCategoryLeaderToggle(){
+    var toggle = document.querySelector('[data-category-leader-toggle]');
+    if (!toggle) return;
+    var subtitle = document.getElementById('categoryLeaderSubtitle');
+    var panels = document.querySelectorAll('[data-category-leader-panel]');
+    toggle.addEventListener('click', function(event){
+      var button = event.target.closest('[data-category-leader-mode]');
+      if (!button) return;
+      var mode = button.getAttribute('data-category-leader-mode') === 'event' ? 'event' : 'organizer';
+      toggle.querySelectorAll('[data-category-leader-mode]').forEach(function(item){
+        var active = item.getAttribute('data-category-leader-mode') === mode;
+        item.classList.toggle('on', active);
+        item.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      panels.forEach(function(panel){
+        panel.hidden = panel.getAttribute('data-category-leader-panel') !== mode;
+      });
+      if (subtitle) subtitle.textContent = mode === 'event'
+        ? 'Highest-viewed event in each category'
+        : 'Organizer with the most views in each category';
+    });
+  })();
 
   (function initHeaderAccountMenu(){
     var menu = document.querySelector('[data-account-menu]');
