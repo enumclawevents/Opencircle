@@ -4286,18 +4286,20 @@ let whereParams = [];
       ? selectedAdminWorkspace
       : (selectedAdminWorkspace === "Plateau Events" ? "Plateau Regional" : selectedAdminWorkspace);
     const selectedAdminPrimaryCity = selectedAdminCities[0] || selectedCity || userCity;
-    const messagesWorkspaceQuery = selectedAdminWorkspace
-      ? `workspace=${encodeURIComponent(selectedAdminWorkspace)}`
-      : (selectedCity ? `city=${encodeURIComponent(selectedCity)}` : "");
+    const messagesWorkspaceQuery = hasAdminAccess
+      ? ""
+      : (selectedAdminWorkspace
+        ? `workspace=${encodeURIComponent(selectedAdminWorkspace)}`
+        : (selectedCity ? `city=${encodeURIComponent(selectedCity)}` : ""));
     const messagesAdminHref = `/admin/messages${messagesWorkspaceQuery ? `?${messagesWorkspaceQuery}` : ""}`;
-    // Messages are scoped to the active admin workspace.  In particular, the
-    // Plateau Regional sidebar option represents several cities rather than
-    // only its primary (Buckley) city.
-    const messageScopeCities = [...new Set((selectedAdminCities.length ? selectedAdminCities : [selectedCity])
+    // Admins use one all-area inbox. Other roles are scoped to their active
+    // workspace; Plateau Regional represents several cities rather than only
+    // its primary (Buckley) city.
+    const messageScopeCities = [...new Set((hasAdminAccess ? ADMIN_AREAS : (selectedAdminCities.length ? selectedAdminCities : [selectedCity]))
       .map((city) => String(city || "").trim())
       .filter(Boolean))];
     const messageScopePlaceholders = messageScopeCities.map(() => "?").join(", ");
-    const messageScopeLabel = selectedAdminLabel || selectedCity;
+    const messageScopeLabel = hasAdminAccess ? "All areas" : (selectedAdminLabel || selectedCity);
     const isCityInMessageScope = (city) => messageScopeCities.includes(String(city || "").trim());
     const getMessageContactCity = (user) => {
       const allowedCities = getUserAllowedCities(user, user?.city || selectedCity);
@@ -19537,7 +19539,9 @@ router.get("/pending-count", async (req, res) => {
     const currentUser = await resolveSessionUser(req);
     let messages = 0;
     if (currentUser?.id) {
-      const messageScopeCities = ADMIN_SIDEBAR_GROUPS["Plateau Regional"].includes(city)
+      const messageScopeCities = isAdminRole(currentUser.role)
+        ? ADMIN_AREAS.slice()
+        : ADMIN_SIDEBAR_GROUPS["Plateau Regional"].includes(city)
         ? ADMIN_SIDEBAR_GROUPS["Plateau Regional"]
         : [city];
       const messagePlaceholders = messageScopeCities.map(() => "?").join(", ");
