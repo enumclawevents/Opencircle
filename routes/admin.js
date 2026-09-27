@@ -6685,11 +6685,13 @@ return `
       const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : { labels: [], values: [] };
       const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : { labels: [], values: [] };
       const cityEventSet = (chartSets.cityEvents && chartSets.cityEvents[mode]) ? chartSets.cityEvents[mode] : { labels: [], values: [] };
+      const isIndividualEventChart = !!selectedEventAnalytics;
       const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
       const eventValues = Array.isArray(eventSet.values) ? eventSet.values.map((v) => Number(v || 0)) : [];
       const viewValues = Array.isArray(viewSet.values) ? viewSet.values.map((v) => Number(v || 0)) : [];
       const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values.map((v) => Number(v || 0)) : [];
-      const allValues = eventValues.concat(viewValues).filter((v) => Number.isFinite(v));
+      const allValues = (isIndividualEventChart ? viewValues : eventValues.concat(viewValues))
+        .filter((v) => Number.isFinite(v));
       const { width, height, padL, padR, padT, padB } = analyticsChartStyle;
       const plotW = width - padL - padR;
       const plotH = height - padT - padB;
@@ -6806,9 +6808,9 @@ return `
               <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
-          ${fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
+          ${!isIndividualEventChart && fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
           ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-          ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${!isIndividualEventChart && eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${chartMarkers}
           ${hoverRects}
           ${labels.map((label, index) => {
@@ -6835,8 +6837,8 @@ return `
       const cityEvents = Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US");
       const safeLabel = esc(label);
       return 'Period: <strong>' + safeLabel + '</strong>' +
-        ' <span style="margin-left:14px;">Events: <strong>' + events + '</strong></span>' +
-        (Number(cityEventValues[safeIndex] || 0) > 0 ? ' <span style="margin-left:14px;">City events: <strong>' + cityEvents + '</strong></span>' : '') +
+        (!selectedEventAnalytics ? ' <span style="margin-left:14px;">Events: <strong>' + events + '</strong></span>' : '') +
+        (!selectedEventAnalytics && Number(cityEventValues[safeIndex] || 0) > 0 ? ' <span style="margin-left:14px;">City events: <strong>' + cityEvents + '</strong></span>' : '') +
         ' <span style="margin-left:14px;">Views: <strong>' + views + '</strong></span>';
     }
     let selectedEventAnalytics = null;
@@ -13491,10 +13493,12 @@ return `
               <div class="left">
                 <div class="chartTopRow">
                     <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
+                      ${!selectedEventAnalytics ? `
                       <div class="chartLegendItem is-events" data-legend-metric="events">
                         <span class="chartLegendLine"></span>
                         <span>${isOrganizerUser ? "My events" : "Events"}</span>
                       </div>
+                      ` : ``}
                       <div class="chartLegendItem is-views" data-legend-metric="views">
                         <span class="chartLegendLine is-dashed"></span>
                       <span>Views</span>
