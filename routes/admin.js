@@ -16477,7 +16477,7 @@ return `
                     <div id="adChartSvgHost" data-active-metric="views">${adChartSvgViews}</div>
                     <div id="adChartSvgViews" hidden>${adChartSvgViews}</div>
                     <div id="adChartSvgClicks" hidden>${adChartSvgClicks}</div>
-                    <canvas id="adChart" style="position:absolute; inset:0; width:100%; height:260px; display:block;"></canvas>
+                    <canvas id="adChart" style="position:absolute; inset:0; width:100%; height:260px; display:none;"></canvas>
                     <div id="adChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
                   </div>
                 </div>
@@ -19060,6 +19060,10 @@ return `
       $svgHost.setAttribute("data-active-metric", targetMetric);
     }
 
+    // The server-rendered SVG is the primary chart. Keep the canvas available
+    // only for environments where that SVG cannot render, never as a second
+    // layer over it.
+    if ($canvas) $canvas.style.display = $svgHost ? "none" : "block";
     const ctx = $canvas ? $canvas.getContext("2d") : null;
     if (!ctx || !$canvas) {
       syncSvgFallback("views");
