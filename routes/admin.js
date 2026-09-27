@@ -4410,6 +4410,7 @@ let whereParams = [];
             ...messageScopeCities,
             currentUser.id,
             currentUser.id,
+            currentUser.id,
             supportCircleUser?.id || null,
             supportCircleUser?.id || null
           ]
