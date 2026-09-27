@@ -20396,7 +20396,7 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
 
     const imageFile = req.file || null;
     if (imageFile) {
-      imageUrl = await persistUploadedAdImage(imageFile, req);
+      imageUrl = await persistUploadedImage(imageFile, req);
     }
 
     const autoSeoFields = buildBasicJobSeoFields({ title, company, location, description });
@@ -20511,7 +20511,7 @@ router.post("/ads", upload.single("adImageFile"), async (req, res) => {
 
     const imageFile = req.file || null;
     if (imageFile) {
-      imageUrl = await persistUploadedImage(imageFile, req);
+      imageUrl = await persistUploadedAdImage(imageFile, req);
     }
 
     const baseSlug = slugify(`${name}-${placement}`);
