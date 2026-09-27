@@ -1838,6 +1838,7 @@ async function insertEventFromPending(p) {
     ["featuredOrderId", String(p.featuredOrderId || "") || null],
     ["featuredPurchasedAt", String(p.featuredPurchasedAt || "") || null],
     ["featuredUntil", computedFeaturedUntil || null],
+    ["submittedAt", String(p.createdAt || "") || null],
   ];
 
   const insertCols = [];
@@ -6848,8 +6849,9 @@ return `
       // the event report available there; the creation marker simply cannot
       // be shown until that historical schema is migrated.
       const selectedEventCreatedAtSql = cols.has("createdAt") ? "createdAt" : "NULL AS createdAt";
+      const selectedEventSubmittedAtSql = cols.has("submittedAt") ? "submittedAt" : "NULL AS submittedAt";
       const selectedEventRow = await get(
-        `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, ${selectedEventCreatedAtSql}, hasRecurrence, recurrenceRule,
+        `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, ${selectedEventCreatedAtSql}, ${selectedEventSubmittedAtSql}, hasRecurrence, recurrenceRule,
                 recurrenceDates, recurrenceStartDate, recurrenceUntilDate, featured, viewCount, uniqueViewCount, ticketClickCount,
                 goingCount, interestedCount
          FROM events
@@ -6872,7 +6874,7 @@ return `
               .map((occurrence) => ({ label: "Event day", dateTime: occurrence.startDateTime }))
           : [{ label: "Event day", dateTime: eventRow.startDateTime }];
         selectedEventChartMarkers = [
-          { label: "Event created", dateTime: eventRow.createdAt },
+          { label: "Event submitted", dateTime: eventRow.submittedAt || eventRow.createdAt },
           ...eventDayMarkers,
         ].filter((marker) => parseIsoParts(String(marker.dateTime || "")));
         const selectedEventViewRows = hasSourceTrackingTable
@@ -20909,6 +20911,14 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     // ---- Build fields ----
     const isUpdate = id !== undefined && id !== null && String(id).trim() !== "";
+    let pendingSubmissionCreatedAt = null;
+    if (!isUpdate && pendingId && cols.has("submittedAt")) {
+      const pendingSubmission = await get(
+        "SELECT createdAt FROM pending_events WHERE id = ? LIMIT 1",
+        [parseInt(pendingId, 10)]
+      );
+      pendingSubmissionCreatedAt = String(pendingSubmission?.createdAt || "").trim() || null;
+    }
 
     const baseFields = [
       ["city", city],
@@ -20936,6 +20946,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     ];
     if (!isUpdate) {
       baseFields.push(["createdByUserId", sessionUser?.id || null]);
+      if (pendingSubmissionCreatedAt) baseFields.push(["submittedAt", pendingSubmissionCreatedAt]);
     }
 
     const recFields = [

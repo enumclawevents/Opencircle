@@ -165,6 +165,7 @@ async function initDB() {
       archived_reason TEXT,
 
       createdByUserId INTEGER,
+      submittedAt TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     );
@@ -436,6 +437,10 @@ async function initDB() {
   await addCol("archived_reason", `ALTER TABLE events ADD COLUMN archived_reason TEXT;`);
 
   await addCol("createdByUserId", `ALTER TABLE events ADD COLUMN createdByUserId INTEGER;`);
+  // Submission time is intentionally nullable: approved public submissions
+  // preserve their original queue timestamp, while older/manual events fall
+  // back to createdAt in reporting.
+  await addCol("submittedAt", `ALTER TABLE events ADD COLUMN submittedAt TEXT;`);
   await addCol("createdAt", `ALTER TABLE events ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
   await addCol("updatedAt", `ALTER TABLE events ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'));`);
 
