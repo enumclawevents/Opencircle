@@ -2420,6 +2420,7 @@ async function ensureJobApplicantSchema() {
 }
 
 let _userProfileSchemaEnsured = false;
+const SOLE_ADMIN_EMAIL = "daniel@opencircleapi.com";
 async function ensureUserProfileSchema() {
   if (_userProfileSchemaEnsured) return;
 
@@ -2461,8 +2462,10 @@ async function ensureUserProfileSchema() {
   await addCol("updatedAt", "ALTER TABLE users ADD COLUMN updatedAt TEXT");
 
   try {
-    await run(`UPDATE users SET role = 'developer' WHERE lower(COALESCE(role,'')) IN ('admin','developer','area_manager')`);
-    await run(`UPDATE users SET role = 'organizer' WHERE lower(COALESCE(role,'')) NOT IN ('developer') OR role IS NULL OR role = ''`);
+    await run(`UPDATE users SET role = 'admin' WHERE lower(COALESCE(email,'')) = ?`, [SOLE_ADMIN_EMAIL]);
+    await run(`UPDATE users SET role = 'developer' WHERE lower(COALESCE(role,'')) = 'admin' AND lower(COALESCE(email,'')) <> ?`, [SOLE_ADMIN_EMAIL]);
+    await run(`UPDATE users SET role = 'developer' WHERE lower(COALESCE(role,'')) IN ('developer','area_manager')`);
+    await run(`UPDATE users SET role = 'organizer' WHERE lower(COALESCE(role,'')) NOT IN ('admin','developer') OR role IS NULL OR role = ''`);
     await run(
       `UPDATE users
           SET permissionsJson = ?
@@ -3761,8 +3764,13 @@ function formatOrganizerPermissionLabel(key) {
 
 function normalizeRoleValue(value) {
   const normalized = String(value || "organizer").trim().toLowerCase();
-  if (["admin", "developer", "area_manager"].includes(normalized)) return "developer";
+  if (normalized === "admin") return "admin";
+  if (["developer", "area_manager"].includes(normalized)) return "developer";
   return "organizer";
+}
+
+function isAdminRole(role) {
+  return normalizeRoleValue(role) === "admin";
 }
 
 function isDeveloperRole(role) {
@@ -3770,19 +3778,24 @@ function isDeveloperRole(role) {
 }
 
 function hasDeveloperAccessRole(role) {
-  return isDeveloperRole(role);
+  return isAdminRole(role) || isDeveloperRole(role);
 }
 
 function formatRoleLabel(role) {
+  if (isAdminRole(role)) return "Admin";
   return isDeveloperRole(role) ? "Developer" : "Organizer";
 }
 
 function isLiveRole(role) {
   const normalized = normalizeRoleValue(role);
-  return normalized === "developer" || normalized === "organizer";
+  return normalized === "admin" || normalized === "developer" || normalized === "organizer";
 }
 
-function liveRoleOptionsMarkup(selectedRole, { includeLegacySelected = false } = {}) {
+function isSoleAdminEmail(email) {
+  return String(email || "").trim().toLowerCase() === SOLE_ADMIN_EMAIL;
+}
+
+function liveRoleOptionsMarkup(selectedRole, { includeAdmin = false, includeLegacySelected = false } = {}) {
   const normalized = normalizeRoleValue(selectedRole || "organizer");
   let legacyOption = "";
   if (includeLegacySelected && normalized && !isLiveRole(normalized)) {
@@ -3790,7 +3803,8 @@ function liveRoleOptionsMarkup(selectedRole, { includeLegacySelected = false } =
   }
   return `${legacyOption}
     <option value="organizer" ${normalized === "organizer" ? "selected" : ""}>Organizer</option>
-    <option value="developer" ${normalized === "developer" ? "selected" : ""}>Developer</option>`;
+    <option value="developer" ${normalized === "developer" ? "selected" : ""}>Developer</option>
+    ${includeAdmin ? `<option value="admin" ${normalized === "admin" ? "selected" : ""}>Admin</option>` : ""}`;
 }
 
 function parsePermissionsObject(value) {
@@ -3881,7 +3895,7 @@ function isCheckedValue(value) {
 }
 
 function getUserSectionPermissions(user) {
-  if (isDeveloperRole(user?.role)) {
+  if (hasDeveloperAccessRole(user?.role)) {
     return { events: true, venues: true, jobs: true, ads: true, featureEvents: true };
   }
   return normalizeOrganizerPermissions(user?.permissionsJson, EXISTING_ORGANIZER_PERMISSIONS);
@@ -3897,6 +3911,7 @@ function hasExplicitCityAccess(user) {
 }
 
 function getUserAllowedCities(user, fallbackCity = "Enumclaw") {
+  if (isAdminRole(user?.role)) return ADMIN_AREAS.slice();
   // Developers retain full-area access until an administrator explicitly
   // saves an area selection for them.
   if (isDeveloperRole(user?.role) && !hasExplicitCityAccess(user)) return ADMIN_AREAS.slice();
@@ -3914,7 +3929,7 @@ function pickAccessibleCity(requestedCity, user, { fallbackCity = "Enumclaw" } =
 }
 
 function getUserAdminWorkspaceOptions(user, fallbackCity = "Enumclaw") {
-  if (isDeveloperRole(user?.role)) return ADMIN_AREAS.slice();
+  if (isAdminRole(user?.role)) return ADMIN_AREAS.slice();
 
   const allowedCities = getUserAllowedCities(user, fallbackCity);
   const options = [];
@@ -4014,7 +4029,7 @@ function pickAccessibleAdminSidebarArea(requestedArea, user, { fallbackCity = "E
 }
 
 function getAdminWorkspaceCities(workspace, user, fallbackCity = "Enumclaw") {
-  if (isDeveloperRole(user?.role)) {
+  if (isAdminRole(user?.role)) {
     const selectedCity = pickAccessibleCity(workspace, user, { fallbackCity });
     return selectedCity ? [selectedCity] : ADMIN_AREAS.slice();
   }
@@ -4236,8 +4251,9 @@ let whereParts = [];
 let whereParams = [];
 
     const currentUser = await resolveSessionUser(req);
-    const userRole = normalizeRoleValue(req.user?.role || "organizer");
+    const userRole = normalizeRoleValue(currentUser?.role || req.user?.role || "organizer");
     const hasDeveloperAccess = hasDeveloperAccessRole(userRole);
+    const hasAdminAccess = isAdminRole(userRole);
     const isOrganizerUser = userRole === "organizer";
     const sectionPermissions = getUserSectionPermissions(currentUser || { role: userRole });
     const userAllowedCities = getUserAllowedCities(currentUser || { role: userRole, city: req.user?.city || "Enumclaw" }, req.user?.city || "Enumclaw");
@@ -4252,18 +4268,19 @@ let whereParams = [];
 
     // City/workspace (developers stay city-based; non-developers can be workspace-based)
     const userCity = String(req.user?.city || currentUser?.city || "Enumclaw");
-    const selectedCity = pickAccessibleCity(req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity: userCity });
+    const accessUser = currentUser || { role: userRole, city: userCity };
+    const selectedCity = pickAccessibleCity(req.query.city, accessUser, { fallbackCity: userCity });
     const selectedDeveloperSidebarArea = hasDeveloperAccess
-      ? pickAccessibleAdminSidebarArea(req.query.workspace || req.query.city, { role: "developer" }, { fallbackCity: userCity })
+      ? pickAccessibleAdminSidebarArea(req.query.workspace || req.query.city, accessUser, { fallbackCity: userCity })
       : "";
     const adminWorkspaceOptions = hasDeveloperAccess
-      ? getAdminSidebarAreaOptions({ role: "developer" }, userCity)
+      ? getAdminSidebarAreaOptions(accessUser, userCity)
       : getUserAdminWorkspaceOptions(currentUser, userCity);
     const selectedAdminWorkspace = hasDeveloperAccess
       ? selectedDeveloperSidebarArea
       : pickAccessibleAdminWorkspace(req.query.workspace || req.query.city, currentUser, { fallbackWorkspace: userCity, fallbackCity: userCity });
     const selectedAdminCities = hasDeveloperAccess
-      ? getAdminSidebarAreaCities(selectedAdminWorkspace, { role: "developer" }, userCity)
+      ? getAdminSidebarAreaCities(selectedAdminWorkspace, accessUser, userCity)
       : getAdminWorkspaceCities(selectedAdminWorkspace, currentUser, userCity);
     const selectedAdminLabel = hasDeveloperAccess
       ? selectedAdminWorkspace
@@ -4291,12 +4308,12 @@ let whereParams = [];
       ? "Plateau Regional"
       : selectedCity;
     const newsletterScopeOptions = getUserAllowedNewsletterScopes(
-      hasDeveloperAccess ? { role: "developer" } : currentUser,
+      accessUser,
       userCity
     );
     let selectedNewsletterScope = pickAccessibleNewsletterScope(
       req.query.newsletterScope || req.query.city,
-      hasDeveloperAccess ? { role: "developer" } : currentUser,
+      accessUser,
       { fallbackScope: defaultNewsletterScope, fallbackCity: userCity }
     );
     const buildNewsletterHref = (pathname, extraParams = {}) =>
@@ -4932,7 +4949,7 @@ try {
       return `${req.baseUrl || "/admin"}${req.path === "/" ? "" : (req.path || "")}${qs ? `?${qs}` : ""}`;
     };
     const buildSidebarAreaSwitchHref = (areaValue) => {
-      const nextCities = getAdminSidebarAreaCities(areaValue, hasDeveloperAccess ? { role: "developer" } : currentUser, userCity);
+      const nextCities = getAdminSidebarAreaCities(areaValue, accessUser, userCity);
       const href = new URL(buildCitySwitchHref(nextCities[0] || areaValue), "http://localhost");
       href.searchParams.set("newsletterScope", areaValue === "Plateau Regional" ? "Plateau Regional" : (nextCities[0] || areaValue));
       return `${href.pathname}${href.search}`;
@@ -7024,8 +7041,8 @@ return `
     if (showNewsletter && !canManageNewsletter) return res.status(403).send("Forbidden");
     if (showNewsletterPreview && !canManageNewsletter) return res.status(403).send("Forbidden");
     if (showNewsletterAudience && !canManageNewsletter) return res.status(403).send("Forbidden");
-    if (showUsers && !hasDeveloperAccess) return res.status(403).send("Forbidden");
-    if (showInvites && !hasDeveloperAccess) return res.status(403).send("Forbidden");
+    if (showUsers && !hasAdminAccess) return res.status(403).send("Forbidden");
+    if (showInvites && !hasAdminAccess) return res.status(403).send("Forbidden");
     if (showMessages && !canUseMessages) return res.status(403).send("Forbidden");
     if (showMessages && !selectedMessageContact && messageContacts.length) {
       selectedMessageContactId = Number(messageContacts[0].id);
@@ -7901,6 +7918,8 @@ return `
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">User has no email on file.</div>`
           : notice === "email_taken"
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">That email is already assigned to another user.</div>`
+          : notice === "admin_restricted"
+          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">Only ${esc(SOLE_ADMIN_EMAIL)} can have the Admin role.</div>`
           : notice === "city_required"
           ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">Select at least one area for the user.</div>`
           : notice === "send_failed"
@@ -8122,7 +8141,7 @@ return `
                             <div class="users-modal-label">Permission level</div>
                             <form id="${userFormId}" method="POST" action="/admin/users/${encodeURIComponent(u.id)}/role" style="display:grid; gap:14px;">
                               <select name="role" class="ctrl" style="width:100%;" data-organizer-role-select>
-                                ${liveRoleOptionsMarkup(normalizedUserRole, { includeLegacySelected: true })}
+                                ${liveRoleOptionsMarkup(normalizedUserRole, { includeAdmin: isSoleAdminEmail(u.email), includeLegacySelected: true })}
                               </select>
                               <div>
                                 <div class="users-modal-label" style="margin-bottom:6px;">Email</div>
@@ -12987,8 +13006,8 @@ return `
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="/admin/preferences">Preferences</a>
               <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="/admin/updates-log">Release Notes</a>
-              ${hasDeveloperAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>` : ``}
-              ${hasDeveloperAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>` : ``}
+              ${hasAdminAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>` : ``}
+              ${hasAdminAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>` : ``}
             </div>
           </div>` : ``}
         </nav>
@@ -19670,12 +19689,11 @@ router.post("/messages/typing", express.json(), async (req, res) => {
   }
 });
 
-// Create invite (developer / area manager)
+// Create invite (admin only)
 router.post("/invites", async (req, res) => {
   try {
-    const userRole = normalizeRoleValue(req.user?.role || "organizer");
-    if (!hasDeveloperAccessRole(userRole)) return res.status(403).send("Forbidden");
     const sessionUser = await resolveSessionUser(req);
+    if (!isAdminRole(sessionUser?.role)) return res.status(403).send("Forbidden");
     const email = String(req.body?.email || "").trim().toLowerCase() || null;
     const role = normalizeRoleValue(req.body?.role || "organizer");
     const requestedWorkspace = String(req.body?.workspace || req.body?.city || req.query.workspace || req.query.city || "Enumclaw").trim();
@@ -19687,7 +19705,7 @@ router.post("/invites", async (req, res) => {
     const normalizedCities = normalizeCityAccessList(workspaceCities, req.query.city || "Enumclaw");
     const city = normalizedCities[0] || "Enumclaw";
     const days = Math.max(1, Math.min(30, parseInt(req.body?.days || "7", 10)));
-    if (!isLiveRole(role)) {
+    if (!isLiveRole(role) || role === "admin") {
       return res.status(400).send("Invalid role.");
     }
     const token = crypto.randomBytes(20).toString("hex");
@@ -19797,8 +19815,8 @@ router.post("/preferences/password", async (req, res) => {
 
 router.post("/invites/:id/delete", async (req, res) => {
   try {
-    const role = normalizeRoleValue(req.user?.role || "organizer");
-    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
+    const sessionUser = await resolveSessionUser(req);
+    if (!isAdminRole(sessionUser?.role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/invites");
     await run("DELETE FROM invites WHERE id = ?", [id]);
@@ -19812,11 +19830,11 @@ router.post("/invites/:id/delete", async (req, res) => {
 // Users admin actions
 router.post("/users/:id/role", async (req, res) => {
   try {
-    const role = normalizeRoleValue(req.user?.role || "organizer");
-    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
+    const sessionUser = await resolveSessionUser(req);
+    if (!isAdminRole(sessionUser?.role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/users");
-    const newRole = normalizeRoleValue(req.body?.role || "organizer");
+    let newRole = normalizeRoleValue(req.body?.role || "organizer");
     if (!isLiveRole(newRole)) {
       return res.redirect("/admin/users");
     }
@@ -19840,6 +19858,10 @@ router.post("/users/:id/role", async (req, res) => {
     const newCity = requestedCities[0];
     const emailRaw = String(req.body?.email || "").trim().toLowerCase();
     const newEmail = emailRaw || null;
+    if (newRole === "admin" && !isSoleAdminEmail(newEmail)) {
+      return res.redirect("/admin/users?notice=admin_restricted");
+    }
+    if (isSoleAdminEmail(newEmail)) newRole = "admin";
     if (newEmail) {
       const emailTaken = await get(
         "SELECT id FROM users WHERE lower(COALESCE(email,'')) = lower(?) AND id != ? LIMIT 1",
@@ -19877,8 +19899,8 @@ router.post("/users/:id/role", async (req, res) => {
 
 router.post("/users/:id/delete", async (req, res) => {
   try {
-    const role = normalizeRoleValue(req.user?.role || "organizer");
-    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
+    const sessionUser = await resolveSessionUser(req);
+    if (!isAdminRole(sessionUser?.role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/users");
     await run("DELETE FROM users WHERE id = ?", [id]);
@@ -19891,8 +19913,8 @@ router.post("/users/:id/delete", async (req, res) => {
 
 router.post("/users/:id/reset", async (req, res) => {
   try {
-    const role = normalizeRoleValue(req.user?.role || "organizer");
-    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
+    const sessionUser = await resolveSessionUser(req);
+    if (!isAdminRole(sessionUser?.role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/users");
 
@@ -19921,9 +19943,8 @@ router.post("/users/:id/reset", async (req, res) => {
 
 router.post("/users/:id/resend-invite", async (req, res) => {
   try {
-    const role = normalizeRoleValue(req.user?.role || "organizer");
-    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
     const sessionUser = await resolveSessionUser(req);
+    if (!isAdminRole(sessionUser?.role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/users");
 
