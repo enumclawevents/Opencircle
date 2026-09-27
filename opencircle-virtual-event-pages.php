@@ -831,6 +831,195 @@ function oc_fetch_venue_match_for_location($location_raw, $city = '') {
   ];
 }
 
+/**
+ * Normalize a category/organizer/venue value for related-event comparisons.
+ */
+function oc_related_events_key($value) {
+  return strtolower(trim((string) $value));
+}
+
+function oc_related_events_categories($value) {
+  if (is_string($value)) {
+    $decoded = json_decode($value, true);
+    $value = is_array($decoded) ? $decoded : explode(',', $value);
+  }
+  if (!is_array($value)) return [];
+
+  $keys = [];
+  foreach ($value as $item) {
+    $key = oc_related_events_key($item);
+    if ($key !== '') $keys[$key] = true;
+  }
+  return $keys;
+}
+
+function oc_related_events_is_archived($event) {
+  $value = strtolower(trim((string) ($event['archived'] ?? ($event['Archived'] ?? ''))));
+  return in_array($value, ['1', 'true', 'yes', 'on'], true);
+}
+
+function oc_virtual_event_breadcrumb_archive_url() {
+  if (function_exists('oc_integration_get_events_grid_page_url')) {
+    $url = trim((string) oc_integration_get_events_grid_page_url());
+    if ($url !== '') return $url;
+  }
+  return home_url('/' . OC_VIRTUAL_BASE . '/');
+}
+
+/**
+ * Default virtual-event hierarchy. Filter the array to customize labels,
+ * destinations, or visibility without changing ordinary WordPress pages.
+ */
+function oc_virtual_event_breadcrumb_items($event_title) {
+  $home_label = apply_filters('oc_virtual_event_breadcrumb_home_label', __('Home'));
+  $archive_label = apply_filters('oc_virtual_event_breadcrumb_archive_label', __('Events'));
+  $items = [
+    ['url' => home_url('/'), 'label' => $home_label],
+    ['url' => oc_virtual_event_breadcrumb_archive_url(), 'label' => $archive_label],
+    ['url' => '', 'label' => wp_strip_all_tags((string) $event_title)],
+  ];
+  return apply_filters('oc_virtual_event_breadcrumb_items', $items, $event_title);
+}
+
+function oc_virtual_event_render_breadcrumbs($items) {
+  if (!is_array($items) || count($items) < 2) return;
+  ?>
+  <nav class="oc-event-breadcrumbs" aria-label="<?php echo esc_attr__('Breadcrumb'); ?>">
+    <ol class="oc-event-breadcrumbs__list">
+      <?php foreach ($items as $index => $item): ?>
+        <?php
+          $label = wp_strip_all_tags((string) ($item['label'] ?? ''));
+          $url = trim((string) ($item['url'] ?? ''));
+          if ($label === '') continue;
+          $is_current = $index === array_key_last($items);
+        ?>
+        <li class="oc-event-breadcrumbs__item<?php echo $is_current ? ' is-current' : ''; ?>"<?php echo $is_current ? ' aria-current="page"' : ''; ?>>
+          <?php if (!$is_current && $url !== ''): ?>
+            <a href="<?php echo esc_url($url); ?>"><?php echo esc_html($label); ?></a>
+          <?php else: ?>
+            <span><?php echo esc_html($label); ?></span>
+          <?php endif; ?>
+          <?php if (!$is_current): ?><span class="oc-event-breadcrumbs__separator" aria-hidden="true">›</span><?php endif; ?>
+        </li>
+      <?php endforeach; ?>
+    </ol>
+  </nav>
+  <?php
+}
+
+/**
+ * Fetch and rank a compact set of related upcoming events with one API request.
+ * Categories are the strongest signal, followed by organizer, venue, and date.
+ */
+function oc_related_events_for_event($event, $current_event_id, $limit = 4) {
+  $city = trim((string) ($event['city'] ?? ''));
+  $current_event_id = trim((string) $current_event_id);
+  if ($city === '' || $current_event_id === '') return [];
+
+  $limit = max(1, min(4, (int) $limit));
+  $current_categories = oc_related_events_categories($event['categories'] ?? []);
+  $current_organizer = oc_related_events_key($event['organizer'] ?? '');
+  $current_venue = oc_related_events_key($event['location'] ?? '');
+  $current_start = oc_wp_timestamp_from_iso((string) ($event['startDateTime'] ?? '')) ?: 0;
+
+  $cache_context = [
+    'id' => $current_event_id,
+    'city' => $city,
+    'categories' => array_keys($current_categories),
+    'organizer' => $current_organizer,
+    'venue' => $current_venue,
+    'start' => $current_start,
+    'limit' => $limit,
+  ];
+  $cache_key = 'oc_related_events_v1_' . md5(wp_json_encode($cache_context));
+  $cached = get_transient($cache_key);
+  if (is_array($cached)) return $cached;
+
+  $url = add_query_arg([
+    'city' => $city,
+    'status' => 'upcoming',
+    'expand' => 1,
+    'limit' => 100,
+    'offset' => 0,
+    'sort' => 'soonest',
+  ], rtrim(OC_API_BASE, '/') . '/events');
+  $response = wp_remote_get($url, [
+    'timeout' => 8,
+    'headers' => ['Accept' => 'application/json'],
+  ]);
+  if (is_wp_error($response)) return [];
+
+  $json = json_decode(wp_remote_retrieve_body($response), true);
+  $items = is_array($json['data'] ?? null) ? $json['data'] : [];
+  $now = time();
+  $seen = [];
+  $primary = [];
+  $fallback = [];
+
+  foreach ($items as $item) {
+    if (!is_array($item) || oc_related_events_is_archived($item)) continue;
+    $item_id = trim((string) ($item['id'] ?? ''));
+    if ($item_id === '' || $item_id === $current_event_id) continue;
+
+    $slug = sanitize_title((string) ($item['slug'] ?? ''));
+    $dedupe_key = $slug !== '' ? 'slug:' . $slug : 'id:' . $item_id;
+    if (isset($seen[$dedupe_key])) continue;
+
+    $start_ts = oc_wp_timestamp_from_iso((string) ($item['startDateTime'] ?? '')) ?: 0;
+    $end_ts = oc_wp_timestamp_from_iso((string) ($item['endDateTime'] ?? '')) ?: $start_ts;
+    if (!$start_ts || $end_ts < $now) continue;
+
+    $seen[$dedupe_key] = true;
+    $item_categories = oc_related_events_categories($item['categories'] ?? []);
+    $category_overlap = count(array_intersect_key($current_categories, $item_categories));
+    $same_organizer = $current_organizer !== '' && $current_organizer === oc_related_events_key($item['organizer'] ?? '');
+    $same_venue = $current_venue !== '' && $current_venue === oc_related_events_key($item['location'] ?? '');
+    $proximity = $current_start ? abs($start_ts - $current_start) : PHP_INT_MAX;
+    $is_recurring = (int) ($item['hasRecurrence'] ?? 0) === 1 || !empty($item['recurrenceRule']) || !empty($item['recurrenceDates']);
+
+    $candidate = [
+      'id' => $item_id,
+      'key' => $slug !== '' ? $slug : $item_id,
+      'title' => trim((string) ($item['title'] ?? 'Event')),
+      'start_ts' => $start_ts,
+      'start_label' => oc_event_format_date_range_label($start_ts, $end_ts, null, !$is_recurring),
+      'time_label' => wp_date('g:i a', $start_ts),
+      'location' => trim((string) ($item['location'] ?? '')),
+      'image' => (string) ($item['imageUrl'] ?? ''),
+      'category_overlap' => $category_overlap,
+      'same_organizer' => $same_organizer ? 1 : 0,
+      'same_venue' => $same_venue ? 1 : 0,
+      'proximity' => $proximity,
+    ];
+
+    if ($category_overlap || $same_organizer || $same_venue) {
+      $primary[] = $candidate;
+    } elseif ($current_start && $proximity <= 14 * DAY_IN_SECONDS) {
+      // Same-city, close-in-time events are a restrained fallback only when
+      // there are no direct relationships at all.
+      $fallback[] = $candidate;
+    }
+  }
+
+  $rank = static function ($a, $b) {
+    foreach (['category_overlap', 'same_organizer', 'same_venue'] as $field) {
+      $difference = (int) ($b[$field] ?? 0) <=> (int) ($a[$field] ?? 0);
+      if ($difference !== 0) return $difference;
+    }
+    $difference = (int) ($a['proximity'] ?? PHP_INT_MAX) <=> (int) ($b['proximity'] ?? PHP_INT_MAX);
+    if ($difference !== 0) return $difference;
+    return (int) ($a['start_ts'] ?? 0) <=> (int) ($b['start_ts'] ?? 0);
+  };
+
+  usort($primary, $rank);
+  usort($fallback, $rank);
+  $related = !empty($primary) ? array_slice($primary, 0, $limit) : array_slice($fallback, 0, $limit);
+
+  // Short-lived so newly published, changed, or ended events do not linger.
+  set_transient($cache_key, $related, 300);
+  return $related;
+}
+
 function oc_ts_from_date_time($date, $time, $tz = null) {
   $tz = $tz ?: wp_timezone();
   $date = trim((string)$date);
@@ -1039,7 +1228,9 @@ add_action('template_redirect', function () {
     return $classes;
   });
 
-  $document_title = $api_seo_title !== '' ? $api_seo_title : (wp_strip_all_tags($title_raw) . ' | EnumclawEvents.org');
+  // Let the active SEO plugin add its configured site-name suffix. OpenCircle
+  // supplies only the event-specific title to avoid duplicate site names.
+  $document_title = $api_seo_title !== '' ? $api_seo_title : wp_strip_all_tags($title_raw);
 
   add_filter('document_title_parts', function ($parts) use ($document_title) {
     $parts['title'] = $document_title;
@@ -1053,18 +1244,6 @@ add_action('template_redirect', function () {
 
   add_filter('wp_title', function ($current) use ($document_title) {
     return $document_title;
-  }, 999);
-
-  add_filter('wpseo_frontend_presenters', function ($presenters) {
-    return [];
-  }, 999);
-
-  add_filter('wpseo_json_ld_output', function ($data) {
-    return false;
-  }, 999);
-
-  add_filter('wpseo_schema_graph_pieces', function ($pieces) {
-    return [];
   }, 999);
 
   remove_action('wp_head', 'wp_oembed_add_discovery_links');
@@ -1094,10 +1273,109 @@ add_action('template_redirect', function () {
   $event_url = home_url($current_path);
   if ($canonical_url === '') $canonical_url = $event_url;
 
+  // Yoast owns head output and its connected schema graph when installed.
+  // The standalone fallback below is used only when no Yoast installation is
+  // available, so virtual events still have essential metadata and schema.
+  $has_yoast = defined('WPSEO_VERSION');
+  $has_seo_plugin = $has_yoast || defined('RANK_MATH_VERSION');
+  $virtual_event_breadcrumbs = oc_virtual_event_breadcrumb_items($title_raw);
+  $GLOBALS['oc_virtual_event_theme_breadcrumb_rendered'] = false;
+
+  if ($has_yoast) {
+    add_filter('wpseo_breadcrumb_output', function ($output) {
+      if (trim(wp_strip_all_tags((string) $output)) !== '') {
+        $GLOBALS['oc_virtual_event_theme_breadcrumb_rendered'] = true;
+      }
+      return $output;
+    }, 999);
+
+    add_filter('wpseo_breadcrumb_links', function ($links) use ($virtual_event_breadcrumbs) {
+      $items = [];
+      foreach ($virtual_event_breadcrumbs as $item) {
+        $label = wp_strip_all_tags((string) ($item['label'] ?? ''));
+        if ($label === '') continue;
+        $items[] = [
+          'url' => trim((string) ($item['url'] ?? '')),
+          'text' => $label,
+        ];
+      }
+      return $items;
+    }, 999);
+
+    add_filter('wpseo_schema_graph', function ($graph) use ($virtual_event_breadcrumbs, $canonical_url) {
+      if (!is_array($graph)) return $graph;
+
+      $list_items = [];
+      foreach ($virtual_event_breadcrumbs as $position => $item) {
+        $label = wp_strip_all_tags((string) ($item['label'] ?? ''));
+        if ($label === '') continue;
+        $list_item = [
+          '@type' => 'ListItem',
+          'position' => count($list_items) + 1,
+          'name' => $label,
+        ];
+        $url = trim((string) ($item['url'] ?? ''));
+        if ($url !== '') $list_item['item'] = $url;
+        $list_items[] = $list_item;
+      }
+      if (empty($list_items)) return $graph;
+
+      $breadcrumb_id = trailingslashit($canonical_url) . '#breadcrumb';
+      $breadcrumb_node = [
+        '@type' => 'BreadcrumbList',
+        '@id' => $breadcrumb_id,
+        'itemListElement' => $list_items,
+      ];
+      $updated_graph = [];
+      $breadcrumb_added = false;
+
+      foreach ($graph as $node) {
+        $types = $node['@type'] ?? [];
+        $types = is_array($types) ? $types : [$types];
+        if (in_array('BreadcrumbList', $types, true)) {
+          if (!$breadcrumb_added) {
+            $updated_graph[] = $breadcrumb_node;
+            $breadcrumb_added = true;
+          }
+          continue;
+        }
+        if (isset($node['breadcrumb'])) {
+          $node['breadcrumb'] = ['@id' => $breadcrumb_id];
+        }
+        $updated_graph[] = $node;
+      }
+
+      if (!$breadcrumb_added) $updated_graph[] = $breadcrumb_node;
+      return $updated_graph;
+    }, 19);
+  }
+
   $meta_desc_raw = $api_meta_desc;
   $og_desc_raw = wp_strip_all_tags($event['description'] ?? '');
   $og_desc_raw = trim(preg_replace('/\s+/', ' ', $og_desc_raw));
   $og_desc = $meta_desc_raw !== '' ? $meta_desc_raw : ($api_excerpt_plain !== '' ? $api_excerpt_plain : ($og_desc_raw ? wp_html_excerpt($og_desc_raw, 180, '…') : get_bloginfo('description')));
+
+  if ($has_yoast) {
+    $yoast_event_schema = [
+      '@type' => 'Event',
+      '@id' => trailingslashit($canonical_url) . '#event',
+      'name' => wp_strip_all_tags($title_raw),
+      'url' => $canonical_url,
+      'mainEntityOfPage' => ['@id' => trailingslashit($canonical_url) . '#webpage'],
+    ];
+    if ($og_desc !== '') $yoast_event_schema['description'] = $og_desc;
+    if ($startISO !== '') $yoast_event_schema['startDate'] = $startISO;
+    if ($endISO !== '') $yoast_event_schema['endDate'] = $endISO;
+    if ($imageUrl !== '') $yoast_event_schema['image'] = [$imageUrl];
+    if ($location !== '') $yoast_event_schema['location'] = ['@type' => 'Place', 'name' => $location];
+    if ($organizer !== '') $yoast_event_schema['organizer'] = ['@type' => 'Organization', 'name' => $organizer];
+
+    add_filter('wpseo_schema_graph', function ($graph) use ($yoast_event_schema) {
+      if (!is_array($graph)) return $graph;
+      $graph[] = $yoast_event_schema;
+      return $graph;
+    }, 20);
+  }
 
   add_filter('wpseo_metadesc', function () use ($og_desc) {
     return $og_desc;
@@ -1179,7 +1457,7 @@ add_action('template_redirect', function () {
     return $canonical_url;
   }, 999);
 
-  add_action('wp_head', function () use ($document_title, $og_desc, $imageUrl, $imageAlt, $canonical_url, $startISO, $endISO, $location, $organizer, $event, $focus_keyphrase, $api_last_modified, $api_structured_data, $robots_state) {
+  if (!$has_seo_plugin) add_action('wp_head', function () use ($document_title, $og_desc, $imageUrl, $imageAlt, $canonical_url, $startISO, $endISO, $location, $organizer, $event, $focus_keyphrase, $api_last_modified, $api_structured_data, $robots_state) {
     echo '<title>' . esc_html(wp_strip_all_tags($document_title)) . '</title>' . "\n";
     echo "\n" . '<meta name="description" content="' . esc_attr($og_desc) . '" />' . "\n";
     if ($focus_keyphrase !== '') {
@@ -1313,6 +1591,18 @@ add_action('template_redirect', function () {
 
       <main class="oc-single-main">
         <article id="post-<?php echo (int) $eventIdInt; ?>" class="tribe_events type-tribe_events status-publish hentry oc-event-article">
+
+<?php
+  $show_virtual_event_breadcrumbs = apply_filters(
+    'oc_virtual_event_breadcrumbs_visible',
+    empty($GLOBALS['oc_virtual_event_theme_breadcrumb_rendered']),
+    $event,
+    $virtual_event_breadcrumbs
+  );
+  if ($show_virtual_event_breadcrumbs) {
+    oc_virtual_event_render_breadcrumbs($virtual_event_breadcrumbs);
+  }
+?>
 
 <?php if ($imageUrl): ?>
   <button type="button"
@@ -1450,76 +1740,14 @@ add_action('template_redirect', function () {
           <hr class="oc-meta-divider" />
 
 <?php
-/**
- * RELATED EVENTS (3)
- */
-$related = [];
-$city = $event['city'] ?? '';
-
-if ($city) {
-  $related_url = rtrim(OC_API_BASE, '/') . '/events?city=' . rawurlencode($city);
-
-  $related_res = wp_remote_get($related_url, [
-    'timeout' => 12,
-    'headers' => ['Accept' => 'application/json'],
-  ]);
-
-  if (!is_wp_error($related_res)) {
-    $related_json = json_decode(wp_remote_retrieve_body($related_res), true);
-    $items = $related_json['data'] ?? [];
-
-    if (is_array($items)) {
-      $seen = [];
-
-      foreach ($items as $it) {
-        $it_id_raw = (string)($it['id'] ?? '');
-        $it_id = trim($it_id_raw);
-        if ($it_id === '') continue;
-
-        if ($it_id === (string)$eventId) continue;
-
-        $it_slug = sanitize_title((string)($it['slug'] ?? ''));
-        $dedupe_key = $it_slug !== '' ? $it_slug : $it_id;
-
-        if (isset($seen[$dedupe_key])) continue;
-        $seen[$dedupe_key] = true;
-
-        $it_start = $it['startDateTime'] ?? '';
-        $it_ts = $it_start ? oc_wp_timestamp_from_iso($it_start) : false;
-        $it_end_ts = oc_wp_timestamp_from_iso((string)($it['endDateTime'] ?? '')) ?: 0;
-        $it_is_recurring = (int)($it['hasRecurrence'] ?? 0) === 1
-          || !empty($it['recurrenceRule'])
-          || !empty($it['recurrenceDates']);
-
-        $img = (string)($it['imageUrl'] ?? '');
-
-        $related[] = [
-          'id'          => $it_id,
-          'slug'        => $it_slug,
-          'key'         => $it_slug !== '' ? $it_slug : $it_id,
-          'title'       => (string)($it['title'] ?? 'Event'),
-          'start_ts'    => $it_ts ?: 0,
-          'start_label' => $it_ts ? oc_event_format_date_range_label($it_ts, $it_end_ts, null, !$it_is_recurring) : '',
-          'time_label'  => $it_ts ? wp_date('g:i a', $it_ts) : '',
-          'location'    => (string)($it['location'] ?? ''),
-          'image'       => $img,
-        ];
-      }
-
-      usort($related, function($a, $b){
-        return ($a['start_ts'] <=> $b['start_ts']);
-      });
-
-      $related = array_slice($related, 0, 3);
-    }
-  }
-}
+$related = oc_related_events_for_event($event, $eventId, 4);
+$related_heading = apply_filters('oc_related_events_heading', 'Related Events', $event);
 ?>
 
           <?php if (!empty($related)): ?>
             <section class="oc-related" aria-label="Related events">
               <div class="oc-more-head oc-section-spacer">
-                <h3 class="oc-event-section-title">More Events</h3>
+                <h3 class="oc-event-section-title"><?php echo esc_html($related_heading); ?></h3>
 
                 <!-- UPDATED: listing page is /events/ -->
                 <a class="oc-see-all-btn" href="<?php echo esc_url(home_url('/' . OC_VIRTUAL_BASE . '/')); ?>">
