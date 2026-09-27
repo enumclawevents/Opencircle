@@ -61,6 +61,21 @@ class OpenCircle_Multi_Filter_Slider {
     foreach ($parts as $part) {
       $city = sanitize_text_field($part);
       if ($city === '') continue;
+
+      // "Plateau Area" is a visitor-facing grouping, not an event city in
+      // the API. Expand it before making requests so sliders include each
+      // of the individual Plateau communities.
+      if (in_array(strtolower($city), ['plateau area', 'plateau regional', 'plateau'], true)) {
+        $plateau_cities = function_exists('oc_integration_plateau_city_list')
+          ? oc_integration_plateau_city_list()
+          : ['Buckley', 'Carbonado', 'South Prairie', 'Wilkeson'];
+        foreach ($plateau_cities as $plateau_city) {
+          $plateau_city = sanitize_text_field($plateau_city);
+          if ($plateau_city !== '') $cities[strtolower($plateau_city)] = $plateau_city;
+        }
+        continue;
+      }
+
       $cities[strtolower($city)] = $city;
     }
 
@@ -619,8 +634,11 @@ class OpenCircle_Multi_Filter_Slider {
 
     if ($t === 'recent' || $t === 'recently_added' || $t === 'new') {
       $ttl = 5;
-      $fetch_limit = max($limit * 50, 200);
-      $api_sort = 'id_desc';
+      // The public /events endpoint accepts no more than 100 results.
+      $fetch_limit = min(100, max($limit * 50, 40));
+      // Use the API's dedicated recent feed. Unlike id_desc, it includes the
+      // appropriate longer upcoming-event window for a Recently Added slider.
+      $api_sort = 'recent';
       $api_expand = 0;
       $dedupe = false;
     }

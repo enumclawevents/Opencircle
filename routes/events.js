@@ -195,7 +195,6 @@ router.post("/submit", async (req, res) => {
 
     const ticketUrl = String(body.ticketUrl || "").trim() || null;
     const eventLink = String(body.eventLink || "").trim() || null;
-
     const cats = normalizeCategoriesInput(body.categories);
     const categories = JSON.stringify(cats);
 
@@ -1308,6 +1307,33 @@ function pickRecurringDisplayOccurrence(occurrences, nowTs) {
   return active || next || null;
 }
 
+// A recurrence rule can begin on a different weekday than the first stored
+// occurrence (for example, a Friday-night event recorded at midnight on the
+// following Saturday). Preserve that first real occurrence in detail feeds
+// instead of replacing it with the first generated rule occurrence.
+function includeStoredFirstOccurrence(event, occurrences, windowStartUtc) {
+  const list = Array.isArray(occurrences) ? occurrences.slice() : [];
+  const startDateTime = String(event && event.startDateTime || "").trim();
+  const endDateTime = String(event && event.endDateTime || startDateTime).trim();
+  const startTs = Date.parse(startDateTime);
+  const endTs = Date.parse(endDateTime);
+
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs < windowStartUtc) {
+    return list;
+  }
+
+  if (!list.some((item) => String(item && item.startDateTime || "") === startDateTime)) {
+    list.push({
+      startDateTime,
+      endDateTime,
+      label: labelFromIso(startDateTime),
+    });
+  }
+
+  list.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+  return list;
+}
+
 function paginate(items, limit, offset) {
   const total = items.length;
   const start = Math.max(0, offset);
@@ -1491,6 +1517,8 @@ router.get("/", async (req, res) => {
           if (featuredOnly && readFeaturedActive(it) !== 1) return false;
           if (!matchesQuery(it, q)) return false;
           if (!matchesCategory(it, category)) return false;
+          if (organizer && !String(it.organizer || "").toLowerCase().includes(organizer)) return false;
+          if (venue && !String(it.location || "").toLowerCase().includes(venue)) return false;
           if (!inIsoRange(it, fromISO, toISO)) return false;
           return true;
         });
@@ -1559,6 +1587,8 @@ router.get("/", async (req, res) => {
       if (featuredOnly && readFeaturedActive(it) !== 1) return false;
       if (!matchesQuery(it, q)) return false;
       if (!matchesCategory(it, category)) return false;
+      if (organizer && !String(it.organizer || "").toLowerCase().includes(organizer)) return false;
+      if (venue && !String(it.location || "").toLowerCase().includes(venue)) return false;
       if (!inIsoRange(it, fromISO, toISO)) return false;
       return true;
     });
@@ -1745,7 +1775,7 @@ router.get("/slug/:slug", async (req, res) => {
       ? generateOccurrences(base, windowStartUtc, windowEndUtc)
       : [];
 
-    const occurrencesUpcoming = occurrences
+    let occurrencesUpcoming = occurrences
       .filter((o) => {
         const startTs = Date.parse(o.startDateTime);
         const endTs = Date.parse(o.endDateTime || o.startDateTime);
@@ -1753,6 +1783,7 @@ router.get("/slug/:slug", async (req, res) => {
       })
       .slice(0, 200)
       .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
+    occurrencesUpcoming = includeStoredFirstOccurrence(base, occurrencesUpcoming, windowStartUtc);
 
     const displayOccurrence = base.hasRecurrence && base.recurrenceRule
       ? pickRecurringDisplayOccurrence(occurrencesUpcoming, nowUtc)
@@ -2167,7 +2198,7 @@ router.get("/:idOrSlug", async (req, res) => {
       ? generateOccurrences(base, windowStartUtc, windowEndUtc)
       : [];
 
-    const occurrencesUpcoming = occurrences
+    let occurrencesUpcoming = occurrences
       .filter((o) => {
         const startTs = Date.parse(o.startDateTime);
         const endTs = Date.parse(o.endDateTime || o.startDateTime);
@@ -2175,6 +2206,7 @@ router.get("/:idOrSlug", async (req, res) => {
       })
       .slice(0, 200)
       .map((o) => ({ startDateTime: o.startDateTime, endDateTime: o.endDateTime, label: o.label }));
+    occurrencesUpcoming = includeStoredFirstOccurrence(base, occurrencesUpcoming, windowStartUtc);
 
     const displayOccurrence = base.hasRecurrence && base.recurrenceRule
       ? pickRecurringDisplayOccurrence(occurrencesUpcoming, nowUtc)

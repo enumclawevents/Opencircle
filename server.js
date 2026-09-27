@@ -191,6 +191,9 @@ async function ensurePublicNewsletterSchema() {
 function normalizeNewsletterSignupCity(input) {
   const raw = String(input || "").trim();
   if (!raw) return "Enumclaw";
+  // Older WordPress shortcode releases used this display label. Accept it so
+  // existing published forms continue to reach the shared audience.
+  if (raw.toLowerCase() === "plateau area") return "Plateau Regional";
   const match = NEWSLETTER_PUBLIC_CITIES.find((city) => city.toLowerCase() === raw.toLowerCase());
   return match || null;
 }

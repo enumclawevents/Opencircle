@@ -2,7 +2,7 @@
 /**
  * Plugin Name: OpenCircle Integration
  * Description: Pull events from OpenCircle API and render a theme-style event grid with search/sort filters + API pagination.
- * Version: 0.3.2
+ * Version: 0.3.3
  */
 
 if (!defined('ABSPATH')) exit;
@@ -30,6 +30,30 @@ function oc_integration_default_area() {
   return 'Enumclaw';
 }
 
+function oc_integration_default_events_grid_heading_template() {
+  return 'Upcoming Events in {city}, WA';
+}
+
+function oc_integration_default_events_grid_description_template() {
+  return 'Looking for upcoming events in {city}, WA? Browse our local event calendar to find festivals, live music, markets, family activities, workshops, fundraisers, and community events happening soon.';
+}
+
+function oc_integration_default_past_events_grid_heading_template() {
+  return 'Past Events in {city}, WA';
+}
+
+function oc_integration_default_past_events_grid_description_template() {
+  return 'Browse past events in {city}, WA, including festivals, live music, markets, family activities, workshops, fundraisers, and community events from the OpenCircle archive.';
+}
+
+function oc_integration_default_jobs_grid_heading_template() {
+  return 'Local Jobs in {city}';
+}
+
+function oc_integration_default_jobs_grid_description_template() {
+  return 'Browse current job openings in {city}, including part-time, full-time, and local hiring opportunities from businesses and organizations in the area.';
+}
+
 function oc_integration_normalize_area($value) {
   $value = strtolower(trim((string) $value));
   if ($value === 'buckley') return 'Buckley';
@@ -39,6 +63,26 @@ function oc_integration_normalize_area($value) {
 function oc_integration_get_default_area() {
   $stored = get_option('oc_integration_default_area', oc_integration_default_area());
   return oc_integration_normalize_area($stored);
+}
+
+function oc_integration_submission_areas() {
+  return ['Enumclaw', 'Plateau Area'];
+}
+
+function oc_integration_normalize_submission_area($value) {
+  $value = trim((string) $value);
+  if (in_array(strtolower($value), ['buckley', 'wilkeson', 'carbonado', 'south prairie', 'plateau', 'plateau regional'], true)) {
+    return 'Plateau Area';
+  }
+  foreach (oc_integration_submission_areas() as $area) {
+    if (strcasecmp($value, $area) === 0) return $area;
+  }
+  return oc_integration_get_default_area() === 'Buckley' ? 'Plateau Area' : 'Enumclaw';
+}
+
+function oc_integration_get_submission_area() {
+  $stored = get_option('oc_integration_submission_area', '');
+  return oc_integration_normalize_submission_area($stored);
 }
 
 function oc_integration_plateau_city_list() {
@@ -54,7 +98,9 @@ function oc_integration_plateau_label() {
 }
 
 function oc_integration_newsletter_scope() {
-  return oc_integration_plateau_label();
+  // The API stores the shared Plateau newsletter audience under this
+  // canonical city name; the visitor-facing label remains "Plateau Area".
+  return 'Plateau Regional';
 }
 
 function oc_integration_jobs_scope() {
@@ -63,6 +109,16 @@ function oc_integration_jobs_scope() {
 
 function oc_integration_jobs_scope_label() {
   return oc_integration_plateau_label();
+}
+
+function oc_integration_get_default_jobs_area() {
+  $value = trim((string) get_option('oc_integration_jobs_default_area', oc_integration_jobs_scope()));
+  return strcasecmp($value, 'Enumclaw') === 0 ? 'Enumclaw' : oc_integration_jobs_scope();
+}
+
+function oc_integration_get_default_jobs_limit() {
+  $value = intval(get_option('oc_integration_jobs_default_limit', 20));
+  return max(1, min(100, $value ?: 20));
 }
 
 function oc_integration_ads_scope_cities() {
@@ -87,16 +143,55 @@ function oc_integration_get_events_grid_page_url() {
   return $url;
 }
 
-function oc_integration_get_organizer_grid_url($organizer) {
+function oc_integration_get_events_grid_heading_template() {
+  $stored = get_option('oc_integration_events_grid_heading_template', oc_integration_default_events_grid_heading_template());
+  $value = trim(wp_strip_all_tags((string) $stored));
+  return $value !== '' ? $value : oc_integration_default_events_grid_heading_template();
+}
+
+function oc_integration_get_events_grid_description_template() {
+  $stored = get_option('oc_integration_events_grid_description_template', oc_integration_default_events_grid_description_template());
+  $value = trim(wp_kses_post((string) $stored));
+  return $value !== '' ? $value : oc_integration_default_events_grid_description_template();
+}
+
+function oc_integration_get_past_events_grid_heading_template() {
+  $stored = get_option('oc_integration_past_events_grid_heading_template', oc_integration_default_past_events_grid_heading_template());
+  $value = trim(wp_strip_all_tags((string) $stored));
+  return $value !== '' ? $value : oc_integration_default_past_events_grid_heading_template();
+}
+
+function oc_integration_get_past_events_grid_description_template() {
+  $stored = get_option('oc_integration_past_events_grid_description_template', oc_integration_default_past_events_grid_description_template());
+  $value = trim(wp_kses_post((string) $stored));
+  return $value !== '' ? $value : oc_integration_default_past_events_grid_description_template();
+}
+
+function oc_integration_get_jobs_grid_heading_template() {
+  $stored = get_option('oc_integration_jobs_grid_heading_template', oc_integration_default_jobs_grid_heading_template());
+  $value = trim(wp_strip_all_tags((string) $stored));
+  return $value !== '' ? $value : oc_integration_default_jobs_grid_heading_template();
+}
+
+function oc_integration_get_jobs_grid_description_template() {
+  $stored = get_option('oc_integration_jobs_grid_description_template', oc_integration_default_jobs_grid_description_template());
+  $value = trim(wp_kses_post((string) $stored));
+  return $value !== '' ? $value : oc_integration_default_jobs_grid_description_template();
+}
+
+function oc_integration_get_organizer_grid_url($organizer, $city = '') {
   $organizer = trim((string)$organizer);
   if ($organizer === '') return '';
+
+  $city = trim((string)$city);
+  if ($city === '') $city = oc_integration_organizer_scope();
 
   $base_url = oc_integration_get_events_grid_page_url();
   if ($base_url === '') return '';
 
   return add_query_arg([
     'organizer' => $organizer,
-    'city'      => oc_integration_organizer_scope(),
+    'city'      => $city,
   ], $base_url);
 }
 
@@ -115,7 +210,7 @@ function oc_integration_get_filtered_events_grid_url($args = []) {
   return !empty($clean) ? add_query_arg($clean, $base_url) : $base_url;
 }
 
-function oc_integration_get_category_grid_url($category) {
+function oc_integration_get_category_grid_url($category, $city = '') {
   $category = trim((string)$category);
   if ($category === '') return '';
 
@@ -145,13 +240,19 @@ function oc_integration_get_category_grid_url($category) {
   $normalized = strtolower($category);
   $target_category = isset($category_map[$normalized]) ? $category_map[$normalized] : $category;
 
-  return rtrim($base_url, '?&') . '?cat=' . rawurlencode(strtolower($target_category));
+  $args = ['cat' => strtolower($target_category)];
+  $city = trim((string)$city);
+  if ($city !== '') $args['city'] = $city;
+  return add_query_arg($args, $base_url);
 }
 
-function oc_integration_get_venue_grid_url($venue) {
+function oc_integration_get_venue_grid_url($venue, $city = '') {
   $venue = trim((string)$venue);
   if ($venue === '') return '';
-  return oc_integration_get_filtered_events_grid_url(['venue' => $venue]);
+  $args = ['venue' => $venue];
+  $city = trim((string)$city);
+  if ($city !== '') $args['city'] = $city;
+  return oc_integration_get_filtered_events_grid_url($args);
 }
 
 function oc_integration_hex_to_rgb($hex) {
@@ -559,7 +660,12 @@ function oc_ads_fetch_ad($placement, $city = '') {
 }
 
 function oc_ads_fetch_ad_for_cities($placement, $city = '') {
-  $cities = oc_integration_ads_scope_cities();
+  // An explicit shortcode city takes precedence. With no city attribute,
+  // retain the established Plateau-wide ad coverage.
+  $cities = oc_integration_normalize_city_list($city);
+  if (empty($cities)) {
+    $cities = oc_integration_ads_scope_cities();
+  }
 
   if (empty($cities)) {
     return oc_ads_fetch_ad($placement, '');
@@ -618,7 +724,12 @@ function oc_ad_shortcode($atts) {
 add_shortcode('opencircle_ad', 'oc_ad_shortcode');
 
 function oc_newsletter_signup_resolve_city($value = '') {
-  return sanitize_text_field(oc_integration_newsletter_scope());
+  $city = sanitize_text_field($value);
+  if (strcasecmp($city, 'Enumclaw') === 0) return 'Enumclaw';
+  if (in_array(strtolower($city), ['plateau area', 'plateau regional'], true)) {
+    return oc_integration_newsletter_scope();
+  }
+  return oc_integration_newsletter_scope();
 }
 
 function oc_newsletter_signup_api_url() {
@@ -763,15 +874,16 @@ function oc_newsletter_signup_shortcode($atts) {
         max-width: 58ch;
       }
       #<?php echo esc_html($uid); ?> .oc-newsletter-form{
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
+        display: flex;
+        flex-wrap: nowrap;
         gap: 16px;
-        align-items: end;
+        align-items: flex-end;
       }
       #<?php echo esc_html($uid); ?> .oc-newsletter-field{
         display: grid;
         gap: 8px;
         min-width: 0;
+        flex: 1 1 auto;
       }
       #<?php echo esc_html($uid); ?> label{
         font-size: 12px;
@@ -808,6 +920,7 @@ function oc_newsletter_signup_shortcode($atts) {
         transition: background-color 9999s ease-in-out 0s;
       }
       #<?php echo esc_html($uid); ?> .oc-newsletter-button{
+        flex: 0 0 auto;
         height: 58px;
         min-width: 184px;
         border-radius: 14px;
@@ -865,6 +978,7 @@ function oc_newsletter_signup_shortcode($atts) {
           padding: 20px;
         }
         #<?php echo esc_html($uid); ?> .oc-newsletter-form{
+          display: grid;
           grid-template-columns: 1fr;
           gap: 14px;
         }
@@ -1683,8 +1797,8 @@ add_action('wp_ajax_nopriv_oc_job_apply', 'oc_job_apply_ajax');
 
 function oc_jobs_shortcode($atts) {
   $atts = shortcode_atts([
-    'city'         => oc_integration_jobs_scope(),
-    'limit'        => 20,
+    'city'         => oc_integration_get_default_jobs_area(),
+    'limit'        => oc_integration_get_default_jobs_limit(),
     'q'            => '',
     'class'        => '',
     'fallback'     => '',
@@ -1692,7 +1806,10 @@ function oc_jobs_shortcode($atts) {
     'description'  => '',
   ], $atts, 'opencircle_jobs');
 
-  $city = sanitize_text_field(oc_integration_jobs_scope());
+  // Respect an explicit shortcode city instead of always forcing the
+  // Plateau-wide default.
+  $city = sanitize_text_field($atts['city']);
+  if ($city === '') $city = oc_integration_jobs_scope();
   $limit = max(1, intval($atts['limit']));
   $q = sanitize_text_field($atts['q']);
   $extra_class = sanitize_text_field($atts['class']);
@@ -1701,12 +1818,16 @@ function oc_jobs_shortcode($atts) {
   $description = sanitize_textarea_field($atts['description']);
 
   $city_labels = oc_integration_normalize_city_list($city);
-  $city_label = !empty($city_labels) ? oc_integration_jobs_scope_label() : oc_integration_jobs_scope_label();
+  $city_label = count($city_labels) === 1
+    ? $city_labels[0]
+    : (strtolower(trim($city)) === strtolower(oc_integration_jobs_scope())
+      ? oc_integration_jobs_scope_label()
+      : implode(', ', $city_labels));
   if ($title === '') {
-    $title = sprintf('Local Jobs in %s', $city_label);
+    $title = str_replace('{city}', $city_label, oc_integration_get_jobs_grid_heading_template());
   }
   if ($description === '') {
-    $description = sprintf('Browse current job openings in %s, including part-time, full-time, and local hiring opportunities from businesses and organizations in the area.', $city_label);
+    $description = str_replace('{city}', $city_label, oc_integration_get_jobs_grid_description_template());
   }
 
   $jobs = oc_jobs_fetch_list($city, $limit, $q);
@@ -2304,6 +2425,75 @@ function oc_integration_register_settings() {
     },
     'default' => oc_integration_default_area(),
   ]);
+  register_setting('oc_integration_settings', 'oc_integration_submission_area', [
+    'type' => 'string',
+    'sanitize_callback' => function ($value) {
+      return oc_integration_normalize_submission_area($value);
+    },
+    'default' => oc_integration_get_default_area(),
+  ]);
+  register_setting('oc_integration_settings', 'oc_integration_events_grid_heading_template', [
+    'type' => 'string',
+    'sanitize_callback' => function ($value) {
+      $text = trim(wp_strip_all_tags((string) $value));
+      return $text !== '' ? $text : oc_integration_default_events_grid_heading_template();
+    },
+    'default' => oc_integration_default_events_grid_heading_template(),
+  ]);
+  register_setting('oc_integration_settings', 'oc_integration_events_grid_description_template', [
+    'type' => 'string',
+    'sanitize_callback' => function ($value) {
+      $text = trim(wp_strip_all_tags((string) $value));
+      return $text !== '' ? $text : oc_integration_default_events_grid_description_template();
+    },
+    'default' => oc_integration_default_events_grid_description_template(),
+  ]);
+  register_setting('oc_integration_settings', 'oc_integration_past_events_grid_heading_template', [
+    'type' => 'string',
+    'sanitize_callback' => function ($value) {
+      $text = trim(wp_strip_all_tags((string) $value));
+      return $text !== '' ? $text : oc_integration_default_past_events_grid_heading_template();
+    },
+    'default' => oc_integration_default_past_events_grid_heading_template(),
+  ]);
+  register_setting('oc_integration_settings', 'oc_integration_past_events_grid_description_template', [
+    'type' => 'string',
+    'sanitize_callback' => function ($value) {
+      $text = trim(wp_strip_all_tags((string) $value));
+      return $text !== '' ? $text : oc_integration_default_past_events_grid_description_template();
+    },
+    'default' => oc_integration_default_past_events_grid_description_template(),
+  ]);
+  register_setting('oc_integration_settings', 'oc_integration_jobs_grid_heading_template', [
+    'type' => 'string',
+    'sanitize_callback' => function ($value) {
+      $text = trim(wp_strip_all_tags((string) $value));
+      return $text !== '' ? $text : oc_integration_default_jobs_grid_heading_template();
+    },
+    'default' => oc_integration_default_jobs_grid_heading_template(),
+  ]);
+  register_setting('oc_integration_settings', 'oc_integration_jobs_grid_description_template', [
+    'type' => 'string',
+    'sanitize_callback' => function ($value) {
+      $text = trim(wp_strip_all_tags((string) $value));
+      return $text !== '' ? $text : oc_integration_default_jobs_grid_description_template();
+    },
+    'default' => oc_integration_default_jobs_grid_description_template(),
+  ]);
+  register_setting('oc_integration_settings', 'oc_integration_jobs_default_area', [
+    'type' => 'string',
+    'sanitize_callback' => function ($value) {
+      return strcasecmp(trim((string) $value), 'Enumclaw') === 0 ? 'Enumclaw' : oc_integration_jobs_scope();
+    },
+    'default' => oc_integration_jobs_scope(),
+  ]);
+  register_setting('oc_integration_settings', 'oc_integration_jobs_default_limit', [
+    'type' => 'integer',
+    'sanitize_callback' => function ($value) {
+      return max(1, min(100, intval($value) ?: 20));
+    },
+    'default' => 20,
+  ]);
 }
 add_action('admin_init', 'oc_integration_register_settings');
 
@@ -2535,6 +2725,13 @@ function oc_integration_render_shortcodes_page() {
         <p>Full searchable event grid with pagination, sorting, category filter, and grid/list views.</p>
         <div class="oc-admin-fields">
           <div class="oc-admin-field">
+            <label for="oc-grid-city">City</label>
+            <select id="oc-grid-city" data-attr="city">
+              <option value="Enumclaw" <?php selected(oc_integration_get_default_area(), 'Enumclaw'); ?>>Enumclaw</option>
+              <option value="Buckley" <?php selected(oc_integration_get_default_area(), 'Buckley'); ?>>Buckley</option>
+            </select>
+          </div>
+          <div class="oc-admin-field">
             <label for="oc-grid-limit">Events Per Page</label>
             <input id="oc-grid-limit" type="number" min="1" data-attr="limit" value="40" />
           </div>
@@ -2550,6 +2747,13 @@ function oc_integration_render_shortcodes_page() {
         <h2>Past Events Grid</h2>
         <p>Archive version of the events grid for a dedicated past-events page with the same searchable grid experience.</p>
         <div class="oc-admin-fields">
+          <div class="oc-admin-field">
+            <label for="oc-past-grid-city">City</label>
+            <select id="oc-past-grid-city" data-attr="city">
+              <option value="Enumclaw" <?php selected(oc_integration_get_default_area(), 'Enumclaw'); ?>>Enumclaw</option>
+              <option value="Buckley" <?php selected(oc_integration_get_default_area(), 'Buckley'); ?>>Buckley</option>
+            </select>
+          </div>
           <div class="oc-admin-field">
             <label for="oc-past-grid-limit">Events Per Page</label>
             <input id="oc-past-grid-limit" type="number" min="1" data-attr="limit" value="12" />
@@ -2737,8 +2941,17 @@ function oc_integration_render_shortcodes_page() {
 
       <div class="oc-admin-card" data-oc-builder data-shortcode="oc_event_submit">
         <h2>Event Submission Form</h2>
-        <p>Front-end form that sends event submissions to the API for admin review and optional WooCommerce upsell.</p>
+        <p>Front-end form that sends event submissions to the selected area's API approval queue with an optional WooCommerce upsell.</p>
         <div class="oc-admin-fields">
+          <div class="oc-admin-field">
+            <label for="oc-submit-city">Submission Area</label>
+            <select id="oc-submit-city" data-attr="city">
+              <?php $submission_area = oc_integration_get_submission_area(); ?>
+              <?php foreach (oc_integration_submission_areas() as $area): ?>
+                <option value="<?php echo esc_attr($area); ?>" <?php selected($submission_area, $area); ?>><?php echo esc_html($area); ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
           <div class="oc-admin-field">
             <label for="oc-submit-title">Form Title</label>
             <input id="oc-submit-title" type="text" data-attr="title" value="Submit an Event" />
@@ -2771,13 +2984,16 @@ function oc_integration_render_shortcodes_page() {
         </div>
       </div>
 
-      <div class="oc-admin-card" data-oc-builder data-shortcode="opencircle_newsletter_signup" data-fixed-attrs='{"city":"<?php echo esc_attr(oc_integration_newsletter_scope()); ?>"}'>
+      <div class="oc-admin-card" data-oc-builder data-shortcode="opencircle_newsletter_signup">
         <h2>Newsletter Signup</h2>
-        <p>Public newsletter signup form that adds subscribers to the OpenCircle newsletter audience for the Plateau Area.</p>
+        <p>Public newsletter signup form that adds subscribers to the selected OpenCircle newsletter audience.</p>
         <div class="oc-admin-fields">
           <div class="oc-admin-field">
-            <label>Coverage</label>
-            <div class="oc-admin-static" aria-hidden="true"><?php echo esc_html(oc_integration_newsletter_scope()); ?></div>
+            <label for="oc-newsletter-city">Area</label>
+            <select id="oc-newsletter-city" data-attr="city">
+              <option value="<?php echo esc_attr(oc_integration_newsletter_scope()); ?>">Plateau Area</option>
+              <option value="Enumclaw">Enumclaw</option>
+            </select>
           </div>
           <div class="oc-admin-field">
             <label for="oc-newsletter-title">Headline</label>
@@ -2812,11 +3028,14 @@ function oc_integration_render_shortcodes_page() {
 
       <div class="oc-admin-card" data-oc-builder data-shortcode="opencircle_ad">
         <h2>Ads</h2>
-        <p>Render a tracked ad placement from the OpenCircle API. Ads are pulled from the Plateau Area scope, and if no ad is available, the fallback can be shown instead.</p>
+        <p>Render a tracked ad placement from the OpenCircle API. Choose Plateau Area or Enumclaw coverage; if no ad is available, the fallback can be shown instead.</p>
         <div class="oc-admin-fields">
           <div class="oc-admin-field">
-            <label for="oc-ad-coverage">Coverage</label>
-            <input id="oc-ad-coverage" type="text" value="Plateau" readonly />
+            <label for="oc-ad-city">Coverage</label>
+            <select id="oc-ad-city" data-attr="city" data-omit-empty="1">
+              <option value="">Plateau Area</option>
+              <option value="Enumclaw">Enumclaw</option>
+            </select>
           </div>
           <div class="oc-admin-field">
             <label for="oc-ad-placement">Placement</label>
@@ -2851,6 +3070,13 @@ function oc_integration_render_shortcodes_page() {
         <h2>Popular Event Links</h2>
         <p>Render Eventbrite-style browse links for popular categories, organizers, and venues. Organizer browse links use Plateau-wide event coverage, while event and venue browsing can still stay area-specific elsewhere.</p>
         <div class="oc-admin-fields">
+          <div class="oc-admin-field">
+            <label for="oc-popular-links-city">Area</label>
+            <select id="oc-popular-links-city" data-attr="city">
+              <option value="<?php echo esc_attr(oc_integration_organizer_scope()); ?>">Plateau Area</option>
+              <option value="Enumclaw">Enumclaw</option>
+            </select>
+          </div>
           <div class="oc-admin-field">
             <label for="oc-popular-links-limit">Links Per Section</label>
             <input id="oc-popular-links-limit" type="number" min="1" max="24" data-attr="limit" value="10" />
@@ -2888,6 +3114,13 @@ function oc_integration_render_shortcodes_page() {
         <p>Render an Explore Categories section with large image cards that link into the shared events grid with the matching category filter applied.</p>
         <div class="oc-admin-fields">
           <div class="oc-admin-field">
+            <label for="oc-category-section-city">City</label>
+            <select id="oc-category-section-city" data-attr="city">
+              <option value="Enumclaw" <?php selected(oc_integration_get_default_area(), 'Enumclaw'); ?>>Enumclaw</option>
+              <option value="Buckley" <?php selected(oc_integration_get_default_area(), 'Buckley'); ?>>Buckley</option>
+            </select>
+          </div>
+          <div class="oc-admin-field">
             <label for="oc-category-section-title">Section Title</label>
             <input id="oc-category-section-title" type="text" data-attr="title" value="Explore Categories" />
           </div>
@@ -2918,13 +3151,16 @@ function oc_integration_render_shortcodes_page() {
       <p class="oc-admin-subpanel-copy">Jobs directory and single-job detail shortcodes with application handling.</p>
       <div class="oc-admin-grid">
 
-      <div class="oc-admin-card" data-oc-builder data-shortcode="opencircle_jobs" data-fixed-attrs='{"city":"<?php echo esc_attr(oc_integration_jobs_scope()); ?>"}'>
+      <div class="oc-admin-card" data-oc-builder data-shortcode="opencircle_jobs">
         <h2>Jobs Directory</h2>
-        <p>Render a jobs directory with an in-page popup detail view, similar to Indeed, plus website application support when the API allows it. Jobs are shown Plateau-wide.</p>
+        <p>Render a jobs directory with an in-page popup detail view, similar to Indeed, plus website application support when the API allows it.</p>
         <div class="oc-admin-fields">
           <div class="oc-admin-field">
-            <label>Coverage</label>
-            <div class="oc-admin-static" aria-hidden="true"><?php echo esc_html(oc_integration_jobs_scope_label()); ?></div>
+            <label for="oc-jobs-city">Area</label>
+            <select id="oc-jobs-city" data-attr="city">
+              <option value="<?php echo esc_attr(oc_integration_jobs_scope()); ?>">Plateau Area</option>
+              <option value="Enumclaw">Enumclaw</option>
+            </select>
           </div>
           <div class="oc-admin-field">
             <label for="oc-jobs-title">Title</label>
@@ -3002,11 +3238,11 @@ function oc_integration_render_shortcodes_page() {
       <p><strong>Common attributes:</strong> Most shortcodes support <code>city</code>, and slider shortcodes can also accept a comma-separated multi-city value like <code>city="Buckley, Wilkeson"</code>. Several shortcodes also support <code>limit</code> and <code>event_base</code>. The shared API base is now managed under <code>OpenCircle &rarr; Settings</code>.</p>
       <p><strong>Past events shortcode:</strong> Use <code>[opencircle_past_events_grid]</code> on a dedicated archive page to render a searchable grid of archived/past events.</p>
       <p><strong>Slider type options:</strong> Use <code>type="upcoming"</code>, <code>type="recent"</code>, <code>type="trending"</code>, or <code>type="trending_week"</code> with <code>[oc_events_slider]</code>.</p>
-      <p><strong>Ads shortcode:</strong> Use <code>[opencircle_ad placement="homepage-top"]</code> or one of <code>homepage-bottom</code>, <code>events-top</code>, <code>events-bottom</code>, <code>venues-top</code>, <code>single-event-main</code>, or <code>single-event-side</code>. Ads now pull from the Plateau Area scope automatically. Optional <code>class</code> and <code>fallback</code> attributes still work.</p>
+      <p><strong>Ads shortcode:</strong> Use <code>[opencircle_ad placement="homepage-top"]</code> for Plateau Area coverage, or add <code>city="Enumclaw"</code> for Enumclaw ads. Other placements include <code>homepage-bottom</code>, <code>events-top</code>, <code>events-bottom</code>, <code>venues-top</code>, <code>single-event-main</code>, and <code>single-event-side</code>. Optional <code>class</code> and <code>fallback</code> attributes still work.</p>
       <p><strong>Newsletter shortcode:</strong> Use <code>[opencircle_newsletter_signup]</code> to add subscribers to the Plateau Area newsletter audience. Optional content attributes like <code>title</code>, <code>description</code>, <code>button</code>, and <code>placeholder</code> still work.</p>
       <p><strong>Popular links shortcode:</strong> Use <code>[opencircle_popular_event_links]</code> or customize <code>limit</code>, <code>source_limit</code>, <code>show</code>, and the section title attributes as needed.</p>
       <p><strong>Category section shortcode:</strong> Use <code>[opencircle_category_section]</code> or customize <code>title</code>, <code>categories</code>, <code>columns</code>, and <code>source_limit</code> to build an Explore Categories card section.</p>
-      <p><strong>Jobs shortcode:</strong> Use <code>[opencircle_jobs]</code> to show Plateau-wide jobs, or add optional <code>limit</code>, <code>q</code>, <code>class</code>, <code>title</code>, <code>description</code>, and <code>fallback</code> attributes manually if needed.</p>
+      <p><strong>Jobs shortcode:</strong> Use <code>[opencircle_jobs]</code> for Plateau-wide jobs or <code>[opencircle_jobs city="Enumclaw"]</code> for Enumclaw jobs. Optional <code>limit</code>, <code>q</code>, <code>class</code>, <code>title</code>, <code>description</code>, and <code>fallback</code> attributes also work.</p>
       <p><strong>Single job shortcode:</strong> Use <code>[opencircle_job slug="job-slug"]</code> to embed a full job detail block with application handling.</p>
     </div>
 
@@ -3136,7 +3372,7 @@ function oc_integration_render_settings_page() {
     <div class="oc-admin-grid oc-admin-tab-panel">
       <div class="oc-admin-card oc-settings-card">
         <h2>Plugin Settings</h2>
-        <p class="oc-settings-help">Manage the shared API base, default area, default events grid page, and accent color for the OpenCircle plugin. The API base is used across shortcode defaults, the default area controls the default city for event and venue browsing, the events grid page is used for organizer-driven browse links, and the accent color controls the blue styling used across event pages, venue pages, sliders, badges, links, buttons, focus states, and plugin-specific admin helpers.</p>
+        <p class="oc-settings-help">Manage the shared API base, default browsing area, event submission area, default events grid page, editable events and jobs grid intro copy, and accent color for the OpenCircle plugin. The event submission area controls which API approval queue receives events sent through the public form.</p>
         <form method="post" action="options.php">
           <?php settings_fields('oc_integration_settings'); ?>
           <div class="oc-admin-fields">
@@ -3153,8 +3389,62 @@ function oc_integration_render_settings_page() {
               </select>
             </div>
             <div class="oc-admin-field">
+              <label for="oc-integration-submission-area">Event Submission Area</label>
+              <select id="oc-integration-submission-area" name="oc_integration_submission_area">
+                <?php $submission_area = oc_integration_get_submission_area(); ?>
+                <?php foreach (oc_integration_submission_areas() as $area): ?>
+                  <option value="<?php echo esc_attr($area); ?>" <?php selected($submission_area, $area); ?>><?php echo esc_html($area); ?></option>
+                <?php endforeach; ?>
+              </select>
+              <small>Plateau Area routes submissions into one shared queue for Buckley, Wilkeson, Carbonado, and South Prairie. The reviewer chooses the specific community before publishing.</small>
+            </div>
+            <div class="oc-admin-field">
               <label for="oc-integration-events-grid-page-url">Events Grid Page URL</label>
               <input id="oc-integration-events-grid-page-url" name="oc_integration_events_grid_page_url" type="url" value="<?php echo esc_attr(oc_integration_get_events_grid_page_url()); ?>" />
+            </div>
+            <div class="oc-admin-field">
+              <label for="oc-integration-events-grid-heading-template">Events Grid Heading</label>
+              <input id="oc-integration-events-grid-heading-template" name="oc_integration_events_grid_heading_template" type="text" value="<?php echo esc_attr(oc_integration_get_events_grid_heading_template()); ?>" />
+              <small>Use <code>{city}</code> anywhere you want the selected area name to appear.</small>
+            </div>
+            <div class="oc-admin-field">
+              <label for="oc-integration-events-grid-description-template">Events Grid Description</label>
+              <textarea id="oc-integration-events-grid-description-template" name="oc_integration_events_grid_description_template" rows="4"><?php echo esc_textarea(oc_integration_get_events_grid_description_template()); ?></textarea>
+              <small>Use <code>{city}</code> anywhere you want the selected area name to appear.</small>
+            </div>
+            <div class="oc-admin-field">
+              <label for="oc-integration-past-events-grid-heading-template">Past Events Grid Heading</label>
+              <input id="oc-integration-past-events-grid-heading-template" name="oc_integration_past_events_grid_heading_template" type="text" value="<?php echo esc_attr(oc_integration_get_past_events_grid_heading_template()); ?>" />
+              <small>Use <code>{city}</code> anywhere you want the selected area name to appear.</small>
+            </div>
+            <div class="oc-admin-field">
+              <label for="oc-integration-past-events-grid-description-template">Past Events Grid Description</label>
+              <textarea id="oc-integration-past-events-grid-description-template" name="oc_integration_past_events_grid_description_template" rows="4"><?php echo esc_textarea(oc_integration_get_past_events_grid_description_template()); ?></textarea>
+              <small>Use <code>{city}</code> anywhere you want the selected area name to appear.</small>
+            </div>
+            <div class="oc-admin-field">
+              <label for="oc-integration-jobs-grid-heading-template">Jobs Grid Heading</label>
+              <input id="oc-integration-jobs-grid-heading-template" name="oc_integration_jobs_grid_heading_template" type="text" value="<?php echo esc_attr(oc_integration_get_jobs_grid_heading_template()); ?>" />
+              <small>Use <code>{city}</code> anywhere you want the selected area name to appear.</small>
+            </div>
+            <div class="oc-admin-field">
+              <label for="oc-integration-jobs-grid-description-template">Jobs Grid Description</label>
+              <textarea id="oc-integration-jobs-grid-description-template" name="oc_integration_jobs_grid_description_template" rows="4"><?php echo esc_textarea(oc_integration_get_jobs_grid_description_template()); ?></textarea>
+              <small>Use <code>{city}</code> anywhere you want the selected area name to appear.</small>
+            </div>
+            <div class="oc-admin-field">
+              <label for="oc-integration-jobs-default-area">Jobs Default Area</label>
+              <select id="oc-integration-jobs-default-area" name="oc_integration_jobs_default_area">
+                <?php $jobs_default_area = oc_integration_get_default_jobs_area(); ?>
+                <option value="<?php echo esc_attr(oc_integration_jobs_scope()); ?>" <?php selected($jobs_default_area, oc_integration_jobs_scope()); ?>>Plateau Area</option>
+                <option value="Enumclaw" <?php selected($jobs_default_area, 'Enumclaw'); ?>>Enumclaw</option>
+              </select>
+              <small>Used by <code>[opencircle_jobs]</code> when no <code>city</code> attribute is supplied.</small>
+            </div>
+            <div class="oc-admin-field">
+              <label for="oc-integration-jobs-default-limit">Jobs Per Directory</label>
+              <input id="oc-integration-jobs-default-limit" name="oc_integration_jobs_default_limit" type="number" min="1" max="100" value="<?php echo esc_attr(oc_integration_get_default_jobs_limit()); ?>" />
+              <small>Used by <code>[opencircle_jobs]</code> when no <code>limit</code> attribute is supplied.</small>
             </div>
             <div class="oc-admin-field">
               <label for="oc-integration-accent-color">Accent Color</label>
@@ -3174,6 +3464,10 @@ function oc_integration_render_settings_page() {
         <p><strong>API Base:</strong> <code><?php echo esc_html(oc_integration_get_api_base()); ?></code></p>
         <p><strong>Default Area:</strong> <code><?php echo esc_html(oc_integration_get_default_area()); ?></code></p>
         <p><strong>Events Grid Page:</strong> <code><?php echo esc_html(oc_integration_get_events_grid_page_url()); ?></code></p>
+        <p><strong>Events Grid Heading:</strong> <code><?php echo esc_html(oc_integration_get_events_grid_heading_template()); ?></code></p>
+        <p><strong>Events Grid Description:</strong> <code><?php echo esc_html(oc_integration_get_events_grid_description_template()); ?></code></p>
+        <p><strong>Jobs Grid Heading:</strong> <code><?php echo esc_html(oc_integration_get_jobs_grid_heading_template()); ?></code></p>
+        <p><strong>Jobs Grid Description:</strong> <code><?php echo esc_html(oc_integration_get_jobs_grid_description_template()); ?></code></p>
         <p><strong>Coverage:</strong> This setting overrides the plugin’s accent blue anywhere it appears in event pages, venue pages, sliders, submission forms, featured badges, and plugin-specific admin helpers.</p>
         <p><strong>Category Section Shortcode:</strong> <code>[opencircle_category_section]</code> also uses these shared settings for its default area, browse links, and accent-driven styling.</p>
         <p><strong>Newsletter Signup Shortcode:</strong> <code>[opencircle_newsletter_signup]</code></p>
@@ -3354,6 +3648,17 @@ function oc_events_grid_fetch_initial_page($city, $api, $limit, $offset = 0, $mo
   if ($city === '' || $api === '') {
     return ['events' => [], 'total' => 0, 'total_pages' => 1, 'has_more' => false];
   }
+
+  $filters = is_array($filters) ? $filters : [];
+  $api_filters = [
+    'q' => sanitize_text_field($filters['q'] ?? ''),
+    'category' => sanitize_text_field($filters['category'] ?? ''),
+    'organizer' => sanitize_text_field($filters['organizer'] ?? ''),
+    'venue' => sanitize_text_field($filters['venue'] ?? ''),
+    'from' => sanitize_text_field($filters['from'] ?? ''),
+    'to' => sanitize_text_field($filters['to'] ?? ''),
+  ];
+  $api_filters = array_filter($api_filters, function ($value) { return $value !== ''; });
 
   if ($mode === 'past') {
     $page = oc_events_grid_fetch_archive_api_page($api, $city, max(100, $limit), $offset, $filters);
@@ -3557,7 +3862,7 @@ function oc_popular_links_collect_groups($events, $limit = 10) {
   ];
 }
 
-function oc_popular_links_render_group($title, $items, $type) {
+function oc_popular_links_render_group($title, $items, $type, $city = '') {
   if (empty($items) || !is_array($items)) return;
   $title = ucwords(strtolower(trim((string) $title)));
   ?>
@@ -3570,11 +3875,11 @@ function oc_popular_links_render_group($title, $items, $type) {
           if ($label === '') continue;
 
           if ($type === 'category') {
-            $url = oc_integration_get_category_grid_url($label);
+            $url = oc_integration_get_category_grid_url($label, $city);
           } elseif ($type === 'organizer') {
-            $url = oc_integration_get_organizer_grid_url($label);
+            $url = oc_integration_get_organizer_grid_url($label, $city);
           } else {
-            $url = oc_integration_get_venue_grid_url($label);
+            $url = oc_integration_get_venue_grid_url($label, $city);
           }
 
           if ($url === '') continue;
@@ -3602,7 +3907,8 @@ function oc_popular_links_shortcode($atts) {
     'title_venues' => 'Popular Venues',
   ], $atts);
 
-  $city = sanitize_text_field(oc_integration_organizer_scope());
+  $city = sanitize_text_field($atts['city']);
+  if ($city === '') $city = oc_integration_organizer_scope();
   $limit = max(1, min(24, (int) $atts['limit']));
   $source_limit = max($limit, min(400, (int) $atts['source_limit']));
   $show_raw = array_filter(array_map('trim', explode(',', strtolower((string) $atts['show']))));
@@ -3614,9 +3920,9 @@ function oc_popular_links_shortcode($atts) {
   ob_start();
   ?>
   <div class="oc-popular-links-wrap">
-    <?php if (in_array('categories', $show, true)) oc_popular_links_render_group((string) $atts['title_categories'], $groups['categories'], 'category'); ?>
-    <?php if (in_array('organizers', $show, true)) oc_popular_links_render_group((string) $atts['title_organizers'], $groups['organizers'], 'organizer'); ?>
-    <?php if (in_array('venues', $show, true)) oc_popular_links_render_group((string) $atts['title_venues'], $groups['venues'], 'venue'); ?>
+    <?php if (in_array('categories', $show, true)) oc_popular_links_render_group((string) $atts['title_categories'], $groups['categories'], 'category', $city); ?>
+    <?php if (in_array('organizers', $show, true)) oc_popular_links_render_group((string) $atts['title_organizers'], $groups['organizers'], 'organizer', $city); ?>
+    <?php if (in_array('venues', $show, true)) oc_popular_links_render_group((string) $atts['title_venues'], $groups['venues'], 'venue', $city); ?>
   </div>
   <style>
     .oc-popular-links-wrap{
@@ -4022,31 +4328,29 @@ function oc_events_grid_render_fallback_items($events, $event_base) {
 function oc_events_grid_main_heading($city) {
   $city = trim((string)$city);
   if ($city === '') $city = oc_integration_get_default_area();
-  return sprintf('Upcoming Events in %s, WA', $city);
+  $template = oc_integration_get_events_grid_heading_template();
+  return str_replace('{city}', $city, $template);
 }
 
 function oc_events_grid_intro_copy($city) {
   $city = trim((string)$city);
   if ($city === '') $city = oc_integration_get_default_area();
-  return sprintf(
-    'Looking for upcoming events in %s, WA? Browse our local event calendar to find festivals, live music, markets, family activities, workshops, fundraisers, and community events happening soon.',
-    $city
-  );
+  $template = oc_integration_get_events_grid_description_template();
+  return str_replace('{city}', $city, $template);
 }
 
 function oc_events_grid_archive_heading($city) {
   $city = trim((string)$city);
   if ($city === '') $city = oc_integration_get_default_area();
-  return sprintf('Past Events in %s, WA', $city);
+  $template = oc_integration_get_past_events_grid_heading_template();
+  return str_replace('{city}', $city, $template);
 }
 
 function oc_events_grid_archive_intro_copy($city) {
   $city = trim((string)$city);
   if ($city === '') $city = oc_integration_get_default_area();
-  return sprintf(
-    'Browse past events in %s, WA, including festivals, live music, markets, family activities, workshops, fundraisers, and community events from the OpenCircle archive.',
-    $city
-  );
+  $template = oc_integration_get_past_events_grid_description_template();
+  return str_replace('{city}', $city, $template);
 }
 
 function oc_events_grid_page_city_from_content($content) {
@@ -4112,6 +4416,10 @@ function oc_events_grid_render_shortcode($atts, $mode = 'upcoming') {
   if ($organizer === '' && isset($_GET['organizer'])) {
     $organizer = sanitize_text_field(wp_unslash($_GET['organizer']));
   }
+  $query_category = sanitize_text_field(wp_unslash($_GET['category'] ?? ($_GET['cat'] ?? '')));
+  $query_search = sanitize_text_field(wp_unslash($_GET['q'] ?? ''));
+  $query_from = sanitize_text_field(wp_unslash($_GET['from'] ?? ''));
+  $query_to = sanitize_text_field(wp_unslash($_GET['to'] ?? ''));
   if ($venue === '' && isset($_GET['venue'])) {
     $venue = sanitize_text_field(wp_unslash($_GET['venue']));
   }
@@ -4883,6 +5191,55 @@ function oc_events_grid_shortcode($atts) {
 function oc_past_events_grid_shortcode($atts) {
   return oc_events_grid_render_shortcode($atts, 'past');
 }
+
+/**
+ * Applies SEO rules only to WordPress pages that render an OpenCircle event
+ * archive. `pg` is deliberately excluded: it is pagination, not a filter.
+ */
+function oc_events_grid_current_request_is_archive() {
+  if (is_admin() || !is_singular()) return false;
+  $post = get_post();
+  if (!$post instanceof WP_Post) return false;
+  $content = (string) $post->post_content;
+  return has_shortcode($content, 'opencircle_events_grid')
+    || has_shortcode($content, 'opencircle_past_events_grid');
+}
+
+function oc_events_grid_active_archive_filters() {
+  // These are the query parameters accepted or generated by this plugin. Do
+  // not treat `pg` as a filter so ordinary pagination remains untouched.
+  $keys = ['city', 'category', 'cat', 'organizer', 'org', 'venue', 'location', 'q', 'date', 'from', 'to', 'sort'];
+  $active = [];
+  foreach ($keys as $key) {
+    if (!isset($_GET[$key])) continue;
+    $value = sanitize_text_field(wp_unslash($_GET[$key]));
+    if ($value !== '') $active[$key] = $value;
+  }
+  return $active;
+}
+
+function oc_events_grid_apply_archive_indexation_rules() {
+  if (!oc_events_grid_current_request_is_archive()) return;
+  $filters = oc_events_grid_active_archive_filters();
+  if (empty($filters)) return;
+
+  add_filter('wp_robots', function ($robots) {
+    if (!is_array($robots)) $robots = [];
+    $robots['noindex'] = true;
+    unset($robots['nofollow']);
+    return $robots;
+  }, 99);
+
+  if (defined('WPSEO_VERSION')) {
+    add_filter('wpseo_robots', function () { return 'noindex,follow'; }, 99);
+    add_filter('wpseo_canonical', function ($canonical) {
+      $post = get_post();
+      $archive_url = $post instanceof WP_Post ? get_permalink($post) : '';
+      return $archive_url !== '' ? $archive_url : $canonical;
+    }, 99);
+  }
+}
+add_action('wp', 'oc_events_grid_apply_archive_indexation_rules', 20);
 
 add_shortcode('opencircle_events_grid', 'oc_events_grid_shortcode');
 add_shortcode('opencircle_past_events_grid', 'oc_past_events_grid_shortcode');

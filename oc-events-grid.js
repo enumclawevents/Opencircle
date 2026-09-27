@@ -766,18 +766,9 @@
 
         selDate.value = dateMode;
 
-        const selectedCat = normalizeCategory(selCat && selCat.value ? selCat.value : "");
-        const selectedQ = (input.value || "").trim().toLowerCase();
-        const selectedOrganizer = normalizeOrganizer(urlOrganizer);
-        const selectedVenue = normalizeVenue(urlVenue);
-
         const itemsFiltered = items.filter((e) => {
-          const catOk = !selectedCat || (e.categories || []).includes(selectedCat);
-          const qOk = !selectedQ || (e.title || "").toLowerCase().includes(selectedQ);
-          const organizerOk = organizerMatches(selectedOrganizer, e.organizer);
-          const venueOk = venueMatches(selectedVenue, e.location);
           const modeOk = matchesMode(e);
-          return catOk && qOk && organizerOk && venueOk && modeOk;
+          return modeOk;
         });
         const activeSortMode = selSort.value || "soonest";
         let sortedItems = sortItems(itemsFiltered, activeSortMode);

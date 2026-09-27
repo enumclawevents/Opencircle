@@ -2,7 +2,7 @@
 /**
  * Module: OpenCircle Event Submissions
  * Description: Front-end event submission form that sends events to OpenCircle API for approval. Includes optional WooCommerce Featured Event upsell tied to a submissionId (featured until event happens).
- * Version: 0.1.7
+ * Version: 0.1.8
  */
 
 if (!defined('ABSPATH')) exit;
@@ -28,14 +28,20 @@ class OpenCircle_Event_Submissions {
   }
 
   public static function register_assets() {
-    wp_register_style(self::STYLE_HANDLE, false, [], '0.1.7');
-    wp_register_script(self::SCRIPT_HANDLE, false, [], '0.1.7', true);
+    wp_register_style(self::STYLE_HANDLE, false, [], '0.1.8');
+  }
+
+  private static function default_submission_area() {
+    if (function_exists('oc_integration_get_submission_area')) {
+      return oc_integration_get_submission_area();
+    }
+    return sanitize_text_field(get_option('oc_integration_submission_area', 'Enumclaw')) ?: 'Enumclaw';
   }
 
   public static function render_shortcode($atts) {
     $atts = shortcode_atts([
       'api'       => (defined('OC_API_BASE') ? OC_API_BASE : 'https://api.opencircleapi.com'),
-      'city'      => 'Enumclaw',
+      'city'      => self::default_submission_area(),
       'title'     => 'Submit an Event',
       'success'   => 'Thank you for submitting your event! An admin will review to ensure accuracy before it gets published live',
       'button'    => 'Submit Event',
@@ -51,7 +57,9 @@ class OpenCircle_Event_Submissions {
     ], $atts, self::SHORTCODE);
 
     $api     = esc_url_raw($atts['api']);
-    $city    = sanitize_text_field($atts['city']);
+    $city    = function_exists('oc_integration_normalize_submission_area')
+      ? oc_integration_normalize_submission_area($atts['city'])
+      : (sanitize_text_field($atts['city']) ?: self::default_submission_area());
     $title   = sanitize_text_field($atts['title']);
     $success = sanitize_text_field($atts['success']);
     $button  = sanitize_text_field($atts['button']);
@@ -61,10 +69,7 @@ class OpenCircle_Event_Submissions {
     $feature_copy       = sanitize_text_field($atts['feature_copy']);
 
     wp_enqueue_style(self::STYLE_HANDLE);
-    wp_enqueue_script(self::SCRIPT_HANDLE);
-
     wp_add_inline_style(self::STYLE_HANDLE, self::inline_css());
-    wp_add_inline_script(self::SCRIPT_HANDLE, self::inline_js());
 
     $uid = 'oc-submit-' . wp_generate_uuid4();
 
@@ -180,6 +185,7 @@ class OpenCircle_Event_Submissions {
 </div>
 
     </div>
+    <script><?php echo self::inline_js(); ?></script>
     <?php
     return ob_get_clean();
   }
@@ -236,7 +242,9 @@ class OpenCircle_Event_Submissions {
       'ticketUrl'      => esc_url_raw($_POST['ticketUrl'] ?? ''),
       'ticketLabel'    => sanitize_text_field($_POST['ticketLabel'] ?? ''),
       'categories'     => array_values(array_filter(array_map('trim', explode(',', $_POST['categories'] ?? '')))),
-      'city'           => sanitize_text_field($_POST['city'] ?? ''),
+      'city'           => function_exists('oc_integration_normalize_submission_area')
+        ? oc_integration_normalize_submission_area($_POST['city'] ?? '')
+        : (sanitize_text_field($_POST['city'] ?? '') ?: self::default_submission_area()),
       'submitterEmail' => $email,
       'approvalNotes'  => sanitize_textarea_field($_POST['approvalNotes'] ?? ''),
       'source'         => 'wp_frontend',
@@ -340,7 +348,10 @@ class OpenCircle_Event_Submissions {
 }
 .oc-submit-btn:hover{ filter:brightness(0.97); }
 
-.oc-submit-msg{ margin-top:12px; font-size:.95rem; }
+.oc-submit-msg{ display:none; margin:12px 0; padding:12px 14px; border-radius:8px; font-size:.95rem; line-height:1.45; }
+.oc-submit-msg.is-visible{ display:block; }
+.oc-submit-msg.is-success{ color:#166534; background:#ecfdf5; border:1px solid #86efac; }
+.oc-submit-msg.is-error{ color:#991b1b; background:#fef2f2; border:1px solid #fecaca; }
 
 /* Upsell */
 .oc-submit-actions{ margin-top:14px; }
@@ -440,6 +451,8 @@ class OpenCircle_Event_Submissions {
   }
 
   document.querySelectorAll('[data-oc-submit=\"1\"]').forEach(function(root){
+    if(root.dataset.ocSubmitReady === '1') return;
+    root.dataset.ocSubmitReady = '1';
     var form = root.querySelector('form');
     var msg = root.querySelector('[data-oc-submit-msg]');
     var title = root.querySelector('.oc-submit-title');
@@ -451,7 +464,7 @@ class OpenCircle_Event_Submissions {
 
     form.addEventListener('submit', async function(e){
       e.preventDefault();
-      if(msg) msg.textContent = '';
+      if(msg){ msg.textContent = ''; msg.className = 'oc-submit-msg'; }
       if(upsell) upsell.style.display = 'none';
 
       var formData = new FormData(form);
@@ -466,7 +479,10 @@ class OpenCircle_Event_Submissions {
         var json = await res.json();
 
         if(json && json.success){
-          if(msg) msg.textContent = msg.getAttribute('data-success') || 'Submitted.';
+          if(msg){
+            msg.textContent = msg.getAttribute('data-success') || 'Submitted.';
+            msg.className = 'oc-submit-msg is-visible is-success';
+          }
           form.style.display = 'none';
           if(title) title.style.display = 'none';
           if(disclaimer) disclaimer.style.display = 'none';
@@ -486,10 +502,13 @@ class OpenCircle_Event_Submissions {
             upsell.style.display = 'block';
           }
         } else {
-          if(msg) msg.textContent = (json && json.data && json.data.message) ? json.data.message : 'Submission failed.';
+          if(msg){
+            msg.textContent = (json && json.data && json.data.message) ? json.data.message : 'Submission failed.';
+            msg.className = 'oc-submit-msg is-visible is-error';
+          }
         }
       } catch(err){
-        if(msg) msg.textContent = 'Submission failed.';
+        if(msg){ msg.textContent = 'Submission failed.'; msg.className = 'oc-submit-msg is-visible is-error'; }
       }
     });
 
@@ -499,7 +518,7 @@ class OpenCircle_Event_Submissions {
         form.style.display = '';
         if(title) title.style.display = '';
         if(disclaimer) disclaimer.style.display = '';
-        if(msg) msg.textContent = '';
+        if(msg){ msg.textContent = ''; msg.className = 'oc-submit-msg'; }
         if(upsell) upsell.style.display = 'none';
         againBtn.style.display = 'none';
       });

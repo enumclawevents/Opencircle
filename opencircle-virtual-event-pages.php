@@ -1745,17 +1745,22 @@ $related_heading = apply_filters('oc_related_events_heading', 'Related Events', 
 ?>
 
           <?php if (!empty($related)): ?>
-            <section class="oc-related" aria-label="Related events">
+            <?php $related_carousel_id = 'oc-related-carousel-' . wp_generate_uuid4(); ?>
+            <section class="oc-related" aria-label="Related events" data-oc-related-carousel>
               <div class="oc-more-head oc-section-spacer">
                 <h3 class="oc-event-section-title"><?php echo esc_html($related_heading); ?></h3>
 
-                <!-- UPDATED: listing page is /events/ -->
-                <a class="oc-see-all-btn" href="<?php echo esc_url(home_url('/' . OC_VIRTUAL_BASE . '/')); ?>">
-                  See all
-                </a>
+                <div class="oc-related-actions">
+                  <!-- UPDATED: listing page is /events/ -->
+                  <a class="oc-see-all-btn" href="<?php echo esc_url(home_url('/' . OC_VIRTUAL_BASE . '/')); ?>">
+                    See all
+                  </a>
+                  <button class="oc-related-nav" type="button" data-oc-related-prev aria-label="Previous related events" aria-controls="<?php echo esc_attr($related_carousel_id); ?>">‹</button>
+                  <button class="oc-related-nav" type="button" data-oc-related-next aria-label="Next related events" aria-controls="<?php echo esc_attr($related_carousel_id); ?>">›</button>
+                </div>
               </div>
 
-              <div class="oc-related-grid">
+              <div id="<?php echo esc_attr($related_carousel_id); ?>" class="oc-related-grid" data-oc-related-track tabindex="0">
                 <?php foreach ($related as $r): ?>
                   <?php
                     // UPDATED: related single page links use /events/{key}/
@@ -1817,6 +1822,44 @@ $related_heading = apply_filters('oc_related_events_heading', 'Related Events', 
                 <?php endforeach; ?>
               </div>
             </section>
+            <script>
+            (function () {
+              var section = document.querySelector('[data-oc-related-carousel]');
+              if (!section || section.dataset.ocRelatedCarouselReady) return;
+              section.dataset.ocRelatedCarouselReady = '1';
+
+              var track = section.querySelector('[data-oc-related-track]');
+              var previous = section.querySelector('[data-oc-related-prev]');
+              var next = section.querySelector('[data-oc-related-next]');
+              if (!track || !previous || !next) return;
+
+              function updateButtons() {
+                var maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+                previous.disabled = track.scrollLeft <= 1;
+                next.disabled = track.scrollLeft >= maxScroll - 1;
+              }
+
+              function scrollByPage(direction) {
+                var maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+                var target = Math.max(0, Math.min(maxScroll, track.scrollLeft + (direction * track.clientWidth)));
+                track.scrollLeft = target;
+                window.setTimeout(updateButtons, 50);
+              }
+
+              previous.addEventListener('click', function () { scrollByPage(-1); });
+              next.addEventListener('click', function () { scrollByPage(1); });
+              track.addEventListener('scroll', updateButtons, { passive: true });
+              window.addEventListener('resize', updateButtons);
+              window.addEventListener('load', updateButtons);
+              if (window.ResizeObserver) {
+                new ResizeObserver(updateButtons).observe(track);
+              }
+              updateButtons();
+              window.requestAnimationFrame(function () {
+                window.requestAnimationFrame(updateButtons);
+              });
+            })();
+            </script>
           <?php endif; ?>
 
         </article>
@@ -1838,12 +1881,9 @@ $related_heading = apply_filters('oc_related_events_heading', 'Related Events', 
         ?>
 
 <?php
-  // Occurrences (your existing logic kept as-is)
-  $occ = [];
-  foreach (['occurrencesUpcoming', 'occurrences', 'upcomingOccurrences'] as $k) {
-    if (!empty($event[$k]) && is_array($event[$k])) { $occ = $event[$k]; break; }
-  }
-  if (!is_array($occ)) $occ = [];
+  // Use the shared occurrence normalizer so the picker supports API-provided
+  // occurrences as well as the custom recurrence-item format.
+  $occ = oc_collect_occurrences_from_api($event);
 
   $tz = wp_timezone();
 
@@ -2134,6 +2174,45 @@ $related_heading = apply_filters('oc_related_events_heading', 'Related Events', 
 /* Kill stray top margin from first child */
 .oc-single-main > article > :first-child{
   margin-top: 0;
+}
+
+/* Virtual-event breadcrumb: opt out of theme ordered-list defaults. */
+.oc-event-breadcrumbs{
+  margin: 0 0 22px;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+.oc-event-breadcrumbs__list{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none !important;
+  counter-reset: none !important;
+}
+.oc-event-breadcrumbs__item{
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  color: #6b7280;
+  list-style: none !important;
+  counter-increment: none !important;
+}
+.oc-event-breadcrumbs__item::before{ content: none !important; }
+.oc-event-breadcrumbs__item::marker{ content: '' !important; }
+.oc-event-breadcrumbs__item a{ text-decoration: none; }
+.oc-event-breadcrumbs__item a:hover,
+.oc-event-breadcrumbs__item a:focus{ text-decoration: underline; }
+.oc-event-breadcrumbs__separator{
+  margin: 0 8px;
+  color: #9ca3af;
+}
+.oc-event-breadcrumbs__item.is-current{
+  color: #374151;
+  font-weight: 500;
 }
 
 /* Remove excess vertical gap above main + sidebar cards */
@@ -2674,15 +2753,28 @@ button.close {
 }
 
 .oc-related-grid{
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex !important;
+  flex-wrap: nowrap !important;
   gap: 18px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 2px;
+}
+.oc-related-grid::-webkit-scrollbar{ display:none; }
+.oc-related-grid .oc-related-card{
+  flex: 0 0 calc((100% - 36px) / 3) !important;
+  min-width: 0;
+  scroll-snap-align: start;
 }
 
 @media (max-width: 900px){
-  .oc-related-grid{
-    grid-template-columns: 1fr;
-  }
+  .oc-related-grid .oc-related-card{ flex-basis: calc((100% - 18px) / 2) !important; }
+}
+@media (max-width: 640px){
+  .oc-related-grid .oc-related-card{ flex-basis: 86% !important; }
 }
 
 .oc-related-card{
@@ -3274,6 +3366,7 @@ button.close {
   margin-bottom: 14px;
 }
 .oc-more-head .oc-event-section-title{ margin:0; }
+.oc-related-actions{ display:flex; align-items:center; gap:10px; }
 
 .oc-see-all-btn{
   display:inline-flex;
@@ -3290,9 +3383,25 @@ button.close {
   font-size:0.9231rem;
 }
 .oc-see-all-btn:hover{ border-color: rgba(0,0,0,.22); color: var(--oc-accent-dark, #2f7f9f);}
+.oc-related-nav{
+  width:40px;
+  height:40px;
+  border:1px solid #ddd;
+  border-radius:8px;
+  background:#fff;
+  color:#333;
+  font:inherit;
+  font-size:1.4rem;
+  line-height:1;
+  cursor:pointer;
+}
+.oc-related-nav:hover:not(:disabled){ border-color:rgba(0,0,0,.22); color:var(--oc-accent, #3fabd1); }
+.oc-related-nav:disabled{ opacity:.4; cursor:default; }
 
 @media (max-width: 640px){
   .oc-see-all-btn{ height:36px; padding:0 12px; font-size:0.875rem; }
+  .oc-related-actions{ gap:8px; }
+  .oc-related-nav{ width:36px; height:36px; }
 }
 
 /* ==== HARD KILL: blue focus ring / border around the hero image/button ==== */

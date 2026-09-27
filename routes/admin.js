@@ -4112,22 +4112,17 @@ function getNewsletterScopeCities(scope) {
 
 function getUserAllowedNewsletterScopes(user, fallbackCity = "Enumclaw") {
   const allowedCities = getUserAllowedCities(user, fallbackCity);
-  const scopes = [];
-  const seen = new Set();
-  const pushScope = (value) => {
-    const normalized = String(value || "").trim();
-    if (!normalized || seen.has(normalized)) return;
-    seen.add(normalized);
-    scopes.push(normalized);
-  };
+  const plateauScope = "Plateau Regional";
+  const plateauCities = NEWSLETTER_SCOPE_GROUPS[plateauScope] || [];
+  const hasFullPlateauAccess = plateauCities.length > 0 && plateauCities.every((city) => allowedCities.includes(city));
+  if (hasFullPlateauAccess) return [plateauScope];
 
-  allowedCities.forEach(pushScope);
-  for (const [scopeName, memberCities] of Object.entries(NEWSLETTER_SCOPE_GROUPS)) {
-    if (memberCities.every((city) => allowedCities.includes(city))) pushScope(scopeName);
+  const normalizedFallback = String(fallbackCity || "Enumclaw").trim();
+  if (normalizedFallback && !plateauCities.includes(normalizedFallback)) {
+    return [normalizedFallback];
   }
 
-  if (!scopes.length) pushScope(fallbackCity || "Enumclaw");
-  return scopes;
+  return [plateauScope];
 }
 
 function pickAccessibleNewsletterScope(requestedScope, user, { fallbackScope = "", fallbackCity = "Enumclaw" } = {}) {
@@ -13265,7 +13260,7 @@ return `
 
           async function check(){
             try{
-              var res = await fetch('/admin/pending-count?city=' + encodeURIComponent('${selectedCity}'), { cache: 'no-store' });
+              var res = await fetch('/admin/pending-count?city=' + encodeURIComponent('${selectedCity}') + '&workspace=' + encodeURIComponent('${selectedAdminLabel}'), { cache: 'no-store' });
               if(!res.ok) return;
               var json = await res.json();
               var c = Number(json && json.count || 0);
@@ -19697,13 +19692,19 @@ router.get("/pending-count", async (req, res) => {
     await ensureMessageSchema();
     await ensureUserProfileSchema();
     const city = String(req.query.city || "Enumclaw");
-    const plateauPendingCityValues = ["Plateau Area", "Plateau Regional", "Plateau Events", ...ADMIN_SIDEBAR_GROUPS["Plateau Regional"]];
-    const pendingCities = plateauPendingCityValues.includes(city)
-      ? ["Plateau Area", "Plateau Regional", ...ADMIN_SIDEBAR_GROUPS["Plateau Regional"]]
-      : [city];
-    const pendingPlaceholders = pendingCities.map(() => "?").join(", ");
-    const row = await get(`SELECT COUNT(*) AS n FROM pending_events WHERE city IN (${pendingPlaceholders})`, pendingCities);
     const currentUser = await resolveSessionUser(req);
+    const workspace = String(req.query.workspace || "").trim();
+    const canUsePlateauWorkspace = workspace === "Plateau Regional" && (
+      hasDeveloperAccessRole(req.user?.role || "") ||
+      getAdminWorkspaceCities("Plateau Events", currentUser, city).length === ADMIN_WORKSPACE_GROUPS["Plateau Events"].length
+    );
+    const pendingCities = canUsePlateauWorkspace
+      ? ["Plateau Area", "Plateau Regional", ...ADMIN_WORKSPACE_GROUPS["Plateau Events"]]
+      : [city];
+    const row = await get(
+      `SELECT COUNT(*) AS n FROM pending_events WHERE city IN (${pendingCities.map(() => "?").join(", ")})`,
+      pendingCities
+    );
     let messages = 0;
     if (currentUser?.id) {
       const messageScopeCities = isAdminRole(currentUser.role)
