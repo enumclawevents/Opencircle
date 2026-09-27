@@ -4354,9 +4354,25 @@ let whereParams = [];
     let selectedMessageContact = null;
     let messageConversationRows = [];
     let supportCircleUser = null;
+    let orphanedMessageCount = 0;
 
     if (canUseMessages) {
       supportCircleUser = await resolveSupportCircleUser();
+      if (hasAdminAccess) {
+        try {
+          const orphanedRow = await get(
+            `SELECT COUNT(*) AS count
+               FROM messages m
+              WHERE m.recipientUserId = ?
+                AND m.readAt IS NULL
+                AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = m.senderUserId)`,
+            [currentUser.id]
+          );
+          orphanedMessageCount = Number(orphanedRow?.count || 0);
+        } catch (_) {
+          orphanedMessageCount = 0;
+        }
+      }
       try {
         const unreadRow = await get(
           `SELECT COUNT(*) AS count
@@ -8275,6 +8291,8 @@ return `
       ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); color:#991b1b;">Message cannot be empty.</div>`
       : messagesNotice === "recipient"
       ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); color:#991b1b;">Choose a valid user in your city.</div>`
+      : messagesNotice === "orphaned_cleared"
+      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(16,185,129,.35); color:#065f46;">Unavailable messages were removed.</div>`
       : "";
 
     const messageContactsHtml = messageContacts.length
@@ -13751,6 +13769,11 @@ return `
               </div>
             </div>
             ${messagesNoticeHtml}
+            ${hasAdminAccess && orphanedMessageCount > 0 ? `
+              <form method="POST" action="/admin/messages/clear-orphaned" style="margin:0 0 12px;">
+                <button class="btn" type="submit" onclick="return confirm('Permanently remove ${orphanedMessageCount} unavailable message${orphanedMessageCount === 1 ? "" : "s"}?');">Clear unavailable message${orphanedMessageCount === 1 ? "" : "s"}</button>
+              </form>
+            ` : ``}
             <div class="message-list">${messageContactsHtml}</div>
           </div>
 
@@ -19580,6 +19603,35 @@ router.get("/pending-count", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ ok: false, count: 0, messages: 0 });
+  }
+});
+
+router.post("/messages/clear-orphaned", async (req, res) => {
+  try {
+    await ensureMessageSchema();
+    await ensureUserProfileSchema();
+    const currentUser = await resolveSessionUser(req);
+    if (!currentUser?.id || !isAdminRole(currentUser.role)) return res.status(403).send("Forbidden");
+
+    await run(
+      `DELETE FROM messages
+        WHERE recipientUserId = ?
+          AND readAt IS NULL
+          AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = messages.senderUserId)`,
+      [currentUser.id]
+    );
+    try {
+      await run(
+        `DELETE FROM message_typing_status
+          WHERE recipientUserId = ?
+            AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = message_typing_status.senderUserId)`,
+        [currentUser.id]
+      );
+    } catch (_) {}
+    return res.redirect("/admin/messages?notice=orphaned_cleared");
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Failed to clear unavailable messages.");
   }
 });
 
