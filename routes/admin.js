@@ -6675,6 +6675,11 @@ return `
         yearly: buildOccurrenceCountsFromRows("yearly", cityEventChartRows),
       };
     }
+    // These markers are populated only for an individual event report.  They
+    // deliberately use the event record timestamps rather than view data so
+    // an admin can compare when an event was added with its scheduled day.
+    let selectedEventChartMarkers = [];
+
     function buildEventsChartSvgForMode(mode) {
       const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : { labels: [], values: [] };
       const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : { labels: [], values: [] };
@@ -6717,6 +6722,25 @@ return `
         const y = padT + plotH - ((value / yMax) * plotH);
         return { x, y, value };
       });
+      const markerBucket =
+        mode === "daily" ? makeDailyBuckets() :
+        mode === "weekly" ? makeWeeklyBuckets() :
+        mode === "monthly" ? makeMonthlyBuckets() :
+        makeYearlyBuckets();
+      const chartMarkers = selectedEventChartMarkers.map((marker, markerIndex) => {
+        const parts = parseIsoParts(String(marker?.dateTime || ""));
+        const key = parts ? keyForOccurrence({ parts }, mode) : "";
+        const pointIndex = markerBucket.keys.indexOf(key);
+        if (pointIndex < 0 || !eventPoints[pointIndex]) return "";
+        const x = eventPoints[pointIndex].x;
+        // Alternate labels when the dates fall in the same bucket so both
+        // remain legible without covering chart data.
+        const labelY = padT + 14 + ((markerIndex % 2) * 16);
+        return `
+          <line x1="${x.toFixed(2)}" y1="${padT.toFixed(2)}" x2="${x.toFixed(2)}" y2="${(padT + plotH).toFixed(2)}" stroke="rgba(245,158,11,.9)" stroke-width="1.5" stroke-dasharray="4 3"></line>
+          <text x="${x.toFixed(2)}" y="${labelY}" text-anchor="middle" fill="rgba(146,64,14,.98)" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(marker.label || ""))}</text>
+        `;
+      }).join("");
       function buildSmoothSvgPath(points) {
         if (!points.length) return "";
         if (points.length === 1) {
@@ -6780,6 +6804,7 @@ return `
           ${fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
           ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${chartMarkers}
           ${hoverRects}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
@@ -6816,7 +6841,7 @@ return `
     if (requestedEventId) {
       const selectedEventScope = buildCityScopeSql("city", selectedAdminCities);
       const selectedEventRow = await get(
-        `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule,
+        `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, createdAt, hasRecurrence, recurrenceRule,
                 recurrenceDates, recurrenceStartDate, recurrenceUntilDate, featured, viewCount, uniqueViewCount, ticketClickCount,
                 goingCount, interestedCount
          FROM events
@@ -6828,6 +6853,10 @@ return `
       );
       if (selectedEventRow) {
         const eventRow = normalizeRowTimes(selectedEventRow);
+        selectedEventChartMarkers = [
+          { label: "Event created", dateTime: eventRow.createdAt },
+          { label: "Event day", dateTime: eventRow.startDateTime },
+        ].filter((marker) => parseIsoParts(String(marker.dateTime || "")));
         const nowMs = Date.now();
         const monthlyWindowStartMs = new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1, 0, 0, 0, 0).getTime();
         const monthlyWindowEndMs = endOfCurrentMonthUtcMs();
