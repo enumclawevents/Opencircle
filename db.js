@@ -441,8 +441,43 @@ async function initDB() {
   // preserve their original queue timestamp, while older/manual events fall
   // back to createdAt in reporting.
   await addCol("submittedAt", `ALTER TABLE events ADD COLUMN submittedAt TEXT;`);
-  await addCol("createdAt", `ALTER TABLE events ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
-  await addCol("updatedAt", `ALTER TABLE events ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'));`);
+  // SQLite does not permit a non-constant default expression in ALTER TABLE.
+  // New databases still receive the defaults from CREATE TABLE above; legacy
+  // databases receive nullable columns plus the insert trigger below.
+  await addCol("createdAt", `ALTER TABLE events ADD COLUMN createdAt TEXT;`);
+  await addCol("updatedAt", `ALTER TABLE events ADD COLUMN updatedAt TEXT;`);
+
+  const eventTimestampColumns = new Set((await tableInfo("events")).map((column) => String(column.name)));
+  if (eventTimestampColumns.has("submittedAt") && eventTimestampColumns.has("createdAt")) {
+    // Preserve historical timing where it exists. Never substitute a current
+    // timestamp for an old event with no trustworthy creation record.
+    await tryExec(`
+      UPDATE events
+         SET submittedAt = createdAt
+       WHERE (submittedAt IS NULL OR trim(submittedAt) = '')
+         AND createdAt IS NOT NULL
+         AND trim(createdAt) <> '';
+    `);
+  }
+  if (eventTimestampColumns.has("submittedAt") && eventTimestampColumns.has("createdAt") && eventTimestampColumns.has("updatedAt")) {
+    // Covers public approvals, manual admin entries, imports, and any future
+    // insert route without relying on each route to remember these fields.
+    await tryExec(`
+      CREATE TRIGGER IF NOT EXISTS set_event_insert_timestamps
+      AFTER INSERT ON events
+      FOR EACH ROW
+      WHEN COALESCE(trim(NEW.createdAt), '') = ''
+        OR COALESCE(trim(NEW.updatedAt), '') = ''
+        OR COALESCE(trim(NEW.submittedAt), '') = ''
+      BEGIN
+        UPDATE events
+           SET createdAt = COALESCE(NULLIF(trim(createdAt), ''), datetime('now')),
+               updatedAt = COALESCE(NULLIF(trim(updatedAt), ''), datetime('now')),
+               submittedAt = COALESCE(NULLIF(trim(submittedAt), ''), NULLIF(trim(createdAt), ''), datetime('now'))
+         WHERE id = NEW.id;
+      END;
+    `);
+  }
 
   // ---- Indexes (use camelCase) ----
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_city ON events(city);`);

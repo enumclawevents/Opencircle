@@ -6745,9 +6745,18 @@ return `
         const labelY = String(marker.label || "") === "Event day"
           ? padT - 6
           : padT + 14 + ((markerIndex % 2) * 16);
+        // The first and last plotted points sit near the SVG edges. Centering
+        // a long marker label there clips it, especially for today's point.
+        const labelInset = 8;
+        const labelAnchor = x <= padL + 60
+          ? "start"
+          : (x >= padL + plotW - 80 ? "end" : "middle");
+        const labelX = labelAnchor === "start"
+          ? x + labelInset
+          : (labelAnchor === "end" ? x - labelInset : x);
         return `
           <line x1="${x.toFixed(2)}" y1="${padT.toFixed(2)}" x2="${x.toFixed(2)}" y2="${(padT + plotH).toFixed(2)}" stroke="rgba(245,158,11,.9)" stroke-width="1.5" stroke-dasharray="4 3"></line>
-          ${showLabel ? `<text x="${x.toFixed(2)}" y="${labelY}" text-anchor="middle" fill="rgba(146,64,14,.98)" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(marker.label || ""))}</text>` : ""}
+          ${showLabel ? `<text x="${labelX.toFixed(2)}" y="${labelY}" text-anchor="${labelAnchor}" fill="rgba(146,64,14,.98)" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(marker.label || ""))}</text>` : ""}
         `;
       }).join("");
       function buildSmoothSvgPath(points) {
@@ -11093,6 +11102,18 @@ return `
         flex: 1 1 auto;
         min-height: 0;
       }
+      /* An individual-event report has a companion insights card. Keep both
+         cards and the chart canvas on the same vertical rhythm. */
+      .organizer-chart-grid.event-analytics-detail > .card:first-child{
+        height:100%;
+        align-self:stretch;
+      }
+      .organizer-chart-grid.event-analytics-detail #eventsChartSvgHost{
+        height:100%;
+      }
+      .organizer-chart-grid.event-analytics-detail #eventsChartSvgHost > svg{
+        height:100% !important;
+      }
       #organizerChartSvgHost{
         position:relative;
         width:100%;
@@ -13489,7 +13510,7 @@ return `
 
         <!-- Charts -->
         ${showAnalytics ? `
-        <section class="${isOrganizerUser ? "analytics-main-grid organizer-analytics-single" : "grid2 analytics-main-grid organizer-chart-grid"}">
+        <section class="${isOrganizerUser ? "analytics-main-grid organizer-analytics-single" : `grid2 analytics-main-grid organizer-chart-grid${selectedEventAnalytics ? " event-analytics-detail" : ""}`}">
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
