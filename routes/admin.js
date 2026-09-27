@@ -3868,6 +3868,9 @@ function getUserAccessAreaLabels(user, fallbackCity = "Enumclaw") {
 }
 
 function getUserAccessAreaLabel(user, fallbackCity = "Enumclaw") {
+  const primaryCity = String(user?.city || "").trim();
+  if (USER_ACCESS_AREAS["Plateau Regional"].includes(primaryCity)) return "Plateau Regional";
+  if (primaryCity === "Enumclaw") return "Enumclaw";
   const labels = getUserAccessAreaLabels(user, fallbackCity);
   return labels.length > 1 ? "All areas" : labels[0];
 }
@@ -10506,6 +10509,8 @@ return `
         align-items:center;
         gap:10px;
         min-height:66px;
+        min-width:0;
+        overflow:hidden;
         padding:12px;
         border:1px solid var(--line);
         border-radius:var(--radius-inner);
@@ -10528,6 +10533,7 @@ return `
       .message-user-copy{
         min-width:0;
         flex:1 1 auto;
+        overflow:hidden;
       }
       .message-user-name{
         display:flex;
@@ -10538,11 +10544,14 @@ return `
         color:var(--text);
       }
       .message-user-name > span:last-child{
+        display:block;
+        flex:1 1 auto;
         min-width:0;
         overflow:hidden;
         text-overflow:ellipsis;
         white-space:nowrap;
       }
+      .message-user-name .online-dot{ flex:0 0 auto; }
       .message-user-meta{
         color:var(--muted);
         font-size:12px;
