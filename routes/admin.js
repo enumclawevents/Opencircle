@@ -6840,8 +6840,12 @@ return `
     let analyticsSideBodyHtml = `<div class="mini mini-list">${topOrganizersHtml}</div>`;
     if (requestedEventId) {
       const selectedEventScope = buildCityScopeSql("city", selectedAdminCities);
+      // Older SQLite installations can predate the createdAt column.  Keep
+      // the event report available there; the creation marker simply cannot
+      // be shown until that historical schema is migrated.
+      const selectedEventCreatedAtSql = cols.has("createdAt") ? "createdAt" : "NULL AS createdAt";
       const selectedEventRow = await get(
-        `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, createdAt, hasRecurrence, recurrenceRule,
+        `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, ${selectedEventCreatedAtSql}, hasRecurrence, recurrenceRule,
                 recurrenceDates, recurrenceStartDate, recurrenceUntilDate, featured, viewCount, uniqueViewCount, ticketClickCount,
                 goingCount, interestedCount
          FROM events
