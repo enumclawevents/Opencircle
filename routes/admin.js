@@ -8288,7 +8288,7 @@ return `
                 ? `<img class="message-user-avatar" src="${esc(user.photoUrl)}" alt="${esc(name)}" />`
                 : `<div class="message-user-avatar" aria-hidden="true"></div>`}
               <div class="message-user-copy">
-                <div class="message-user-name">${onlineStatusMarkup(user.lastSeenAt, `${name} status`)}<span>${esc(name)}</span></div>
+                <div class="message-user-name">${onlineStatusMarkup(user.lastSeenAt, `${name} status`)}<span title="${esc(name)}">${esc(name)}</span></div>
                 <div class="message-user-meta">${esc(latestLabel)}</div>
               </div>
               ${Number(user.unreadCount || 0) > 0 ? `<span class="message-unread">${Number(user.unreadCount) > 99 ? "99+" : Number(user.unreadCount)}</span>` : ``}
@@ -10505,6 +10505,7 @@ return `
         display:flex;
         align-items:center;
         gap:10px;
+        min-height:66px;
         padding:12px;
         border:1px solid var(--line);
         border-radius:var(--radius-inner);
@@ -10532,8 +10533,15 @@ return `
         display:flex;
         align-items:center;
         gap:8px;
+        min-width:0;
         font-weight:650;
         color:var(--text);
+      }
+      .message-user-name > span:last-child{
+        min-width:0;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
       }
       .message-user-meta{
         color:var(--muted);
