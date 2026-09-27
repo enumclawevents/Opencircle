@@ -6727,18 +6727,22 @@ return `
         mode === "weekly" ? makeWeeklyBuckets() :
         mode === "monthly" ? makeMonthlyBuckets() :
         makeYearlyBuckets();
+      const labeledMarkerBuckets = new Set();
       const chartMarkers = selectedEventChartMarkers.map((marker, markerIndex) => {
         const parts = parseIsoParts(String(marker?.dateTime || ""));
         const key = parts ? keyForOccurrence({ parts }, mode) : "";
         const pointIndex = markerBucket.keys.indexOf(key);
         if (pointIndex < 0 || !eventPoints[pointIndex]) return "";
         const x = eventPoints[pointIndex].x;
+        const labelKey = `${pointIndex}:${String(marker.label || "")}`;
+        const showLabel = !labeledMarkerBuckets.has(labelKey);
+        labeledMarkerBuckets.add(labelKey);
         // Alternate labels when the dates fall in the same bucket so both
         // remain legible without covering chart data.
         const labelY = padT + 14 + ((markerIndex % 2) * 16);
         return `
           <line x1="${x.toFixed(2)}" y1="${padT.toFixed(2)}" x2="${x.toFixed(2)}" y2="${(padT + plotH).toFixed(2)}" stroke="rgba(245,158,11,.9)" stroke-width="1.5" stroke-dasharray="4 3"></line>
-          <text x="${x.toFixed(2)}" y="${labelY}" text-anchor="middle" fill="rgba(146,64,14,.98)" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(marker.label || ""))}</text>
+          ${showLabel ? `<text x="${x.toFixed(2)}" y="${labelY}" text-anchor="middle" fill="rgba(146,64,14,.98)" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(marker.label || ""))}</text>` : ""}
         `;
       }).join("");
       function buildSmoothSvgPath(points) {
@@ -6857,14 +6861,20 @@ return `
       );
       if (selectedEventRow) {
         const eventRow = normalizeRowTimes(selectedEventRow);
-        selectedEventChartMarkers = [
-          { label: "Event created", dateTime: eventRow.createdAt },
-          { label: "Event day", dateTime: eventRow.startDateTime },
-        ].filter((marker) => parseIsoParts(String(marker.dateTime || "")));
         const nowMs = Date.now();
         const monthlyWindowStartMs = new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1, 0, 0, 0, 0).getTime();
         const monthlyWindowEndMs = endOfCurrentMonthUtcMs();
         const isRecurring = hasRecurringData(eventRow);
+        const chartHistoryStartMs = new Date(new Date().getFullYear() - 4, 0, 1, 0, 0, 0, 0).getTime();
+        const chartHistoryEndMs = endOfCurrentYearUtcMs();
+        const eventDayMarkers = isRecurring
+          ? generateAdminOccurrences(eventRow, chartHistoryStartMs, chartHistoryEndMs)
+              .map((occurrence) => ({ label: "Event day", dateTime: occurrence.startDateTime }))
+          : [{ label: "Event day", dateTime: eventRow.startDateTime }];
+        selectedEventChartMarkers = [
+          { label: "Event created", dateTime: eventRow.createdAt },
+          ...eventDayMarkers,
+        ].filter((marker) => parseIsoParts(String(marker.dateTime || "")));
         const selectedEventViewRows = hasSourceTrackingTable
           ? await all(
               `SELECT viewedAt
