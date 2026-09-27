@@ -25,7 +25,7 @@ const {
   normalizeJobApplicationMode,
   normalizeJobEmploymentTypes,
 } = require("../lib/job-utils");
-const { bulkImportUpload, persistImportedImage, persistUploadedImage, upload } = require("../lib/uploads");
+const { bulkImportUpload, persistImportedImage, persistUploadedAdImage, persistUploadedImage, upload } = require("../lib/uploads");
 
 function normalizeCategories(input) {
   let arr = [];
@@ -16242,6 +16242,7 @@ return `
                 <div>
                   <label style="margin-top:0;">Ad Image (Upload)</label>
                   <input class="ctrl" type="file" name="adImageFile" accept="image/*" />
+                  <div class="note">Ad uploads retain their original aspect ratio without cropping or added padding.</div>
                 </div>
                 <div>
                   <label style="margin-top:0;">Ad Image URL (Optional)</label>
@@ -20395,7 +20396,7 @@ router.post("/jobs", upload.single("jobImageFile"), async (req, res) => {
 
     const imageFile = req.file || null;
     if (imageFile) {
-      imageUrl = await persistUploadedImage(imageFile, req);
+      imageUrl = await persistUploadedAdImage(imageFile, req);
     }
 
     const autoSeoFields = buildBasicJobSeoFields({ title, company, location, description });
