@@ -11102,17 +11102,11 @@ return `
         flex: 1 1 auto;
         min-height: 0;
       }
-      /* An individual-event report has a companion insights card. Keep both
-         cards and the chart canvas on the same vertical rhythm. */
+      /* Keep the chart at its intended aspect ratio without changing the
+         companion insight panel's existing layout. */
       .organizer-chart-grid.event-analytics-detail > .card:first-child{
-        height:100%;
-        align-self:stretch;
-      }
-      .organizer-chart-grid.event-analytics-detail #eventsChartSvgHost{
-        height:100%;
-      }
-      .organizer-chart-grid.event-analytics-detail #eventsChartSvgHost > svg{
-        height:100% !important;
+        height:auto;
+        align-self:start;
       }
       #organizerChartSvgHost{
         position:relative;
