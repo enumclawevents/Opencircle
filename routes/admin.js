@@ -3891,8 +3891,15 @@ function hasSectionAccess(user, section) {
   return !!getUserSectionPermissions(user)[section];
 }
 
+function hasExplicitCityAccess(user) {
+  const parsed = parsePermissionsObject(user?.permissionsJson);
+  return !!(parsed && (Array.isArray(parsed.cityAccess) || Array.isArray(parsed.cities)));
+}
+
 function getUserAllowedCities(user, fallbackCity = "Enumclaw") {
-  if (isDeveloperRole(user?.role)) return ADMIN_AREAS.slice();
+  // Developers retain full-area access until an administrator explicitly
+  // saves an area selection for them.
+  if (isDeveloperRole(user?.role) && !hasExplicitCityAccess(user)) return ADMIN_AREAS.slice();
   // Legacy records may contain a single Plateau city. Treat any such record
   // as the Plateau Regional area so displayed and effective permissions agree.
   const legacyCities = normalizeCityAccessList(user?.permissionsJson, user?.city || fallbackCity || "Enumclaw");
@@ -8066,6 +8073,7 @@ return `
               const userPerms = getUserSectionPermissions(u);
               const userCities = getUserAllowedCities(u, u.city || "Enumclaw");
               const userAreas = getUserAccessAreaLabels(u, u.city || "Enumclaw");
+              const hasAllUserAreas = ADMIN_AREAS.every((city) => userCities.includes(city));
               const userFormId = `user-role-${encodeURIComponent(u.id)}`;
               const modalId = `user-modal-${encodeURIComponent(u.id)}`;
               const displayName = esc(u.username || u.email || "User");
@@ -8124,15 +8132,19 @@ return `
                                 <div class="users-modal-label">Area access</div>
                                 <div class="users-modal-card" style="padding:14px 16px;">
                                   <div class="users-access-grid">
+                                    <label class="users-access-item">
+                                      <input type="checkbox" name="allAreas" value="1" ${hasAllUserAreas ? "checked" : ""} data-all-areas form="${userFormId}" />
+                                      <span>All areas</span>
+                                    </label>
                                     ${Object.keys(USER_ACCESS_AREAS).map((areaName) => `
                                       <label class="users-access-item">
-                                        <input type="checkbox" name="areas" value="${esc(areaName)}" ${userAreas.includes(areaName) ? "checked" : ""} form="${userFormId}" />
+                                        <input type="checkbox" name="areas" value="${esc(areaName)}" ${userAreas.includes(areaName) ? "checked" : ""} data-area-choice form="${userFormId}" />
                                         <span>${esc(areaName)}</span>
                                       </label>
                                     `).join("")}
                                   </div>
                                 </div>
-                                <div class="note" style="margin-top:8px;">Plateau Regional grants access to Buckley, Wilkeson, Carbonado, and South Prairie. The first selected area remains the user's primary legacy area.</div>
+                                <div class="note" style="margin-top:8px;">Plateau Regional grants access to Buckley, Wilkeson, Carbonado, and South Prairie. All areas restores unrestricted access.</div>
                               </div>
                               <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
                                 <div class="users-modal-label">Section access</div>
@@ -8209,6 +8221,19 @@ return `
           }
           select.addEventListener('change', sync);
           sync();
+        });
+        document.querySelectorAll('[data-all-areas]').forEach(function(allAreas){
+          var form = allAreas.form;
+          if (!form) return;
+          var choices = Array.prototype.slice.call(form.querySelectorAll('[data-area-choice]'));
+          function syncAll(){
+            allAreas.checked = choices.length > 0 && choices.every(function(choice){ return choice.checked; });
+          }
+          allAreas.addEventListener('change', function(){
+            choices.forEach(function(choice){ choice.checked = allAreas.checked; });
+          });
+          choices.forEach(function(choice){ choice.addEventListener('change', syncAll); });
+          syncAll();
         });
       </script>`;
     }
@@ -19803,10 +19828,12 @@ router.post("/users/:id/role", async (req, res) => {
     const legacyCitiesRaw = Array.isArray(req.body?.cities)
       ? req.body.cities
       : (req.body?.cities !== undefined ? [req.body.cities] : []);
-    const requestedCities = normalizeUserAccessAreas(
-      requestedAreasRaw.length ? requestedAreasRaw : legacyCitiesRaw,
-      req.body?.city || "Enumclaw"
-    );
+    const requestedCities = isCheckedValue(req.body?.allAreas)
+      ? ADMIN_AREAS.slice()
+      : normalizeUserAccessAreas(
+          requestedAreasRaw.length ? requestedAreasRaw : legacyCitiesRaw,
+          req.body?.city || "Enumclaw"
+        );
     if (!requestedCities.length) {
       return res.redirect("/admin/users?notice=city_required");
     }
