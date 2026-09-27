@@ -11111,6 +11111,17 @@ return `
         height:auto;
         align-self:start;
       }
+      .event-analytics-page-title{
+        margin: 0 0 var(--gap);
+      }
+      .event-analytics-page-title h1{
+        margin:0;
+        font-size:28px;
+        line-height:1.2;
+      }
+      .event-analytics-page-title p{
+        margin:6px 0 0;
+      }
       #organizerChartSvgHost{
         position:relative;
         width:100%;
@@ -13258,6 +13269,13 @@ return `
         })();
         </script>
 
+        ${showAnalytics && selectedEventAnalytics ? `
+        <section class="event-analytics-page-title">
+          <h1>${esc(selectedEventAnalytics.title)}</h1>
+          <p class="sub">Individual event insights</p>
+        </section>
+        ` : ``}
+
         <!-- Dashboard Overview -->
         ${showDashboard ? `
         <section class="dashboard-shell" id="dashboard-overview">
@@ -13548,8 +13566,8 @@ return `
           <div class="card">
             <div class="sectionTitle">
               <div>
-                <h2>${esc(analyticsSideTitle)}</h2>
-                <p class="sub">${esc(analyticsSideSub)}</p>
+                <h2>${selectedEventAnalytics ? "Event insights" : esc(analyticsSideTitle)}</h2>
+                ${selectedEventAnalytics ? `` : `<p class="sub">${esc(analyticsSideSub)}</p>`}
               </div>
             </div>
             ${analyticsSideBodyHtml}
