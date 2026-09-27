@@ -3867,6 +3867,11 @@ function getUserAccessAreaLabels(user, fallbackCity = "Enumclaw") {
   return labels.length ? labels : ["Enumclaw"];
 }
 
+function getUserAccessAreaLabel(user, fallbackCity = "Enumclaw") {
+  const labels = getUserAccessAreaLabels(user, fallbackCity);
+  return labels.length > 1 ? "All areas" : labels[0];
+}
+
 function normalizeOrganizerPermissions(value, fallback = DEFAULT_ORGANIZER_PERMISSIONS) {
   const parsed = parsePermissionsObject(value);
   const base = { ...fallback };
@@ -8273,9 +8278,10 @@ return `
       ? messageContacts.map((user) => {
           const name = user.supportAlias ? "Support Circle" : (user.displayName || user.username || user.email || "User");
           const href = `${messagesAdminHref}${messagesWorkspaceQuery ? "&" : "?"}user=${encodeURIComponent(String(user.id))}`;
+          const userAreaLabel = getUserAccessAreaLabel(user, user.city || selectedCity);
           const latestLabel = user.latestAt
             ? fmtPendingDate(user.latestAt)
-            : (user.supportAlias ? "Troubleshooting chat" : `${user.city || selectedCity} user`);
+            : (user.supportAlias ? "Troubleshooting chat" : `${userAreaLabel} user`);
           return `
             <a class="message-user-link ${Number(user.id) === Number(selectedMessageContactId) ? "active" : ""}" href="${href}">
               ${user.photoUrl
@@ -13745,7 +13751,7 @@ return `
                 ${onlineStatusMarkup(selectedMessageContact.lastSeenAt, `${selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User")} status`)}
                 <span>${esc(selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "User"))}</span>
               </div>
-                  <div class="muted" style="margin-top:6px;">${selectedMessageContact.supportAlias ? `Direct troubleshooting help for ${esc(messageScopeLabel)} users` : `Role: ${esc(formatRoleLabel(selectedMessageContact.role || "organizer"))} · City: ${esc(messageComposeCity)}`}</div>
+                  <div class="muted" style="margin-top:6px;">${selectedMessageContact.supportAlias ? `Direct troubleshooting help for ${esc(messageScopeLabel)} users` : `Role: ${esc(formatRoleLabel(selectedMessageContact.role || "organizer"))} · Area: ${esc(getUserAccessAreaLabel(selectedMessageContact, messageComposeCity))}`}</div>
             </div>
             ` : ``}
             <div class="messages-thread">${messageConversationHtml}</div>
