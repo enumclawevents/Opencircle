@@ -6740,9 +6740,11 @@ return `
         const labelKey = `${pointIndex}:${String(marker.label || "")}`;
         const showLabel = !labeledMarkerBuckets.has(labelKey);
         labeledMarkerBuckets.add(labelKey);
-        // Alternate labels when the dates fall in the same bucket so both
-        // remain legible without covering chart data.
-        const labelY = padT + 14 + ((markerIndex % 2) * 16);
+        // Keep scheduled-day labels in the chart's top margin, directly above
+        // their marker, rather than placing them over the data series.
+        const labelY = String(marker.label || "") === "Event day"
+          ? padT - 6
+          : padT + 14 + ((markerIndex % 2) * 16);
         return `
           <line x1="${x.toFixed(2)}" y1="${padT.toFixed(2)}" x2="${x.toFixed(2)}" y2="${(padT + plotH).toFixed(2)}" stroke="rgba(245,158,11,.9)" stroke-width="1.5" stroke-dasharray="4 3"></line>
           ${showLabel ? `<text x="${x.toFixed(2)}" y="${labelY}" text-anchor="middle" fill="rgba(146,64,14,.98)" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(marker.label || ""))}</text>` : ""}
@@ -17946,6 +17948,9 @@ return `
         }
       } catch (_) {}
       const hasCityEventSeries = !!(svgChartSets.cityEvents && svgChartSets.cityEvents.daily);
+      // Individual event reports intentionally chart views only. The absence of
+      // the Events legend is the server-rendered signal for that mode.
+      const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
       function showSvgChartTip(index, ev){
         if (!$tip || !ev) return;
         const activeViewEl = $seg ? $seg.querySelector(".on") : null;
@@ -17969,7 +17974,8 @@ return `
         const pointX = svgRect && labels.length > 1
           ? (svgRect.width * (56 / 1200)) + ((svgRect.width - (svgRect.width * (56 / 1200)) - (svgRect.width * (18 / 1200))) / (labels.length - 1)) * safeIndex
           : (svgRect ? svgRect.width / 2 : 0);
-        const allValues = eventValues.concat(viewValues).map((v) => Number(v || 0));
+        const allValues = (isIndividualEventChart ? viewValues : eventValues.concat(viewValues))
+          .map((v) => Number(v || 0));
         const yScale = getYScale(allValues);
         const primaryY = plotFrame
           ? clamp(plotFrame.padT + plotFrame.gh - ((Number(eventValues[safeIndex] || 0) / yScale.yMax) * plotFrame.gh), plotFrame.padT, plotFrame.padT + plotFrame.gh)
@@ -17980,17 +17986,19 @@ return `
         showChartHoverOverlay(
           hoverOverlay,
           { padT: plotFrame ? plotFrame.padT : 0, gh: plotFrame ? plotFrame.gh : 0 },
-          { x: pointX, y: primaryY },
-          { x: pointX, y: secondaryY },
-          getChartPalette("events")
+          { x: pointX, y: isIndividualEventChart ? secondaryY : primaryY },
+          isIndividualEventChart ? null : { x: pointX, y: secondaryY },
+          getChartPalette(isIndividualEventChart ? "clicks" : "events")
         );
-        showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
+        showChartTipCard($tip, $wrap, pointX, isIndividualEventChart ? secondaryY : Math.min(primaryY, secondaryY), renderChartTipHtml(
           (periodNames[mode] || "Period") + ": " + label,
-          [
-            { label: hasCityEventSeries ? "My events" : "Events", value: Number(eventValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
-            ...(Number(cityEventValues[safeIndex] || 0) > 0 ? [{ label: "City events", value: Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US"), color: "#475569" }] : []),
-            { label: "Views", value: Number(viewValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
-          ]
+          isIndividualEventChart
+            ? [{ label: "Views", value: Number(viewValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" }]
+            : [
+              { label: hasCityEventSeries ? "My events" : "Events", value: Number(eventValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
+              ...(Number(cityEventValues[safeIndex] || 0) > 0 ? [{ label: "City events", value: Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US"), color: "#475569" }] : []),
+              { label: "Views", value: Number(viewValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
+            ]
         ));
       }
       function hideSvgChartTip(){
@@ -18325,20 +18333,23 @@ return `
     const cityEventValue = Number(typeof cityEventValues[idx] !== "undefined" ? cityEventValues[idx] : 0);
     const periodLabel = getPeriodLabel(labels[idx] || "");
     const frame = getChartFrame(rect.width, rect.height);
-    const scale = getYScale(eventValues.concat(viewValues));
+    const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
+    const scale = getYScale(isIndividualEventChart ? viewValues : eventValues.concat(viewValues));
     const stepX = labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1));
     const pointX = frame.padL + stepX * idx;
     const primaryY = clamp(frame.padT + frame.gh - ((eventValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
     const secondaryY = clamp(frame.padT + frame.gh - ((viewValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
-    const palette = getChartPalette("events");
-    showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, palette);
-    showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
+    const palette = getChartPalette(isIndividualEventChart ? "clicks" : "events");
+    showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: isIndividualEventChart ? secondaryY : primaryY }, isIndividualEventChart ? null : { x: pointX, y: secondaryY }, palette);
+    showChartTipCard($tip, $wrap, pointX, isIndividualEventChart ? secondaryY : Math.min(primaryY, secondaryY), renderChartTipHtml(
       periodLabel,
-      [
-        { label: hasCityEventSeries ? "My events" : "Events", value: eventValue.toLocaleString("en-US"), color: "#0f172a" },
-        ...(hasCityEventSeries ? [{ label: "City events", value: cityEventValue.toLocaleString("en-US"), color: "#475569" }] : []),
-        { label: "Views", value: viewValue.toLocaleString("en-US"), color: "#0f172a" },
-      ]
+      isIndividualEventChart
+        ? [{ label: "Views", value: viewValue.toLocaleString("en-US"), color: "#0f172a" }]
+        : [
+          { label: hasCityEventSeries ? "My events" : "Events", value: eventValue.toLocaleString("en-US"), color: "#0f172a" },
+          ...(hasCityEventSeries ? [{ label: "City events", value: cityEventValue.toLocaleString("en-US"), color: "#475569" }] : []),
+          { label: "Views", value: viewValue.toLocaleString("en-US"), color: "#0f172a" },
+        ]
     ));
   }
 
