@@ -3741,6 +3741,10 @@ const ADMIN_SIDEBAR_GROUPS = Object.freeze({
     "South Prairie",
   ]),
 });
+const USER_ACCESS_AREAS = Object.freeze({
+  "Enumclaw": Object.freeze(["Enumclaw"]),
+  "Plateau Regional": ADMIN_SIDEBAR_GROUPS["Plateau Regional"],
+});
 const NEWSLETTER_SCOPE_GROUPS = Object.freeze({
   "Plateau Regional": Object.freeze([
     "Buckley",
@@ -3824,6 +3828,31 @@ function normalizeCityAccessList(value, fallbackCity = "Enumclaw") {
   return out;
 }
 
+function normalizeUserAccessAreas(value, fallbackCity = "Enumclaw") {
+  const values = Array.isArray(value) ? value : (value === undefined || value === null ? [] : [value]);
+  const cities = [];
+  for (const rawValue of values) {
+    const area = String(rawValue || "").trim();
+    if (Object.prototype.hasOwnProperty.call(USER_ACCESS_AREAS, area)) {
+      cities.push(...USER_ACCESS_AREAS[area]);
+    } else if (USER_ACCESS_AREAS["Plateau Regional"].includes(area)) {
+      cities.push(...USER_ACCESS_AREAS["Plateau Regional"]);
+    } else {
+      // Retain compatibility with existing forms and old saved city values.
+      cities.push(area);
+    }
+  }
+  return normalizeCityAccessList(cities, fallbackCity);
+}
+
+function getUserAccessAreaLabels(user, fallbackCity = "Enumclaw") {
+  const cities = getUserAllowedCities(user, fallbackCity);
+  const labels = [];
+  if (cities.includes("Enumclaw")) labels.push("Enumclaw");
+  if (USER_ACCESS_AREAS["Plateau Regional"].some((city) => cities.includes(city))) labels.push("Plateau Regional");
+  return labels.length ? labels : ["Enumclaw"];
+}
+
 function normalizeOrganizerPermissions(value, fallback = DEFAULT_ORGANIZER_PERMISSIONS) {
   const parsed = parsePermissionsObject(value);
   const base = { ...fallback };
@@ -3864,7 +3893,10 @@ function hasSectionAccess(user, section) {
 
 function getUserAllowedCities(user, fallbackCity = "Enumclaw") {
   if (isDeveloperRole(user?.role)) return ADMIN_AREAS.slice();
-  return normalizeCityAccessList(user?.permissionsJson, user?.city || fallbackCity || "Enumclaw");
+  // Legacy records may contain a single Plateau city. Treat any such record
+  // as the Plateau Regional area so displayed and effective permissions agree.
+  const legacyCities = normalizeCityAccessList(user?.permissionsJson, user?.city || fallbackCity || "Enumclaw");
+  return normalizeUserAccessAreas(legacyCities, user?.city || fallbackCity || "Enumclaw");
 }
 
 function pickAccessibleCity(requestedCity, user, { fallbackCity = "Enumclaw" } = {}) {
@@ -4917,8 +4949,8 @@ try {
           return `<a class="sb-city-opt${active}" href="${esc(buildWorkspaceSwitchHref(workspaceName))}">${esc(workspaceName)}</a>`;
         }).join("");
     const selectedInviteWorkspace = selectedAdminLabel === "Plateau Regional"
-      ? "Plateau Events"
-      : selectedAdminWorkspace;
+      ? "Plateau Regional"
+      : "Enumclaw";
 
     const listHtml = events.length
       ? events
@@ -8033,11 +8065,12 @@ return `
               const labelRole = formatRoleLabel(normalizedUserRole);
               const userPerms = getUserSectionPermissions(u);
               const userCities = getUserAllowedCities(u, u.city || "Enumclaw");
+              const userAreas = getUserAccessAreaLabels(u, u.city || "Enumclaw");
               const userFormId = `user-role-${encodeURIComponent(u.id)}`;
               const modalId = `user-modal-${encodeURIComponent(u.id)}`;
               const displayName = esc(u.username || u.email || "User");
               const emailLabel = esc(u.email || "—");
-              const cityLabel = esc(userCities.join(", "));
+              const areaLabel = esc(userAreas.join(", "));
               const initials = esc(String(u.username || u.email || "U").trim().slice(0, 2).toUpperCase());
               const statusTone = u.lastSeenAt ? "Active" : "Inactive";
               const statusColor = u.lastSeenAt ? "#22c55e" : "#ef4444";
@@ -8061,7 +8094,7 @@ return `
                   <div class="users-meta">
                     <div class="users-meta-item"><span class="users-status"><span class="users-status-dot" style="background:${statusColor};"></span><span>${statusTone}</span></span></div>
                     <div class="users-meta-item"><span>Role:</span><strong>${esc(labelRole)}</strong></div>
-                    <div class="users-meta-item"><span>City:</span><strong>${cityLabel}</strong></div>
+                    <div class="users-meta-item"><span>Area:</span><strong>${areaLabel}</strong></div>
                     <div class="users-meta-item"><span>Access:</span><strong>${esc(accessSummary)}</strong></div>
                   </div>
 
@@ -8091,15 +8124,15 @@ return `
                                 <div class="users-modal-label">Area access</div>
                                 <div class="users-modal-card" style="padding:14px 16px;">
                                   <div class="users-access-grid">
-                                    ${ADMIN_AREAS.map((cityName) => `
+                                    ${Object.keys(USER_ACCESS_AREAS).map((areaName) => `
                                       <label class="users-access-item">
-                                        <input type="checkbox" name="cities" value="${esc(cityName)}" ${userCities.includes(cityName) ? "checked" : ""} form="${userFormId}" />
-                                        <span>${esc(cityName)}</span>
+                                        <input type="checkbox" name="areas" value="${esc(areaName)}" ${userAreas.includes(areaName) ? "checked" : ""} form="${userFormId}" />
+                                        <span>${esc(areaName)}</span>
                                       </label>
                                     `).join("")}
                                   </div>
                                 </div>
-                                <div class="note" style="margin-top:8px;">Users can work in every checked area. The first checked area remains their primary legacy area.</div>
+                                <div class="note" style="margin-top:8px;">Plateau Regional grants access to Buckley, Wilkeson, Carbonado, and South Prairie. The first selected area remains the user's primary legacy area.</div>
                               </div>
                               <div data-organizer-permissions style="${normalizedUserRole === "organizer" ? "" : "display:none;"}">
                                 <div class="users-modal-label">Section access</div>
@@ -13617,14 +13650,9 @@ return `
             <div class="field">
               <label>Access preset</label>
               <select name="workspace" ${hasDeveloperAccess ? "" : "disabled"}>
-                ${[
-                  ...allowedForUser.map((c) => ({ value: c, label: c })),
-                  ...(ADMIN_WORKSPACE_GROUPS["Plateau Events"].every((city) => allowedForUser.includes(city))
-                    ? [{ value: "Plateau Events", label: "Plateau Events" }]
-                    : []),
-                ].map((option) => `<option value="${esc(option.value)}" ${option.value === selectedInviteWorkspace ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
+                ${Object.keys(USER_ACCESS_AREAS).map((areaName) => `<option value="${esc(areaName)}" ${areaName === selectedInviteWorkspace ? "selected" : ""}>${esc(areaName)}</option>`).join("")}
               </select>
-              <div class="note" style="margin-top:8px;">Choose one area or the Plateau Events preset to grant Buckley, Wilkeson, Carbonado, and South Prairie together.</div>
+              <div class="note" style="margin-top:8px;">Plateau Regional grants Buckley, Wilkeson, Carbonado, and South Prairie together.</div>
             </div>
             <div class="field">
               <label>Expires in (days)</label>
@@ -19626,7 +19654,9 @@ router.post("/invites", async (req, res) => {
     const email = String(req.body?.email || "").trim().toLowerCase() || null;
     const role = normalizeRoleValue(req.body?.role || "organizer");
     const requestedWorkspace = String(req.body?.workspace || req.body?.city || req.query.workspace || req.query.city || "Enumclaw").trim();
-    const workspaceCities = Object.prototype.hasOwnProperty.call(ADMIN_WORKSPACE_GROUPS, requestedWorkspace)
+    const workspaceCities = Object.prototype.hasOwnProperty.call(USER_ACCESS_AREAS, requestedWorkspace)
+      ? USER_ACCESS_AREAS[requestedWorkspace].slice()
+      : Object.prototype.hasOwnProperty.call(ADMIN_WORKSPACE_GROUPS, requestedWorkspace)
       ? ADMIN_WORKSPACE_GROUPS[requestedWorkspace].slice()
       : [requestedWorkspace];
     const normalizedCities = normalizeCityAccessList(workspaceCities, req.query.city || "Enumclaw");
@@ -19649,7 +19679,7 @@ router.post("/invites", async (req, res) => {
       invite: token,
       city,
     });
-    if (Object.prototype.hasOwnProperty.call(ADMIN_WORKSPACE_GROUPS, requestedWorkspace)) {
+    if (Object.prototype.hasOwnProperty.call(ADMIN_WORKSPACE_GROUPS, requestedWorkspace) || Object.prototype.hasOwnProperty.call(USER_ACCESS_AREAS, requestedWorkspace)) {
       redirectParams.set("workspace", requestedWorkspace);
     }
     return res.redirect(`/admin/invites?${redirectParams.toString()}`);
@@ -19765,10 +19795,18 @@ router.post("/users/:id/role", async (req, res) => {
     if (!isLiveRole(newRole)) {
       return res.redirect("/admin/users");
     }
-    const requestedCitiesRaw = Array.isArray(req.body?.cities)
+    const requestedAreasRaw = Array.isArray(req.body?.areas)
+      ? req.body.areas
+      : (req.body?.areas !== undefined ? [req.body.areas] : []);
+    // Accept the previous `cities` field during the transition, but normalize
+    // every Plateau selection to the single Plateau Regional access area.
+    const legacyCitiesRaw = Array.isArray(req.body?.cities)
       ? req.body.cities
       : (req.body?.cities !== undefined ? [req.body.cities] : []);
-    const requestedCities = normalizeCityAccessList(requestedCitiesRaw, req.body?.city || "Enumclaw");
+    const requestedCities = normalizeUserAccessAreas(
+      requestedAreasRaw.length ? requestedAreasRaw : legacyCitiesRaw,
+      req.body?.city || "Enumclaw"
+    );
     if (!requestedCities.length) {
       return res.redirect("/admin/users?notice=city_required");
     }
