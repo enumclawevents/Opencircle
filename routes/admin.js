@@ -6693,16 +6693,19 @@ return `
       const allValues = (isIndividualEventChart ? viewValues : eventValues.concat(viewValues))
         .filter((v) => Number.isFinite(v));
       const { width, height, padL, padR, padT, padB } = analyticsChartStyle;
+      // Give the detail chart a little more natural vertical room. Its SVG
+      // keeps a matching viewBox ratio, so labels are never stretched.
+      const chartHeight = isIndividualEventChart ? 300 : height;
       const plotW = width - padL - padR;
-      const plotH = height - padT - padB;
+      const plotH = chartHeight - padT - padB;
       const textColor = analyticsChartStyle.textColor;
       const lineColor = analyticsChartStyle.greenStroke;
       const dashedColor = analyticsChartStyle.blueStroke;
 
       if (!labels.length || !allValues.some((v) => v > 0)) {
         return `
-          <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Events chart">
-            <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+          <svg viewBox="0 0 ${width} ${chartHeight}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Events chart">
+            <rect x="0" y="0" width="${width}" height="${chartHeight}" fill="transparent"></rect>
             <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No recent activity</text>
           </svg>
         `;
@@ -6809,8 +6812,8 @@ return `
       }).join("");
 
       return `
-        <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Events chart">
-          <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+        <svg viewBox="0 0 ${width} ${chartHeight}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Events chart">
+          <rect x="0" y="0" width="${width}" height="${chartHeight}" fill="transparent"></rect>
           ${Array.from({ length: tickCount + 1 }).map((_, i) => {
             const value = i * tickStep;
             const y = padT + plotH - ((value / yMax) * plotH);
@@ -17840,10 +17843,11 @@ return `
     if (!svgEl) return null;
     const rect = svgEl.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
+    const viewBoxHeight = Number(svgEl.viewBox?.baseVal?.height || 260);
     const padL = rect.width * (56 / 1200);
     const padR = rect.width * (18 / 1200);
-    const padT = rect.height * (18 / 260);
-    const padB = rect.height * (42 / 260);
+    const padT = rect.height * (18 / viewBoxHeight);
+    const padB = rect.height * (42 / viewBoxHeight);
     const frame = { padT, gh: rect.height - padT - padB };
     const safeIndex = Math.max(0, Math.min(Number(index || 0), Math.max(0, labels.length - 1)));
     const pointX = labels.length > 1 ? padL + ((rect.width - padL - padR) / (labels.length - 1)) * safeIndex : rect.width / 2;
@@ -17982,9 +17986,10 @@ return `
         const periodNames = { daily: "Day", weekly: "Week", monthly: "Month", yearly: "Year" };
         const svgEl = $svgHost ? $svgHost.querySelector("svg") : null;
         const svgRect = svgEl ? svgEl.getBoundingClientRect() : null;
+        const viewBoxHeight = Number(svgEl?.viewBox?.baseVal?.height || 260);
         const plotFrame = svgRect ? {
-          padT: svgRect.height * (18 / 260),
-          gh: svgRect.height - (svgRect.height * (18 / 260)) - (svgRect.height * (42 / 260)),
+          padT: svgRect.height * (18 / viewBoxHeight),
+          gh: svgRect.height - (svgRect.height * (18 / viewBoxHeight)) - (svgRect.height * (42 / viewBoxHeight)),
         } : null;
         const pointX = svgRect && labels.length > 1
           ? (svgRect.width * (56 / 1200)) + ((svgRect.width - (svgRect.width * (56 / 1200)) - (svgRect.width * (18 / 1200))) / (labels.length - 1)) * safeIndex
@@ -18030,12 +18035,13 @@ return `
         if (!svgEl) return -1;
         const rect = svgEl.getBoundingClientRect();
         if (!rect.width || !rect.height) return -1;
+        const viewBoxHeight = Number(svgEl.viewBox?.baseVal?.height || 260);
         const mx = ev.clientX - rect.left;
         const my = ev.clientY - rect.top;
         const padL = rect.width * (56 / 1200);
         const padR = rect.width * (18 / 1200);
-        const padT = rect.height * (18 / 260);
-        const padB = rect.height * (42 / 260);
+        const padT = rect.height * (18 / viewBoxHeight);
+        const padB = rect.height * (42 / viewBoxHeight);
         const plotW = rect.width - padL - padR;
         const plotH = rect.height - padT - padB;
         if (mx < padL || mx > padL + plotW || my < padT || my > padT + plotH) return -1;
