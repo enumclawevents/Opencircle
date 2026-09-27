@@ -214,6 +214,22 @@ function normalizeHttpUrl(input) {
   }
 }
 
+function normalizeAdTargetUrl(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  if (/^mailto:/i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      const recipient = decodeURIComponent(url.pathname || "").trim();
+      if (url.protocol !== "mailto:" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return "";
+      return url.toString();
+    } catch (_) {
+      return "";
+    }
+  }
+  return normalizeHttpUrl(raw);
+}
+
 function decodeHtmlEntities(input) {
   const raw = String(input || "");
   if (!raw) return "";
@@ -16220,7 +16236,7 @@ return `
               </div>
 
               <label>Target URL</label>
-              <input class="ctrl" name="targetUrl" value="${esc(editAd?.targetUrl || "")}" placeholder="https://..." required />
+              <input class="ctrl" name="targetUrl" value="${esc(editAd?.targetUrl || "")}" placeholder="https://... or mailto:hello@example.com" required />
 
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
@@ -20474,7 +20490,7 @@ router.post("/ads", upload.single("adImageFile"), async (req, res) => {
     const placements = normalizeAdPlacements(req.body?.placements, String(req.body?.placement || "").trim());
     const placement = placements[0] || "homepage-top";
     const placementsJson = JSON.stringify(placements);
-    const targetUrl = normalizeHttpUrl(req.body?.targetUrl || "");
+    const targetUrl = normalizeAdTargetUrl(req.body?.targetUrl || "");
     let imageUrl = String(req.body?.imageUrl || "").trim();
     const altText = String(req.body?.altText || "").trim();
     const visibilityRaw = parseFloat(String(req.body?.visibilityPercent || "100"));

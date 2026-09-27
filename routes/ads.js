@@ -27,6 +27,22 @@ function normalizeHttpUrl(input) {
   }
 }
 
+function normalizeAdTargetUrl(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  if (/^mailto:/i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      const recipient = decodeURIComponent(url.pathname || "").trim();
+      if (url.protocol !== "mailto:" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return "";
+      return url.toString();
+    } catch (_) {
+      return "";
+    }
+  }
+  return normalizeHttpUrl(raw);
+}
+
 function normalizeAdPlacements(input, fallbackPlacement = "") {
   const allowed = new Set([
     "homepage-top",
@@ -170,7 +186,7 @@ function buildAdPayload(req, row) {
     placements,
     imageUrl: String(row.imageUrl || ""),
     altText: String(row.altText || row.name || ""),
-    targetUrl: normalizeHttpUrl(row.targetUrl || ""),
+    targetUrl: normalizeAdTargetUrl(row.targetUrl || ""),
     visibilityPercent: Number(row.visibilityPercent || 0),
     clickUrl: `${baseUrl}/ads/${encodeURIComponent(String(row.id || ""))}/click`,
     viewCount: Number(row.viewCount || 0),
@@ -254,7 +270,7 @@ router.get("/:id/click", async (req, res) => {
     if (Number.isNaN(id)) return res.status(400).send("Invalid ad ID.");
 
     const row = await get("SELECT id, targetUrl FROM ads WHERE id = ? LIMIT 1", [id]);
-    const targetUrl = normalizeHttpUrl(row?.targetUrl || "");
+    const targetUrl = normalizeAdTargetUrl(row?.targetUrl || "");
     if (!row || !targetUrl) return res.status(404).send("Ad not found.");
 
     await incrementAdMetric(id, "click");
