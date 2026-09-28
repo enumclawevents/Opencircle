@@ -4363,10 +4363,25 @@ let whereParams = [];
         city: selectedAdminPrimaryCity,
         newsletterScope: selectedNewsletterScope,
         extraParams: {
+          workspace: selectedAdminWorkspace,
           newsletterScopeExplicit: selectedNewsletterScope === defaultNewsletterScope ? "" : "1",
           ...extraParams,
         },
       });
+    // Every sidebar destination carries the current workspace. Individual
+    // pages may use a primary city internally, but navigation must never
+    // silently collapse a Plateau workspace back to a single/default city.
+    const buildScopedAdminHref = (pathname, extraParams = {}) => {
+      const params = new URLSearchParams();
+      if (selectedAdminWorkspace) params.set("workspace", selectedAdminWorkspace);
+      if (selectedAdminPrimaryCity) params.set("city", selectedAdminPrimaryCity);
+      for (const [key, value] of Object.entries(extraParams || {})) {
+        if (value === null || value === undefined || value === "") continue;
+        params.set(key, String(value));
+      }
+      const qs = params.toString();
+      return `${pathname}${qs ? `?${qs}` : ""}`;
+    };
     const canUseMessages = !!currentUser?.id;
     const canManageEvents = hasDeveloperAccess || sectionPermissions.events;
     const canApproveEvents = hasDeveloperAccess;
@@ -13105,25 +13120,25 @@ return `
         <nav class="nav">
           ${(hasDeveloperAccess || isOrganizerUser) ? `
           <div class="nav-group nav-collapsible ${showDashboard ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${showDashboard ? "page" : "false"}"><i class="fa-regular fa-chart-bar nav-title-icon" aria-hidden="true"></i><span>Dashboard</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin")}" aria-current="${showDashboard ? "page" : "false"}"><i class="fa-regular fa-chart-bar nav-title-icon" aria-hidden="true"></i><span>Dashboard</span></a>
             <div class="nav-sub" data-nav-sub>
-              <a class="subnav-link ${showDashboard ? "active" : ""}" href="/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Overview</a>
+              <a class="subnav-link ${showDashboard ? "active" : ""}" href="${buildScopedAdminHref("/admin")}">Overview</a>
             </div>
           </div>
           <div class="sb-divider"></div>
           ` : ``}
 
           ${canManageEvents ? `<div class="nav-group nav-collapsible ${eventsMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${eventsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-calendar nav-title-icon" aria-hidden="true"></i><span>Events</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/existing-events")}" aria-current="${eventsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-calendar nav-title-icon" aria-hidden="true"></i><span>Events</span></a>
             <div class="nav-sub" data-nav-sub>
-              <a class="subnav-link ${showExisting ? "active" : ""}" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">${isOrganizerUser ? "My Events" : "All Events"}</a>
-              <a class="subnav-link ${showCreate ? "active" : ""}" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Events</a>
+              <a class="subnav-link ${showExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/existing-events")}">${isOrganizerUser ? "My Events" : "All Events"}</a>
+              <a class="subnav-link ${showCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/create-events")}">Create Events</a>
               ${canApproveEvents ? `
-              <a class="subnav-link ${showApprove ? "active" : ""}" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" style="display:flex; align-items:center; gap:8px;">
+              <a class="subnav-link ${showApprove ? "active" : ""}" href="${buildScopedAdminHref("/admin/approve-events")}" style="display:flex; align-items:center; gap:8px;">
                 <span>Approve Events</span>
                 ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
               </a>` : ``}
-              <a class="subnav-link ${showUpload ? "active" : ""}" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>
+              <a class="subnav-link ${showUpload ? "active" : ""}" href="${buildScopedAdminHref("/admin/upload-events")}">Upload Events</a>
             </div>
           </div>
           <div class="sb-divider"></div>` : ``}
@@ -13139,54 +13154,54 @@ return `
           <div class="sb-divider"></div>` : ``}
 
           ${canManageVenues ? `<div class="nav-group nav-collapsible ${venuesMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${venuesMenuOpen ? "page" : "false"}"><i class="fa-regular fa-building nav-title-icon" aria-hidden="true"></i><span>Venues</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/venues")}" aria-current="${venuesMenuOpen ? "page" : "false"}"><i class="fa-regular fa-building nav-title-icon" aria-hidden="true"></i><span>Venues</span></a>
             <div class="nav-sub" data-nav-sub>
-              <a class="subnav-link ${showVenueExisting ? "active" : ""}" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
-              <a class="subnav-link ${showVenueCreate ? "active" : ""}" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venues</a>
+              <a class="subnav-link ${showVenueExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/venues")}">All Venues</a>
+              <a class="subnav-link ${showVenueCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/venues/create")}">Create Venues</a>
             </div>
           </div>
           <div class="sb-divider"></div>` : ``}
 
           ${canManageJobs ? `<div class="nav-group nav-collapsible ${jobsMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${jobsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-clipboard nav-title-icon" aria-hidden="true"></i><span>Jobs</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/jobs")}" aria-current="${jobsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-clipboard nav-title-icon" aria-hidden="true"></i><span>Jobs</span></a>
             <div class="nav-sub" data-nav-sub>
-              <a class="subnav-link ${showJobsExisting ? "active" : ""}" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>
-              <a class="subnav-link ${showJobsCreate ? "active" : ""}" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Jobs</a>
-              <a class="subnav-link ${showJobsApplicants ? "active" : ""}" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
+              <a class="subnav-link ${showJobsExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/jobs")}">All Jobs</a>
+              <a class="subnav-link ${showJobsCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/jobs/create")}">Create Jobs</a>
+              <a class="subnav-link ${showJobsApplicants ? "active" : ""}" href="${buildScopedAdminHref("/admin/jobs/applicants")}">Applicants</a>
             </div>
           </div>
           <div class="sb-divider"></div>` : ``}
 
           ${canManageAds ? `<div class="nav-group nav-collapsible ${adsMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${adsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-image nav-title-icon" aria-hidden="true"></i><span>Ads</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/ads")}" aria-current="${adsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-image nav-title-icon" aria-hidden="true"></i><span>Ads</span></a>
             <div class="nav-sub" data-nav-sub>
-              <a class="subnav-link ${showAdsExisting ? "active" : ""}" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>
-              <a class="subnav-link ${showAdsCreate ? "active" : ""}" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ads</a>
+              <a class="subnav-link ${showAdsExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/ads")}">All Ads</a>
+              <a class="subnav-link ${showAdsCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/ads/create")}">Create Ads</a>
             </div>
           </div>
           ` : ``}
 
           ${(canSeeAnyAnalytics ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${analyticsMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}" aria-current="${analyticsMenuOpen ? "page" : "false"}"><i class="fa-solid fa-chart-column nav-title-icon" aria-hidden="true"></i><span>Analytics</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/events-analytics")}" aria-current="${analyticsMenuOpen ? "page" : "false"}"><i class="fa-solid fa-chart-column nav-title-icon" aria-hidden="true"></i><span>Analytics</span></a>
             <div class="nav-sub" data-nav-sub>
-              ${canSeeEventsAnalytics ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events</a>` : ``}
-              ${canSeeOrganizerAnalytics ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Organizers</a>` : ``}
+              ${canSeeEventsAnalytics ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/events-analytics")}">Events</a>` : ``}
+              ${canSeeOrganizerAnalytics ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="${buildScopedAdminHref("/admin/events-organizers")}">Organizers</a>` : ``}
               ${canSeeNewsletterAnalytics ? `<a class="subnav-link ${showNewsletterAnalytics ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter/analytics")}">Newsletter</a>` : ``}
-              ${canSeeVenueAnalytics ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venues</a>` : ``}
-              ${canSeeJobAnalytics ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="/admin/jobs/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Jobs</a>` : ``}
-              ${canSeeAdsAnalytics ? `<a class="subnav-link ${showAdsAnalytics ? "active" : ""}" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads</a>` : ``}
+              ${canSeeVenueAnalytics ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/venues/analytics")}">Venues</a>` : ``}
+              ${canSeeJobAnalytics ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/jobs/analytics")}">Jobs</a>` : ``}
+              ${canSeeAdsAnalytics ? `<a class="subnav-link ${showAdsAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/ads/analytics")}">Ads</a>` : ``}
             </div>
           </div>` : ``)}
 
           ${(hasDeveloperAccess || isOrganizerUser) ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${adminMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${hasDeveloperAccess ? `/admin/users${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}` : "/admin/preferences"}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
+            <a class="nav-title-btn" href="${hasDeveloperAccess ? buildScopedAdminHref("/admin/users") : buildScopedAdminHref("/admin/preferences")}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
-              <a class="subnav-link ${showPreferences ? "active" : ""}" href="/admin/preferences">Preferences</a>
-              <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="/admin/updates-log">Release Notes</a>
-              ${hasAdminAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="/admin/users">Users</a>` : ``}
-              ${hasAdminAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="/admin/invites">Invites</a>` : ``}
+              <a class="subnav-link ${showPreferences ? "active" : ""}" href="${buildScopedAdminHref("/admin/preferences")}">Preferences</a>
+              <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates-log")}">Release Notes</a>
+              ${hasAdminAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="${buildScopedAdminHref("/admin/users")}">Users</a>` : ``}
+              ${hasAdminAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="${buildScopedAdminHref("/admin/invites")}">Invites</a>` : ``}
             </div>
           </div>` : ``}
         </nav>
