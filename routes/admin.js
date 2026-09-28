@@ -4115,7 +4115,10 @@ function getUserAllowedNewsletterScopes(user, fallbackCity = "Enumclaw") {
   const plateauScope = "Plateau Regional";
   const plateauCities = NEWSLETTER_SCOPE_GROUPS[plateauScope] || [];
   const hasFullPlateauAccess = plateauCities.length > 0 && plateauCities.every((city) => allowedCities.includes(city));
-  if (hasFullPlateauAccess) return [plateauScope];
+  const scopes = [];
+  if (allowedCities.includes("Enumclaw")) scopes.push("Enumclaw");
+  if (hasFullPlateauAccess) scopes.push(plateauScope);
+  if (scopes.length) return scopes;
 
   const normalizedFallback = String(fallbackCity || "Enumclaw").trim();
   if (normalizedFallback && !plateauCities.includes(normalizedFallback)) {
@@ -4341,8 +4344,14 @@ let whereParams = [];
     // newsletter context with it rather than leaving a stale scope in the URL.
     const newsletterScopeRequestedFromSidebar = String(req.query.newsletterScopeSource || "").trim() === "sidebar";
     const newsletterScopeExplicitlySelected = String(req.query.newsletterScopeExplicit || "").trim() === "1";
+    const sidebarNewsletterScope = ["Enumclaw", "Plateau Regional"].includes(selectedAdminLabel)
+      ? selectedAdminLabel
+      : "";
+    // Newsletter content belongs to one of the two workspace-level lists.
+    // Sidebar changes reset the list to their matching workspace. A choice
+    // made with the page-level list toggle remains intentional until then.
     const requestedNewsletterScope = newsletterScopeRequestedFromSidebar || !newsletterScopeExplicitlySelected
-      ? defaultNewsletterScope
+      ? (sidebarNewsletterScope || defaultNewsletterScope)
       : (req.query.newsletterScope || req.query.city);
     let selectedNewsletterScope = pickAccessibleNewsletterScope(
       requestedNewsletterScope,
@@ -7334,6 +7343,18 @@ return `
         </div>
         <noscript><button class="btn" type="submit">Switch</button></noscript>
       </form>
+    ` : "";
+    const newsletterAudienceScopeToggleHtml = showNewsletterAudience && newsletterScopeSwitcherOptions.length > 1 ? `
+      <div class="eventsFilterTabs" role="group" aria-label="Newsletter audience list" style="margin-bottom:16px;">
+        ${newsletterScopeSwitcherOptions.map((scope) => {
+          const href = buildNewsletterAdminPath("/admin/newsletter/audience", {
+            city: selectedCity,
+            newsletterScope: scope,
+            extraParams: { newsletterScopeExplicit: "1" },
+          });
+          return `<a class="btn ${scope === selectedNewsletterScope ? "btn-primary" : ""}" href="${esc(href)}">${esc(scope)}</a>`;
+        }).join("")}
+      </div>
     ` : "";
     let newsletterSettings = getDefaultNewsletterSettings(newsletterContextCity);
     let newsletterAudienceRows = [];
@@ -14392,7 +14413,7 @@ return `
                 <p class="sub">Add and manage email addresses for the ${esc(selectedNewsletterScope)} newsletter list.</p>
               </div>
             </div>
-            ${newsletterScopeSwitcherHtml}
+            ${newsletterAudienceScopeToggleHtml}
             ${newsletterNoticeHtml}
             ${(() => {
               const audienceSortedRows = [...newsletterAudienceRows].sort((a, b) => {
