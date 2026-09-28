@@ -5000,7 +5000,13 @@ try {
       const sel = String(selectedValue || "") === c ? "selected" : "";
       return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
     }).join("");
-    const formCity = String(editEvent?.city || selectedAdminPrimaryCity);
+    // Public Plateau submissions are intentionally stored as "Plateau Area"
+    // until approval. That is a workspace marker rather than a publishable
+    // event city, so map it to Plateau's primary city for the editor select.
+    const editEventCity = String(editEvent?.city || "").trim();
+    const formCity = editEventCity === PLATEAU_SUBMISSION_AREA || editEventCity === "Plateau Regional"
+      ? ADMIN_SIDEBAR_GROUPS["Plateau Regional"][0]
+      : (editEventCity || selectedAdminPrimaryCity);
     const cityOptions = buildAreaOptionsMarkup(formCity);
     const buildCitySwitchHref = (cityValue) => {
       const sp = new URLSearchParams(req.query || {});
@@ -7992,7 +7998,7 @@ return `
                   ${catLine}
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
-                  <a class="btn" href="/admin/create-events?pending=${encodeURIComponent(p.id)}">Edit</a>
+                  <a class="btn" href="/admin/create-events?pending=${encodeURIComponent(p.id)}${String(p.city || "") === PLATEAU_SUBMISSION_AREA ? "&workspace=Plateau%20Regional" : ""}">Edit</a>
                   <form method="POST" action="/admin/approve-events/${encodeURIComponent(p.id)}/approve">
                     <button class="btn primary" type="submit">Approve</button>
                   </form>
@@ -20703,6 +20709,20 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
     city = pickAccessibleCity(city || req.query.city, hasDeveloperAccessRole(role) ? { role: "developer" } : sessionUser, { fallbackCity: req.user?.city || sessionUser?.city || "Enumclaw" });
 
+    // Do not allow a Plateau submission to be accidentally published into
+    // Enumclaw if an old editor form posts the workspace marker (or omits a
+    // matching city selection). Pending submissions use Plateau Area before
+    // approval; approved events live in Buckley, the Plateau primary city.
+    if (!id && pendingId) {
+      const pendingSubmission = await get(
+        "SELECT city FROM pending_events WHERE id = ? LIMIT 1",
+        [parseInt(String(pendingId), 10)]
+      );
+      if (String(pendingSubmission?.city || "").trim() === PLATEAU_SUBMISSION_AREA) {
+        city = ADMIN_SIDEBAR_GROUPS["Plateau Regional"][0];
+      }
+    }
+
     if (role === "organizer") {
       organizer = organizerPrimaryName;
     }
@@ -21112,6 +21132,11 @@ const status = req.query.status ? String(req.query.status) : "upcoming";
 const recurring = req.query.recurring ? String(req.query.recurring) : "0";
 
 const sp = new URLSearchParams({ edit: String(id), pg, limit, status });
+if (ADMIN_SIDEBAR_GROUPS["Plateau Regional"].includes(city)) {
+  sp.set("workspace", "Plateau Regional");
+} else {
+  sp.set("city", city);
+}
 if (recurring === "1") sp.set("recurring", "1");
 if (q) sp.set("q", q);
 if (from) sp.set("from", from);
@@ -21155,6 +21180,11 @@ const status = req.query.status ? String(req.query.status) : "upcoming";
 const recurring = req.query.recurring ? String(req.query.recurring) : "0";
 
 const sp = new URLSearchParams({ pg, limit, status });
+if (ADMIN_SIDEBAR_GROUPS["Plateau Regional"].includes(city)) {
+  sp.set("workspace", "Plateau Regional");
+} else {
+  sp.set("city", city);
+}
 if (recurring === "1") sp.set("recurring", "1");
 if (q) sp.set("q", q);
 if (from) sp.set("from", from);
