@@ -4326,9 +4326,12 @@ let whereParams = [];
       return allowedCities.find(isCityInMessageScope) || selectedCity;
     };
     const showSidebarAreaSwitcher = hasDeveloperAccess;
+    // The sidebar workspace is the source of truth for newsletter context.
+    // `selectedCity` may be an older primary-city query value while the
+    // sidebar has already changed workspaces (for example, to Enumclaw).
     const defaultNewsletterScope = selectedAdminLabel === "Plateau Regional"
       ? "Plateau Regional"
-      : selectedCity;
+      : (selectedAdminLabel || selectedCity);
     const newsletterScopeOptions = getUserAllowedNewsletterScopes(
       accessUser,
       userCity
