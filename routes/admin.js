@@ -14727,7 +14727,7 @@ return `
             </div>
 
             <form method="POST" action="/admin/events" enctype="multipart/form-data">
-              ${editEvent ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
+              ${editEvent && !fromPending ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
               ${fromPending ? `<input type="hidden" name="pendingId" value="${esc(pendingEvent.id)}" />` : ""}
 
               <div class="rec-box" style="margin-top:0; border-color:rgba(16,185,129,.35); background:linear-gradient(180deg, rgba(16,185,129,.10), rgba(16,185,129,.04)); box-shadow:0 0 0 1px rgba(16,185,129,.08) inset;">
@@ -20706,6 +20706,11 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       // legacy/simple custom dates
       recurrenceDates,
     } = req.body;
+
+    // A pending submission becomes a new event on approval. Ignore a legacy
+    // hidden id from an already-open review form so it cannot be mistaken for
+    // an existing event update.
+    if (pendingId) id = null;
 
     city = pickAccessibleCity(city || req.query.city, hasDeveloperAccessRole(role) ? { role: "developer" } : sessionUser, { fallbackCity: req.user?.city || sessionUser?.city || "Enumclaw" });
 
