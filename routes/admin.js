@@ -4333,8 +4333,16 @@ let whereParams = [];
       accessUser,
       userCity
     );
+    // A newsletter list chosen on a newsletter page is intentionally
+    // independent. A sidebar area change, however, must always move the
+    // newsletter context with it rather than leaving a stale scope in the URL.
+    const newsletterScopeRequestedFromSidebar = String(req.query.newsletterScopeSource || "").trim() === "sidebar";
+    const newsletterScopeExplicitlySelected = String(req.query.newsletterScopeExplicit || "").trim() === "1";
+    const requestedNewsletterScope = newsletterScopeRequestedFromSidebar || !newsletterScopeExplicitlySelected
+      ? defaultNewsletterScope
+      : (req.query.newsletterScope || req.query.city);
     let selectedNewsletterScope = pickAccessibleNewsletterScope(
-      req.query.newsletterScope || req.query.city,
+      requestedNewsletterScope,
       accessUser,
       { fallbackScope: defaultNewsletterScope, fallbackCity: userCity }
     );
@@ -4342,7 +4350,10 @@ let whereParams = [];
       buildNewsletterAdminPath(pathname, {
         city: selectedAdminPrimaryCity,
         newsletterScope: selectedNewsletterScope,
-        extraParams,
+        extraParams: {
+          newsletterScopeExplicit: selectedNewsletterScope === defaultNewsletterScope ? "" : "1",
+          ...extraParams,
+        },
       });
     const canUseMessages = !!currentUser?.id;
     const canManageEvents = hasDeveloperAccess || sectionPermissions.events;
@@ -4990,7 +5001,9 @@ try {
     const buildSidebarAreaSwitchHref = (areaValue) => {
       const nextCities = getAdminSidebarAreaCities(areaValue, accessUser, userCity);
       const href = new URL(buildCitySwitchHref(nextCities[0] || areaValue), "http://localhost");
+      href.searchParams.delete("newsletterScopeExplicit");
       href.searchParams.set("newsletterScope", areaValue === "Plateau Regional" ? "Plateau Regional" : (nextCities[0] || areaValue));
+      href.searchParams.set("newsletterScopeSource", "sidebar");
       return `${href.pathname}${href.search}`;
     };
     const buildWorkspaceSwitchHref = (workspaceValue) => {
@@ -4998,7 +5011,9 @@ try {
       sp.set("workspace", workspaceValue);
       sp.delete("city");
       sp.delete("pg");
+      sp.delete("newsletterScopeExplicit");
       sp.set("newsletterScope", workspaceValue === "Plateau Events" ? "Plateau Regional" : workspaceValue);
+      sp.set("newsletterScopeSource", "sidebar");
       const qs = sp.toString();
       return `${req.baseUrl || "/admin"}${req.path === "/" ? "" : (req.path || "")}${qs ? `?${qs}` : ""}`;
     };
@@ -7305,6 +7320,7 @@ return `
     const newsletterScopeSwitcherHtml = newsletterScopeSwitcherOptions.length > 1 ? `
       <form method="GET" action="${newsletterScopeSwitcherAction}" class="newsletter-scope-switch" style="display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin-bottom:16px;">
         ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
+        <input type="hidden" name="newsletterScopeExplicit" value="1" />
         ${showNewsletterAnalytics ? `<input type="hidden" name="chartView" value="${esc(chartViewMode)}" />` : ``}
         <div style="min-width:280px; max-width:420px; flex:1 1 320px;">
           <label for="newsletterScopeSelect">Newsletter list</label>
