@@ -8089,7 +8089,21 @@ return `
         ? noticeHtml +
           `<div class="users-shell">
             <style>
-              .users-shell{ display:grid; gap:14px; }
+              .users-shell{ display:grid; gap:16px; }
+              .users-toolbar{ display:grid; gap:14px; }
+              .users-summary{ display:flex; align-items:baseline; gap:8px; }
+              .users-summary h2{ margin:0; font-size:20px; }
+              .users-count{ color:var(--muted); font-size:20px; font-weight:700; }
+              .users-toolbar-controls{ display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+              .users-filter-group{ display:inline-flex; align-items:center; padding:3px; border:1px solid var(--line); border-radius:12px; background:#f8fafc; }
+              .users-filter-button{ min-height:38px; padding:0 14px; border:0; border-radius:9px; background:transparent; color:var(--muted); font:inherit; font-weight:750; cursor:pointer; }
+              .users-filter-button.is-active{ background:#fff; color:var(--text); box-shadow:0 1px 2px rgba(15,23,42,.08); }
+              .users-search{ position:relative; display:flex; align-items:center; min-width:min(100%, 360px); }
+              .users-search > i{ position:absolute; left:14px; color:#94a3b8; pointer-events:none; }
+              .users-search input{ width:100%; min-height:44px; padding:0 42px; border:1px solid var(--line); border-radius:12px; background:#fff; color:var(--text); font:inherit; }
+              .users-search input:focus{ outline:2px solid rgba(14,165,233,.28); outline-offset:1px; border-color:#38bdf8; }
+              .users-search-clear{ position:absolute; right:9px; width:26px; height:26px; border:0; border-radius:999px; background:#d1d5db; color:#fff; display:none; place-items:center; cursor:pointer; }
+              .users-search.has-value .users-search-clear{ display:grid; }
               .users-panel{
                 border:1px solid var(--line);
                 border-radius:var(--radius);
@@ -8230,6 +8244,8 @@ return `
                 padding:24px;
                 color:#6b7280;
               }
+              .users-no-results{ display:none; padding:48px 24px; text-align:center; color:var(--muted); }
+              .users-no-results.show{ display:block; }
               @media (max-width: 980px){
                 .users-topline{
                   display:grid;
@@ -8241,8 +8257,25 @@ return `
                 .users-modal-grid,
                 .users-field-row,
                 .users-access-grid{ grid-template-columns:1fr; }
+                .users-toolbar-controls{ align-items:stretch; }
+                .users-search{ min-width:100%; }
               }
             </style>
+            <div class="users-toolbar">
+              <div class="users-summary"><h2>All users</h2><span class="users-count">${rows.length}</span></div>
+              <div class="users-toolbar-controls">
+                <div class="users-filter-group" aria-label="Filter users by status">
+                  <button class="users-filter-button is-active" type="button" data-users-filter="all">View all</button>
+                  <button class="users-filter-button" type="button" data-users-filter="active">Active</button>
+                  <button class="users-filter-button" type="button" data-users-filter="inactive">Inactive</button>
+                </div>
+                <label class="users-search" data-users-search-wrap>
+                  <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                  <input type="search" data-users-search placeholder="Search users" aria-label="Search users" autocomplete="off" />
+                  <button class="users-search-clear" type="button" data-users-search-clear aria-label="Clear user search">&times;</button>
+                </label>
+              </div>
+            </div>
             <div class="users-panel">
               <div class="users-list">` +
           rows
@@ -8265,7 +8298,7 @@ return `
                 ? [userPerms.events ? "Events" : "", userPerms.venues ? "Venues" : "", userPerms.jobs ? "Jobs" : "", userPerms.ads ? "Ads" : "", userPerms.featureEvents ? "Feature Events" : ""].filter(Boolean).join(", ")
                 : "Full";
               return `
-                <div class="users-row">
+                <div class="users-row" data-user-status="${statusTone.toLowerCase()}" data-user-search="${esc(`${u.username || ""} ${u.email || ""} ${labelRole} ${userAreas.join(" ")}`.toLowerCase())}">
                   <div class="users-topline">
                     <div class="users-name">
                       <div class="users-avatar">
@@ -8362,9 +8395,41 @@ return `
               `;
             })
             .join("") +
-          `</div></div>`
+          `</div><div class="users-no-results" data-users-no-results>No users match this search.</div></div>`
         : `<div class="users-empty">No users yet.</div>`;
       usersHtml += `<script>
+        (function(){
+          var query = document.querySelector('[data-users-search]');
+          var clear = document.querySelector('[data-users-search-clear]');
+          var searchWrap = document.querySelector('[data-users-search-wrap]');
+          var filterButtons = Array.prototype.slice.call(document.querySelectorAll('[data-users-filter]'));
+          var rows = Array.prototype.slice.call(document.querySelectorAll('.users-row'));
+          var empty = document.querySelector('[data-users-no-results]');
+          var activeFilter = 'all';
+          function applyFilters(){
+            var term = String(query && query.value || '').trim().toLowerCase();
+            var visible = 0;
+            rows.forEach(function(row){
+              var statusMatches = activeFilter === 'all' || row.getAttribute('data-user-status') === activeFilter;
+              var searchMatches = !term || String(row.getAttribute('data-user-search') || '').indexOf(term) !== -1;
+              var show = statusMatches && searchMatches;
+              row.hidden = !show;
+              if(show) visible += 1;
+            });
+            if(searchWrap) searchWrap.classList.toggle('has-value', Boolean(term));
+            if(empty) empty.classList.toggle('show', visible === 0);
+          }
+          if(query) query.addEventListener('input', applyFilters);
+          if(clear) clear.addEventListener('click', function(){ if(query){ query.value = ''; query.focus(); } applyFilters(); });
+          filterButtons.forEach(function(button){
+            button.addEventListener('click', function(){
+              activeFilter = button.getAttribute('data-users-filter') || 'all';
+              filterButtons.forEach(function(item){ item.classList.toggle('is-active', item === button); });
+              applyFilters();
+            });
+          });
+          applyFilters();
+        })();
         document.querySelectorAll('[data-open-user-modal]').forEach(function(button){
           button.addEventListener('click', function(){
             var modal = document.getElementById(button.getAttribute('data-open-user-modal'));
@@ -14033,12 +14098,13 @@ return `
 
         <!-- Invites -->
         ${showUsers ? `
-        <section class="card" id="users" style="margin-bottom:var(--gap);">
-          <div class="sectionTitle">
+        <section id="users" style="margin-bottom:var(--gap);">
+          <div class="sectionTitle" style="align-items:flex-start; margin:0 0 26px;">
             <div>
-              <h2>Users</h2>
-              <p class="sub">Manage access and roles</p>
+              <h1 style="margin:0;">User management</h1>
+              <p class="sub">Manage team members and their account permissions.</p>
             </div>
+            <a class="btn btn-primary" href="/admin/invites${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add user</a>
           </div>
           ${usersHtml}
         </section>
