@@ -11808,18 +11808,43 @@ return `
 	        min-width: 160px;
 	        justify-content:center;
 	      }
-	      .listSearchRow{
-	        display:grid;
-	        grid-template-columns: minmax(280px, 1.35fr) minmax(180px, .65fr) auto;
-	        gap:12px;
-	        align-items:end;
-	      }
-	      .eventFilterRefinements{
-	        display:grid;
-	        grid-template-columns: minmax(180px, .8fr) minmax(320px, 1.25fr);
+      .listSearchRow{
+        display:grid;
+        grid-template-columns: minmax(280px, 1.1fr) minmax(590px, .9fr) auto;
+        gap:12px;
+        align-items:end;
+      }
+      .eventFilterRefinements{
+        display:grid;
+        grid-template-columns: minmax(170px, .7fr) minmax(390px, 1.3fr);
 	        gap:12px;
 	        min-width:0;
 	      }
+      .eventSearchForm{
+        display:grid;
+        grid-template-columns:1fr;
+        gap:14px;
+      }
+      .eventSearchField{ min-width:0; }
+      .eventSearchInput{ position:relative; }
+      .eventSearchInput .ctrl{ padding-right:56px; }
+      .eventSearchEnter{
+        position:absolute;
+        top:50%;
+        right:14px;
+        transform:translateY(-50%);
+        color:var(--muted);
+        font-size:19px;
+        font-weight:700;
+        line-height:1;
+        pointer-events:none;
+      }
+      .eventFiltersRow{
+        display:grid;
+        grid-template-columns: minmax(150px, .75fr) minmax(165px, .85fr) minmax(190px, 1fr) minmax(330px, 1.45fr) auto;
+        gap:12px;
+        align-items:end;
+      }
 	      .filterField{
 	        min-width:0;
 	        display:grid;
@@ -11851,9 +11876,9 @@ return `
 	        align-items:end;
 	        justify-content:flex-end;
 	      }
-	      .filterActions .btn{
-	        min-width: 112px;
-	      }
+      .filterActions .btn{
+        min-width: 96px;
+      }
 	      .analytics-toolbar{
 	        display:flex;
 	        gap:12px;
@@ -11921,9 +11946,15 @@ return `
           grid-template-columns: 1fr 1fr;
           align-items:stretch;
         }
-	      .eventFilterRefinements{
+        .eventFilterRefinements{
 	        grid-column: 1 / -1;
 	      }
+        .eventFiltersRow{
+          grid-template-columns:1fr 1fr;
+        }
+        .eventFiltersRow .filterActions{
+          grid-column:1 / -1;
+        }
         .filterActions{
           justify-content:flex-start;
         }
@@ -11989,10 +12020,16 @@ return `
         .listSearchRow{
           grid-template-columns: 1fr;
         }
-	      .eventFilterRefinements{
+        .eventFilterRefinements{
 	        grid-column:auto;
 	        grid-template-columns:1fr;
 	      }
+        .eventFiltersRow{
+          grid-template-columns:1fr;
+        }
+        .eventFiltersRow .filterActions{
+          grid-column:auto;
+        }
         .dateRange{
           grid-template-columns: 1fr;
         }
@@ -15458,48 +15495,55 @@ return `
 	            </div>
 
 	            <div class="eventsFilters">
-	              <div class="eventFilterGroup">
-	                <div class="eventFilterGroupLabel">Show events</div>
-	              <div class="eventsFilterTabs" role="group" aria-label="Event status">
-	                <a class="btn ${statusMode === "upcoming" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=upcoming${recurringOnly ? `&recurring=1` : ``}">Upcoming</a>
-	                <a class="btn ${statusMode === "past" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=past${recurringOnly ? `&recurring=1` : ``}">Past</a>
-	                <a class="btn ${statusMode === "archived" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=archived${recurringOnly ? `&recurring=1` : ``}">Archived</a>
-	                <a class="btn btn-wide ${recurringOnly ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=${encodeURIComponent(statusMode)}${recurringOnly ? `` : `&recurring=1`}">${recurringOnly ? "Recurring on" : "Recurring only"}</a>
-	              </div>
-	              </div>
-                <form class="listSearchRow" method="GET" action="/admin/existing-events">
+                <form class="listSearchRow eventSearchForm" method="GET" action="/admin/existing-events">
                   <input type="hidden" name="pg" value="1" />
                   <input type="hidden" name="limit" value="${esc(String(limit))}" />
-                  <input type="hidden" name="status" value="${esc(String(statusMode))}" />
-                  ${recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``}
                   ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
-	                <div class="filterField">
+	                <div class="filterField eventSearchField">
 	                  <label for="eventSearch">Find events</label>
-	                  <input id="eventSearch" name="q" class="ctrl" type="text" placeholder="Search title, slug, location, or ID" value="${esc(q)}" />
-	                </div>
-	                <div class="eventFilterRefinements">
-	                <div class="filterField">
-	                  <label for="sortBy">Sort results</label>
-	                  <select id="sortBy" name="sort" class="ctrl sortBy">
-	                    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Event date/time</option>
-	                    <option value="popularity" ${sort === "popularity" ? "selected" : ""}>Popularity (most viewed)</option>
-	                    <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Alphabetical (A-Z)</option>
-	                    <option value="recent" ${sort === "recent" ? "selected" : ""}>Recently added</option>
-	                    <option value="id" ${sort === "id" ? "selected" : ""}>Newest ID first</option>
-	                  </select>
-	                </div>
-	                <div class="filterField">
-	                  <label for="eventDateFrom">Limit to a date range <span class="note">(optional)</span></label>
-	                  <div class="dateRange">
-	                    <input id="eventDateFrom" name="from" class="ctrl dateCtrl" type="date" value="${esc(fromDate)}" />
-	                    <span class="dateRangeSep">to</span>
-	                    <input id="eventDateTo" name="to" class="ctrl dateCtrl" type="date" value="${esc(toDate)}" />
+	                  <div class="eventSearchInput">
+	                    <input id="eventSearch" name="q" class="ctrl" type="text" placeholder="Search title, slug, location, or ID" value="${esc(q)}" />
+	                    <span class="eventSearchEnter" aria-hidden="true" title="Press Enter to search">↵</span>
 	                  </div>
 	                </div>
-	                </div>
-	                <div class="filterActions">
-	                  <button id="eventSearchApply" type="submit" class="btn btn-primary">Apply</button>
-	                  <button id="eventSearchClear" type="button" class="btn">Reset</button>
+	                <div class="eventFiltersRow">
+	                  <div class="filterField">
+	                    <label for="eventStatus">Event status</label>
+	                    <select id="eventStatus" name="status" class="ctrl">
+	                      <option value="upcoming" ${statusMode === "upcoming" ? "selected" : ""}>Upcoming</option>
+	                      <option value="past" ${statusMode === "past" ? "selected" : ""}>Past</option>
+	                      <option value="archived" ${statusMode === "archived" ? "selected" : ""}>Archived</option>
+	                    </select>
+	                  </div>
+	                  <div class="filterField">
+	                    <label for="eventRecurrence">Event type</label>
+	                    <select id="eventRecurrence" name="recurring" class="ctrl">
+	                      <option value="0" ${!recurringOnly ? "selected" : ""}>All events</option>
+	                      <option value="1" ${recurringOnly ? "selected" : ""}>Recurring only</option>
+	                    </select>
+	                  </div>
+	                  <div class="filterField">
+	                    <label for="sortBy">Sort results</label>
+	                    <select id="sortBy" name="sort" class="ctrl sortBy">
+	                      <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Event date/time</option>
+	                      <option value="popularity" ${sort === "popularity" ? "selected" : ""}>Popularity (most viewed)</option>
+	                      <option value="alpha" ${sort === "alpha" ? "selected" : ""}>Alphabetical (A-Z)</option>
+	                      <option value="recent" ${sort === "recent" ? "selected" : ""}>Recently added</option>
+	                      <option value="id" ${sort === "id" ? "selected" : ""}>Newest ID first</option>
+	                    </select>
+	                  </div>
+	                  <div class="filterField">
+	                    <label for="eventDateFrom">Date range <span class="note">(optional)</span></label>
+	                    <div class="dateRange">
+	                      <input id="eventDateFrom" name="from" class="ctrl dateCtrl" type="date" value="${esc(fromDate)}" />
+	                      <span class="dateRangeSep">to</span>
+	                      <input id="eventDateTo" name="to" class="ctrl dateCtrl" type="date" value="${esc(toDate)}" />
+	                    </div>
+	                  </div>
+	                  <div class="filterActions">
+	                    <button id="eventSearchApply" type="submit" class="btn btn-primary">Apply</button>
+	                    <button id="eventSearchClear" type="button" class="btn">Reset</button>
+	                  </div>
 	                </div>
                 </form>
 	            </div>
@@ -16769,19 +16813,6 @@ return `
           } catch (_) {}
         });
       })();
-      // ---- sort dropdown (server-side) ----
-      (function(){
-        var sel = document.getElementById("sortBy");
-        if (!sel) return;
-        sel.addEventListener("change", function(){
-          var sp = new URLSearchParams(window.location.search || "");
-          sp.set("sort", sel.value);
-          sp.set("pg", "1");
-          window.location.href = "/admin/existing-events?" + sp.toString();
-        });
-      })();
-
-
       function toISOWithOffsetFromLocalInput(dtLocal) {
         var d = new Date(dtLocal);
         if (isNaN(d.getTime())) return "";
@@ -17463,6 +17494,8 @@ return `
         var fromInput = document.getElementById('eventDateFrom');
         var toInput = document.getElementById('eventDateTo');
         var sortInput = document.getElementById('sortBy');
+        var statusInput = document.getElementById('eventStatus');
+        var recurrenceInput = document.getElementById('eventRecurrence');
         var applyBtn = document.getElementById('eventSearchApply');
         var clearBtn = document.getElementById('eventSearchClear');
         if(!input) return;
@@ -17499,6 +17532,8 @@ return `
             if (fromInput) fromInput.value = '';
             if (toInput) toInput.value = '';
             if (sortInput) sortInput.value = 'datetime';
+            if (statusInput) statusInput.value = 'upcoming';
+            if (recurrenceInput) recurrenceInput.value = '0';
             go();
           });
         }
