@@ -19742,9 +19742,9 @@ router.get("/search", async (req, res) => {
       all("SELECT id, name, placement FROM ads WHERE city = ? AND (name LIKE ? ESCAPE '\\' OR placement LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
     ]);
     const groups = [];
-    if (events.length) groups.push({ label: "Events", items: events.map((row) => ({ title: row.title, detail: row.location || "Event", href: `/admin/create-events?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
+    if (events.length) groups.push({ label: "Events", items: events.map((row) => ({ title: row.title, detail: row.location || "Event", href: `/admin/events-analytics?event=${row.id}&city=${encodeURIComponent(city)}` })) });
     if (venues.length) groups.push({ label: "Venues", items: venues.map((row) => ({ title: row.name, detail: row.address || "Venue", href: `/admin/venues?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
-    if (organizers.length) groups.push({ label: "Organizers", items: organizers.map((row) => ({ title: row.organizer, detail: `${row.eventCount} event${Number(row.eventCount) === 1 ? "" : "s"}`, href: `/admin/existing-events?q=${encodeURIComponent(row.organizer)}&city=${encodeURIComponent(city)}` })) });
+    if (organizers.length) groups.push({ label: "Organizers", items: organizers.map((row) => ({ title: row.organizer, detail: `${row.eventCount} event${Number(row.eventCount) === 1 ? "" : "s"}`, href: `/admin/events-organizers?organizer=${encodeURIComponent(row.organizer)}&city=${encodeURIComponent(city)}` })) });
     if (jobs.length) groups.push({ label: "Jobs", items: jobs.map((row) => ({ title: row.title, detail: row.company || "Job", href: `/admin/jobs?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
     if (ads.length) groups.push({ label: "Ads", items: ads.map((row) => ({ title: row.name, detail: row.placement || "Ad", href: `/admin/ads?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
     groups.push({ label: "Go to", items: [{ title: `Search all events for “${q}”`, detail: "Events", href: `/admin/existing-events?q=${encodeURIComponent(q)}&city=${encodeURIComponent(city)}` }] });
