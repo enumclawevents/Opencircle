@@ -17613,7 +17613,7 @@ return `
             go();
           } else if (nextSearchValue !== previousSearchValue) {
             if (searchUpdateTimer) window.clearTimeout(searchUpdateTimer);
-            searchUpdateTimer = window.setTimeout(go, 100);
+            searchUpdateTimer = window.setTimeout(go, 250);
           }
           previousSearchValue = nextSearchValue;
         });
@@ -19733,13 +19733,20 @@ router.get("/search", async (req, res) => {
     if (!user) return res.status(401).json({ groups: [] });
     const city = String(req.query.city || user.city || "Enumclaw").trim();
     const like = `%${q.replace(/[%_\\]/g, "\\$&")}%`;
-    const [events, venues] = await Promise.all([
+    await Promise.all([ensureVenueSchema(), ensureJobSchema(), ensureAdSchema()]);
+    const [events, venues, organizers, jobs, ads] = await Promise.all([
       all("SELECT id, title, location FROM events WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR location LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
       all("SELECT id, name, address FROM venues WHERE city = ? AND (name LIKE ? ESCAPE '\\' OR address LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
+      all("SELECT organizer, COUNT(*) AS eventCount FROM events WHERE city = ? AND trim(COALESCE(organizer,'')) != '' AND organizer LIKE ? ESCAPE '\\' GROUP BY organizer ORDER BY eventCount DESC, organizer LIMIT 5", [city, like]),
+      all("SELECT id, title, company FROM jobs WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
+      all("SELECT id, name, placement FROM ads WHERE city = ? AND (name LIKE ? ESCAPE '\\' OR placement LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
     ]);
     const groups = [];
     if (events.length) groups.push({ label: "Events", items: events.map((row) => ({ title: row.title, detail: row.location || "Event", href: `/admin/create-events?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
     if (venues.length) groups.push({ label: "Venues", items: venues.map((row) => ({ title: row.name, detail: row.address || "Venue", href: `/admin/venues?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
+    if (organizers.length) groups.push({ label: "Organizers", items: organizers.map((row) => ({ title: row.organizer, detail: `${row.eventCount} event${Number(row.eventCount) === 1 ? "" : "s"}`, href: `/admin/existing-events?q=${encodeURIComponent(row.organizer)}&city=${encodeURIComponent(city)}` })) });
+    if (jobs.length) groups.push({ label: "Jobs", items: jobs.map((row) => ({ title: row.title, detail: row.company || "Job", href: `/admin/jobs?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
+    if (ads.length) groups.push({ label: "Ads", items: ads.map((row) => ({ title: row.name, detail: row.placement || "Ad", href: `/admin/ads?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
     groups.push({ label: "Go to", items: [{ title: `Search all events for “${q}”`, detail: "Events", href: `/admin/existing-events?q=${encodeURIComponent(q)}&city=${encodeURIComponent(city)}` }] });
     res.json({ groups });
   } catch (err) { res.status(500).json({ groups: [] }); }
