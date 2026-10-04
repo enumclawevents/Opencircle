@@ -8556,6 +8556,8 @@ return `
               createdAt: row.createdAt,
               href: buildActivityHref("/admin/existing-events", row.slug || row.title || row.id),
               imageUrl: row.imageUrl,
+              analyticsHref: `/admin/events-analytics?event=${encodeURIComponent(String(row.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`,
+              editHref: `/admin/create-events?edit=${encodeURIComponent(String(row.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`,
               isOwnEvent: Number(row.createdByUserId || 0) === Number(currentUser?.id || 0),
             });
           });
@@ -8707,6 +8709,7 @@ return `
               createdAt: row.createdAt,
               href: buildActivityHref("/admin/jobs", row.slug || row.title || row.id),
               imageUrl: row.imageUrl,
+              editHref: `/admin/jobs/create?edit=${encodeURIComponent(String(row.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`,
             });
           });
         } catch (err) {
@@ -8741,6 +8744,7 @@ return `
               createdAt: row.createdAt,
               href: buildActivityHref("/admin/ads", row.slug || row.name || row.id),
               imageUrl: row.imageUrl,
+              editHref: `/admin/ads/create?edit=${encodeURIComponent(String(row.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`,
             });
           });
         } catch (err) {
@@ -8776,7 +8780,7 @@ return `
       activityDashboardHtml = activityCardItems.length
         ? activityCardItems
             .map((item) => `
-              <a class="activity-item" href="${esc(item.href)}">
+              <div class="activity-item">
                 <div class="activity-thumb">${item.imageUrl ? `<img src="${esc(item.imageUrl)}" alt="" />` : `<span>${esc(item.type)}</span>`}</div>
                 <div class="activity-content">
                   <div class="activity-item-top">
@@ -8785,8 +8789,9 @@ return `
                   </div>
                   <div class="activity-title">${esc(item.title)}</div>
                   <div class="activity-meta">${esc(item.meta || selectedCity)}</div>
+                  ${item.analyticsHref || item.editHref ? `<div class="activity-actions">${item.analyticsHref ? `<a class="btn" href="${esc(item.analyticsHref)}">See Analytics</a>` : ``}${item.editHref ? `<a class="btn" href="${esc(item.editHref)}">Edit</a>` : ``}</div>` : ``}
                 </div>
-              </a>
+              </div>
             `)
             .join("")
         : `<div class="muted">No recent activity in ${esc(selectedCity)} yet.</div>`;
@@ -12516,7 +12521,7 @@ return `
         grid-template-columns: repeat(2, minmax(0,1fr));
         gap:var(--gap);
         margin-bottom:var(--gap);
-        align-items:stretch;
+        align-items:start;
         width:100%;
       }
       .dashboard-shell > .dashboard-col{ display:contents; }
@@ -13040,6 +13045,7 @@ return `
       .activity-thumb{width:64px;height:64px;border-radius:10px;overflow:hidden;background:rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;text-align:center;padding:6px}
       .activity-thumb img{width:100%;height:100%;object-fit:cover;display:block}
       .activity-content{min-width:0;display:grid;gap:6px}
+      .activity-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}.activity-actions .btn{min-height:32px;padding:6px 10px;font-size:12px}
       .activity-item:hover{
         border-color:rgba(15,23,42,.18);
         background:#fbfdff;
