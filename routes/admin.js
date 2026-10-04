@@ -10114,7 +10114,7 @@ return `
         text-align:left;
         border-radius:0;
         font-weight:600;
-        font-size:14px;
+        font-size:12px;
         color: var(--sidebar-text);
         cursor:pointer;
         text-decoration:none;
@@ -10421,7 +10421,7 @@ return `
         box-shadow: none;
       }
       .header-icon-btn i{
-        font-size:15px;
+        font-size:13px;
       }
       .header-icon-btn .header-avatar{
         width:100%;
@@ -10867,6 +10867,7 @@ return `
       .search.has-value .global-search-clear{display:inline-flex}
       .search.has-value .search-enter-key{right:52px}
       .global-search-clear:hover{background:rgba(71,85,105,.5)}
+      .global-search-results{display:none;position:absolute;top:calc(100% + 8px);left:0;width:100%;max-width:680px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:8px;z-index:80}.global-search-results.is-open{display:block}.global-search-group{padding:8px}.global-search-group+ .global-search-group{border-top:1px solid var(--line)}.global-search-label{font-size:12px;color:var(--muted);font-weight:700;margin:0 0 5px}.global-search-item{display:block;padding:8px;border-radius:8px;color:var(--text)}.global-search-item:hover{background:var(--panel2)}.global-search-detail{color:var(--muted);font-size:12px;margin-left:8px}
       .search input::placeholder{
         color:#9ca3af;
       }
@@ -13360,6 +13361,7 @@ return `
                 <input id="globalSearch" name="globalQ" value="" placeholder="Search OpenCircle..." autocomplete="off" ${isNewsletterTab ? `data-newsletter-search-input` : ``} />
 	              <span class="search-enter-key" aria-hidden="true" title="Press Enter to search">↵</span>
 	              <button id="globalSearchClear" class="global-search-clear" type="button" aria-label="Clear global search" title="Clear search">×</button>
+	              <div id="globalSearchResults" class="global-search-results" role="listbox"></div>
                 ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
                 ${isNewsletterTab ? `` : `<input type="hidden" name="pg" value="1" />`}
                 ${isNewsletterTab ? `` : `<input type="hidden" name="limit" value="${esc(String(limit))}" />`}
@@ -17611,7 +17613,7 @@ return `
             go();
           } else if (nextSearchValue !== previousSearchValue) {
             if (searchUpdateTimer) window.clearTimeout(searchUpdateTimer);
-            searchUpdateTimer = window.setTimeout(go, 250);
+            searchUpdateTimer = window.setTimeout(go, 100);
           }
           previousSearchValue = nextSearchValue;
         });
@@ -17648,11 +17650,13 @@ return `
       (function(){
         var input = document.getElementById('globalSearch');
         var button = document.getElementById('globalSearchClear');
+        var results = document.getElementById('globalSearchResults');
         var form = input ? input.closest('.search') : null;
         if (!input || !button || !form) return;
         function sync(){ form.classList.toggle('has-value', !!String(input.value || '').trim()); }
-        input.addEventListener('input', sync);
-        button.addEventListener('click', function(){ input.value=''; sync(); input.focus(); });
+        var timer;
+        input.addEventListener('input', function(){ sync(); window.clearTimeout(timer); var q=input.value.trim(); if(q.length<2){results.innerHTML='';results.classList.remove('is-open');return;} timer=window.setTimeout(function(){fetch('/admin/search?q='+encodeURIComponent(q)+'&city='+encodeURIComponent(new URLSearchParams(location.search).get('city')||'' )).then(function(r){return r.json()}).then(function(data){results.innerHTML=(data.groups||[]).map(function(g){return '<div class="global-search-group"><div class="global-search-label">'+g.label+'</div>'+g.items.map(function(i){return '<a class="global-search-item" href="'+i.href+'">'+i.title+'<span class="global-search-detail">'+i.detail+'</span></a>'}).join('')+'</div>'}).join('');results.classList.toggle('is-open',!!results.innerHTML)}).catch(function(){})},120); });
+        button.addEventListener('click', function(){ input.value=''; sync(); results.innerHTML='';results.classList.remove('is-open');input.focus(); });
         sync();
       })();
 
@@ -19720,6 +19724,26 @@ router.get("/preferences", async (req, res) => renderAdmin(req, res, "preference
 router.get("/updates-log", async (req, res) => renderAdmin(req, res, "updates-log"));
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
+
+router.get("/search", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (q.length < 2) return res.json({ groups: [] });
+    const user = await resolveSessionUser(req);
+    if (!user) return res.status(401).json({ groups: [] });
+    const city = String(req.query.city || user.city || "Enumclaw").trim();
+    const like = `%${q.replace(/[%_\\]/g, "\\$&")}%`;
+    const [events, venues] = await Promise.all([
+      all("SELECT id, title, location FROM events WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR location LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
+      all("SELECT id, name, address FROM venues WHERE city = ? AND (name LIKE ? ESCAPE '\\' OR address LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
+    ]);
+    const groups = [];
+    if (events.length) groups.push({ label: "Events", items: events.map((row) => ({ title: row.title, detail: row.location || "Event", href: `/admin/create-events?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
+    if (venues.length) groups.push({ label: "Venues", items: venues.map((row) => ({ title: row.name, detail: row.address || "Venue", href: `/admin/venues?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
+    groups.push({ label: "Go to", items: [{ title: `Search all events for “${q}”`, detail: "Events", href: `/admin/existing-events?q=${encodeURIComponent(q)}&city=${encodeURIComponent(city)}` }] });
+    res.json({ groups });
+  } catch (err) { res.status(500).json({ groups: [] }); }
+});
 
 router.post("/newsletter/settings", upload.single("headerImageFile"), async (req, res) => {
   try {
