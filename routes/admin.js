@@ -10845,7 +10845,7 @@ return `
       .search-enter-key{
         position:absolute;
         top:50%;
-        right:52px;
+        right:12px;
         transform:translateY(-50%);
         width:30px;
         height:24px;
@@ -10863,8 +10863,9 @@ return `
         pointer-events:none;
         z-index:2;
       }
-      .global-search-clear{position:absolute;top:50%;right:12px;transform:translateY(-50%);width:26px;height:26px;display:none;align-items:center;justify-content:center;border:0;border-radius:999px;background:rgba(100,116,139,.24);color:#fff;font-size:16px;font-weight:700;line-height:1;cursor:pointer;z-index:2}
+      .global-search-clear{position:absolute;top:50%;right:14px;transform:translateY(-50%);width:22px;height:22px;display:none;align-items:center;justify-content:center;border:0;border-radius:999px;background:rgba(100,116,139,.24);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer;z-index:2}
       .search.has-value .global-search-clear{display:inline-flex}
+      .search.has-value .search-enter-key{right:52px}
       .global-search-clear:hover{background:rgba(71,85,105,.5)}
       .search input::placeholder{
         color:#9ca3af;
@@ -11856,7 +11857,7 @@ return `
       .eventSearchEnter{
         position:absolute;
         top:50%;
-        right:52px;
+        right:14px;
         transform:translateY(-50%);
         width:34px;
         height:26px;
@@ -11878,8 +11879,8 @@ return `
         top:50%;
         right:14px;
         transform:translateY(-50%);
-        width:26px;
-        height:26px;
+        width:22px;
+        height:22px;
         display:none;
         align-items:center;
         justify-content:center;
@@ -11887,12 +11888,13 @@ return `
         border-radius:999px;
         background:rgba(100,116,139,.24);
         color:#fff;
-        font-size:16px;
+        font-size:14px;
         font-weight:700;
         line-height:1;
         cursor:pointer;
       }
       .eventSearchInput.has-value .eventSearchClearIcon{ display:inline-flex; }
+      .eventSearchInput.has-value .eventSearchEnter{ right:52px; }
       .eventSearchClearIcon:hover{ background:rgba(71,85,105,.5); }
       .eventFiltersRow{
         display:grid;
