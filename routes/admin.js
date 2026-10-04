@@ -11778,10 +11778,20 @@ return `
 	        border: 1px solid var(--line);
 	        background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%);
 	        border-radius: var(--radius);
-	        padding: 14px;
-	        margin: 10px 0 14px;
+	        padding: 16px;
+	        margin: 6px 0 14px;
 	        display: grid;
-	        gap: 12px;
+	        gap: 16px;
+	      }
+	      .eventFilterGroup{
+	        display:grid;
+	        gap:8px;
+	      }
+	      .eventFilterGroupLabel{
+	        font-size:12px;
+	        font-weight:700;
+	        color:var(--muted);
+	        letter-spacing:.02em;
 	      }
 	      .eventsFilterTabs{
 	        display:flex;
@@ -11800,9 +11810,15 @@ return `
 	      }
 	      .listSearchRow{
 	        display:grid;
-	        grid-template-columns: minmax(240px, 1.3fr) minmax(180px, .7fr) auto auto auto;
+	        grid-template-columns: minmax(280px, 1.35fr) minmax(180px, .65fr) auto;
 	        gap:12px;
 	        align-items:end;
+	      }
+	      .eventFilterRefinements{
+	        display:grid;
+	        grid-template-columns: minmax(180px, .8fr) minmax(320px, 1.25fr);
+	        gap:12px;
+	        min-width:0;
 	      }
 	      .filterField{
 	        min-width:0;
@@ -11905,6 +11921,9 @@ return `
           grid-template-columns: 1fr 1fr;
           align-items:stretch;
         }
+	      .eventFilterRefinements{
+	        grid-column: 1 / -1;
+	      }
         .filterActions{
           justify-content:flex-start;
         }
@@ -11970,6 +11989,10 @@ return `
         .listSearchRow{
           grid-template-columns: 1fr;
         }
+	      .eventFilterRefinements{
+	        grid-column:auto;
+	        grid-template-columns:1fr;
+	      }
         .dateRange{
           grid-template-columns: 1fr;
         }
@@ -12236,18 +12259,24 @@ return `
       .chip button{ border:0; background: transparent; cursor:pointer; font-weight:650; color: #b91c1c; }
 
 
-      /* Section headers (title above, controls below) */
+      /* Section headers: keep desktop actions aligned with the title block. */
       .sectionTitle{
         display:flex;
-        flex-direction:column;
+        flex-direction:row;
         align-items:flex-start;
-        justify-content:flex-start;
-        gap:10px;
+        justify-content:space-between;
+        gap:16px;
         margin-bottom:14px;
       }
-      .sectionTitle > div{ width:auto; }
-      .sectionTitle .right{ width:auto; display:flex; gap:12px; justify-content:flex-start; flex-wrap:wrap; }
-      .sectionTitle .right{ width:100%; justify-content:flex-end; }
+      .sectionTitle > div{ width:auto; min-width:0; }
+      .sectionTitle .right{
+        width:auto;
+        display:flex;
+        gap:12px;
+        justify-content:flex-end;
+        flex-wrap:wrap;
+        align-self:flex-start;
+      }
       /* Keep controls in one line on desktop; allow wrap on small screens */
       .sectionTitle .rightRow{
         width:100%;
@@ -12264,6 +12293,16 @@ return `
 
       @media (max-width: 980px){
         .sectionTitle .rightRow{ flex-wrap:wrap; }
+      }
+      @media (max-width: 700px){
+        .sectionTitle:not(.sectionTitle--chart){
+          flex-direction:column;
+          align-items:flex-start;
+        }
+        .sectionTitle:not(.sectionTitle--chart) .right{
+          width:100%;
+          justify-content:flex-start;
+        }
       }
 
       /* Chart header layout */
@@ -15419,11 +15458,14 @@ return `
 	            </div>
 
 	            <div class="eventsFilters">
-	              <div class="eventsFilterTabs">
+	              <div class="eventFilterGroup">
+	                <div class="eventFilterGroupLabel">Show events</div>
+	              <div class="eventsFilterTabs" role="group" aria-label="Event status">
 	                <a class="btn ${statusMode === "upcoming" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=upcoming${recurringOnly ? `&recurring=1` : ``}">Upcoming</a>
 	                <a class="btn ${statusMode === "past" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=past${recurringOnly ? `&recurring=1` : ``}">Past</a>
 	                <a class="btn ${statusMode === "archived" ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=archived${recurringOnly ? `&recurring=1` : ``}">Archived</a>
-	                <a class="btn btn-wide ${recurringOnly ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=${encodeURIComponent(statusMode)}${recurringOnly ? `` : `&recurring=1`}">${recurringOnly ? "Recurring On" : "Recurring Only"}</a>
+	                <a class="btn btn-wide ${recurringOnly ? "btn-primary" : ""}" href="/admin/existing-events?pg=1&limit=${esc(String(limit))}${q ? `&q=${encodeURIComponent(q)}` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}&sort=${encodeURIComponent(sort)}&status=${encodeURIComponent(statusMode)}${recurringOnly ? `` : `&recurring=1`}">${recurringOnly ? "Recurring on" : "Recurring only"}</a>
+	              </div>
 	              </div>
                 <form class="listSearchRow" method="GET" action="/admin/existing-events">
                   <input type="hidden" name="pg" value="1" />
@@ -15432,11 +15474,12 @@ return `
                   ${recurringOnly ? `<input type="hidden" name="recurring" value="1" />` : ``}
                   ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
 	                <div class="filterField">
-	                  <label for="eventSearch">Search</label>
+	                  <label for="eventSearch">Find events</label>
 	                  <input id="eventSearch" name="q" class="ctrl" type="text" placeholder="Search title, slug, location, or ID" value="${esc(q)}" />
 	                </div>
+	                <div class="eventFilterRefinements">
 	                <div class="filterField">
-	                  <label for="sortBy">Sort by</label>
+	                  <label for="sortBy">Sort results</label>
 	                  <select id="sortBy" name="sort" class="ctrl sortBy">
 	                    <option value="datetime" ${sort === "datetime" ? "selected" : ""}>Event date/time</option>
 	                    <option value="popularity" ${sort === "popularity" ? "selected" : ""}>Popularity (most viewed)</option>
@@ -15446,12 +15489,13 @@ return `
 	                  </select>
 	                </div>
 	                <div class="filterField">
-	                  <label for="eventDateFrom">Date range</label>
+	                  <label for="eventDateFrom">Limit to a date range <span class="note">(optional)</span></label>
 	                  <div class="dateRange">
 	                    <input id="eventDateFrom" name="from" class="ctrl dateCtrl" type="date" value="${esc(fromDate)}" />
 	                    <span class="dateRangeSep">to</span>
 	                    <input id="eventDateTo" name="to" class="ctrl dateCtrl" type="date" value="${esc(toDate)}" />
 	                  </div>
+	                </div>
 	                </div>
 	                <div class="filterActions">
 	                  <button id="eventSearchApply" type="submit" class="btn btn-primary">Apply</button>
