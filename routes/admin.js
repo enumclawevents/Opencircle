@@ -10839,13 +10839,13 @@ return `
         flex:1 1 auto;
         font-size:14px; font-weight:500; color:var(--text);
         height: var(--ctrl-h);
-        padding:0 54px 0 42px;
+        padding:0 96px 0 42px;
       }
 
       .search-enter-key{
         position:absolute;
         top:50%;
-        right:12px;
+        right:52px;
         transform:translateY(-50%);
         width:30px;
         height:24px;
@@ -10863,6 +10863,9 @@ return `
         pointer-events:none;
         z-index:2;
       }
+      .global-search-clear{position:absolute;top:50%;right:12px;transform:translateY(-50%);width:26px;height:26px;display:none;align-items:center;justify-content:center;border:0;border-radius:999px;background:rgba(100,116,139,.24);color:#fff;font-size:16px;font-weight:700;line-height:1;cursor:pointer;z-index:2}
+      .search.has-value .global-search-clear{display:inline-flex}
+      .global-search-clear:hover{background:rgba(71,85,105,.5)}
       .search input::placeholder{
         color:#9ca3af;
       }
@@ -11849,11 +11852,11 @@ return `
       }
       .eventSearchField{ min-width:0; }
       .eventSearchInput{ position:relative; }
-      .eventSearchInput .ctrl{ padding-right:56px; }
+      .eventSearchInput .ctrl{ padding-right:96px; }
       .eventSearchEnter{
         position:absolute;
         top:50%;
-        right:14px;
+        right:52px;
         transform:translateY(-50%);
         width:34px;
         height:26px;
@@ -11870,6 +11873,27 @@ return `
         line-height:1;
         pointer-events:none;
       }
+      .eventSearchClearIcon{
+        position:absolute;
+        top:50%;
+        right:14px;
+        transform:translateY(-50%);
+        width:26px;
+        height:26px;
+        display:none;
+        align-items:center;
+        justify-content:center;
+        border:0;
+        border-radius:999px;
+        background:rgba(100,116,139,.24);
+        color:#fff;
+        font-size:16px;
+        font-weight:700;
+        line-height:1;
+        cursor:pointer;
+      }
+      .eventSearchInput.has-value .eventSearchClearIcon{ display:inline-flex; }
+      .eventSearchClearIcon:hover{ background:rgba(71,85,105,.5); }
       .eventFiltersRow{
         display:grid;
         grid-template-columns: minmax(150px, .75fr) minmax(165px, .85fr) minmax(190px, 1fr) minmax(330px, 1.45fr) auto;
@@ -13331,14 +13355,14 @@ return `
             ${showSearch ? `
             <div class="h-left-search">
               <form class="search" method="GET" action="${searchAction}" ${isNewsletterTab ? `data-newsletter-header-search="1"` : ``}>
-                <input name="q" value="${esc(isNewsletterTab ? "" : q)}" placeholder="${searchPlaceholder}" ${isNewsletterTab ? `data-newsletter-search-input autocomplete="off"` : ``} />
+                <input id="globalSearch" name="globalQ" value="" placeholder="Search OpenCircle..." autocomplete="off" ${isNewsletterTab ? `data-newsletter-search-input` : ``} />
 	              <span class="search-enter-key" aria-hidden="true" title="Press Enter to search">↵</span>
+	              <button id="globalSearchClear" class="global-search-clear" type="button" aria-label="Clear global search" title="Clear search">×</button>
                 ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
                 ${isNewsletterTab ? `` : `<input type="hidden" name="pg" value="1" />`}
                 ${isNewsletterTab ? `` : `<input type="hidden" name="limit" value="${esc(String(limit))}" />`}
                 ${(isNewsletterTab || showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : `<input type="hidden" name="status" value="${esc(String(statusMode))}" />`}
                 ${(isNewsletterTab || showVenueCreate || showVenueExisting || showVenueAnalytics || showJobsCreate || showJobsExisting || showJobsApplicants || showJobsAnalytics || showAdsCreate || showAdsExisting || showAdsAnalytics) ? `` : (recurringOnly ? `<input type="hidden" name="recurring" value="${esc(String(1))}" />` : ``)}
-                ${(!isNewsletterTab && q) ? `<a class="btn" href="${searchResetHref}">Reset</a>` : ``}
               </form>
             </div>
             ` : ``}
@@ -15533,9 +15557,10 @@ return `
                   ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
 	                <div class="filterField eventSearchField">
 	                  <label for="eventSearch">Find events</label>
-	                  <div class="eventSearchInput">
+	                  <div class="eventSearchInput ${q ? "has-value" : ""}">
 	                    <input id="eventSearch" name="q" class="ctrl" type="text" placeholder="Search title, slug, location, or ID" value="${esc(q)}" />
 	                    <span class="eventSearchEnter" aria-hidden="true" title="Press Enter to search">↵</span>
+	                    <button id="eventSearchClearIcon" class="eventSearchClearIcon" type="button" aria-label="Clear event search" title="Clear search">×</button>
 	                  </div>
 	                </div>
 	                <div class="eventFiltersRow">
@@ -15580,11 +15605,11 @@ return `
                 </form>
 	            </div>
 
-	            ${pagerHtml}
+	            <div data-events-pager>${pagerHtml}</div>
 
             <div id="eventsList" style="display:grid; gap:var(--gap);">${listHtml}</div>
             <div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
-	          ${pagerHtml}
+	          <div data-events-pager>${pagerHtml}</div>
 
           </div>
           ` : ``}
@@ -17531,6 +17556,8 @@ return `
         var recurrenceInput = document.getElementById('eventRecurrence');
         var applyBtn = document.getElementById('eventSearchApply');
         var clearBtn = document.getElementById('eventSearchClear');
+        var clearSearchIcon = document.getElementById('eventSearchClearIcon');
+        var searchShell = input ? input.closest('.eventSearchInput') : null;
         if(!input) return;
 
         function go(){
@@ -17538,7 +17565,30 @@ return `
             sessionStorage.setItem("oc_admin_scroll", String(window.scrollY || 0));
           } catch (_) {}
           if (form) {
-            form.submit();
+            var params = new URLSearchParams(new FormData(form));
+            var requestUrl = new URL(form.action, window.location.origin);
+            requestUrl.search = params.toString();
+            window.fetch(requestUrl.toString(), { headers: { "X-Requested-With": "XMLHttpRequest" } })
+              .then(function(response){
+                if (!response.ok) throw new Error("Search request failed");
+                return response.text();
+              })
+              .then(function(html){
+                var nextDocument = new DOMParser().parseFromString(html, "text/html");
+                var nextList = nextDocument.getElementById("eventsList");
+                var currentList = document.getElementById("eventsList");
+                if (!nextList || !currentList) throw new Error("Search results unavailable");
+                currentList.innerHTML = nextList.innerHTML;
+                var nextEmpty = nextDocument.getElementById("eventsEmpty");
+                var currentEmpty = document.getElementById("eventsEmpty");
+                if (nextEmpty && currentEmpty) currentEmpty.outerHTML = nextEmpty.outerHTML;
+                var nextPagers = nextDocument.querySelectorAll("[data-events-pager]");
+                document.querySelectorAll("[data-events-pager]").forEach(function(pager, index){
+                  if (nextPagers[index]) pager.innerHTML = nextPagers[index].innerHTML;
+                });
+                window.history.replaceState({}, "", requestUrl.pathname + requestUrl.search);
+              })
+              .catch(function(){ form.submit(); });
             return;
           }
         }
@@ -17553,6 +17603,7 @@ return `
         var searchUpdateTimer = null;
         input.addEventListener('input', function(){
           var nextSearchValue = String(input.value || '').trim();
+          if (searchShell) searchShell.classList.toggle('has-value', !!nextSearchValue);
           if (previousSearchValue && !nextSearchValue) {
             if (searchUpdateTimer) window.clearTimeout(searchUpdateTimer);
             go();
@@ -17562,8 +17613,16 @@ return `
           }
           previousSearchValue = nextSearchValue;
         });
+        if(clearSearchIcon){
+          clearSearchIcon.addEventListener('click', function(){
+            input.value = '';
+            input.dispatchEvent(new Event('input', { bubbles:true }));
+            input.focus();
+          });
+        }
         if(applyBtn){
-          applyBtn.addEventListener('click', function(){
+          applyBtn.addEventListener('click', function(ev){
+            ev.preventDefault();
             go();
           });
         }
@@ -17582,6 +17641,17 @@ return `
             go();
           });
         }
+      })();
+
+      (function(){
+        var input = document.getElementById('globalSearch');
+        var button = document.getElementById('globalSearchClear');
+        var form = input ? input.closest('.search') : null;
+        if (!input || !button || !form) return;
+        function sync(){ form.classList.toggle('has-value', !!String(input.value || '').trim()); }
+        input.addEventListener('input', sync);
+        button.addEventListener('click', function(){ input.value=''; sync(); input.focus(); });
+        sync();
       })();
 
       // Newsletter tab search
