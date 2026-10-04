@@ -10839,7 +10839,29 @@ return `
         flex:1 1 auto;
         font-size:14px; font-weight:500; color:var(--text);
         height: var(--ctrl-h);
-        padding:0 14px 0 42px;
+        padding:0 54px 0 42px;
+      }
+
+      .search-enter-key{
+        position:absolute;
+        top:50%;
+        right:12px;
+        transform:translateY(-50%);
+        width:28px;
+        height:28px;
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        border:1px solid var(--line);
+        border-radius:8px;
+        background:var(--panel2);
+        box-shadow:0 1px 2px rgba(15,23,42,.06);
+        color:var(--muted);
+        font-size:15px;
+        font-weight:700;
+        line-height:1;
+        pointer-events:none;
+        z-index:2;
       }
       .search input::placeholder{
         color:#9ca3af;
@@ -11833,8 +11855,17 @@ return `
         top:50%;
         right:14px;
         transform:translateY(-50%);
+        width:32px;
+        height:32px;
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        border:1px solid var(--line);
+        border-radius:9px;
+        background:var(--panel2);
+        box-shadow:0 1px 2px rgba(15,23,42,.06);
         color:var(--muted);
-        font-size:19px;
+        font-size:17px;
         font-weight:700;
         line-height:1;
         pointer-events:none;
@@ -13301,6 +13332,7 @@ return `
             <div class="h-left-search">
               <form class="search" method="GET" action="${searchAction}" ${isNewsletterTab ? `data-newsletter-header-search="1"` : ``}>
                 <input name="q" value="${esc(isNewsletterTab ? "" : q)}" placeholder="${searchPlaceholder}" ${isNewsletterTab ? `data-newsletter-search-input autocomplete="off"` : ``} />
+	              <span class="search-enter-key" aria-hidden="true" title="Press Enter to search">↵</span>
                 ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
                 ${isNewsletterTab ? `` : `<input type="hidden" name="pg" value="1" />`}
                 ${isNewsletterTab ? `` : `<input type="hidden" name="limit" value="${esc(String(limit))}" />`}
@@ -15552,6 +15584,7 @@ return `
 
             <div id="eventsList" style="display:grid; gap:var(--gap);">${listHtml}</div>
             <div id="eventsEmpty" class="muted" style="display:none; margin-top:10px;">No matching events.</div>
+	          ${pagerHtml}
 
           </div>
           ` : ``}
