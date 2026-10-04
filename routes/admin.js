@@ -10847,17 +10847,17 @@ return `
         top:50%;
         right:12px;
         transform:translateY(-50%);
-        width:28px;
-        height:28px;
+        width:30px;
+        height:24px;
         display:inline-flex;
         align-items:center;
         justify-content:center;
         border:1px solid var(--line);
-        border-radius:8px;
+        border-radius:7px;
         background:var(--panel2);
         box-shadow:0 1px 2px rgba(15,23,42,.06);
         color:var(--muted);
-        font-size:15px;
+        font-size:14px;
         font-weight:700;
         line-height:1;
         pointer-events:none;
@@ -11855,17 +11855,17 @@ return `
         top:50%;
         right:14px;
         transform:translateY(-50%);
-        width:32px;
-        height:32px;
+        width:34px;
+        height:26px;
         display:inline-flex;
         align-items:center;
         justify-content:center;
         border:1px solid var(--line);
-        border-radius:9px;
+        border-radius:7px;
         background:var(--panel2);
         box-shadow:0 1px 2px rgba(15,23,42,.06);
         color:var(--muted);
-        font-size:17px;
+        font-size:15px;
         font-weight:700;
         line-height:1;
         pointer-events:none;
@@ -17550,10 +17550,15 @@ return `
           }
         });
         var previousSearchValue = String(input.value || '').trim();
+        var searchUpdateTimer = null;
         input.addEventListener('input', function(){
           var nextSearchValue = String(input.value || '').trim();
           if (previousSearchValue && !nextSearchValue) {
+            if (searchUpdateTimer) window.clearTimeout(searchUpdateTimer);
             go();
+          } else if (nextSearchValue !== previousSearchValue) {
+            if (searchUpdateTimer) window.clearTimeout(searchUpdateTimer);
+            searchUpdateTimer = window.setTimeout(go, 250);
           }
           previousSearchValue = nextSearchValue;
         });
