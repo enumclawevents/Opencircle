@@ -8539,7 +8539,7 @@ return `
             ? "u.displayName, u.username, u.email"
             : "NULL AS displayName, NULL AS username, NULL AS email";
           const rows = await all(
-            `SELECT e.id, e.slug, e.title, e.location, ${eventCreatedExpr} AS createdAt, e.createdByUserId,
+            `SELECT e.id, e.slug, e.title, e.location, e.imageUrl, ${eventCreatedExpr} AS createdAt, e.createdByUserId,
                     ${eventCreatorSelect}
                FROM events e
                ${eventCreatorJoin}
@@ -8555,6 +8555,7 @@ return `
               meta: `${row.location || selectedCity} · ${getActivityAuthorLabel(row)}`,
               createdAt: row.createdAt,
               href: buildActivityHref("/admin/existing-events", row.slug || row.title || row.id),
+              imageUrl: row.imageUrl,
               isOwnEvent: Number(row.createdByUserId || 0) === Number(currentUser?.id || 0),
             });
           });
@@ -8689,7 +8690,7 @@ return `
             jobActivityParams.push(...organizerVenueOwnerClause.params);
           }
           const rows = await all(
-            `SELECT j.id, j.slug, j.title, j.company, j.createdAt,
+            `SELECT j.id, j.slug, j.title, j.company, j.imageUrl, j.createdAt,
                     ${jobCreatorSelect}
                FROM jobs j
                ${jobCreatorJoin}
@@ -8705,6 +8706,7 @@ return `
               meta: `${row.company || selectedCity} · ${getActivityAuthorLabel(row)}`,
               createdAt: row.createdAt,
               href: buildActivityHref("/admin/jobs", row.slug || row.title || row.id),
+              imageUrl: row.imageUrl,
             });
           });
         } catch (err) {
@@ -8722,7 +8724,7 @@ return `
             ? "u.displayName, u.username, u.email"
             : "NULL AS displayName, NULL AS username, NULL AS email";
           const rows = await all(
-            `SELECT a.id, a.slug, a.name, a.placement, a.createdAt,
+            `SELECT a.id, a.slug, a.name, a.placement, a.imageUrl, a.createdAt,
                     ${adCreatorSelect}
                FROM ads a
                ${adCreatorJoin}
@@ -8738,6 +8740,7 @@ return `
               meta: `${row.placement || selectedCity} · ${getActivityAuthorLabel(row)}`,
               createdAt: row.createdAt,
               href: buildActivityHref("/admin/ads", row.slug || row.name || row.id),
+              imageUrl: row.imageUrl,
             });
           });
         } catch (err) {
@@ -8774,12 +8777,15 @@ return `
         ? activityCardItems
             .map((item) => `
               <a class="activity-item" href="${esc(item.href)}">
-                <div class="activity-item-top">
-                  <span class="activity-pill">${esc(item.type)}</span>
-                  <span class="activity-time">${esc(fmtPendingDate(item.createdAt))}</span>
+                <div class="activity-thumb">${item.imageUrl ? `<img src="${esc(item.imageUrl)}" alt="" />` : `<span>${esc(item.type)}</span>`}</div>
+                <div class="activity-content">
+                  <div class="activity-item-top">
+                    <span class="activity-pill">${esc(item.type)}</span>
+                    <span class="activity-time">${esc(fmtPendingDate(item.createdAt))}</span>
+                  </div>
+                  <div class="activity-title">${esc(item.title)}</div>
+                  <div class="activity-meta">${esc(item.meta || selectedCity)}</div>
                 </div>
-                <div class="activity-title">${esc(item.title)}</div>
-                <div class="activity-meta">${esc(item.meta || selectedCity)}</div>
               </a>
             `)
             .join("")
@@ -11858,6 +11864,13 @@ return `
       }
       .eventSearchField{ min-width:0; }
       .eventSearchInput{ position:relative; }
+      #eventSearch,
+      #newsletterAudienceSearch{
+        background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-4-4'/%3E%3C/svg%3E");
+        background-repeat:no-repeat;
+        background-position:14px center;
+        padding-left:42px;
+      }
       .eventSearchInput .ctrl{ padding-right:96px; }
       .eventSearchEnter{
         position:absolute;
@@ -12506,6 +12519,12 @@ return `
         align-items:stretch;
         width:100%;
       }
+      .dashboard-shell > .dashboard-col{ display:contents; }
+      #dashboard-calendar-card{ order:1; }
+      #dashboard-quick-links{ order:2; }
+      #dashboard-messages-card{ order:3; }
+      #dashboard-activity-card{ order:4; }
+      #dashboard-insights-card{ order:5; }
       .dashboard-col{
         display:grid;
         gap:var(--gap);
@@ -13009,7 +13028,8 @@ return `
       }
       .activity-item{
         display:grid;
-        gap:6px;
+        grid-template-columns:64px minmax(0,1fr);
+        gap:12px;
         padding:12px 14px;
         border:1px solid var(--line);
         border-radius:var(--radius-inner);
@@ -13017,6 +13037,9 @@ return `
         text-decoration:none;
         color:inherit;
       }
+      .activity-thumb{width:64px;height:64px;border-radius:10px;overflow:hidden;background:rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;text-align:center;padding:6px}
+      .activity-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+      .activity-content{min-width:0;display:grid;gap:6px}
       .activity-item:hover{
         border-color:rgba(15,23,42,.18);
         background:#fbfdff;
