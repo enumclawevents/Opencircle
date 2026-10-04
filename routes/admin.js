@@ -11211,6 +11211,10 @@ return `
         align-self:start;
       }
       .event-analytics-page-title{
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap:16px;
         margin: 0 0 var(--gap);
       }
       .event-analytics-page-title h1{
@@ -13479,8 +13483,11 @@ return `
 
         ${showAnalytics && selectedEventAnalytics ? `
         <section class="event-analytics-page-title">
-          <h1>${esc(selectedEventAnalytics.title)}</h1>
-          <p class="sub">Individual event insights</p>
+          <div>
+            <h1>${esc(selectedEventAnalytics.title)}</h1>
+            <p class="sub">Individual event insights</p>
+          </div>
+          ${canManageEvents ? `<a class="btn btn-primary" href="/admin/create-events?edit=${encodeURIComponent(String(selectedEventAnalytics.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit Event</a>` : ``}
         </section>
         ` : ``}
 
