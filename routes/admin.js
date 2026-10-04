@@ -15574,7 +15574,7 @@ return `
 	                  </div>
 	                  <div class="filterActions">
 	                    <button id="eventSearchApply" type="submit" class="btn btn-primary">Apply</button>
-	                    <button id="eventSearchClear" type="button" class="btn">Reset</button>
+	                    <button id="eventSearchClear" type="button" class="btn">Reset filters</button>
 	                  </div>
 	                </div>
                 </form>
@@ -17549,6 +17549,14 @@ return `
             go();
           }
         });
+        var previousSearchValue = String(input.value || '').trim();
+        input.addEventListener('input', function(){
+          var nextSearchValue = String(input.value || '').trim();
+          if (previousSearchValue && !nextSearchValue) {
+            go();
+          }
+          previousSearchValue = nextSearchValue;
+        });
         if(applyBtn){
           applyBtn.addEventListener('click', function(){
             go();
@@ -17561,7 +17569,6 @@ return `
         }
         if(clearBtn){
           clearBtn.addEventListener('click', function(){
-            input.value = '';
             if (fromInput) fromInput.value = '';
             if (toInput) toInput.value = '';
             if (sortInput) sortInput.value = 'datetime';
