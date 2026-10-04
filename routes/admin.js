@@ -13030,6 +13030,7 @@ return `
         display:grid;
         grid-template-columns:64px minmax(0,1fr);
         gap:12px;
+        align-items:stretch;
         padding:12px 14px;
         border:1px solid var(--line);
         border-radius:var(--radius-inner);
@@ -13037,8 +13038,9 @@ return `
         text-decoration:none;
         color:inherit;
       }
-      .activity-thumb{width:64px;height:64px;border-radius:10px;overflow:hidden;background:rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;text-align:center;padding:6px}
+      .activity-thumb{width:64px;min-height:64px;height:auto;align-self:stretch;border-radius:10px;overflow:hidden;background:rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;text-align:center;padding:0}
       .activity-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+      .activity-thumb span{padding:6px}
       .activity-content{min-width:0;display:grid;gap:6px}
       .activity-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}.activity-actions .btn{min-height:32px;padding:6px 10px;font-size:12px}
       .activity-item:hover{
