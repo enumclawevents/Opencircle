@@ -4143,12 +4143,11 @@ function buildNewsletterAdminPath(pathname, { city = "", newsletterScope = "", e
   const normalizedScope = String(newsletterScope || "").trim();
   if (normalizedCity) params.set("city", normalizedCity);
   if (normalizedScope) params.set("newsletterScope", normalizedScope);
-  // Newsletter mutations redirect with a confirmation notice. Preserve the
-  // selected list explicitly so the sidebar's workspace default cannot reset
-  // a deliberately selected Plateau/Enumclaw newsletter after the reload.
+  // Preserve a deliberately selected list across newsletter navigation and
+  // mutations. An intentional sidebar change supplies newsletterScopeSource
+  // and remains the one case that overrides this page-level selection.
   if (
     normalizedScope &&
-    Object.prototype.hasOwnProperty.call(extraParams || {}, "newsletterNotice") &&
     !Object.prototype.hasOwnProperty.call(extraParams || {}, "newsletterScopeExplicit")
   ) {
     params.set("newsletterScopeExplicit", "1");
