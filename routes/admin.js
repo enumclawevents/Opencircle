@@ -19866,7 +19866,7 @@ router.get("/search", async (req, res) => {
   } catch (err) { res.status(500).json({ groups: [] }); }
 });
 
-router.post("/newsletter/header-image/remove", async (req, res) => {
+router.post("/newsletter/header-image/remove", upload.none(), async (req, res) => {
   try {
     await ensureNewsletterSchema();
     await ensureUserProfileSchema();
