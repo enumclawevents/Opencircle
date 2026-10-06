@@ -7322,6 +7322,8 @@ return `
     const newsletterNoticeHtml = newsletterNotice
       ? (newsletterNotice === "saved"
           ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Newsletter settings saved.</div>`
+          : newsletterNotice === "header_image_removed"
+          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Newsletter header image removed.</div>`
           : newsletterNotice === "test_sent"
           ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Test email sent.</div>`
           : newsletterNotice === "test_failed"
@@ -14549,6 +14551,9 @@ return `
                   <div class="mini" style="margin-top:12px;">
                     <img src="${esc(newsletterSettings.headerImageUrl)}" alt="Newsletter header preview" style="display:block; width:100%; max-height:180px; object-fit:cover; border-radius:12px; border:1px solid var(--line); background:#eef4f8;" />
                   </div>
+                  <div style="margin-top:10px;">
+                    <button class="btn danger" type="submit" formaction="/admin/newsletter/header-image/remove" formmethod="post" onclick="return confirm('Remove this header image from the ${esc(selectedNewsletterScope)} newsletter?');">Remove header image</button>
+                  </div>
                 ` : ``}
                 </div>
 
@@ -19850,6 +19855,42 @@ router.get("/search", async (req, res) => {
     groups.push({ label: "Go to", items: [{ title: `Search all events for “${q}”`, detail: "Events", href: `/admin/existing-events?q=${encodeURIComponent(q)}&city=${encodeURIComponent(city)}` }] });
     res.json({ groups });
   } catch (err) { res.status(500).json({ groups: [] }); }
+});
+
+router.post("/newsletter/header-image/remove", async (req, res) => {
+  try {
+    await ensureNewsletterSchema();
+    await ensureUserProfileSchema();
+    const currentUser = await resolveSessionUser(req);
+    const role = normalizeRoleValue(req.user?.role || currentUser?.role || "organizer");
+    const hasDeveloperAccess = hasDeveloperAccessRole(role);
+    const sectionPermissions = getUserSectionPermissions(currentUser || { role });
+    if (!(hasDeveloperAccess || sectionPermissions.events)) return res.status(403).send("Forbidden");
+
+    const fallbackCity = String(req.user?.city || currentUser?.city || "Enumclaw").trim() || "Enumclaw";
+    const selectedCity = pickAccessibleCity(req.body?.city || req.query.city, hasDeveloperAccess ? { role: "developer" } : currentUser, { fallbackCity });
+    const newsletterScope = pickAccessibleNewsletterScope(
+      req.body?.newsletterScope || req.query.newsletterScope || selectedCity,
+      hasDeveloperAccess ? { role: "developer" } : currentUser,
+      { fallbackScope: selectedCity, fallbackCity }
+    );
+
+    await run(
+      `UPDATE newsletter_settings
+          SET headerImageUrl = '', updatedByUserId = ?, updatedAt = datetime('now')
+        WHERE city = ?`,
+      [Number(currentUser?.id || 0) || null, newsletterScope]
+    );
+
+    return res.redirect(buildNewsletterAdminPath("/admin/newsletter", {
+      city: selectedCity,
+      newsletterScope,
+      extraParams: { newsletterNotice: "header_image_removed" },
+    }));
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Internal server error");
+  }
 });
 
 router.post("/newsletter/settings", upload.single("headerImageFile"), async (req, res) => {
