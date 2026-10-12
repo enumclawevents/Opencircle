@@ -254,6 +254,7 @@ async function initDB() {
       role TEXT DEFAULT 'organizer',
       city TEXT DEFAULT 'Enumclaw',
       permissionsJson TEXT,
+      notificationPreferencesJson TEXT,
       presenceStatus TEXT,
       createdAt TEXT DEFAULT (datetime('now'))
     );
@@ -270,6 +271,7 @@ async function initDB() {
   await addUserCol("presenceStatus", `ALTER TABLE users ADD COLUMN presenceStatus TEXT;`);
   await addUserCol("createdAt", `ALTER TABLE users ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));`);
   await addUserCol("lastSeenAt", `ALTER TABLE users ADD COLUMN lastSeenAt TEXT;`);
+  await addUserCol("notificationPreferencesJson", `ALTER TABLE users ADD COLUMN notificationPreferencesJson TEXT;`);
 
   await tryExec(`
     CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -282,6 +284,21 @@ async function initDB() {
     );
   `);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_auth_sessions_exp ON auth_sessions(exp);`);
+
+  await tryExec(`
+    CREATE TABLE IF NOT EXISTS notification_email_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER,
+      category TEXT NOT NULL,
+      city TEXT,
+      email TEXT,
+      subject TEXT,
+      status TEXT NOT NULL,
+      errorText TEXT,
+      createdAt TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_notification_email_log_user_created ON notification_email_log(userId, createdAt DESC);`);
 
   await tryExec(`
     CREATE TABLE IF NOT EXISTS messages (

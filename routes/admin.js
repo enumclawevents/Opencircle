@@ -16,6 +16,7 @@ const { DateTime } = require("luxon");
 const { esc } = require("../lib/html");
 const { safeParseJson } = require("../lib/json");
 const { eventReportChangeLabel, eventReportChangeValue, parseEventReportChanges } = require("../lib/event-report-changes");
+const { notifyMessageRecipient } = require("../lib/admin-notification-email");
 const { ALLOWED_CATEGORIES, ALLOWED_VENUE_CATEGORIES, DEFAULT_TZ } = require("../lib/admin-constants");
 const {
   JOB_APPLICATION_FIELDS,
@@ -2478,6 +2479,7 @@ async function ensureUserProfileSchema() {
   await addCol("presenceStatus", "ALTER TABLE users ADD COLUMN presenceStatus TEXT");
   await addCol("lastSeenAt", "ALTER TABLE users ADD COLUMN lastSeenAt TEXT");
   await addCol("updatedAt", "ALTER TABLE users ADD COLUMN updatedAt TEXT");
+  await addCol("notificationPreferencesJson", "ALTER TABLE users ADD COLUMN notificationPreferencesJson TEXT");
 
   try {
     await run(`UPDATE users SET role = 'admin' WHERE lower(COALESCE(email,'')) = ?`, [SOLE_ADMIN_EMAIL]);
@@ -3584,7 +3586,7 @@ async function resolveSessionUser(req) {
 
   for (const key of candidates) {
     const row = await get(
-      "SELECT id, email, username, role, city, permissionsJson, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      "SELECT id, email, username, role, city, permissionsJson, notificationPreferencesJson, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
       [key, key]
     );
     if (row?.id) return row;
@@ -3592,7 +3594,7 @@ async function resolveSessionUser(req) {
 
   if (role === "developer") {
     let adminRow = await get(
-      "SELECT id, email, username, role, city, permissionsJson, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(role,'')) = 'developer' ORDER BY id ASC LIMIT 1"
+      "SELECT id, email, username, role, city, permissionsJson, notificationPreferencesJson, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(role,'')) = 'developer' ORDER BY id ASC LIMIT 1"
     );
     if (adminRow?.id) return adminRow;
 
@@ -3603,7 +3605,7 @@ async function resolveSessionUser(req) {
       [email, username, "", city]
     );
     adminRow = await get(
-      "SELECT id, email, username, role, city, permissionsJson, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
+      "SELECT id, email, username, role, city, permissionsJson, notificationPreferencesJson, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
       [username, email || username]
     );
     if (adminRow?.id) return adminRow;
@@ -15096,6 +15098,12 @@ return `
                   <label>Bio</label>
                   <textarea class="ctrl" name="bio" rows="4" placeholder="Short profile bio">${esc(currentUser.bio || "")}</textarea>
 
+                  ${(() => {
+                    const emailPrefs = parsePermissionsObject(currentUser.notificationPreferencesJson) || {};
+                    const checked = (key) => emailPrefs[key] !== false ? "checked" : "";
+                    return `<div class="mini" style="margin-top:18px;"><strong>Email notifications</strong><div class="note" style="margin:4px 0 10px;">Choose which in-app alerts should also be sent to your email.</div><label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_eventSubmissions" value="1" ${checked("eventSubmissions")} /> New event submissions in my areas</label><label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_eventReports" value="1" ${checked("eventReports")} /> New event reports in my areas</label><label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_messages" value="1" ${checked("messages")} /> Direct messages to me</label></div>`;
+                  })()}
+
                   <div class="actions">
                     <button class="btn btn-primary" type="submit">Save profile</button>
                   </div>
@@ -20418,7 +20426,7 @@ router.post("/messages", async (req, res) => {
     }
 
     const recipient = await get(
-      "SELECT id, city, permissionsJson FROM users WHERE id = ? LIMIT 1",
+      "SELECT id, city, permissionsJson, email, displayName, username, role, notificationPreferencesJson FROM users WHERE id = ? LIMIT 1",
       [recipientUserId]
     );
     const isSupportCircleRecipient = supportCircleUser?.id && Number(supportCircleUser.id) === Number(recipientUserId);
@@ -20430,6 +20438,14 @@ router.post("/messages", async (req, res) => {
       "INSERT INTO messages (city, senderUserId, recipientUserId, body, createdAt) VALUES (?, ?, ?, ?, datetime('now'))",
       [city, currentUser.id, recipientUserId, body]
     );
+    const senderName = String(currentUser.displayName || currentUser.username || currentUser.email || "a team member");
+    void notifyMessageRecipient({
+      recipient,
+      city,
+      senderName,
+      body,
+      url: `${process.env.ADMIN_APP_URL || "https://api.opencircleapi.com"}/admin/messages?city=${encodeURIComponent(city)}&user=${encodeURIComponent(String(recipientUserId))}`,
+    }).catch((error) => console.error("[message notification]", error));
     try {
       await run(
         `INSERT INTO message_typing_status (city, senderUserId, recipientUserId, isTyping, updatedAt)
@@ -20586,6 +20602,11 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
     const displayName = String(req.body?.displayName || "").trim().slice(0, 120);
     const phone = String(req.body?.phone || "").trim().slice(0, 40);
     const bio = String(req.body?.bio || "").trim().slice(0, 3000);
+    const notificationPreferencesJson = JSON.stringify({
+      eventSubmissions: isCheckedValue(req.body?.email_eventSubmissions),
+      eventReports: isCheckedValue(req.body?.email_eventReports),
+      messages: isCheckedValue(req.body?.email_messages),
+    });
     let photoUrl = normalizeHttpUrl(req.body?.photoUrl || "");
 
     if (req.file) {
@@ -20593,8 +20614,8 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
     }
 
     await run(
-      "UPDATE users SET displayName = ?, phone = ?, bio = ?, photoUrl = ?, updatedAt = datetime('now') WHERE id = ?",
-      [displayName || null, phone || null, bio || null, photoUrl || null, u.id]
+      "UPDATE users SET displayName = ?, phone = ?, bio = ?, photoUrl = ?, notificationPreferencesJson = ?, updatedAt = datetime('now') WHERE id = ?",
+      [displayName || null, phone || null, bio || null, photoUrl || null, notificationPreferencesJson, u.id]
     );
     return res.redirect("/admin/preferences?notice=profile_saved");
   } catch (err) {

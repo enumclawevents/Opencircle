@@ -6,6 +6,8 @@ const { all, get, run } = require("../db");
 const crypto = require("crypto");
 const { safeParseJson } = require("../lib/json");
 const { normalizeEventReportChanges } = require("../lib/event-report-changes");
+const { notifyAreaApprovers } = require("../lib/admin-notification-email");
+const { esc } = require("../lib/html");
 const { ALLOWED_CATEGORIES } = require("../lib/admin-constants");
 const {
   buildEventStructuredData,
@@ -21,6 +23,7 @@ const EVENT_REPORT_RATE_WINDOW_MS = 15 * 60 * 1000;
 const EVENT_REPORT_MAX_PER_IP = 12;
 const EVENT_REPORT_MAX_PER_IP_EVENT = 3;
 const eventReportRateBuckets = new Map();
+const ADMIN_APP_URL = String(process.env.ADMIN_APP_URL || "https://api.opencircleapi.com").replace(/\/$/, "");
 
 /**
  * Helpers
@@ -324,6 +327,14 @@ router.post("/submit", async (req, res) => {
         recurrenceDatesJson, recurrenceStartDate, recurrenceUntilDate, multiDayScheduleJson
       ]
     );
+
+    void notifyAreaApprovers({
+      category: "eventSubmissions",
+      city,
+      subject: `New event submission: ${title}`,
+      text: `A new event submission needs review in ${city}.\n\n${title}\n${startDateTime}\n${location || ""}\n\nReview it in OpenCircle: ${ADMIN_APP_URL}/admin/approve-events`,
+      html: `<p>A new event submission needs review in <strong>${esc(city)}</strong>.</p><p><strong>${esc(title)}</strong><br>${esc(startDateTime)}<br>${esc(location || "")}</p><p><a href="${esc(`${ADMIN_APP_URL}/admin/approve-events`)}">Review submission</a></p>`,
+    }).catch((error) => console.error("[event submission notification]", error));
 
     return res.json({ ok: true, id: inserted.lastID, submissionId });
   } catch (err) {
@@ -2260,6 +2271,13 @@ router.post("/:eventId/reports", async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, 'open', datetime('now'))`,
       [eventId, reportType, message, reporterEmail, source, eventUrlResult.value, JSON.stringify(changesResult.value)]
     );
+    void notifyAreaApprovers({
+      category: "eventReports",
+      city: String((await get("SELECT city FROM events WHERE id = ?", [eventId]))?.city || ""),
+      subject: `New event report: ${reportType.replace(/_/g, " ")}`,
+      text: `A public event report was submitted for event #${eventId}.\n\n${message}\n\nReview it in OpenCircle: ${ADMIN_APP_URL}/admin/event-reports`,
+      html: `<p>A public event report was submitted for event #${eventId}.</p><p><strong>${esc(reportType.replace(/_/g, " "))}</strong></p><p>${esc(message)}</p><p><a href="${esc(`${ADMIN_APP_URL}/admin/event-reports`)}">Review event report</a></p>`,
+    }).catch((error) => console.error("[event report notification]", error));
     const report = await get("SELECT id, eventId, status, createdAt FROM event_reports WHERE id = ?", [result.lastID]);
 
     return res.status(201).json({ ok: true, report });
