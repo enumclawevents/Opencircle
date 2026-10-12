@@ -171,6 +171,29 @@ async function initDB() {
     );
   `);
 
+  // Public event-page update reports are deliberately separate from events so
+  // reports never change published event data or public event responses.
+  await tryExec(`
+    CREATE TABLE IF NOT EXISTS event_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      eventId INTEGER NOT NULL,
+      reportType TEXT NOT NULL,
+      message TEXT NOT NULL,
+      reporterEmail TEXT,
+      source TEXT NOT NULL DEFAULT 'event_page',
+      eventUrl TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      resolvedAt TEXT,
+      resolvedBy INTEGER,
+      resolutionNote TEXT,
+      CHECK (reportType IN ('changed_details', 'cancelled', 'other')),
+      CHECK (status IN ('open', 'resolved', 'dismissed'))
+    );
+  `);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_event_reports_status_created ON event_reports(status, createdAt DESC);`);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_event_reports_event_created ON event_reports(eventId, createdAt DESC);`);
+
   // Pending submissions (frontend form -> approve workflow)
   await tryExec(`
     CREATE TABLE IF NOT EXISTS pending_events (

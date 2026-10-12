@@ -7169,6 +7169,7 @@ return `
     const showOrganizers = view === "events-organizers";
     const showCreate = view === "create";
     const showApprove = view === "approve";
+    const showEventReports = view === "event-reports";
     const showUpload = view === "upload-events";
     const showExisting = view === "existing";
     const showVenueCreate = view === "venues-create";
@@ -7242,6 +7243,7 @@ return `
     }
     if (showUpdatesLog && !(hasDeveloperAccess || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showApprove && !canApproveEvents) return res.status(403).send("Forbidden");
+    if (showEventReports && !canApproveEvents) return res.status(403).send("Forbidden");
     if (showCreate && !canManageEvents) return res.status(403).send("Forbidden");
     if (showUpload && !canManageEvents) return res.status(403).send("Forbidden");
     if (showOrganizers && !canSeeOrganizerAnalytics) return res.status(403).send("Forbidden");
@@ -7995,6 +7997,58 @@ return `
       }
     };
 
+    const eventReportStatusOptions = ["all", "open", "resolved", "dismissed"];
+    const eventReportTypeOptions = ["all", "changed_details", "cancelled", "other"];
+    const requestedEventReportStatus = eventReportStatusOptions.includes(String(req.query.reportStatus || "open").trim())
+      ? String(req.query.reportStatus || "open").trim()
+      : "open";
+    const requestedEventReportType = eventReportTypeOptions.includes(String(req.query.reportType || "all").trim())
+      ? String(req.query.reportType || "all").trim()
+      : "all";
+    let eventReportRows = [];
+    let openEventReportCount = 0;
+    if (canApproveEvents) {
+      try {
+        const reportScopeCities = pendingScopeCities;
+        const reportScopePlaceholders = reportScopeCities.map(() => "?").join(", ");
+        const countRow = await get(
+          `SELECT COUNT(*) AS n
+             FROM event_reports r
+             INNER JOIN events e ON e.id = r.eventId
+            WHERE e.city IN (${reportScopePlaceholders}) AND r.status = 'open'`,
+          reportScopeCities
+        );
+        openEventReportCount = Number(countRow?.n || 0);
+        if (showEventReports) {
+          const reportWhere = [`e.city IN (${reportScopePlaceholders})`];
+          const reportParams = [...reportScopeCities];
+          if (requestedEventReportStatus !== "all") {
+            reportWhere.push("r.status = ?");
+            reportParams.push(requestedEventReportStatus);
+          }
+          if (requestedEventReportType !== "all") {
+            reportWhere.push("r.reportType = ?");
+            reportParams.push(requestedEventReportType);
+          }
+          eventReportRows = await all(
+            `SELECT r.*, e.title AS eventTitle, e.city AS eventCity, e.startDateTime AS eventStartDateTime,
+                    u.displayName AS resolvedByDisplayName, u.username AS resolvedByUsername, u.email AS resolvedByEmail
+               FROM event_reports r
+               INNER JOIN events e ON e.id = r.eventId
+               LEFT JOIN users u ON u.id = r.resolvedBy
+              WHERE ${reportWhere.join(" AND ")}
+              ORDER BY CASE r.status WHEN 'open' THEN 0 WHEN 'resolved' THEN 1 ELSE 2 END,
+                       datetime(r.createdAt) DESC`,
+            reportParams
+          );
+        }
+      } catch (error) {
+        console.error("[admin event reports]", error);
+        eventReportRows = [];
+        openEventReportCount = 0;
+      }
+    }
+
     const pendingHtml = pendingRows.length
       ? pendingRows.map((p) => {
           const cats = parseStoredCategories(p.categories).slice(0, 3);
@@ -8037,6 +8091,63 @@ return `
           `;
         }).join("")
       : `<div class="muted">No pending approvals.</div>`;
+
+    const eventReportsNotice = String(req.query.reportNotice || "").trim().toLowerCase();
+    const eventReportsNoticeHtml = eventReportsNotice === "updated"
+      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46;">Event report updated.</div>`
+      : eventReportsNotice === "invalid"
+      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d;">Choose a valid status and keep the resolution note to 3000 characters or fewer.</div>`
+      : eventReportsNotice === "not_found"
+      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d;">That event report is unavailable in this area.</div>`
+      : "";
+    const eventReportsHtml = eventReportRows.length
+      ? eventReportRows.map((report) => {
+          const isCancellation = report.reportType === "cancelled";
+          const isOpen = report.status === "open";
+          const typeLabel = report.reportType === "changed_details"
+            ? "Changed details"
+            : report.reportType === "cancelled"
+            ? "Cancelled"
+            : "Other";
+          const statusLabel = String(report.status || "open").replace(/^./, (letter) => letter.toUpperCase());
+          const editorHref = `/admin/create-events?edit=${encodeURIComponent(String(report.eventId))}&city=${encodeURIComponent(String(report.eventCity || selectedCity))}`;
+          const resolvedBy = report.resolvedByDisplayName || report.resolvedByUsername || report.resolvedByEmail || "An administrator";
+          return `
+            <article class="mini" style="margin-bottom:12px; border-left:4px solid ${isCancellation ? "#dc2626" : (isOpen ? "#f59e0b" : "#94a3b8")};">
+              <div style="display:flex; justify-content:space-between; gap:14px; align-items:flex-start; flex-wrap:wrap;">
+                <div style="min-width:0; flex:1 1 440px;">
+                  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;">
+                    <span class="badge" style="background:${isCancellation ? "#dc2626" : "#475569"}; height:auto; min-height:22px;">${esc(typeLabel)}</span>
+                    <span class="badge" style="background:${isOpen ? "#b45309" : "#64748b"}; height:auto; min-height:22px;">${esc(statusLabel)}</span>
+                  </div>
+                  <div style="font-weight:800; font-size:1.05rem;"><a href="${esc(editorHref)}" style="color:inherit; text-decoration:none;">${esc(report.eventTitle || "Untitled event")}</a> <span class="muted" style="font-weight:600;">#${esc(String(report.eventId))}</span></div>
+                  <div class="muted">${esc(report.eventCity || "")} · ${esc(fmtPendingDate(report.eventStartDateTime))}</div>
+                  <div style="white-space:pre-wrap; margin-top:10px; color:var(--text);">${esc(report.message || "")}</div>
+                  <div class="muted" style="margin-top:10px;">Reported ${esc(fmtPendingDate(report.createdAt))}${report.reporterEmail ? ` · <a href="mailto:${esc(report.reporterEmail)}" style="color:inherit;">${esc(report.reporterEmail)}</a>` : " · No reporter email"}</div>
+                  ${report.eventUrl ? `<div class="muted" style="margin-top:4px;"><a href="${esc(report.eventUrl)}" target="_blank" rel="noopener" style="color:inherit;">Reported event page</a></div>` : ""}
+                  ${!isOpen ? `<div class="muted" style="margin-top:10px;">${esc(statusLabel)} ${esc(fmtPendingDate(report.resolvedAt))} by ${esc(resolvedBy)}${report.resolutionNote ? ` · ${esc(report.resolutionNote)}` : ""}</div>` : ""}
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;">
+                  <a class="btn" href="${esc(editorHref)}">Edit event</a>
+                </div>
+              </div>
+              ${isOpen ? `
+                <form method="POST" action="/admin/event-reports/${encodeURIComponent(String(report.id))}/status" style="display:grid; gap:8px; margin-top:14px;">
+                  <input type="hidden" name="city" value="${esc(selectedCity)}" />
+                  ${selectedAdminWorkspace ? `<input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" />` : ""}
+                  <input type="hidden" name="reportStatus" value="${esc(requestedEventReportStatus)}" />
+                  <input type="hidden" name="reportType" value="${esc(requestedEventReportType)}" />
+                  <label for="event-report-note-${esc(String(report.id))}">Resolution note <span class="muted">(optional)</span></label>
+                  <textarea class="ctrl" id="event-report-note-${esc(String(report.id))}" name="resolutionNote" rows="2" maxlength="3000" placeholder="What was reviewed or changed?"></textarea>
+                  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn btn-primary" type="submit" name="status" value="resolved">Resolve</button>
+                    <button class="btn danger" type="submit" name="status" value="dismissed" onclick="return confirm('Dismiss this event report?');">Dismiss</button>
+                  </div>
+                </form>` : ""}
+            </article>
+          `;
+        }).join("")
+      : `<div class="muted">No event reports match these filters.</div>`;
 
     let invitesHtml = "";
     let inviteLimitNoticeHtml = "";
@@ -9946,6 +10057,8 @@ return `
       ? "Upload Events"
       : showApprove
       ? "Approve Events"
+      : showEventReports
+      ? "Event Reports"
       : showExisting
       ? (isOrganizerUser ? "My Events" : "All Events")
       : showNewsletter
@@ -9987,7 +10100,7 @@ return `
       : showInvites
       ? "Invites"
       : "Dashboard";
-    const eventsMenuOpen = showExisting || showCreate || showApprove || showUpload;
+    const eventsMenuOpen = showExisting || showCreate || showApprove || showEventReports || showUpload;
     const newsletterMenuOpen = showNewsletter || showNewsletterPreview || showNewsletterAudience;
     const venuesMenuOpen = showVenueExisting || showVenueCreate;
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants;
@@ -13378,6 +13491,11 @@ return `
                 <span>Approve Events</span>
                 ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
               </a>` : ``}
+              ${canApproveEvents ? `
+              <a class="subnav-link ${showEventReports ? "active" : ""}" href="${buildScopedAdminHref("/admin/event-reports")}" style="display:flex; align-items:center; gap:8px;">
+                <span>Event Reports</span>
+                ${openEventReportCount > 0 ? `<span class="badge badge--nav">${openEventReportCount}</span>` : ``}
+              </a>` : ``}
               <a class="subnav-link ${showUpload ? "active" : ""}" href="${buildScopedAdminHref("/admin/upload-events")}">Upload Events</a>
             </div>
           </div>
@@ -14104,6 +14222,39 @@ return `
             </div>
           </div>
           ${pendingHtml}
+        </section>
+        ` : ``}
+
+        ${showEventReports ? `
+        <section class="card" id="event-reports" style="margin-bottom:var(--gap);">
+          <div class="sectionTitle">
+            <div>
+              <h2>Event Reports</h2>
+              <p class="sub">Review public reports about changed details, cancellations, and other event issues.</p>
+            </div>
+          </div>
+          ${eventReportsNoticeHtml}
+          <form method="GET" action="/admin/event-reports" class="eventsFilters" style="margin-bottom:14px;">
+            <input type="hidden" name="city" value="${esc(selectedCity)}" />
+            ${selectedAdminWorkspace ? `<input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" />` : ""}
+            <div class="filterField">
+              <label for="eventReportStatus">Status</label>
+              <select class="ctrl" id="eventReportStatus" name="reportStatus">
+                ${eventReportStatusOptions.map((status) => `<option value="${esc(status)}" ${status === requestedEventReportStatus ? "selected" : ""}>${esc(status === "all" ? "All statuses" : status.replace(/^./, (letter) => letter.toUpperCase()))}</option>`).join("")}
+              </select>
+            </div>
+            <div class="filterField">
+              <label for="eventReportType">Report type</label>
+              <select class="ctrl" id="eventReportType" name="reportType">
+                ${eventReportTypeOptions.map((type) => {
+                  const label = type === "all" ? "All types" : type === "changed_details" ? "Changed details" : type === "cancelled" ? "Cancelled" : "Other";
+                  return `<option value="${esc(type)}" ${type === requestedEventReportType ? "selected" : ""}>${esc(label)}</option>`;
+                }).join("")}
+              </select>
+            </div>
+            <div class="filterActions"><button class="btn btn-primary" type="submit">Apply</button></div>
+          </form>
+          ${eventReportsHtml}
         </section>
         ` : ``}
 
@@ -19817,6 +19968,7 @@ router.get("/events-analytics", async (req, res) => renderAdmin(req, res, "event
 router.get("/events-organizers", async (req, res) => renderAdmin(req, res, "events-organizers"));
 router.get("/create-events", async (req, res) => renderAdmin(req, res, "create"));
 router.get("/approve-events", async (req, res) => renderAdmin(req, res, "approve"));
+router.get("/event-reports", async (req, res) => renderAdmin(req, res, "event-reports"));
 router.get("/upload-events", async (req, res) => renderAdmin(req, res, "upload-events"));
 router.get("/existing-events", async (req, res) => renderAdmin(req, res, "existing"));
 router.get("/venues", async (req, res) => renderAdmin(req, res, "venues-existing"));
@@ -21879,6 +22031,69 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to import CSV.");
+  }
+});
+
+// Resolve or dismiss a public event-page report. Reports are scoped through
+// their linked event, rather than accepting any event information from the
+// form, so an administrator cannot act on a report outside their area.
+router.post("/event-reports/:id/status", async (req, res) => {
+  const redirectToQueue = (notice) => {
+    const params = new URLSearchParams();
+    const city = String(req.body?.city || "").trim();
+    const workspace = String(req.body?.workspace || "").trim();
+    const reportStatus = String(req.body?.reportStatus || "open").trim().toLowerCase();
+    const reportType = String(req.body?.reportType || "all").trim().toLowerCase();
+    if (city) params.set("city", city);
+    if (workspace) params.set("workspace", workspace);
+    if (["all", "open", "resolved", "dismissed"].includes(reportStatus)) params.set("reportStatus", reportStatus);
+    if (["all", "changed_details", "cancelled", "other"].includes(reportType)) params.set("reportType", reportType);
+    if (notice) params.set("reportNotice", notice);
+    return res.redirect(`/admin/event-reports?${params.toString()}`);
+  };
+
+  try {
+    const sessionUser = await resolveSessionUser(req);
+    const role = normalizeRoleValue(req.user?.role || sessionUser?.role || "organizer");
+    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
+
+    const reportId = Number.parseInt(req.params.id, 10);
+    const status = String(req.body?.status || "").trim().toLowerCase();
+    const rawNote = req.body?.resolutionNote;
+    const resolutionNote = typeof rawNote === "string" ? rawNote.trim() : "";
+    if (!Number.isSafeInteger(reportId) || reportId <= 0 || !["resolved", "dismissed", "open"].includes(status) || resolutionNote.length > 3000) {
+      return redirectToQueue("invalid");
+    }
+
+    const fallbackCity = String(req.user?.city || sessionUser?.city || "Enumclaw").trim() || "Enumclaw";
+    const allowedCities = getUserAllowedCities(sessionUser || { role, city: fallbackCity }, fallbackCity);
+    if (!allowedCities.length) return res.status(403).send("Forbidden");
+    const cityPlaceholders = allowedCities.map(() => "?").join(", ");
+    const report = await get(
+      `SELECT r.id
+         FROM event_reports r
+         INNER JOIN events e ON e.id = r.eventId
+        WHERE r.id = ? AND e.city IN (${cityPlaceholders})
+        LIMIT 1`,
+      [reportId, ...allowedCities]
+    );
+    if (!report) return redirectToQueue("not_found");
+
+    if (status === "open") {
+      await run(
+        "UPDATE event_reports SET status = 'open', resolvedAt = NULL, resolvedBy = NULL, resolutionNote = NULL WHERE id = ?",
+        [reportId]
+      );
+    } else {
+      await run(
+        "UPDATE event_reports SET status = ?, resolvedAt = datetime('now'), resolvedBy = ?, resolutionNote = ? WHERE id = ?",
+        [status, sessionUser?.id || null, resolutionNote || null, reportId]
+      );
+    }
+    return redirectToQueue("updated");
+  } catch (err) {
+    console.error("[admin event report status]", err);
+    return res.status(500).send("Server error.");
   }
 });
 

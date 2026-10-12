@@ -14,6 +14,12 @@ const {
 const PAST_EVENTS_LIMIT = 24;
 const PAST_EVENTS_CACHE_MS = 5 * 60 * 1000;
 const pastEventsCache = new Map();
+const EVENT_REPORT_TYPES = new Set(["changed_details", "cancelled", "other"]);
+const EVENT_REPORT_SOURCES = new Set(["event_page"]);
+const EVENT_REPORT_RATE_WINDOW_MS = 15 * 60 * 1000;
+const EVENT_REPORT_MAX_PER_IP = 12;
+const EVENT_REPORT_MAX_PER_IP_EVENT = 3;
+const eventReportRateBuckets = new Map();
 
 /**
  * Helpers
@@ -26,6 +32,43 @@ function escapeXml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+function eventReportError(res, status, error, message) {
+  return res.status(status).json({ ok: false, error, message });
+}
+
+function getEventReportClientIp(req) {
+  return String(req.ip || req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown")
+    .split(",")[0]
+    .trim()
+    .slice(0, 128) || "unknown";
+}
+
+function consumeEventReportRateLimit(key, max) {
+  const now = Date.now();
+  const entries = (eventReportRateBuckets.get(key) || []).filter((timestamp) => now - timestamp < EVENT_REPORT_RATE_WINDOW_MS);
+  if (entries.length >= max) {
+    eventReportRateBuckets.set(key, entries);
+    return false;
+  }
+  entries.push(now);
+  eventReportRateBuckets.set(key, entries);
+  return true;
+}
+
+function normalizeReportedEventUrl(value) {
+  if (value === undefined || value === null || value === "") return { value: null };
+  if (typeof value !== "string") return { error: "Event URL must be a string." };
+  const trimmed = value.trim();
+  if (trimmed.length > 2048) return { error: "Event URL must be 2048 characters or fewer." };
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return { error: "Event URL must use HTTP or HTTPS." };
+    return { value: parsed.toString() };
+  } catch (_) {
+    return { error: "Event URL must be a valid HTTP or HTTPS URL." };
+  }
 }
 
 function toLocalISOWithOffset(dtLocal) {
@@ -2151,6 +2194,74 @@ router.get("/rss", async (req, res) => {
   } catch (err) {
     console.error("[/events/rss] error:", err && err.stack ? err.stack : err);
     return res.status(500).send("Server error");
+  }
+});
+
+// POST /events/:eventId/reports
+// Public event-page report intake. Event identity always comes from :eventId;
+// eventUrl is stored as supporting context only and is never used for lookup.
+router.post("/:eventId/reports", async (req, res) => {
+  try {
+    const rawEventId = String(req.params.eventId || "").trim();
+    const eventId = Number(rawEventId);
+    if (!/^\d+$/.test(rawEventId) || !Number.isSafeInteger(eventId) || eventId < 1) {
+      return eventReportError(res, 400, "validation_error", "Event ID must be a positive integer.");
+    }
+
+    const event = await get("SELECT id FROM events WHERE id = ? LIMIT 1", [eventId]);
+    if (!event) return eventReportError(res, 404, "not_found", "Event not found.");
+
+    const reportType = String(req.body?.reportType || "").trim().toLowerCase();
+    if (!EVENT_REPORT_TYPES.has(reportType)) {
+      return eventReportError(res, 400, "validation_error", "Report type must be changed_details, cancelled, or other.");
+    }
+
+    if (typeof req.body?.message !== "string") {
+      return eventReportError(res, 400, "validation_error", "Report description is required.");
+    }
+    const message = req.body.message.trim();
+    if (!message || message.length > 3000) {
+      return eventReportError(res, 400, "validation_error", "Report description must be between 1 and 3000 characters.");
+    }
+
+    let reporterEmail = null;
+    if (req.body?.reporterEmail !== undefined && req.body?.reporterEmail !== null && String(req.body.reporterEmail).trim()) {
+      if (typeof req.body.reporterEmail !== "string") {
+        return eventReportError(res, 400, "validation_error", "Reporter email must be a string.");
+      }
+      reporterEmail = req.body.reporterEmail.trim().toLowerCase();
+      if (reporterEmail.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reporterEmail)) {
+        return eventReportError(res, 400, "validation_error", "Reporter email must be a valid email address.");
+      }
+    }
+
+    const source = String(req.body?.source || "event_page").trim().toLowerCase();
+    if (!EVENT_REPORT_SOURCES.has(source) || source.length > 64) {
+      return eventReportError(res, 400, "validation_error", "Report source is not supported.");
+    }
+
+    const eventUrlResult = normalizeReportedEventUrl(req.body?.eventUrl);
+    if (eventUrlResult.error) return eventReportError(res, 400, "validation_error", eventUrlResult.error);
+
+    const clientIp = getEventReportClientIp(req);
+    const ipKey = `ip:${clientIp}`;
+    const eventKey = `event:${eventId}:ip:${clientIp}`;
+    if (!consumeEventReportRateLimit(ipKey, EVENT_REPORT_MAX_PER_IP) || !consumeEventReportRateLimit(eventKey, EVENT_REPORT_MAX_PER_IP_EVENT)) {
+      res.set("Retry-After", String(Math.ceil(EVENT_REPORT_RATE_WINDOW_MS / 1000)));
+      return eventReportError(res, 429, "rate_limited", "Too many reports were submitted. Please try again later.");
+    }
+
+    const result = await run(
+      `INSERT INTO event_reports (eventId, reportType, message, reporterEmail, source, eventUrl, status, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, 'open', datetime('now'))`,
+      [eventId, reportType, message, reporterEmail, source, eventUrlResult.value]
+    );
+    const report = await get("SELECT id, eventId, status, createdAt FROM event_reports WHERE id = ?", [result.lastID]);
+
+    return res.status(201).json({ ok: true, report });
+  } catch (err) {
+    console.error("[/events/:eventId/reports] error:", err);
+    return eventReportError(res, 500, "server_error", "Unable to submit the event report.");
   }
 });
 
