@@ -8048,6 +8048,12 @@ return `
         openEventReportCount = 0;
       }
     }
+    const notificationCount = canApproveEvents ? pendingCount + openEventReportCount : 0;
+    const notificationHref = openEventReportCount > 0
+      ? buildScopedAdminHref("/admin/event-reports")
+      : canApproveEvents
+      ? buildScopedAdminHref("/admin/approve-events")
+      : buildScopedAdminHref("/admin");
 
     const pendingHtml = pendingRows.length
       ? pendingRows.map((p) => {
@@ -8095,6 +8101,10 @@ return `
     const eventReportsNotice = String(req.query.reportNotice || "").trim().toLowerCase();
     const eventReportsNoticeHtml = eventReportsNotice === "updated"
       ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46;">Event report updated.</div>`
+      : eventReportsNotice === "updated_email_sent"
+      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46;">Event report updated and the reporter was emailed.</div>`
+      : eventReportsNotice === "updated_email_not_sent"
+      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(245,158,11,.45); background:rgba(245,158,11,.08); color:#92400e;">Event report updated, but the reporter email could not be sent. Check SMTP configuration and logs.</div>`
       : eventReportsNotice === "invalid"
       ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d;">Choose a valid status and keep the resolution note to 3000 characters or fewer.</div>`
       : eventReportsNotice === "not_found"
@@ -8139,6 +8149,7 @@ return `
                   <input type="hidden" name="reportType" value="${esc(requestedEventReportType)}" />
                   <label for="event-report-note-${esc(String(report.id))}">Resolution note <span class="muted">(optional)</span></label>
                   <textarea class="ctrl" id="event-report-note-${esc(String(report.id))}" name="resolutionNote" rows="2" maxlength="3000" placeholder="What was reviewed or changed?"></textarea>
+                  ${report.reporterEmail ? `<label style="display:flex; align-items:center; gap:8px; width:max-content; max-width:100%; cursor:pointer;"><input type="checkbox" name="notifyReporter" value="1" /> Email ${esc(report.reporterEmail)} about this update</label>` : `<div class="muted">No reporter email was provided.</div>`}
                   <div style="display:flex; gap:8px; flex-wrap:wrap;">
                     <button class="btn btn-primary" type="submit" name="status" value="resolved">Resolve</button>
                     <button class="btn danger" type="submit" name="status" value="dismissed" onclick="return confirm('Dismiss this event report?');">Dismiss</button>
@@ -13647,9 +13658,9 @@ return `
                 <i class="fa-regular fa-envelope" aria-hidden="true"></i>
                 ${unreadMessagesCount > 0 ? `<span class="icon-badge">${unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}</span>` : ``}
               </a>` : ``}
-              <a class="header-icon-btn" href="${canApproveEvents ? `/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}` : `/admin${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}`}" title="Notifications" aria-label="Notifications">
+              <a id="notifications-link" class="header-icon-btn" href="${esc(notificationHref)}" data-event-reports-href="${esc(buildScopedAdminHref("/admin/event-reports"))}" data-pending-events-href="${esc(buildScopedAdminHref("/admin/approve-events"))}" title="Notifications" aria-label="Notifications">
                 <i class="fa-regular fa-bell" aria-hidden="true"></i>
-                ${canApproveEvents && pendingCount > 0 ? `<span class="icon-badge">${pendingCount > 99 ? "99+" : pendingCount}</span>` : ``}
+                ${canApproveEvents && notificationCount > 0 ? `<span id="notifications-badge" class="icon-badge">${notificationCount > 99 ? "99+" : notificationCount}</span>` : ``}
               </a>
             </div>
           </div>
@@ -13658,6 +13669,7 @@ return `
         <script>
         (function(){
           var lastCount = ${pendingCount};
+          var lastReportCount = ${openEventReportCount};
           var lastMessageCount = ${unreadMessagesCount};
           var pollMs = 30000;
 
@@ -13685,15 +13697,32 @@ return `
               if(!res.ok) return;
               var json = await res.json();
               var c = Number(json && json.count || 0);
+              var r = Number(json && json.reports || 0);
               var m = Number(json && json.messages || 0);
-              if(c > lastCount && document.visibilityState === 'visible'){
+              if((c > lastCount || r > lastReportCount) && document.visibilityState === 'visible'){
                 beep();
               }
               if(m > lastMessageCount && document.visibilityState === 'visible'){
                 beep();
               }
               lastCount = c;
+              lastReportCount = r;
               lastMessageCount = m;
+              var notificationBadge = document.getElementById('notifications-badge');
+              var notificationTotal = c + r;
+              if(notificationTotal > 0){
+                var notificationLink = document.getElementById('notifications-link');
+                if(notificationLink) notificationLink.href = r > 0 ? notificationLink.dataset.eventReportsHref : notificationLink.dataset.pendingEventsHref;
+                if(!notificationBadge){
+                  notificationBadge = document.createElement('span');
+                  notificationBadge.id = 'notifications-badge';
+                  notificationBadge.className = 'icon-badge';
+                  if(notificationLink) notificationLink.appendChild(notificationBadge);
+                }
+                notificationBadge.textContent = notificationTotal > 99 ? '99+' : String(notificationTotal);
+              }else if(notificationBadge){
+                notificationBadge.remove();
+              }
             }catch(e){}
           }
 
@@ -20295,6 +20324,17 @@ router.get("/pending-count", async (req, res) => {
       `SELECT COUNT(*) AS n FROM pending_events WHERE city IN (${pendingCities.map(() => "?").join(", ")})`,
       pendingCities
     );
+    let reports = 0;
+    if (hasDeveloperAccessRole(req.user?.role || currentUser?.role || "")) {
+      const reportRow = await get(
+        `SELECT COUNT(*) AS n
+           FROM event_reports r
+           INNER JOIN events e ON e.id = r.eventId
+          WHERE e.city IN (${pendingCities.map(() => "?").join(", ")}) AND r.status = 'open'`,
+        pendingCities
+      );
+      reports = Number(reportRow?.n || 0);
+    }
     let messages = 0;
     if (currentUser?.id) {
       const messageScopeCities = isAdminRole(currentUser.role)
@@ -20310,10 +20350,10 @@ router.get("/pending-count", async (req, res) => {
       );
       messages = Number(messageRow?.count || 0);
     }
-    return res.json({ ok: true, count: Number(row?.n || 0), messages });
+    return res.json({ ok: true, count: Number(row?.n || 0), reports, messages });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ ok: false, count: 0, messages: 0 });
+    return res.status(500).json({ ok: false, count: 0, reports: 0, messages: 0 });
   }
 });
 
@@ -22061,6 +22101,7 @@ router.post("/event-reports/:id/status", async (req, res) => {
     const status = String(req.body?.status || "").trim().toLowerCase();
     const rawNote = req.body?.resolutionNote;
     const resolutionNote = typeof rawNote === "string" ? rawNote.trim() : "";
+    const notifyReporter = parseCsvBoolean(req.body?.notifyReporter);
     if (!Number.isSafeInteger(reportId) || reportId <= 0 || !["resolved", "dismissed", "open"].includes(status) || resolutionNote.length > 3000) {
       return redirectToQueue("invalid");
     }
@@ -22070,7 +22111,7 @@ router.post("/event-reports/:id/status", async (req, res) => {
     if (!allowedCities.length) return res.status(403).send("Forbidden");
     const cityPlaceholders = allowedCities.map(() => "?").join(", ");
     const report = await get(
-      `SELECT r.id
+      `SELECT r.id, r.reporterEmail, e.title AS eventTitle
          FROM event_reports r
          INNER JOIN events e ON e.id = r.eventId
         WHERE r.id = ? AND e.city IN (${cityPlaceholders})
@@ -22089,6 +22130,24 @@ router.post("/event-reports/:id/status", async (req, res) => {
         "UPDATE event_reports SET status = ?, resolvedAt = datetime('now'), resolvedBy = ?, resolutionNote = ? WHERE id = ?",
         [status, sessionUser?.id || null, resolutionNote || null, reportId]
       );
+    }
+
+    if (notifyReporter && status !== "open" && report.reporterEmail) {
+      const statusLabel = status === "resolved" ? "resolved" : "dismissed";
+      const eventTitle = String(report.eventTitle || "this event").trim() || "this event";
+      const noteText = resolutionNote || "No additional note was provided.";
+      try {
+        const delivery = await sendEmail({
+          to: report.reporterEmail,
+          subject: `Your OpenCircle event report was ${statusLabel}`,
+          text: `Your report about ${eventTitle} was ${statusLabel}.\n\nResolution note:\n${noteText}`,
+          html: `<p>Your report about <strong>${esc(eventTitle)}</strong> was <strong>${esc(statusLabel)}</strong>.</p><p><strong>Resolution note</strong></p><p style="white-space:pre-wrap;">${esc(noteText)}</p>`,
+        });
+        return redirectToQueue(delivery ? "updated_email_sent" : "updated_email_not_sent");
+      } catch (emailError) {
+        console.error("[admin event report email]", emailError);
+        return redirectToQueue("updated_email_not_sent");
+      }
     }
     return redirectToQueue("updated");
   } catch (err) {
