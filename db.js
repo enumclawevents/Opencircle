@@ -182,6 +182,7 @@ async function initDB() {
       reporterEmail TEXT,
       source TEXT NOT NULL DEFAULT 'event_page',
       eventUrl TEXT,
+      changesJson TEXT,
       status TEXT NOT NULL DEFAULT 'open',
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       resolvedAt TEXT,
@@ -191,6 +192,8 @@ async function initDB() {
       CHECK (status IN ('open', 'resolved', 'dismissed'))
     );
   `);
+  const addEventReportCol = createAddColumnHelper("event_reports");
+  await addEventReportCol("changesJson", `ALTER TABLE event_reports ADD COLUMN changesJson TEXT;`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_event_reports_status_created ON event_reports(status, createdAt DESC);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_event_reports_event_created ON event_reports(eventId, createdAt DESC);`);
 

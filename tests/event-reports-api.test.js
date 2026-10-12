@@ -71,11 +71,15 @@ test("event reports are validated, persisted, and rate limited without changing 
   `);
 
   const payload = {
-    reportType: "cancelled",
-    message: "The event organizer says this event has been cancelled.",
+    reportType: "changed_details",
+    message: "The organizer supplied corrected event details.",
     reporterEmail: "REPORTER@example.com",
     source: "event_page",
     eventUrl: "https://example.test/events/reported-event",
+    changes: [
+      { field: "location", before: "Old Hall", after: "Town Hall" },
+      { field: "ticketUrl", before: null, after: "https://tickets.example.test/reported-event" },
+    ],
   };
   const createdResponse = await fetch(`${baseUrl}/events/1/reports`, {
     method: "POST",
@@ -92,16 +96,17 @@ test("event reports are validated, persisted, and rate limited without changing 
 
   const stored = await getSql(
     dbPath,
-    "SELECT eventId, reportType, message, reporterEmail, source, eventUrl, status FROM event_reports WHERE id = ?",
+    "SELECT eventId, reportType, message, reporterEmail, source, eventUrl, changesJson, status FROM event_reports WHERE id = ?",
     [created.report.id]
   );
   assert.deepEqual(stored, {
     eventId: 1,
-    reportType: "cancelled",
+    reportType: "changed_details",
     message: payload.message,
     reporterEmail: "reporter@example.com",
     source: "event_page",
     eventUrl: payload.eventUrl,
+    changesJson: JSON.stringify(payload.changes),
     status: "open",
   });
 
@@ -118,6 +123,21 @@ test("event reports are validated, persisted, and rate limited without changing 
     ok: false,
     error: "validation_error",
     message: "Report description must be between 1 and 3000 characters.",
+  });
+
+  const invalidChangesResponse = await fetch(`${baseUrl}/events/1/reports`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...payload,
+      changes: [{ field: "untrustedMetadata", before: "one", after: "two" }],
+    }),
+  });
+  assert.equal(invalidChangesResponse.status, 400);
+  assert.deepEqual(await invalidChangesResponse.json(), {
+    ok: false,
+    error: "validation_error",
+    message: "A changed field is not supported.",
   });
 
   const missingEventResponse = await fetch(`${baseUrl}/events/999/reports`, {

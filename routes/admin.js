@@ -15,6 +15,7 @@ const { hashPassword, hashToken, verifyPassword } = require("../lib/auth");
 const { DateTime } = require("luxon");
 const { esc } = require("../lib/html");
 const { safeParseJson } = require("../lib/json");
+const { eventReportChangeLabel, eventReportChangeValue, parseEventReportChanges } = require("../lib/event-report-changes");
 const { ALLOWED_CATEGORIES, ALLOWED_VENUE_CATEGORIES, DEFAULT_TZ } = require("../lib/admin-constants");
 const {
   JOB_APPLICATION_FIELDS,
@@ -8122,6 +8123,14 @@ return `
           const statusLabel = String(report.status || "open").replace(/^./, (letter) => letter.toUpperCase());
           const editorHref = `/admin/create-events?edit=${encodeURIComponent(String(report.eventId))}&city=${encodeURIComponent(String(report.eventCity || selectedCity))}`;
           const resolvedBy = report.resolvedByDisplayName || report.resolvedByUsername || report.resolvedByEmail || "An administrator";
+          const reportedChanges = parseEventReportChanges(report.changesJson);
+          const reportedChangesHtml = reportedChanges.length ? `
+            <div style="margin-top:12px; border:1px solid var(--line); border-radius:10px; overflow:hidden;">
+              <div style="display:grid; grid-template-columns:minmax(110px, .65fr) minmax(0, 1fr) minmax(0, 1fr); gap:0; background:var(--panel2); font-size:.82rem; font-weight:700;">
+                <div style="padding:8px 10px;">Changed field</div><div style="padding:8px 10px;">Before</div><div style="padding:8px 10px;">After</div>
+              </div>
+              ${reportedChanges.map((change) => `<div style="display:grid; grid-template-columns:minmax(110px, .65fr) minmax(0, 1fr) minmax(0, 1fr); border-top:1px solid var(--line); font-size:.9rem;"><div style="padding:9px 10px; font-weight:700;">${esc(eventReportChangeLabel(change.field))}</div><div style="padding:9px 10px; white-space:pre-wrap; border-left:1px solid var(--line);">${esc(eventReportChangeValue(change.before))}</div><div style="padding:9px 10px; white-space:pre-wrap; border-left:1px solid var(--line);">${esc(eventReportChangeValue(change.after))}</div></div>`).join("")}
+            </div>` : "";
           return `
             <article class="mini" style="margin-bottom:12px; border-left:4px solid ${isCancellation ? "#dc2626" : (isOpen ? "#f59e0b" : "#94a3b8")};">
               <div style="display:flex; justify-content:space-between; gap:14px; align-items:flex-start; flex-wrap:wrap;">
@@ -8133,6 +8142,7 @@ return `
                   <div style="font-weight:800; font-size:1.05rem;"><a href="${esc(editorHref)}" style="color:inherit; text-decoration:none;">${esc(report.eventTitle || "Untitled event")}</a> <span class="muted" style="font-weight:600;">#${esc(String(report.eventId))}</span></div>
                   <div class="muted">${esc(report.eventCity || "")} · ${esc(fmtPendingDate(report.eventStartDateTime))}</div>
                   <div style="white-space:pre-wrap; margin-top:10px; color:var(--text);">${esc(report.message || "")}</div>
+                  ${reportedChangesHtml}
                   <div class="muted" style="margin-top:10px;">Reported ${esc(fmtPendingDate(report.createdAt))}${report.reporterEmail ? ` · <a href="mailto:${esc(report.reporterEmail)}" style="color:inherit;">${esc(report.reporterEmail)}</a>` : " · No reporter email"}</div>
                   ${report.eventUrl ? `<div class="muted" style="margin-top:4px;"><a href="${esc(report.eventUrl)}" target="_blank" rel="noopener" style="color:inherit;">Reported event page</a></div>` : ""}
                   ${!isOpen ? `<div class="muted" style="margin-top:10px;">${esc(statusLabel)} ${esc(fmtPendingDate(report.resolvedAt))} by ${esc(resolvedBy)}${report.resolutionNote ? ` · ${esc(report.resolutionNote)}` : ""}</div>` : ""}
@@ -8233,10 +8243,11 @@ return `
               .users-filter-button.is-active{ background:#fff; color:var(--text); box-shadow:0 1px 2px rgba(15,23,42,.08); }
               .users-search{ position:relative; display:flex; align-items:center; min-width:min(100%, 360px); }
               .users-search > i{ position:absolute; left:14px; color:#94a3b8; pointer-events:none; }
-              .users-search input{ width:100%; min-height:44px; padding:0 42px; border:1px solid var(--line); border-radius:12px; background:#fff; color:var(--text); font:inherit; }
+              .users-search input{ width:100%; min-height:44px; padding:0 42px 0 48px !important; border:1px solid var(--line); border-radius:12px; background:#fff; color:var(--text); font:inherit; }
               .users-search input:focus{ outline:2px solid rgba(14,165,233,.28); outline-offset:1px; border-color:#38bdf8; }
               .users-search-clear{ position:absolute; right:9px; width:26px; height:26px; border:0; border-radius:999px; background:#d1d5db; color:#fff; display:none; place-items:center; cursor:pointer; }
               .users-search.has-value .users-search-clear{ display:grid; }
+              .user-add-button{ display:inline-flex; align-items:center; gap:8px; }
               .users-panel{
                 border:1px solid var(--line);
                 border-radius:var(--radius);
@@ -14295,7 +14306,7 @@ return `
               <h1 style="margin:0;">User management</h1>
               <p class="sub">Manage team members and their account permissions.</p>
             </div>
-            <a class="btn btn-primary" href="/admin/invites${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add user</a>
+            <a class="btn btn-primary user-add-button" href="/admin/invites${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Add user</span></a>
           </div>
           ${usersHtml}
         </section>
@@ -22111,7 +22122,7 @@ router.post("/event-reports/:id/status", async (req, res) => {
     if (!allowedCities.length) return res.status(403).send("Forbidden");
     const cityPlaceholders = allowedCities.map(() => "?").join(", ");
     const report = await get(
-      `SELECT r.id, r.reporterEmail, e.title AS eventTitle
+      `SELECT r.id, r.reporterEmail, r.eventUrl, r.changesJson, e.title AS eventTitle
          FROM event_reports r
          INNER JOIN events e ON e.id = r.eventId
         WHERE r.id = ? AND e.city IN (${cityPlaceholders})
@@ -22136,12 +22147,22 @@ router.post("/event-reports/:id/status", async (req, res) => {
       const statusLabel = status === "resolved" ? "resolved" : "dismissed";
       const eventTitle = String(report.eventTitle || "this event").trim() || "this event";
       const noteText = resolutionNote || "No additional note was provided.";
+      const reportedChanges = parseEventReportChanges(report.changesJson);
+      const changesText = reportedChanges.length
+        ? `\n\nReported changes:\n${reportedChanges.map((change) => `${eventReportChangeLabel(change.field)}\nBefore: ${eventReportChangeValue(change.before)}\nAfter: ${eventReportChangeValue(change.after)}`).join("\n\n")}`
+        : "";
+      const changesHtml = reportedChanges.length
+        ? `<h3 style="margin:20px 0 8px;">Reported changes</h3><table role="presentation" style="width:100%; border-collapse:collapse; border:1px solid #d8dee8;"><thead><tr><th align="left" style="padding:8px; border-bottom:1px solid #d8dee8;">Field</th><th align="left" style="padding:8px; border-bottom:1px solid #d8dee8;">Before</th><th align="left" style="padding:8px; border-bottom:1px solid #d8dee8;">After</th></tr></thead><tbody>${reportedChanges.map((change) => `<tr><td style="padding:8px; vertical-align:top; border-top:1px solid #d8dee8;"><strong>${esc(eventReportChangeLabel(change.field))}</strong></td><td style="padding:8px; vertical-align:top; white-space:pre-wrap; border-top:1px solid #d8dee8;">${esc(eventReportChangeValue(change.before))}</td><td style="padding:8px; vertical-align:top; white-space:pre-wrap; border-top:1px solid #d8dee8;">${esc(eventReportChangeValue(change.after))}</td></tr>`).join("")}</tbody></table>`
+        : "";
+      const eventUrl = String(report.eventUrl || "").trim();
+      const eventLinkText = eventUrl ? `\n\nView the event: ${eventUrl}` : "";
+      const eventLinkHtml = eventUrl ? `<p><a href="${esc(eventUrl)}">View the event</a></p>` : "";
       try {
         const delivery = await sendEmail({
           to: report.reporterEmail,
           subject: `Your OpenCircle event report was ${statusLabel}`,
-          text: `Your report about ${eventTitle} was ${statusLabel}.\n\nResolution note:\n${noteText}`,
-          html: `<p>Your report about <strong>${esc(eventTitle)}</strong> was <strong>${esc(statusLabel)}</strong>.</p><p><strong>Resolution note</strong></p><p style="white-space:pre-wrap;">${esc(noteText)}</p>`,
+          text: `Your report about ${eventTitle} was ${statusLabel}.\n\nResolution note:\n${noteText}${changesText}${eventLinkText}`,
+          html: `<p>Your report about <strong>${esc(eventTitle)}</strong> was <strong>${esc(statusLabel)}</strong>.</p><p><strong>Resolution note</strong></p><p style="white-space:pre-wrap;">${esc(noteText)}</p>${changesHtml}${eventLinkHtml}`,
         });
         return redirectToQueue(delivery ? "updated_email_sent" : "updated_email_not_sent");
       } catch (emailError) {

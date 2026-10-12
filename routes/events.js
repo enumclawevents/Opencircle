@@ -5,6 +5,7 @@ const router = express.Router();
 const { all, get, run } = require("../db");
 const crypto = require("crypto");
 const { safeParseJson } = require("../lib/json");
+const { normalizeEventReportChanges } = require("../lib/event-report-changes");
 const { ALLOWED_CATEGORIES } = require("../lib/admin-constants");
 const {
   buildEventStructuredData,
@@ -2243,6 +2244,9 @@ router.post("/:eventId/reports", async (req, res) => {
     const eventUrlResult = normalizeReportedEventUrl(req.body?.eventUrl);
     if (eventUrlResult.error) return eventReportError(res, 400, "validation_error", eventUrlResult.error);
 
+    const changesResult = normalizeEventReportChanges(req.body?.changes);
+    if (changesResult.error) return eventReportError(res, 400, "validation_error", changesResult.error);
+
     const clientIp = getEventReportClientIp(req);
     const ipKey = `ip:${clientIp}`;
     const eventKey = `event:${eventId}:ip:${clientIp}`;
@@ -2252,9 +2256,9 @@ router.post("/:eventId/reports", async (req, res) => {
     }
 
     const result = await run(
-      `INSERT INTO event_reports (eventId, reportType, message, reporterEmail, source, eventUrl, status, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, 'open', datetime('now'))`,
-      [eventId, reportType, message, reporterEmail, source, eventUrlResult.value]
+      `INSERT INTO event_reports (eventId, reportType, message, reporterEmail, source, eventUrl, changesJson, status, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'open', datetime('now'))`,
+      [eventId, reportType, message, reporterEmail, source, eventUrlResult.value, JSON.stringify(changesResult.value)]
     );
     const report = await get("SELECT id, eventId, status, createdAt FROM event_reports WHERE id = ?", [result.lastID]);
 
