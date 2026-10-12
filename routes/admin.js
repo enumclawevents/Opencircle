@@ -13848,12 +13848,6 @@ return `
                     <a class="btn quick-link" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ad</a>
                     ${canSeeAdsAnalytics ? `<a class="btn quick-link" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
                   </div>` : ``}
-                  ${canManageUpdates ? `<div class="quick-links-group">
-                    <div class="quick-links-group-title">Updates</div>
-                    <a class="btn quick-link" href="/admin/updates${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Updates</a>
-                    <a class="btn quick-link" href="/admin/updates/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Update</a>
-                    <a class="btn quick-link" href="/admin/updates/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Update Analytics</a>
-                  </div>` : ``}
                 </div>
               </div>
             </details>
