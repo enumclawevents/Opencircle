@@ -4258,7 +4258,7 @@ const analyticsMetricHelp = {
   allViews: "All views added together.",
   directViews: "Views from people who came straight to this page.",
   referralViews: "Views from people who came from another website or link.",
-  internalViews: "Views that came from inside OpenCircle.",
+  internalViews: "Views from people who first browsed a public website page, then opened this event.",
   totalEmailsSent: "How many newsletter emails have been sent.",
   openedEmails: "How many newsletter emails have been opened at least once.",
   reopens: "How many extra opens happened after the first open.",
@@ -13940,7 +13940,7 @@ return `
           </div>
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("Internal views", analyticsMetricHelp.internalViews)}</div>
+              <div class="k">${analyticsMetricLabel("Website discovery views", analyticsMetricHelp.internalViews)}</div>
               <div class="v">${esc(selectedEventAnalytics.internalViews.toLocaleString("en-US"))}</div>
             </div>
             <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.internalViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
@@ -13992,7 +13992,7 @@ return `
           </div>
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("Internal views", analyticsMetricHelp.internalViews)}</div>
+              <div class="k">${analyticsMetricLabel("Website discovery views", analyticsMetricHelp.internalViews)}</div>
               <div class="v">${esc(stats.sourceInternal)}</div>
             </div>
             <div class="tag">${esc(stats.sourceInternalPct)}</div>
@@ -14107,7 +14107,7 @@ return `
               <div class="kv"><div class="k">All views</div><div class="v">${organizerSummary.allViews.toLocaleString("en-US")}</div></div>
               <div class="kv"><div class="k">Direct views</div><div class="v">${organizerSummary.directViews.toLocaleString("en-US")}</div></div>
               <div class="kv"><div class="k">Referral views</div><div class="v">${organizerSummary.referralViews.toLocaleString("en-US")}</div></div>
-              <div class="kv"><div class="k">Internal views</div><div class="v">${organizerSummary.internalViews.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Website discovery views</div><div class="v">${organizerSummary.internalViews.toLocaleString("en-US")}</div></div>
             </div>
             ` : `
             <div class="mini">
