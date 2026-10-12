@@ -28,6 +28,7 @@ const {
   normalizeJobEmploymentTypes,
 } = require("../lib/job-utils");
 const { bulkImportUpload, persistImportedImage, persistUploadedAdImage, persistUploadedImage, upload } = require("../lib/uploads");
+const { UPDATE_STATUSES, categoriesForCity, ensureUniqueUpdateSlug, ensureUpdatesSchema, normalizeTags, parseScheduleLocal, sanitizeUpdateHtml } = require("../lib/updates");
 
 function normalizeCategories(input) {
   let arr = [];
@@ -4236,6 +4237,7 @@ async function renderAdmin(req, res, view) {
     await ensureJobApplicantSchema();
     await ensureUserProfileSchema();
     await ensureMessageSchema();
+    await ensureUpdatesSchema();
     // ✅ Pagination + total count + optional server-side search
 const limit = Math.max(5, Math.min(200, parseInt(req.query.limit || "20", 10)));
 const pg = Math.max(1, parseInt(req.query.pg || "1", 10));
@@ -7194,6 +7196,10 @@ return `
     const showUpdatesLog = view === "updates-log";
     const showUsers = view === "users";
     const showInvites = view === "invites";
+    const showUpdates = view === "updates";
+    const showUpdatesCreate = view === "updates-create";
+    const showUpdatesAnalytics = view === "updates-analytics";
+    const canManageUpdates = hasDeveloperAccess;
 
     if (showExisting && !canManageEvents) return res.status(403).send("Forbidden");
     if (showAnalytics && !canSeeEventsAnalytics) return res.status(403).send("Forbidden");
@@ -7260,6 +7266,7 @@ return `
     if (showAdsCreate && !canManageAds) return res.status(403).send("Forbidden");
     if (showAdsExisting && !canManageAds) return res.status(403).send("Forbidden");
     if (showAdsAnalytics && !canSeeAdsAnalytics) return res.status(403).send("Forbidden");
+    if ((showUpdates || showUpdatesCreate || showUpdatesAnalytics) && !canManageUpdates) return res.status(403).send("Forbidden");
     const isNewsletterTab = showNewsletter || showNewsletterPreview || showNewsletterAudience || showNewsletterAnalytics;
     const showSearch = !showMessages && (!showPreferences || isNewsletterTab);
     const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
@@ -7312,6 +7319,33 @@ return `
       ? `/admin/events-analytics?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`
       : `/admin/existing-events?pg=1&limit=${esc(String(limit))}&status=${esc(String(statusMode))}${recurringOnly ? `&recurring=1` : ``}`;
     const isSingleManage = (showCreate ^ showUpload ^ showExisting ^ showVenueCreate ^ showVenueExisting ^ showJobsCreate ^ showJobsExisting ^ showJobsApplicants ^ showJobsAnalytics ^ showAdsCreate ^ showAdsExisting ^ showAdsAnalytics ^ showPreferences ^ showNewsletter ^ showNewsletterPreview ^ showNewsletterAudience);
+
+    let updateRows = [];
+    let updateCategories = [];
+    let editUpdate = null;
+    let updateTotal = 0;
+    let updateViewTotal = 0;
+    if (showUpdates || showUpdatesCreate || showUpdatesAnalytics) {
+      const updateCity = pickAccessibleCity(req.query.city, accessUser, { fallbackCity: selectedCity });
+      const updateStatus = String(req.query.updateStatus || "all").toLowerCase();
+      const updateCategory = Number(req.query.updateCategory || 0);
+      const updateQuery = String(req.query.updateQ || "").trim().slice(0, 200);
+      const updateWhere = ["u.city = ?"]; const updateParams = [updateCity];
+      if (UPDATE_STATUSES.has(updateStatus)) { updateWhere.push("u.status = ?"); updateParams.push(updateStatus); }
+      if (Number.isSafeInteger(updateCategory) && updateCategory > 0) { updateWhere.push("u.categoryId = ?"); updateParams.push(updateCategory); }
+      if (updateQuery) { const like = `%${updateQuery.replace(/[%_\\]/g, "\\$&")}%`; updateWhere.push("(u.title LIKE ? ESCAPE '\\' OR u.summary LIKE ? ESCAPE '\\')"); updateParams.push(like, like); }
+      const updateClause = updateWhere.join(" AND ");
+      updateCategories = await categoriesForCity(updateCity);
+      updateTotal = Number((await get(`SELECT COUNT(*) AS total FROM updates u WHERE ${updateClause}`, updateParams))?.total || 0);
+      updateRows = await all(`SELECT u.*, c.name AS categoryName, COALESCE((SELECT COUNT(*) FROM update_metric_events m WHERE m.updateId = u.id), 0) AS views, COALESCE(author.displayName, author.username, author.email, 'OpenCircle') AS authorName FROM updates u LEFT JOIN update_categories c ON c.id = u.categoryId LEFT JOIN users author ON author.id = u.authorId WHERE ${updateClause} ORDER BY COALESCE(u.publishedAt, u.scheduledFor, u.updatedAt) DESC, u.id DESC LIMIT ? OFFSET ?`, [...updateParams, limit, offset]);
+      const editId = Number(req.query.editUpdate || 0);
+      if (showUpdatesCreate && Number.isSafeInteger(editId) && editId > 0) editUpdate = await get("SELECT * FROM updates WHERE id = ? AND city = ? LIMIT 1", [editId, updateCity]);
+      const analyticsId = Number(req.query.update || 0);
+      if (showUpdatesAnalytics && Number.isSafeInteger(analyticsId) && analyticsId > 0) {
+        editUpdate = await get("SELECT * FROM updates WHERE id = ? AND city = ? LIMIT 1", [analyticsId, updateCity]);
+        updateViewTotal = Number((await get("SELECT COUNT(*) AS total FROM update_metric_events WHERE updateId = ?", [analyticsId]))?.total || 0);
+      }
+    }
 
     const prefNotice = String(req.query.notice || "").trim().toLowerCase();
     const prefNoticeHtml = prefNotice
@@ -8963,6 +8997,13 @@ return `
         }
       }
 
+      if (canManageUpdates) {
+        try {
+          const rows = await all(`SELECT u.id, u.title, u.featuredImageUrl AS imageUrl, u.updatedAt, u.status, c.name AS categoryName, author.displayName, author.username, author.email FROM updates u LEFT JOIN update_categories c ON c.id = u.categoryId LEFT JOIN users author ON author.id = u.authorId WHERE u.city = ? ORDER BY datetime(COALESCE(u.updatedAt, u.createdAt)) DESC, u.id DESC LIMIT 6`, [selectedCity]);
+          rows.forEach((row) => activityItems.push({ type: "Update", title: row.title || "Untitled update", meta: `${row.categoryName || row.status || selectedCity} · ${getActivityAuthorLabel(row)}`, createdAt: row.updatedAt, href: `/admin/updates?city=${encodeURIComponent(selectedCity)}`, imageUrl: row.imageUrl, analyticsHref: `/admin/updates/analytics?update=${encodeURIComponent(String(row.id))}&city=${encodeURIComponent(selectedCity)}`, editHref: `/admin/updates/create?editUpdate=${encodeURIComponent(String(row.id))}&city=${encodeURIComponent(selectedCity)}` }));
+        } catch (err) { console.error("[admin activity updates]", err); }
+      }
+
       const sortedActivityItems = activityItems.slice().sort((a, b) => {
         const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -10115,6 +10156,12 @@ return `
       ? "All Ads"
       : showAdsAnalytics
       ? "Ads Analytics"
+      : showUpdatesCreate
+      ? (editUpdate ? "Edit Update" : "Create Update")
+      : showUpdatesAnalytics
+      ? "Update Analytics"
+      : showUpdates
+      ? "All Updates"
       : showPreferences
       ? "Preferences"
       : showUsers
@@ -13563,6 +13610,11 @@ return `
           </div>
           ` : ``}
 
+          ${canManageUpdates ? `<div class="sb-divider"></div><div class="nav-group nav-collapsible ${showUpdates || showUpdatesCreate || showUpdatesAnalytics ? "is-open" : ""}" data-nav-group>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/updates")}" aria-current="${showUpdates || showUpdatesCreate || showUpdatesAnalytics ? "page" : "false"}"><i class="fa-regular fa-newspaper nav-title-icon" aria-hidden="true"></i><span>Updates</span></a>
+            <div class="nav-sub"><a class="subnav-link ${showUpdates ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates")}">All Updates</a><a class="subnav-link ${showUpdatesCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates/create")}">Create Update</a><a class="subnav-link ${showUpdatesAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates/analytics")}">Analytics</a></div>
+          </div>` : ``}
+
           ${(canSeeAnyAnalytics ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${analyticsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/events-analytics")}" aria-current="${analyticsMenuOpen ? "page" : "false"}"><i class="fa-solid fa-chart-column nav-title-icon" aria-hidden="true"></i><span>Analytics</span></a>
@@ -13795,6 +13847,12 @@ return `
                     <a class="btn quick-link" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>
                     <a class="btn quick-link" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ad</a>
                     ${canSeeAdsAnalytics ? `<a class="btn quick-link" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
+                  </div>` : ``}
+                  ${canManageUpdates ? `<div class="quick-links-group">
+                    <div class="quick-links-group-title">Updates</div>
+                    <a class="btn quick-link" href="/admin/updates${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Updates</a>
+                    <a class="btn quick-link" href="/admin/updates/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Update</a>
+                    <a class="btn quick-link" href="/admin/updates/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Update Analytics</a>
                   </div>` : ``}
                 </div>
               </div>
@@ -15174,6 +15232,20 @@ return `
           </div>
         </section>
         ` : ``}
+
+        ${(showUpdates || showUpdatesCreate || showUpdatesAnalytics) ? `
+        <section class="gridMain single" id="updates">
+          ${showUpdates ? `<div class="card"><div class="sectionTitle"><div><h2>All Updates</h2><p class="sub">Community articles, announcements, and local stories for ${esc(selectedCity)}.</p></div><a class="btn btn-primary" href="${buildScopedAdminHref("/admin/updates/create")}">+ Create Update</a></div>
+            <form method="GET" action="/admin/updates" class="filters" style="margin-bottom:16px;"><input type="hidden" name="city" value="${esc(selectedCity)}" /><input class="ctrl" name="updateQ" value="${esc(String(req.query.updateQ || ""))}" placeholder="Search updates" /><select class="ctrl" name="updateStatus"><option value="all">All statuses</option>${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(req.query.updateStatus || "all") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select><select class="ctrl" name="updateCategory"><option value="">All categories</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(req.query.updateCategory || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">Apply</button></form>
+            <div class="tableWrap"><table><thead><tr><th>Update</th><th>Category</th><th>Author</th><th>Status</th><th>Published</th><th>Views</th><th>Actions</th></tr></thead><tbody>${updateRows.length ? updateRows.map((row) => `<tr><td style="min-width:230px;">${row.featuredImageUrl ? `<img src="${esc(row.featuredImageUrl)}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:10px;" />` : ``}<strong>${esc(row.title)}</strong><div class="muted small">${esc(row.city)}</div></td><td>${esc(row.categoryName || "Uncategorized")}</td><td>${esc(row.authorName || "OpenCircle")}</td><td><span class="pill">${esc(row.status)}</span></td><td>${esc(row.publishedAt || row.scheduledFor || "—")}</td><td>${Number(row.views || 0).toLocaleString("en-US")}</td><td><div class="actions"><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}">Edit</a><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}&preview=1">Preview</a><form method="POST" action="/admin/updates/${row.id}/archive?city=${encodeURIComponent(selectedCity)}"><button class="btn" type="submit">Archive</button></form><form method="POST" action="/admin/updates/${row.id}/delete?city=${encodeURIComponent(selectedCity)}" onsubmit="return confirm('Delete this update permanently?');"><button class="btn" type="submit">Delete</button></form></div></td></tr>`).join("") : `<tr><td colspan="7" class="muted">No updates match these filters.</td></tr>`}</tbody></table></div>
+          </div>` : ``}
+          ${showUpdatesCreate ? `<div class="card"><div class="sectionTitle"><div><h2>${editUpdate ? "Edit update" : "Create update"}</h2><p class="sub">Publication times are entered in the community’s local timezone and stored in UTC.</p></div></div>
+            ${String(req.query.preview || "") === "1" && editUpdate ? `<div class="mini" style="margin-bottom:16px;"><div class="eyebrow">Authorized preview</div><h2>${esc(editUpdate.title)}</h2>${editUpdate.featuredImageUrl ? `<img src="${esc(editUpdate.featuredImageUrl)}" alt="${esc(editUpdate.imageAlt || "")}" style="max-width:520px;border-radius:12px;" />` : ``}<p>${esc(editUpdate.summary || "")}</p><div style="white-space:pre-wrap;">${esc(editUpdate.bodyHtml || "")}</div></div>` : ``}
+            <form method="POST" action="/admin/updates" enctype="multipart/form-data"><input type="hidden" name="id" value="${esc(editUpdate?.id || "")}" /><div class="formGrid"><label>Title<input class="ctrl" name="title" required maxlength="180" value="${esc(editUpdate?.title || "")}" /></label>${editUpdate ? `<label>URL slug <input class="ctrl" name="slug" maxlength="180" value="${esc(editUpdate.slug || "")}" /><span class="note">Leave unchanged to keep the published URL stable.</span></label>` : ``}<label>Community<select class="ctrl" name="city">${cityOptions}</select></label><label>Category<select class="ctrl" name="categoryId"><option value="">Uncategorized</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(editUpdate?.categoryId || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></label><label>Status<select class="ctrl" name="status">${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(editUpdate?.status || "draft") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select></label><label>Publication date/time<input class="ctrl" type="datetime-local" name="scheduledFor" value="${esc(String(editUpdate?.scheduledFor || "").replace(/Z$/, "").slice(0,16))}" /></label><label>Tags<input class="ctrl" name="tags" maxlength="900" value="${esc((safeParseJson(editUpdate?.tagsJson, []) || []).join(", "))}" placeholder="Comma-separated" /></label></div><label>Summary<textarea class="ctrl" name="summary" maxlength="600" rows="3">${esc(editUpdate?.summary || "")}</textarea></label><label>Main content<textarea class="ctrl" name="bodyHtml" required rows="14" maxlength="100000" placeholder="Use paragraphs, headings, lists, bold, italic, and safe links.">${esc(editUpdate?.bodyHtml || "")}</textarea></label><div class="formGrid"><label>Featured image<input class="ctrl" type="file" name="updateImageFile" accept="image/*" /></label><label>Image alt text<input class="ctrl" name="imageAlt" maxlength="220" value="${esc(editUpdate?.imageAlt || "")}" /></label><label>Related event IDs<input class="ctrl" name="relatedEventIds" value="" placeholder="Example: 12, 34" /></label><label>Related venue IDs<input class="ctrl" name="relatedVenueIds" value="" placeholder="Example: 8, 19" /></label></div>${editUpdate?.featuredImageUrl ? `<label class="checkbox"><input type="checkbox" name="removeImage" value="1" /> Remove current image</label>` : ``}<div class="actions"><button class="btn btn-primary" type="submit">${editUpdate ? "Save update" : "Create update"}</button><a class="btn" href="${buildScopedAdminHref("/admin/updates")}">Cancel</a></div></form>
+            <form method="POST" action="/admin/updates/categories?city=${encodeURIComponent(selectedCity)}" class="mini" style="margin-top:22px;"><strong>Add a category for ${esc(selectedCity)}</strong><div class="actions" style="margin-top:8px;"><input class="ctrl" name="name" maxlength="80" required placeholder="Category name" /><button class="btn" type="submit">Add category</button></div></form>
+          </div>` : ``}
+          ${showUpdatesAnalytics ? `<div class="card"><div class="sectionTitle"><div><h2>Update Analytics</h2><p class="sub">Select an update to view its public page views.</p></div></div><form method="GET" action="/admin/updates/analytics" class="filters"><input type="hidden" name="city" value="${esc(selectedCity)}" /><select class="ctrl" name="update">${updateRows.map((row) => `<option value="${row.id}" ${Number(req.query.update || 0) === row.id ? "selected" : ""}>${esc(row.title)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">View analytics</button></form>${editUpdate ? `<div class="mini" style="margin-top:16px;"><h3>${esc(editUpdate.title)}</h3><div class="stats"><div class="stat"><div class="k">Total views</div><div class="v">${updateViewTotal.toLocaleString("en-US")}</div></div><div class="stat"><div class="k">Published</div><div class="v">${esc(editUpdate.publishedAt || "Not published")}</div></div></div></div>` : ``}</div>` : ``}
+        </section>` : ``}
 
         <!-- Manage -->
         ${(showCreate || showUpload || showExisting) ? `
@@ -20029,6 +20101,9 @@ router.get("/jobs/analytics", async (req, res) => renderAdmin(req, res, "jobs-an
 router.get("/ads", async (req, res) => renderAdmin(req, res, "ads-existing"));
 router.get("/ads/create", async (req, res) => renderAdmin(req, res, "ads-create"));
 router.get("/ads/analytics", async (req, res) => renderAdmin(req, res, "ads-analytics"));
+router.get("/updates", async (req, res) => renderAdmin(req, res, "updates"));
+router.get("/updates/create", async (req, res) => renderAdmin(req, res, "updates-create"));
+router.get("/updates/analytics", async (req, res) => renderAdmin(req, res, "updates-analytics"));
 router.get("/newsletter/analytics", async (req, res) => renderAdmin(req, res, "newsletter-analytics"));
 router.get("/newsletter", async (req, res) => renderAdmin(req, res, "newsletter"));
 router.get("/newsletter/preview", async (req, res) => renderAdmin(req, res, "newsletter-preview"));
@@ -20039,6 +20114,67 @@ router.get("/updates-log", async (req, res) => renderAdmin(req, res, "updates-lo
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 
+function parseUpdateIdList(value) {
+  return [...new Set(String(value || "").split(",").map((item) => Number.parseInt(item.trim(), 10)).filter((item) => Number.isSafeInteger(item) && item > 0))].slice(0, 50);
+}
+
+async function requireUpdatesManager(req, res) {
+  const user = await resolveSessionUser(req);
+  const role = normalizeRoleValue(req.user?.role || user?.role || "organizer");
+  if (!hasDeveloperAccessRole(role)) { res.status(403).send("Forbidden"); return null; }
+  return user;
+}
+
+router.post("/updates/categories", async (req, res) => {
+  try {
+    const user = await requireUpdatesManager(req, res); if (!user) return;
+    await ensureUpdatesSchema();
+    const city = pickAccessibleCity(req.body?.city || req.query.city, user, { fallbackCity: user.city || "Enumclaw" });
+    const name = String(req.body?.name || "").trim().slice(0, 80); if (!name) return res.status(400).send("Category name is required.");
+    const slug = slugify(name); if (!slug) return res.status(400).send("Invalid category name.");
+    await run("INSERT OR IGNORE INTO update_categories (city, name, slug, updatedAt) VALUES (?, ?, ?, datetime('now'))", [city, name, slug]);
+    res.redirect(`/admin/updates/create?city=${encodeURIComponent(city)}`);
+  } catch (err) { console.error(err); res.status(500).send("Server error."); }
+});
+
+router.post("/updates", upload.single("updateImageFile"), async (req, res) => {
+  try {
+    const user = await requireUpdatesManager(req, res); if (!user) return;
+    await ensureUpdatesSchema();
+    const city = pickAccessibleCity(req.body?.city || req.query.city, user, { fallbackCity: user.city || "Enumclaw" });
+    let id = Number.parseInt(String(req.body?.id || ""), 10); const isEdit = Number.isSafeInteger(id) && id > 0;
+    const title = String(req.body?.title || "").trim().slice(0, 180); const summary = String(req.body?.summary || "").trim().slice(0, 600);
+    const bodyHtml = sanitizeUpdateHtml(req.body?.bodyHtml); const status = String(req.body?.status || "draft").toLowerCase();
+    const categoryId = Number.parseInt(String(req.body?.categoryId || ""), 10) || null;
+    if (!title || !bodyHtml || !UPDATE_STATUSES.has(status)) return res.status(400).send("Title, content, and a valid status are required.");
+    if (categoryId && !(await get("SELECT id FROM update_categories WHERE id = ? AND city = ?", [categoryId, city]))) return res.status(400).send("Invalid category.");
+    const existing = isEdit ? await get("SELECT * FROM updates WHERE id = ? AND city = ? LIMIT 1", [id, city]) : null;
+    if (isEdit && !existing) return res.status(404).send("Update not found.");
+    let featuredImageUrl = existing?.featuredImageUrl || null;
+    if (req.file) featuredImageUrl = await persistUploadedImage(req.file, req);
+    if (parseCsvBoolean(req.body?.removeImage)) featuredImageUrl = null;
+    const imageAlt = String(req.body?.imageAlt || "").trim().slice(0, 220);
+    const requestedSlug = String(req.body?.slug || "").trim();
+    const slug = existing && !requestedSlug ? existing.slug : await ensureUniqueUpdateSlug(city, requestedSlug || title, existing?.id || null);
+    const scheduledFor = status === "scheduled" ? parseScheduleLocal(req.body?.scheduledFor, city) : null;
+    if (status === "scheduled" && !scheduledFor) return res.status(400).send("A valid future publication date and time is required.");
+    if (scheduledFor && Date.parse(scheduledFor) <= Date.now()) return res.status(400).send("Scheduled publication must be in the future.");
+    const publishedAt = status === "published" ? (existing?.publishedAt || new Date().toISOString()) : (status === "scheduled" ? null : existing?.publishedAt || null);
+    const tagsJson = JSON.stringify(normalizeTags(req.body?.tags));
+    if (isEdit) await run(`UPDATE updates SET city=?, title=?, slug=?, summary=?, bodyHtml=?, featuredImageUrl=?, imageAlt=?, categoryId=?, tagsJson=?, status=?, scheduledFor=?, publishedAt=?, seoTitle=?, metaDescription=?, updatedAt=datetime('now') WHERE id=?`, [city, title, slug, summary || null, bodyHtml, featuredImageUrl, imageAlt || null, categoryId, tagsJson, status, scheduledFor, publishedAt, title, summary || null, id]);
+    else { const inserted = await run(`INSERT INTO updates (city,title,slug,summary,bodyHtml,featuredImageUrl,imageAlt,categoryId,tagsJson,authorId,status,scheduledFor,publishedAt,seoTitle,metaDescription) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [city, title, slug, summary || null, bodyHtml, featuredImageUrl, imageAlt || null, categoryId, tagsJson, user.id, status, scheduledFor, publishedAt, title, summary || null]); id = inserted.lastID; }
+    const updateId = id;
+    const eventIds = parseUpdateIdList(req.body?.relatedEventIds); const venueIds = parseUpdateIdList(req.body?.relatedVenueIds);
+    await run("DELETE FROM update_event_links WHERE updateId = ?", [updateId]); await run("DELETE FROM update_venue_links WHERE updateId = ?", [updateId]);
+    for (const eventId of eventIds) if (await get("SELECT id FROM events WHERE id = ? AND city = ?", [eventId, city])) await run("INSERT OR IGNORE INTO update_event_links (updateId,eventId) VALUES (?,?)", [updateId, eventId]);
+    for (const venueId of venueIds) if (await get("SELECT id FROM venues WHERE id = ? AND city = ?", [venueId, city])) await run("INSERT OR IGNORE INTO update_venue_links (updateId,venueId) VALUES (?,?)", [updateId, venueId]);
+    res.redirect(`/admin/updates?city=${encodeURIComponent(city)}&notice=saved`);
+  } catch (err) { console.error(err); res.status(500).send("Server error."); }
+});
+
+router.post("/updates/:id/archive", async (req, res) => { try { const user = await requireUpdatesManager(req, res); if (!user) return; const city = pickAccessibleCity(req.query.city, user, { fallbackCity: user.city || "Enumclaw" }); await ensureUpdatesSchema(); await run("UPDATE updates SET status = 'archived', updatedAt = datetime('now') WHERE id = ? AND city = ?", [Number(req.params.id), city]); res.redirect(`/admin/updates?city=${encodeURIComponent(city)}`); } catch (err) { console.error(err); res.status(500).send("Server error."); } });
+router.post("/updates/:id/delete", async (req, res) => { try { const user = await requireUpdatesManager(req, res); if (!user) return; const city = pickAccessibleCity(req.query.city, user, { fallbackCity: user.city || "Enumclaw" }); await ensureUpdatesSchema(); const id = Number(req.params.id); await run("DELETE FROM update_metric_events WHERE updateId = ?", [id]); await run("DELETE FROM update_event_links WHERE updateId = ?", [id]); await run("DELETE FROM update_venue_links WHERE updateId = ?", [id]); await run("DELETE FROM updates WHERE id = ? AND city = ?", [id, city]); res.redirect(`/admin/updates?city=${encodeURIComponent(city)}`); } catch (err) { console.error(err); res.status(500).send("Server error."); } });
+
 router.get("/search", async (req, res) => {
   try {
     const q = String(req.query.q || "").trim();
@@ -20047,13 +20183,14 @@ router.get("/search", async (req, res) => {
     if (!user) return res.status(401).json({ groups: [] });
     const city = String(req.query.city || user.city || "Enumclaw").trim();
     const like = `%${q.replace(/[%_\\]/g, "\\$&")}%`;
-    await Promise.all([ensureVenueSchema(), ensureJobSchema(), ensureAdSchema()]);
-    const [events, venues, organizers, jobs, ads] = await Promise.all([
+    await Promise.all([ensureVenueSchema(), ensureJobSchema(), ensureAdSchema(), ensureUpdatesSchema()]);
+    const [events, venues, organizers, jobs, ads, updates] = await Promise.all([
       all("SELECT id, title, location FROM events WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR location LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
       all("SELECT id, name, address FROM venues WHERE city = ? AND (name LIKE ? ESCAPE '\\' OR address LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
       all("SELECT organizer, COUNT(*) AS eventCount FROM events WHERE city = ? AND trim(COALESCE(organizer,'')) != '' AND organizer LIKE ? ESCAPE '\\' GROUP BY organizer ORDER BY eventCount DESC, organizer LIMIT 5", [city, like]),
       all("SELECT id, title, company FROM jobs WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
       all("SELECT id, name, placement FROM ads WHERE city = ? AND (name LIKE ? ESCAPE '\\' OR placement LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
+      all("SELECT id, title, status FROM updates WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\') ORDER BY updatedAt DESC LIMIT 5", [city, like, like]),
     ]);
     const groups = [];
     if (events.length) groups.push({ label: "Events", items: events.map((row) => ({ title: row.title, detail: row.location || "Event", href: `/admin/events-analytics?event=${row.id}&city=${encodeURIComponent(city)}` })) });
@@ -20061,6 +20198,7 @@ router.get("/search", async (req, res) => {
     if (organizers.length) groups.push({ label: "Organizers", items: organizers.map((row) => ({ title: row.organizer, detail: `${row.eventCount} event${Number(row.eventCount) === 1 ? "" : "s"}`, href: `/admin/events-organizers?organizer=${encodeURIComponent(row.organizer)}&city=${encodeURIComponent(city)}` })) });
     if (jobs.length) groups.push({ label: "Jobs", items: jobs.map((row) => ({ title: row.title, detail: row.company || "Job", href: `/admin/jobs?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
     if (ads.length) groups.push({ label: "Ads", items: ads.map((row) => ({ title: row.name, detail: row.placement || "Ad", href: `/admin/ads?edit=${row.id}&city=${encodeURIComponent(city)}` })) });
+    if (updates.length) groups.push({ label: "Updates", items: updates.map((row) => ({ title: row.title, detail: row.status || "Update", href: `/admin/updates/create?editUpdate=${row.id}&city=${encodeURIComponent(city)}` })) });
     groups.push({ label: "Go to", items: [{ title: `Search all events for “${q}”`, detail: "Events", href: `/admin/existing-events?q=${encodeURIComponent(q)}&city=${encodeURIComponent(city)}` }] });
     res.json({ groups });
   } catch (err) { res.status(500).json({ groups: [] }); }

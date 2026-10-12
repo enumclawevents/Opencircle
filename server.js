@@ -12,6 +12,8 @@ const { UPLOAD_DIR } = require("./lib/uploads");
 const { initDB, archiveExpiredEvents, get, all, run } = require("./db");
 
 const eventsRouter = require("./routes/events");
+const updatesRouter = require("./routes/updates");
+const { ensureUpdatesSchema, publishDueUpdates } = require("./lib/updates");
 const adminRouter = require("./routes/admin");
 const venuesRouter = require("./routes/venues");
 const adsRouter = require("./routes/ads");
@@ -98,6 +100,7 @@ const PUBLIC_PREFIXES = [
   "/events/submit",
   "/events/feature",
   "/events",
+  "/updates",
   "/venues",
   "/newsletter/click",
   "/newsletter/open",
@@ -784,6 +787,7 @@ app.get("/sitemap.xml", (req, res) => {
   <sitemap><loc>${base}/events/sitemap-past.xml</loc></sitemap>
   <sitemap><loc>${base}/venues/sitemap.xml</loc></sitemap>
   <sitemap><loc>${base}/jobs/sitemap.xml</loc></sitemap>
+  <sitemap><loc>${base}/updates/sitemap.xml</loc></sitemap>
 </sitemapindex>`;
 
   res.setHeader("Content-Type", "application/xml");
@@ -928,6 +932,7 @@ app.get("/newsletter/click/:token", async (req, res) => {
   return res.redirect(302, targetUrl);
 });
 app.use("/events", eventsRouter);
+app.use("/updates", updatesRouter);
 app.use("/venues", venuesRouter);
 app.use("/ads", adsRouter);
 app.use("/jobs", jobsRouter);
@@ -944,6 +949,7 @@ const PORT = Number(process.env.PORT) || 3000;
 
 initDB()
   .then(async () => {
+    await ensureUpdatesSchema();
     // Run once on boot
     try {
       const r = await archiveExpiredEvents();
@@ -978,6 +984,14 @@ initDB()
 
     runNewsletterScheduler();
     setInterval(runNewsletterScheduler, 5 * 60 * 1000);
+
+    const runUpdatePublisher = () => {
+      publishDueUpdates()
+        .then((result) => { if (result?.published) console.log("[UPDATES] Published scheduled updates:", result.published); })
+        .catch((err) => console.error("[UPDATES] Scheduler failed:", err));
+    };
+    runUpdatePublisher();
+    setInterval(runUpdatePublisher, 60 * 1000);
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`OpenCircle API running on port ${PORT}`);
