@@ -4396,10 +4396,10 @@ let whereParams = [];
       const qs = params.toString();
       return `${pathname}${qs ? `?${qs}` : ""}`;
     };
-    const canUseMessages = hasDeveloperAccess;
+    const canUseMessages = hasDeveloperAccess || isOrganizerUser;
     // Organizers have a deliberately narrow, event-only workspace. Their
     // legacy per-section flags must not grant venues, jobs, ads, newsletters,
-    // or messaging access.
+    // or broad user-to-user messaging access.
     const canManageEvents = hasDeveloperAccess || isOrganizerUser || sectionPermissions.events;
     const canApproveEvents = hasDeveloperAccess;
     const canManageEventReports = hasDeveloperAccess || isOrganizerUser;
@@ -4443,15 +4443,21 @@ let whereParams = [];
         }
       }
       try {
-        const unreadRow = await get(
-          `SELECT COUNT(*) AS count
-             FROM messages
-            WHERE recipientUserId = ?
-              AND city IN (${messageScopePlaceholders})
-              AND readAt IS NULL`,
-          [currentUser.id, ...messageScopeCities]
-        );
-        unreadMessagesCount = Number(unreadRow?.count || 0);
+        if (isOrganizerUser && !supportCircleUser?.id) {
+          unreadMessagesCount = 0;
+        } else {
+          const unreadRow = await get(
+            `SELECT COUNT(*) AS count
+               FROM messages
+              WHERE recipientUserId = ?
+                AND city IN (${messageScopePlaceholders})
+                AND readAt IS NULL${isOrganizerUser ? " AND senderUserId = ?" : ""}`,
+            isOrganizerUser
+              ? [currentUser.id, ...messageScopeCities, supportCircleUser.id]
+              : [currentUser.id, ...messageScopeCities]
+          );
+          unreadMessagesCount = Number(unreadRow?.count || 0);
+        }
       } catch (_) {
         unreadMessagesCount = 0;
       }
@@ -4514,6 +4520,10 @@ let whereParams = [];
       } catch (_) {
         messageContacts = [];
       }
+
+      // Organizers can contact Support Circle, but never browse or message
+      // other dashboard users through this surface.
+      if (isOrganizerUser) messageContacts = [];
 
       if (supportCircleUser?.id && Number(supportCircleUser.id) !== Number(currentUser.id)) {
         try {
@@ -7273,7 +7283,7 @@ return `
     if (showAdsAnalytics && !canSeeAdsAnalytics) return res.status(403).send("Forbidden");
     if ((showUpdates || showUpdatesCreate || showUpdatesAnalytics) && !canManageUpdates) return res.status(403).send("Forbidden");
     const isNewsletterTab = showNewsletter || showNewsletterPreview || showNewsletterAudience || showNewsletterAnalytics;
-    const showSearch = !isOrganizerUser && !showMessages && (!showPreferences || isNewsletterTab);
+    const showSearch = !showMessages && (!showPreferences || isNewsletterTab);
     const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
       ? "/admin/venues"
       : showJobsApplicants
@@ -8706,7 +8716,7 @@ return `
             </a>
           `;
         }).join("")
-      : `<div class="messages-empty">No other users are available in ${esc(messageScopeLabel)} yet.</div>`;
+      : `<div class="messages-empty">${isOrganizerUser ? "Support Circle is unavailable right now." : `No other users are available in ${esc(messageScopeLabel)} yet.`}</div>`;
 
     const messageComposeCity = selectedMessageContact && !selectedMessageContact.supportAlias
       ? getMessageContactCity(selectedMessageContact)
@@ -14570,8 +14580,8 @@ return `
           <div class="card messages-card messages-contact-card">
             <div class="sectionTitle">
               <div>
-                <h2>${esc(messageScopeLabel)} users</h2>
-                <p class="sub">Message people in this workspace, see who is online, or open Support Circle for troubleshooting help.</p>
+                <h2>${isOrganizerUser ? "Support Circle" : `${esc(messageScopeLabel)} users`}</h2>
+                <p class="sub">${isOrganizerUser ? "Message Support Circle for troubleshooting help." : "Message people in this workspace, see who is online, or open Support Circle for troubleshooting help."}</p>
               </div>
             </div>
             ${messagesNoticeHtml}
@@ -14587,7 +14597,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>${selectedMessageContact ? esc(selectedMessageContact.supportAlias ? "Support Circle" : (selectedMessageContact.displayName || selectedMessageContact.username || selectedMessageContact.email || "Conversation")) : "Conversation"}</h2>
-                <p class="sub">${selectedMessageContact ? esc(selectedMessageContact.supportAlias ? "Troubleshooting chat" : `${messageScopeLabel} conversation`) : `Choose a ${messageScopeLabel} user to start messaging.`}</p>
+                <p class="sub">${selectedMessageContact ? esc(selectedMessageContact.supportAlias ? "Troubleshooting chat" : `${messageScopeLabel} conversation`) : (isOrganizerUser ? "Support Circle is unavailable right now." : `Choose a ${messageScopeLabel} user to start messaging.`)}</p>
               </div>
             </div>
             <div class="messages-panel">
@@ -20301,6 +20311,9 @@ function isOrganizerAllowedAdminPath(pathname) {
   if ([
     "/",
     "/events-analytics",
+    "/search",
+    "/messages",
+    "/messages/typing",
     "/create-events",
     "/event-reports",
     "/existing-events",
@@ -20426,16 +20439,23 @@ router.get("/search", async (req, res) => {
     if (q.length < 2) return res.json({ groups: [] });
     const user = await resolveSessionUser(req);
     if (!user) return res.status(401).json({ groups: [] });
-    const city = String(req.query.city || user.city || "Enumclaw").trim();
+    const role = normalizeRoleValue(req.user?.role || user.role || "organizer");
+    const isOrganizerUser = role === "organizer";
+    const city = pickAccessibleCity(req.query.city, hasDeveloperAccessRole(role) ? { role: "developer" } : user, { fallbackCity: user.city || "Enumclaw" });
     const like = `%${q.replace(/[%_\\]/g, "\\$&")}%`;
     await Promise.all([ensureVenueSchema(), ensureJobSchema(), ensureAdSchema(), ensureUpdatesSchema()]);
+    const organizerOwnerClause = isOrganizerUser
+      ? buildOrganizerOwnerClause("organizer", getOrganizerAccessValues(user, req))
+      : null;
+    const organizerEventScope = organizerOwnerClause ? ` AND ${organizerOwnerClause.sql}` : (isOrganizerUser ? " AND 1 = 0" : "");
+    const organizerEventParams = organizerOwnerClause ? organizerOwnerClause.params : [];
     const [events, venues, organizers, jobs, ads, updates] = await Promise.all([
-      all("SELECT id, title, location FROM events WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR location LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
-      all("SELECT id, name, address FROM venues WHERE city = ? AND (name LIKE ? ESCAPE '\\' OR address LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
-      all("SELECT organizer, COUNT(*) AS eventCount FROM events WHERE city = ? AND trim(COALESCE(organizer,'')) != '' AND organizer LIKE ? ESCAPE '\\' GROUP BY organizer ORDER BY eventCount DESC, organizer LIMIT 5", [city, like]),
-      all("SELECT id, title, company FROM jobs WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
-      all("SELECT id, name, placement FROM ads WHERE city = ? AND (name LIKE ? ESCAPE '\\' OR placement LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
-      all("SELECT id, title, status FROM updates WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\') ORDER BY updatedAt DESC LIMIT 5", [city, like, like]),
+      all(`SELECT id, title, location FROM events WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR location LIKE ? ESCAPE '\\')${organizerEventScope} ORDER BY id DESC LIMIT 5`, [city, like, like, ...organizerEventParams]),
+      isOrganizerUser ? [] : all("SELECT id, name, address FROM venues WHERE city = ? AND (name LIKE ? ESCAPE '\\' OR address LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
+      isOrganizerUser ? [] : all("SELECT organizer, COUNT(*) AS eventCount FROM events WHERE city = ? AND trim(COALESCE(organizer,'')) != '' AND organizer LIKE ? ESCAPE '\\' GROUP BY organizer ORDER BY eventCount DESC, organizer LIMIT 5", [city, like]),
+      isOrganizerUser ? [] : all("SELECT id, title, company FROM jobs WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
+      isOrganizerUser ? [] : all("SELECT id, name, placement FROM ads WHERE city = ? AND (name LIKE ? ESCAPE '\\' OR placement LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT 5", [city, like, like]),
+      isOrganizerUser ? [] : all("SELECT id, title, status FROM updates WHERE city = ? AND (title LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\') ORDER BY updatedAt DESC LIMIT 5", [city, like, like]),
     ]);
     const groups = [];
     if (events.length) groups.push({ label: "Events", items: events.map((row) => ({ title: row.title, detail: row.location || "Event", href: `/admin/events-analytics?event=${row.id}&city=${encodeURIComponent(city)}` })) });
@@ -20795,6 +20815,7 @@ router.post("/messages", async (req, res) => {
     const currentUser = await resolveSessionUser(req);
     const supportCircleUser = await resolveSupportCircleUser();
     if (!currentUser?.id) return res.status(403).send("Forbidden");
+    const isOrganizerUser = normalizeRoleValue(req.user?.role || currentUser.role || "organizer") === "organizer";
 
     const requestedCity = String(req.body?.city || req.query.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
     const city = pickAccessibleCity(requestedCity, hasDeveloperAccessRole(req.user?.role || "") ? { role: "developer" } : currentUser, { fallbackCity: currentUser.city || "Enumclaw" });
@@ -20813,6 +20834,9 @@ router.post("/messages", async (req, res) => {
       [recipientUserId]
     );
     const isSupportCircleRecipient = supportCircleUser?.id && Number(supportCircleUser.id) === Number(recipientUserId);
+    if (isOrganizerUser && !isSupportCircleRecipient) {
+      return res.status(403).send("Organizers can only message Support Circle.");
+    }
     if (!recipient?.id || (!isSupportCircleRecipient && !getUserAllowedCities(recipient, recipient.city || "Enumclaw").includes(city))) {
       return res.redirect(`/admin/messages?notice=recipient${city ? `&city=${encodeURIComponent(city)}` : ""}`);
     }
@@ -20852,6 +20876,7 @@ router.get("/messages/typing", async (req, res) => {
     const currentUser = await resolveSessionUser(req);
     const supportCircleUser = await resolveSupportCircleUser();
     if (!currentUser?.id) return res.status(403).json({ ok: false, typing: false });
+    const isOrganizerUser = normalizeRoleValue(req.user?.role || currentUser.role || "organizer") === "organizer";
 
     const requestedCity = String(req.query?.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
     const city = pickAccessibleCity(requestedCity, hasDeveloperAccessRole(req.user?.role || "") ? { role: "developer" } : currentUser, { fallbackCity: currentUser.city || "Enumclaw" });
@@ -20865,6 +20890,9 @@ router.get("/messages/typing", async (req, res) => {
       [otherUserId]
     );
     const isSupportCircleUser = supportCircleUser?.id && Number(supportCircleUser.id) === Number(otherUserId);
+    if (isOrganizerUser && !isSupportCircleUser) {
+      return res.status(403).json({ ok: false, typing: false });
+    }
     if (!otherUser?.id || (!isSupportCircleUser && !getUserAllowedCities(otherUser, otherUser.city || "Enumclaw").includes(city))) {
       return res.json({ ok: true, typing: false });
     }
@@ -20898,6 +20926,7 @@ router.post("/messages/typing", express.json(), async (req, res) => {
     const currentUser = await resolveSessionUser(req);
     const supportCircleUser = await resolveSupportCircleUser();
     if (!currentUser?.id) return res.status(403).json({ ok: false });
+    const isOrganizerUser = normalizeRoleValue(req.user?.role || currentUser.role || "organizer") === "organizer";
 
     const requestedCity = String(req.body?.city || req.query?.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
     const city = pickAccessibleCity(requestedCity, hasDeveloperAccessRole(req.user?.role || "") ? { role: "developer" } : currentUser, { fallbackCity: currentUser.city || "Enumclaw" });
@@ -20912,6 +20941,9 @@ router.post("/messages/typing", express.json(), async (req, res) => {
       [recipientUserId]
     );
     const isSupportCircleRecipient = supportCircleUser?.id && Number(supportCircleUser.id) === Number(recipientUserId);
+    if (isOrganizerUser && !isSupportCircleRecipient) {
+      return res.status(403).json({ ok: false });
+    }
     if (!recipient?.id || (!isSupportCircleRecipient && !getUserAllowedCities(recipient, recipient.city || "Enumclaw").includes(city))) {
       return res.status(400).json({ ok: false });
     }
