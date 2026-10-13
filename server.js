@@ -548,7 +548,7 @@ app.get("/invite", async (req, res) => {
         <input name="username" type="text" required />
         <label>Password</label>
         <input name="password" type="password" required />
-        <button type="submit">Create account</button>
+        <button type="submit">+ Create account</button>
       </form>
     </body>
   </html>`;

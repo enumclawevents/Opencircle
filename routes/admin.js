@@ -8274,12 +8274,12 @@ return `
               .users-summary h2{ margin:0; font-size:20px; }
               .users-count{ color:var(--muted); font-size:20px; font-weight:700; }
               .users-toolbar-controls{ display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; }
-              .users-filter-group{ display:inline-flex; align-items:center; padding:3px; border:1px solid var(--line); border-radius:12px; background:#f8fafc; }
-              .users-filter-button{ min-height:38px; padding:0 14px; border:0; border-radius:9px; background:transparent; color:var(--muted); font:inherit; font-weight:750; cursor:pointer; }
+              .users-filter-group{ display:inline-flex; align-items:center; padding:3px; border:1px solid var(--line); border-radius:var(--radius); background:#f8fafc; }
+              .users-filter-button{ min-height:38px; padding:0 14px; border:0; border-radius:var(--radius-mid); background:transparent; color:var(--muted); font:inherit; font-weight:750; cursor:pointer; }
               .users-filter-button.is-active{ background:#fff; color:var(--text); box-shadow:0 1px 2px rgba(15,23,42,.08); }
               .users-search{ position:relative; display:flex; align-items:center; min-width:min(100%, 360px); }
               .users-search > i{ position:absolute; left:14px; color:#94a3b8; pointer-events:none; }
-              .users-search input{ width:100%; min-height:44px; padding:0 42px 0 48px !important; border:1px solid var(--line); border-radius:12px; background:#fff; color:var(--text); font:inherit; }
+              .users-search input{ width:100%; min-height:44px; padding:0 42px 0 48px !important; border:1px solid var(--line); border-radius:var(--radius-mid); background:#fff; color:var(--text); font:inherit; }
               .users-search input:focus{ outline:2px solid rgba(14,165,233,.28); outline-offset:1px; border-color:#38bdf8; }
               .users-search-clear{ position:absolute; right:9px; width:26px; height:26px; border:0; border-radius:999px; background:#d1d5db; color:#fff; display:none; place-items:center; cursor:pointer; }
               .users-search.has-value .users-search-clear{ display:grid; }
@@ -8357,7 +8357,7 @@ return `
               }
               .users-actions-trigger{
                 display:inline-flex; align-items:center; justify-content:center;
-                min-height:38px; border:1px solid var(--line); border-radius:10px; background:#fff;
+                min-height:38px; border:1px solid var(--line); border-radius:var(--radius-mid); background:#fff;
                 color:#29557a; font-weight:800; text-decoration:none; cursor:pointer; padding:0 14px;
               }
               .users-actions-trigger:hover{ background:#f3f7fb; border-color:rgba(41,85,122,.18); }
@@ -8371,7 +8371,7 @@ return `
               }
               .users-modal-panel{
                 position:relative; z-index:1; width:min(760px, calc(100vw - 32px));
-                border:1px solid var(--line); border-radius:14px; background:#fff;
+                border:1px solid var(--line); border-radius:var(--radius); background:#fff;
                 box-shadow:0 24px 60px rgba(15,23,42,.18); padding:18px;
                 display:grid; gap:18px;
               }
@@ -8390,7 +8390,7 @@ return `
               }
               .users-modal-main{ display:grid; gap:18px; align-self:stretch; }
               .users-modal-card{
-                border:1px solid var(--line); border-radius:14px; background:#fff; padding:16px;
+                border:1px solid var(--line); border-radius:var(--radius); background:#fff; padding:16px;
               }
               .users-modal-label{ color:var(--muted); font-weight:700; margin-bottom:8px; }
               .users-field-row{ display:grid; grid-template-columns:minmax(0,1fr) 140px; gap:14px; align-items:end; }
@@ -8415,7 +8415,7 @@ return `
               .users-side-actions .btn{
                 min-height:72px;
                 height:100%;
-                border-radius:12px;
+                border-radius:var(--radius-mid);
               }
               .users-empty{
                 border:1px solid var(--line);
@@ -10201,10 +10201,11 @@ return `
         --brand2:#0ea5e9;
         --danger:#ef4444;
         --shadow:none;
-        --radius:10px;
+        /* Shared radius scale: panels, standard controls, compact controls. */
+        --radius:12px;
         --radius-mid:8px;
         --radius-inner:6px;
-        --radius2:10px;
+        --radius2:12px;
         --event-side-h: 140px;
         --ctrl-h: 44px;
         --gap:20px;
@@ -10777,7 +10778,7 @@ return `
         width:280px;
         padding:10px;
         border:1px solid var(--line);
-        border-radius:16px;
+        border-radius:var(--radius);
         background:#fff;
         box-shadow:0 18px 42px rgba(15,23,42,.14);
         display:none;
@@ -10790,7 +10791,7 @@ return `
         width:100%;
         min-height:44px;
         border:1px solid var(--line);
-        border-radius:12px;
+        border-radius:var(--radius-mid);
         background:#fff;
         color:var(--text) !important;
         display:flex;
@@ -10843,7 +10844,7 @@ return `
         width:100%;
         min-height:42px;
         border:1px solid var(--line);
-        border-radius:12px;
+        border-radius:var(--radius-mid);
         background:#fff;
         color:var(--text);
         display:flex;
@@ -11137,7 +11138,7 @@ return `
       .search.has-value .global-search-clear{display:inline-flex}
       .search.has-value .search-enter-key{right:52px}
       .global-search-clear:hover{background:rgba(71,85,105,.5)}
-      .global-search-results{display:none;position:absolute;top:calc(100% + 8px);left:0;width:100%;max-width:680px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:8px;z-index:80}.global-search-results.is-open{display:block}.global-search-group{padding:8px}.global-search-group+ .global-search-group{border-top:1px solid var(--line)}.global-search-label{font-size:12px;color:var(--muted);font-weight:700;margin:0 0 5px}.global-search-item{display:block;padding:8px;border-radius:8px;color:var(--text)}.global-search-item:hover{background:var(--panel2)}.global-search-detail{color:var(--muted);font-size:12px;margin-left:8px}
+      .global-search-results{display:none;position:absolute;top:calc(100% + 8px);left:0;width:100%;max-width:680px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:8px;z-index:80}.global-search-results.is-open{display:block}.global-search-group{padding:8px}.global-search-group+ .global-search-group{border-top:1px solid var(--line)}.global-search-label{font-size:12px;color:var(--muted);font-weight:700;margin:0 0 5px}.global-search-item{display:block;padding:8px;border-radius:var(--radius-mid);color:var(--text)}.global-search-item:hover{background:var(--panel2)}.global-search-detail{color:var(--muted);font-size:12px;margin-left:8px}
       .search input::placeholder{
         color:#9ca3af;
       }
@@ -11234,7 +11235,7 @@ return `
         min-width:190px;
         max-width:240px;
         padding:10px 12px;
-        border-radius:12px;
+        border-radius:var(--radius-mid);
         background:rgba(15,23,42,.92);
         color:#fff;
         font-size:12px;
@@ -11376,7 +11377,7 @@ return `
       }
       .newsletter-audience-row-quickstat{
         border:1px solid rgba(148,163,184,.18);
-        border-radius:12px;
+        border-radius:var(--radius-mid);
         background:#fff;
         padding:10px 12px;
         min-width:0;
@@ -11403,7 +11404,7 @@ return `
       }
       .newsletter-audience-row-stat{
         border:1px solid rgba(148,163,184,.20);
-        border-radius:12px;
+        border-radius:var(--radius-mid);
         background:#ffffff;
         padding:10px 12px;
         min-width:0;
@@ -11782,6 +11783,7 @@ return `
         height: var(--ctrl-h);
         transition: border-color .14s ease, background-color .14s ease, color .14s ease;
       }
+      .btn-action-plus{ display:inline-block; margin-right:7px; font-size:1.18em; font-weight:500; line-height:0; }
       .btn:hover{ border-color: rgba(15,23,42,.18); background: #f8fafc; box-shadow:none; }
       .btn-primary{
         background: var(--brand);
@@ -13297,7 +13299,7 @@ return `
         text-decoration:none;
         color:inherit;
       }
-      .activity-thumb{width:128px;min-height:64px;height:auto;align-self:stretch;border-radius:10px;overflow:hidden;background:rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;text-align:center;padding:0}
+      .activity-thumb{width:128px;min-height:64px;height:auto;align-self:stretch;border-radius:var(--radius-mid);overflow:hidden;background:rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;text-align:center;padding:0}
       .activity-thumb img{width:100%;height:100%;object-fit:cover;display:block}
       .activity-thumb span{padding:6px}
       .activity-content{min-width:0;display:grid;gap:6px}
@@ -13562,7 +13564,7 @@ return `
         align-items:center;
         justify-content:center;
         border:1px solid rgba(148,163,184,.35);
-        border-radius:10px;
+        border-radius:var(--radius-mid);
         background:#182235;
         color:#d8e1ed;
         box-shadow:0 6px 14px rgba(2,6,23,.22);
@@ -13571,14 +13573,14 @@ return `
       .sidebar-collapse-toggle:hover{ background:#22304a; color:#fff; }
       .sb-brand{ margin:0 0 14px; padding:0 8px 14px; }
       .sb-top{ min-height:42px; gap:10px; }
-      .sb-icon{ width:34px; height:34px; flex-basis:34px; border-radius:10px; background:rgba(255,255,255,.035); }
+      .sb-icon{ width:34px; height:34px; flex-basis:34px; border-radius:var(--radius-mid); background:rgba(255,255,255,.035); }
       .sb-icon::after{ display:none; }
       .sb-top::after{ left:0; right:0; }
       .sb-city-wrap{ width:auto; flex:1; height:34px; margin:0; }
       .sb-city-btn{ padding:0 4px; font-weight:750; font-size:13px; }
       /* The picker belongs to the sidebar, not just the city-label column. */
-      .sb-city-menu{ left:-52px; right:auto; width:calc(100% + 60px); border-radius:10px; margin-top:6px; padding:5px; box-shadow:0 14px 32px rgba(2,6,23,.4); }
-      .sb-city-opt{ border-radius:7px; padding:9px 10px; }
+      .sb-city-menu{ left:-52px; right:auto; width:calc(100% + 60px); border-radius:var(--radius); margin-top:6px; padding:5px; box-shadow:0 14px 32px rgba(2,6,23,.4); }
+      .sb-city-opt{ border-radius:var(--radius-inner); padding:9px 10px; }
       .sb-city-opt + .sb-city-opt{ margin-top:4px; }
       .nav{ width:100%; margin:0; gap:2px; }
       /* Group separation is carried by the compact gap above, rather than
@@ -13603,7 +13605,7 @@ return `
       .subnav-link:hover{ background:rgba(148,163,184,.12); color:#fff !important; }
       .subnav-link.active{ color:#fff !important; background:rgba(148,163,184,.13) !important; font-size:12px !important; font-weight:500; }
       .sb-bottom{ padding:0 4px; }
-      .sidebar .sb-bottom .subnav-link{ padding:10px; border-radius:8px; }
+      .sidebar .sb-bottom .subnav-link{ padding:10px; border-radius:var(--radius-mid); }
       .sidebar-logout{ display:inline-flex !important; align-items:center; justify-content:center; gap:8px; color:var(--sidebar-muted) !important; font-size:12px; }
       .sidebar-logout i{ font-size:16px; }
       body.sidebar-collapsed .sidebar{ width:76px; padding-left:10px; padding-right:10px; overflow:visible; }
@@ -14923,7 +14925,7 @@ return `
                 <div class="note">If you upload an image above, that will replace this URL.</div>
                 ${newsletterSettings.headerImageUrl ? `
                   <div class="mini" style="margin-top:12px;">
-                    <img src="${esc(newsletterSettings.headerImageUrl)}" alt="Newsletter header preview" style="display:block; width:100%; max-height:180px; object-fit:cover; border-radius:12px; border:1px solid var(--line); background:#eef4f8;" />
+                    <img src="${esc(newsletterSettings.headerImageUrl)}" alt="Newsletter header preview" style="display:block; width:100%; max-height:180px; object-fit:cover; border-radius:var(--radius-mid); border:1px solid var(--line); background:#eef4f8;" />
                   </div>
                   <div style="margin-top:10px;">
                     <button class="btn danger" type="submit" formaction="/admin/newsletter/header-image/remove" formmethod="post" onclick="return confirm('Remove this header image from the ${esc(selectedNewsletterScope)} newsletter?');">Remove header image</button>
@@ -14986,7 +14988,7 @@ return `
                   </div>
                 </div>
                 ${newsletterPreviewFrameHtml ? `
-                  <div style="border:1px solid var(--line); border-radius:18px; overflow:hidden; background:#dfe7f0;">
+                  <div style="border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; background:#dfe7f0;">
                     <iframe
                       title="Newsletter email preview"
                       srcdoc="${esc(newsletterPreviewFrameHtml)}"
@@ -15354,7 +15356,7 @@ return `
             <div class="tableWrap"><table><thead><tr><th>Update</th><th>Category</th><th>Author</th><th>Status</th><th>Published</th><th>Views</th><th>Actions</th></tr></thead><tbody>${updateRows.length ? updateRows.map((row) => `<tr><td style="min-width:230px;">${row.featuredImageUrl ? `<img src="${esc(row.featuredImageUrl)}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:10px;" />` : ``}<strong>${esc(row.title)}</strong><div class="muted small">${esc(row.city)}</div></td><td>${esc(row.categoryName || "Uncategorized")}</td><td>${esc(row.authorName || "OpenCircle")}</td><td><span class="pill">${esc(row.status)}</span></td><td>${esc(row.publishedAt || row.scheduledFor || "—")}</td><td>${Number(row.views || 0).toLocaleString("en-US")}</td><td><div class="actions"><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}">Edit</a><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}&preview=1">Preview</a><form method="POST" action="/admin/updates/${row.id}/archive?city=${encodeURIComponent(selectedCity)}"><button class="btn" type="submit">Archive</button></form><form method="POST" action="/admin/updates/${row.id}/delete?city=${encodeURIComponent(selectedCity)}" onsubmit="return confirm('Delete this update permanently?');"><button class="btn" type="submit">Delete</button></form></div></td></tr>`).join("") : `<tr><td colspan="7" class="muted">No updates match these filters.</td></tr>`}</tbody></table></div>
           </div>` : ``}
           ${showUpdatesCreate ? `<div class="card"><div class="sectionTitle"><div><h2>${editUpdate ? "Edit update" : "Create update"}</h2><p class="sub">Publication times are entered in the community’s local timezone and stored in UTC.</p></div></div>
-            ${String(req.query.preview || "") === "1" && editUpdate ? `<div class="mini" style="margin-bottom:16px;"><div class="eyebrow">Authorized preview</div><h2>${esc(editUpdate.title)}</h2>${editUpdate.featuredImageUrl ? `<img src="${esc(editUpdate.featuredImageUrl)}" alt="${esc(editUpdate.imageAlt || "")}" style="max-width:520px;border-radius:12px;" />` : ``}<p>${esc(editUpdate.summary || "")}</p><div style="white-space:pre-wrap;">${esc(editUpdate.bodyHtml || "")}</div></div>` : ``}
+            ${String(req.query.preview || "") === "1" && editUpdate ? `<div class="mini" style="margin-bottom:16px;"><div class="eyebrow">Authorized preview</div><h2>${esc(editUpdate.title)}</h2>${editUpdate.featuredImageUrl ? `<img src="${esc(editUpdate.featuredImageUrl)}" alt="${esc(editUpdate.imageAlt || "")}" style="max-width:520px;border-radius:var(--radius-mid);" />` : ``}<p>${esc(editUpdate.summary || "")}</p><div style="white-space:pre-wrap;">${esc(editUpdate.bodyHtml || "")}</div></div>` : ``}
             <form method="POST" action="/admin/updates" enctype="multipart/form-data"><input type="hidden" name="id" value="${esc(editUpdate?.id || "")}" /><div class="formGrid"><label>Title<input class="ctrl" name="title" required maxlength="180" value="${esc(editUpdate?.title || "")}" /></label>${editUpdate ? `<label>URL slug <input class="ctrl" name="slug" maxlength="180" value="${esc(editUpdate.slug || "")}" /><span class="note">Leave unchanged to keep the published URL stable.</span></label>` : ``}<label>Community<select class="ctrl" name="city">${cityOptions}</select></label><label>Category<select class="ctrl" name="categoryId"><option value="">Uncategorized</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(editUpdate?.categoryId || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></label><label>Status<select class="ctrl" name="status">${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(editUpdate?.status || "draft") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select></label><label>Publication date/time<input class="ctrl" type="datetime-local" name="scheduledFor" value="${esc(String(editUpdate?.scheduledFor || "").replace(/Z$/, "").slice(0,16))}" /></label><label>Tags<input class="ctrl" name="tags" maxlength="900" value="${esc((safeParseJson(editUpdate?.tagsJson, []) || []).join(", "))}" placeholder="Comma-separated" /></label></div><label>Summary<textarea class="ctrl" name="summary" maxlength="600" rows="3">${esc(editUpdate?.summary || "")}</textarea></label><label>Main content<textarea class="ctrl" name="bodyHtml" required rows="14" maxlength="100000" placeholder="Use paragraphs, headings, lists, bold, italic, and safe links.">${esc(editUpdate?.bodyHtml || "")}</textarea></label><div class="formGrid"><label>Featured image<input class="ctrl" type="file" name="updateImageFile" accept="image/*" /></label><label>Image alt text<input class="ctrl" name="imageAlt" maxlength="220" value="${esc(editUpdate?.imageAlt || "")}" /></label><label>Related event IDs<input class="ctrl" name="relatedEventIds" value="" placeholder="Example: 12, 34" /></label><label>Related venue IDs<input class="ctrl" name="relatedVenueIds" value="" placeholder="Example: 8, 19" /></label></div>${editUpdate?.featuredImageUrl ? `<label class="checkbox"><input type="checkbox" name="removeImage" value="1" /> Remove current image</label>` : ``}<div class="actions"><button class="btn btn-primary" type="submit">${editUpdate ? "Save update" : "Create update"}</button><a class="btn" href="${buildScopedAdminHref("/admin/updates")}">Cancel</a></div></form>
             <form method="POST" action="/admin/updates/categories?city=${encodeURIComponent(selectedCity)}" class="mini" style="margin-top:22px;"><strong>Add a category for ${esc(selectedCity)}</strong><div class="actions" style="margin-top:8px;"><input class="ctrl" name="name" maxlength="80" required placeholder="Category name" /><button class="btn" type="submit">Add category</button></div></form>
           </div>` : ``}
@@ -17216,6 +17218,21 @@ return `
 
     <script>
       // ---- helpers ----
+      (function(){
+        // Keep creation and addition actions recognizable throughout the
+        // dashboard without touching navigation links or existing icons.
+        document.querySelectorAll("a.btn, button.btn").forEach(function(control){
+          if (control.querySelector(".btn-action-plus, .fa-plus")) return;
+          var label = (control.textContent || "").trim();
+          if (!/^(add|create)\b/i.test(label)) return;
+          var plus = document.createElement("span");
+          plus.className = "btn-action-plus";
+          plus.setAttribute("aria-hidden", "true");
+          plus.textContent = "+";
+          control.insertBefore(plus, control.firstChild);
+        });
+      })();
+
       (function(){
         var body = document.body;
         var toggle = document.getElementById("mobileSidebarToggle");
