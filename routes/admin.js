@@ -13575,7 +13575,7 @@ return `
       .sb-icon::after{ display:none; }
       .sb-top::after{ left:0; right:0; }
       .sb-city-wrap{ width:auto; flex:1; height:34px; margin:0; }
-      .sb-city-btn{ padding:0 4px; font-weight:750; font-size:14px; }
+      .sb-city-btn{ padding:0 4px; font-weight:750; font-size:13px; }
       /* The picker belongs to the sidebar, not just the city-label column. */
       .sb-city-menu{ left:-52px; right:auto; width:calc(100% + 60px); border-radius:10px; margin-top:6px; padding:5px; box-shadow:0 14px 32px rgba(2,6,23,.4); }
       .sb-city-opt{ border-radius:7px; padding:9px 10px; }
@@ -13590,15 +13590,16 @@ return `
       .nav-group{ border-radius:6px; overflow:visible; }
       /* Use one radius for every navigation state so hover, open, and active
          highlights never appear joined or squared off. */
-      .nav-title-btn{ height:44px; padding:0 12px; border-radius:6px !important; color:#cbd5e1 !important; font-weight:600; transition:background .16s ease,color .16s ease; }
-      .nav-title-btn .nav-title-icon{ width:21px; margin-right:11px; font-size:17px; color:#aebbd0; }
+      .nav-title-btn{ height:44px; padding:0 12px; border-radius:6px !important; color:#cbd5e1 !important; font-size:13px; font-weight:600; transition:background .16s ease,color .16s ease; }
+      /* Keep the label column aligned with the city selector and submenu labels. */
+      .nav-title-btn .nav-title-icon{ width:21px; margin-right:6px; font-size:17px; color:#aebbd0; }
       .nav-title-btn:hover{ background:rgba(148,163,184,.12); }
       .nav-group.is-open > .nav-title-btn{ background:rgba(0,192,139,.16); color:#f8fffd !important; border:1px solid rgba(0,192,139,.16); }
       .nav-group.is-open > .nav-title-btn .nav-title-icon{ color:#36ddb1; }
       .nav-group > .nav-title-btn::after{ content:"\\f104"; display:block; margin-left:auto; width:auto; height:auto; border:0; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:11px; color:#93a3ba; transform:none; }
       .nav-group.is-open > .nav-title-btn::after{ content:"\\f107"; width:auto; height:auto; border:0; top:50%; transform:translateY(-50%); color:#d5fff2; }
-      .nav-sub{ margin:5px 0 0 12px; width:calc(100% - 12px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
-      .subnav-link{ min-height:34px; padding:7px 10px; border-radius:6px; color:#93a3ba !important; font-size:13px; }
+      .nav-sub{ margin:5px 0 0 26px; width:calc(100% - 26px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
+      .subnav-link{ min-height:34px; padding:7px 10px; border-radius:6px; color:#93a3ba !important; font-size:12px; }
       .subnav-link:hover{ background:rgba(148,163,184,.12); color:#fff !important; }
       .subnav-link.active{ color:#fff !important; background:rgba(148,163,184,.13) !important; }
       .sb-bottom{ padding:0 4px; }
