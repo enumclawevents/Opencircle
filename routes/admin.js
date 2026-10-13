@@ -13548,10 +13548,13 @@ return `
         transition:width .22s ease, padding .22s ease;
       }
       .sidebar-collapse-toggle{
-        position:absolute;
+        /* Keep the control out of the sidebar's scrollable clipping area so it
+           remains above the page panel at every scroll position. */
+        position:fixed;
         top:76px;
-        right:-15px;
-        z-index:4;
+        left:237px;
+        right:auto;
+        z-index:200;
         width:30px;
         height:38px;
         display:flex;
@@ -13574,7 +13577,10 @@ return `
       .sb-city-btn{ padding:0 4px; font-weight:750; font-size:14px; }
       .sb-city-menu{ border-radius:10px; margin-top:6px; padding:5px; box-shadow:0 14px 32px rgba(2,6,23,.4); }
       .sb-city-opt{ border-radius:7px; padding:9px 10px; }
-      .nav{ width:100%; margin:0; gap:5px; }
+      .nav{ width:100%; margin:0; gap:2px; }
+      /* Group separation is carried by the compact gap above, rather than
+         horizontal rules between every top-level item. */
+      .nav > .sb-divider{ display:none; }
       .sb-divider{ margin:8px 4px; background:rgba(148,163,184,.17); }
       .nav-group{ border-radius:10px; overflow:hidden; }
       .nav-title-btn{ height:44px; padding:0 12px; border-radius:10px; color:#cbd5e1 !important; font-weight:600; transition:background .16s ease,color .16s ease; }
@@ -13598,7 +13604,7 @@ return `
       body.sidebar-collapsed .nav-sub,
       body.sidebar-collapsed .sidebar .sb-bottom .subnav-link:not([href="/logout"]),
       body.sidebar-collapsed .sidebar .sb-bottom .sb-divider{ display:none !important; }
-      body.sidebar-collapsed .nav{ gap:8px; }
+      body.sidebar-collapsed .nav{ gap:4px; }
       body.sidebar-collapsed .nav-group{ overflow:visible; }
       body.sidebar-collapsed .nav-title-btn{ width:56px; height:48px; justify-content:center; padding:0; border-radius:10px; }
       body.sidebar-collapsed .nav-title-btn .nav-title-icon{ width:auto; margin:0; font-size:19px; }
@@ -13607,7 +13613,7 @@ return `
       body.sidebar-collapsed .sb-bottom{ display:flex; justify-content:center; padding:0; }
       body.sidebar-collapsed .sb-bottom .subnav-link[href="/logout"]{ width:48px; overflow:hidden; font-size:0; justify-content:center; }
       body.sidebar-collapsed .sb-bottom .subnav-link[href="/logout"]::before{ content:"\\f2f5"; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:17px; }
-      body.sidebar-collapsed .sidebar-collapse-toggle{ right:-15px; }
+      body.sidebar-collapsed .sidebar-collapse-toggle{ left:61px; }
       body.sidebar-collapsed .sidebar-collapse-toggle i{ transform:rotate(180deg); }
       @media (max-width:1100px){ .sidebar-collapse-toggle{ display:none; } body.sidebar-collapsed .sidebar{ width:220px; padding:5px 18px 18px; } }
 </style>
@@ -17240,7 +17246,13 @@ return `
             // The right edge acts as a disclosure control; the remainder remains a normal navigation link.
             if (event.offsetX < titleLink.clientWidth - 42) return;
             event.preventDefault();
-            group.classList.toggle("is-open");
+            var wasOpen = group.classList.contains("is-open");
+            // This navigation is an accordion: expanding a section always
+            // collapses every other section before revealing the requested one.
+            groups.forEach(function(other){
+              other.classList.remove("is-open");
+            });
+            if (!wasOpen) group.classList.add("is-open");
           });
         });
         groups.forEach(function(group){
