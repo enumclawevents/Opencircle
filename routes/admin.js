@@ -10500,8 +10500,7 @@ return `
         transition:max-height .2s ease, opacity .15s ease, padding .2s ease;
         z-index:1;
       }
-      .nav-group.is-open .nav-sub,
-      .nav-group:focus-within .nav-sub{
+      .nav-group.is-open .nav-sub{
         max-height:900px;
         opacity:1;
         padding: 0;
@@ -13588,10 +13587,10 @@ return `
       .sb-divider{ margin:8px 4px; background:rgba(148,163,184,.17); }
       /* The submenu handles its own clipping. Keeping the group visible lets
          the active top-level tab retain rounded lower corners. */
-      .nav-group{ border-radius:12px; overflow:visible; }
+      .nav-group{ border-radius:6px; overflow:visible; }
       /* Use one radius for every navigation state so hover, open, and active
          highlights never appear joined or squared off. */
-      .nav-title-btn{ height:44px; padding:0 12px; border-radius:12px !important; color:#cbd5e1 !important; font-weight:600; transition:background .16s ease,color .16s ease; }
+      .nav-title-btn{ height:44px; padding:0 12px; border-radius:6px !important; color:#cbd5e1 !important; font-weight:600; transition:background .16s ease,color .16s ease; }
       .nav-title-btn .nav-title-icon{ width:21px; margin-right:11px; font-size:17px; color:#aebbd0; }
       .nav-title-btn:hover{ background:rgba(148,163,184,.12); }
       .nav-group.is-open > .nav-title-btn{ background:rgba(0,192,139,.16); color:#f8fffd !important; border:1px solid rgba(0,192,139,.16); }
@@ -13599,7 +13598,7 @@ return `
       .nav-group > .nav-title-btn::after{ content:"\\f104"; display:block; margin-left:auto; width:auto; height:auto; border:0; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:11px; color:#93a3ba; transform:none; }
       .nav-group.is-open > .nav-title-btn::after{ content:"\\f107"; width:auto; height:auto; border:0; top:50%; transform:translateY(-50%); color:#d5fff2; }
       .nav-sub{ margin:5px 0 0 12px; width:calc(100% - 12px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
-      .subnav-link{ min-height:34px; padding:7px 10px; border-radius:12px; color:#93a3ba !important; font-size:13px; }
+      .subnav-link{ min-height:34px; padding:7px 10px; border-radius:6px; color:#93a3ba !important; font-size:13px; }
       .subnav-link:hover{ background:rgba(148,163,184,.12); color:#fff !important; }
       .subnav-link.active{ color:#fff !important; background:rgba(148,163,184,.13) !important; }
       .sb-bottom{ padding:0 4px; }
@@ -13616,7 +13615,7 @@ return `
       body.sidebar-collapsed .sidebar .sb-bottom .sb-divider{ display:none !important; }
       body.sidebar-collapsed .nav{ gap:4px; }
       body.sidebar-collapsed .nav-group{ overflow:visible; }
-      body.sidebar-collapsed .nav-title-btn{ width:56px; height:48px; justify-content:center; padding:0; border-radius:12px !important; }
+      body.sidebar-collapsed .nav-title-btn{ width:56px; height:48px; justify-content:center; padding:0; border-radius:6px !important; }
       body.sidebar-collapsed .nav-title-btn .nav-title-icon{ width:auto; margin:0; font-size:19px; }
       body.sidebar-collapsed .nav-title-btn::after{ display:none; }
       body.sidebar-collapsed .sb-divider{ margin:8px 4px; }
