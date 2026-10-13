@@ -13672,9 +13672,70 @@ return `
       body.sidebar-collapsed .sidebar-collapse-toggle{ left:61px; }
       body.sidebar-collapsed .sidebar-collapse-toggle i{ transform:rotate(180deg); }
       @media (max-width:1100px){ .sidebar-collapse-toggle{ display:none; } body.sidebar-collapsed .sidebar{ width:220px; padding:5px 18px 18px; } }
+
+      .sidebar-theme-toggle{
+        width:100%; min-height:40px; display:inline-flex; align-items:center; justify-content:center; gap:8px;
+        padding:8px 10px; border:1px solid rgba(148,163,184,.2); border-radius:var(--radius-mid);
+        background:rgba(148,163,184,.08); color:var(--sidebar-text); font:inherit; font-size:12px; cursor:pointer;
+      }
+      .sidebar-theme-toggle:hover{ background:rgba(148,163,184,.16); color:#fff; }
+      .sidebar-theme-toggle:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; }
+      .sidebar-theme-toggle i{ font-size:15px; color:#facc15; }
+      body.sidebar-collapsed .sidebar-theme-toggle{ width:48px; height:48px; min-height:48px; padding:0; }
+      body.sidebar-collapsed .sidebar-theme-toggle span{ display:none; }
+
+      /* App-wide dark theme. Most dashboard components already inherit these
+         tokens; the explicit selectors cover legacy panels with white fills. */
+      body.theme-dark{
+        --bg:#0a1020;
+        --panel:#111a2b;
+        --panel2:#172338;
+        --text:#e7eef8;
+        --muted:#aab9ce;
+        --line:rgba(148,163,184,.25);
+        --shadow:0 12px 28px rgba(0,0,0,.24);
+      }
+      body.theme-dark .main,
+      body.theme-dark .header,
+      body.theme-dark .card,
+      body.theme-dark .metric,
+      body.theme-dark .mini,
+      body.theme-dark .tableWrap,
+      body.theme-dark .message-user-link,
+      body.theme-dark .message-bubble,
+      body.theme-dark .messages-profile,
+      body.theme-dark .users-filter-group,
+      body.theme-dark .users-filter-button.is-active,
+      body.theme-dark .users-table,
+      body.theme-dark .global-search-results,
+      body.theme-dark .account-menu-link,
+      body.theme-dark .header-account-dropdown,
+      body.theme-dark .sb-city-menu{ background:var(--panel) !important; color:var(--text); border-color:var(--line); }
+      body.theme-dark .tableWrap,
+      body.theme-dark .users-table,
+      body.theme-dark table{ border-color:var(--line); }
+      body.theme-dark th{ background:var(--panel2); color:var(--muted); border-color:var(--line); }
+      body.theme-dark td{ border-color:var(--line); }
+      body.theme-dark tr:hover td{ background:rgba(148,163,184,.08); }
+      body.theme-dark .btn:not(.btn-primary):not(.btn-danger),
+      body.theme-dark .seg button,
+      body.theme-dark .pill,
+      body.theme-dark .chip{ background:var(--panel2); color:var(--text); border-color:var(--line); }
+      body.theme-dark .btn:not(.btn-primary):not(.btn-danger):hover,
+      body.theme-dark .seg button:hover{ background:#22314a; }
+      body.theme-dark input,
+      body.theme-dark textarea,
+      body.theme-dark select,
+      body.theme-dark .users-search input{ background:var(--panel2) !important; color:var(--text) !important; border-color:var(--line) !important; }
+      body.theme-dark input::placeholder,
+      body.theme-dark textarea::placeholder{ color:#90a1ba; }
+      body.theme-dark .message-bubble.mine{ background:rgba(0,192,139,.14); }
+      body.theme-dark .sidebar-theme-toggle{ background:rgba(250,204,21,.12); border-color:rgba(250,204,21,.24); }
+      body.theme-dark .sidebar-theme-toggle i{ color:#fde68a; }
 </style>
   </head>
   <body>
+    <script>try{if(localStorage.getItem("oc-admin-theme") === "dark")document.body.classList.add("theme-dark");}catch(_){}</script>
     <div class="app">
       <button type="button" class="sidebar-backdrop" id="sidebarBackdrop" aria-label="Close sidebar"></button>
 
@@ -13807,6 +13868,7 @@ return `
 
         <div class="sb-bottom">
           <div class="sb-divider"></div>
+          <button type="button" class="sidebar-theme-toggle" id="themeToggle" aria-pressed="false" title="Switch to dark mode"><i class="fa-solid fa-moon" aria-hidden="true"></i><span>Dark mode</span></button>
           <div style="margin-top:4px; text-align:center;">
             <a class="subnav-link sidebar-logout" href="/logout"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i><span>Log out</span></a>
           </div>
@@ -17446,6 +17508,29 @@ return `
         });
         window.addEventListener("resize", function(){
           if (window.innerWidth <= 1100) body.classList.remove("sidebar-collapsed");
+        });
+      })();
+
+      (function(){
+        var body = document.body;
+        var toggle = document.getElementById("themeToggle");
+        if (!body || !toggle) return;
+        var storageKey = "oc-admin-theme";
+        var icon = toggle.querySelector("i");
+        var label = toggle.querySelector("span");
+        function apply(isDark){
+          body.classList.toggle("theme-dark", isDark);
+          toggle.setAttribute("aria-pressed", isDark ? "true" : "false");
+          toggle.title = isDark ? "Switch to light mode" : "Switch to dark mode";
+          if (icon) icon.className = isDark ? "fa-solid fa-sun" : "fa-solid fa-moon";
+          if (label) label.textContent = isDark ? "Light mode" : "Dark mode";
+        }
+        var isDark = body.classList.contains("theme-dark");
+        apply(isDark);
+        toggle.addEventListener("click", function(){
+          isDark = !body.classList.contains("theme-dark");
+          apply(isDark);
+          try { localStorage.setItem(storageKey, isDark ? "dark" : "light"); } catch (_) {}
         });
       })();
 
