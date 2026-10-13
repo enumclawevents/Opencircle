@@ -17254,6 +17254,9 @@ return `
           var titleLink = group.querySelector(".nav-title-btn");
           if (!titleLink) return;
           titleLink.addEventListener("click", function(event){
+            // In icon-only mode the whole control is a navigation link; there
+            // is no visible disclosure target to operate.
+            if (document.body.classList.contains("sidebar-collapsed")) return;
             // The right edge acts as a disclosure control; the remainder remains a normal navigation link.
             if (event.offsetX < titleLink.clientWidth - 42) return;
             event.preventDefault();
