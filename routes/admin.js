@@ -10218,6 +10218,11 @@ return `
         --sidebar-line:rgba(240,246,252,.08);
       }
 
+      html{
+        min-height:100%;
+        background:var(--bg);
+        overscroll-behavior:none;
+      }
       *{ box-sizing:border-box; }
       body{
         margin:0;
@@ -10225,6 +10230,7 @@ return `
         color:var(--text);
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
         line-height:1.45;
+        overscroll-behavior:none;
       }
 
       /* Layout */
@@ -13601,9 +13607,9 @@ return `
       .nav-group > .nav-title-btn::after{ content:"\\f104"; display:block; margin-left:auto; width:auto; height:auto; border:0; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:11px; color:#93a3ba; transform:none; }
       .nav-group.is-open > .nav-title-btn::after{ content:"\\f107"; width:auto; height:auto; border:0; top:50%; transform:translateY(-50%); color:#d5fff2; }
       .nav-sub{ margin:5px 0 0 26px; width:calc(100% - 26px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
-      .subnav-link{ min-height:34px; padding:7px 10px; border-radius:6px; color:#93a3ba !important; font-size:12px !important; font-weight:400; }
+      .subnav-link{ min-height:34px; padding:7px 10px; border-radius:6px; color:#aebbd0 !important; font-size:12px !important; font-weight:400; }
       .subnav-link:hover{ background:rgba(148,163,184,.12); color:#fff !important; }
-      .subnav-link.active{ color:#fff !important; background:rgba(148,163,184,.13) !important; font-size:12px !important; font-weight:500; }
+      .subnav-link.active{ color:#aebbd0 !important; background:rgba(148,163,184,.13) !important; font-size:12px !important; font-weight:500; }
       .sb-bottom{ padding:0 4px; }
       .sidebar .sb-bottom .subnav-link{ padding:10px; border-radius:var(--radius-mid); }
       .sidebar-logout{ display:inline-flex !important; align-items:center; justify-content:center; gap:8px; color:var(--sidebar-muted) !important; font-size:12px; }
