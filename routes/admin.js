@@ -4846,29 +4846,84 @@ try {
   else orderBySql = "startDateTime ASC";
 }
 
+// A recurring series' stored start date is its original anchor, not necessarily
+// the next time it will happen. For the date/time sort, load the matching rows
+// first so recurrence rules can supply the next actual occurrence before we
+// paginate the ordered result.
+const recurrenceAwareDateSort = sort === "datetime";
+const recurrenceSelectSql = [
+  colsForWhere.has("endDateTime") ? "endDateTime" : "NULL AS endDateTime",
+  colsForWhere.has("hasRecurrence") ? "hasRecurrence" : "0 AS hasRecurrence",
+  colsForWhere.has("recurrenceRule") ? "recurrenceRule" : "NULL AS recurrenceRule",
+  colsForWhere.has("recurrenceDates") ? "recurrenceDates" : "NULL AS recurrenceDates",
+  colsForWhere.has("recurrenceStartDate") ? "recurrenceStartDate" : "NULL AS recurrenceStartDate",
+  colsForWhere.has("recurrenceUntilDate") ? "recurrenceUntilDate" : "NULL AS recurrenceUntilDate",
+].join(",\n            ");
+
+function sortEventsByNextOccurrence(rows) {
+  const nowUtcMs = Date.now();
+  // This matches the event-selection horizon used elsewhere in the dashboard,
+  // while leaving series with no upcoming occurrence after the dated events.
+  const occurrenceWindowEndUtcMs = nowUtcMs + (370 * 24 * 60 * 60 * 1000);
+  return (Array.isArray(rows) ? rows : [])
+    .map((event) => {
+      let sortDateUtcMs = Date.parse(String(event?.startDateTime || "").trim());
+      let nextOccurrenceStartDateTime = "";
+      const isRecurring = Number(event?.hasRecurrence || 0) === 1 || hasRecurringData(event);
+      if (isRecurring && hasRecurringData(event)) {
+        const eventEndUtcMs = Date.parse(String(event?.endDateTime || "").trim());
+        const eventDurationMs = Number.isFinite(sortDateUtcMs) && Number.isFinite(eventEndUtcMs)
+          ? Math.max(0, eventEndUtcMs - sortDateUtcMs)
+          : 0;
+        const nextOccurrence = generateAdminOccurrences(event, nowUtcMs - eventDurationMs, occurrenceWindowEndUtcMs)
+          .find((occurrence) => {
+            const startUtcMs = Date.parse(String(occurrence?.startDateTime || "").trim());
+            const endUtcMs = Date.parse(String(occurrence?.endDateTime || occurrence?.startDateTime || "").trim());
+            return Number.isFinite(startUtcMs) && Number.isFinite(endUtcMs) && endUtcMs >= nowUtcMs;
+          });
+        sortDateUtcMs = nextOccurrence
+          ? Date.parse(String(nextOccurrence.startDateTime || "").trim())
+          : Number.POSITIVE_INFINITY;
+        nextOccurrenceStartDateTime = String(nextOccurrence?.startDateTime || "").trim();
+      }
+      return { event: { ...event, nextOccurrenceStartDateTime }, sortDateUtcMs };
+    })
+    .sort((a, b) => {
+      const aDate = Number.isFinite(a.sortDateUtcMs) ? a.sortDateUtcMs : Number.POSITIVE_INFINITY;
+      const bDate = Number.isFinite(b.sortDateUtcMs) ? b.sortDateUtcMs : Number.POSITIVE_INFINITY;
+      return aDate - bDate || Number(a.event?.id || 0) - Number(b.event?.id || 0);
+    })
+    .map(({ event }) => event);
+}
+
 // ✅ Resilient list query: supports optional columns
 let events = [];
 try {
-  events = await all(
+  const listRows = await all(
     `SELECT id, slug, title, startDateTime, location, featured, eddiesPick,
             goingCount, interestedCount, viewCount, uniqueViewCount, lastViewedAt, imageUrl,
+            ${recurrenceSelectSql},
             ${selectArchived}, ${selectArchivedAt}
      FROM events
      ${whereSql}
-     ORDER BY ${orderBySql}
-     LIMIT ? OFFSET ?`,
-    [...whereParams, limit, offset]
+     ORDER BY ${orderBySql}${recurrenceAwareDateSort ? "" : "\n     LIMIT ? OFFSET ?"}`,
+    recurrenceAwareDateSort ? whereParams : [...whereParams, limit, offset]
   );
+  events = recurrenceAwareDateSort
+    ? sortEventsByNextOccurrence(listRows).slice(offset, offset + limit)
+    : listRows;
 } catch (err) {
-  events = await all(
+  const listRows = await all(
     `SELECT id, slug, title, startDateTime, location, featured, eddiesPick
      FROM events
      ${whereSql}
-     ORDER BY ${orderBySql}
-     LIMIT ? OFFSET ?`,
-    [...whereParams, limit, offset]
+     ORDER BY ${orderBySql}${recurrenceAwareDateSort ? "" : "\n     LIMIT ? OFFSET ?"}`,
+    recurrenceAwareDateSort ? whereParams : [...whereParams, limit, offset]
   );
-  events = events.map((x) => ({
+  events = (recurrenceAwareDateSort
+    ? sortEventsByNextOccurrence(listRows).slice(offset, offset + limit)
+    : listRows
+  ).map((x) => ({
     ...x,
     goingCount: 0,
     interestedCount: 0,
@@ -5140,7 +5195,7 @@ return `
 
         <div class="event-meta">
           <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
-          <div><strong>Start:</strong> ${esc(e.startDateTime)}</div>
+          <div><strong>${e.nextOccurrenceStartDateTime ? "Next" : "Start"}:</strong> ${esc(e.nextOccurrenceStartDateTime || e.startDateTime)}</div>
           <div><strong>Location:</strong> ${esc(e.location)}</div>
         </div>
       </div>
