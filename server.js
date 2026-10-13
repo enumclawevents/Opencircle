@@ -542,9 +542,13 @@ app.get("/invite", async (req, res) => {
         .help:hover .help-text,.help:focus .help-text{opacity:1; transform:translate(-50%, 0);}
         input{width:100%; box-sizing:border-box; margin:6px 0 20px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
         .password-guidance{margin:-10px 0 14px; color:#9ca3af; font-size:12px; line-height:1.45;}
-        .strength{height:5px; margin:8px 0 6px; overflow:hidden; border-radius:999px; background:#334155;}
-        .strength > span{display:block; width:0; height:100%; border-radius:inherit; background:#ef4444; transition:width .15s ease, background .15s ease;}
         .strength-label{font-size:12px; color:#9ca3af;}
+        .strength-label strong{font-weight:500; color:#94a3b8;}
+        .password-requirements{display:grid; gap:5px; margin:7px 0 18px; padding:0; list-style:none; color:#9ca3af; font-size:12px;}
+        .password-requirement{display:flex; align-items:center; gap:8px;}
+        .password-requirement::before{content:""; width:9px; height:9px; flex:0 0 auto; border-radius:50%; background:#64748b; transition:background .15s ease;}
+        .password-requirement.met{color:#86efac;}
+        .password-requirement.met::before{background:#22c55e;}
         .terms{display:flex; align-items:flex-start; gap:8px; margin:2px 0 20px; color:#cbd5e1; font-size:12px; line-height:1.4;}
         .terms input{width:15px; height:15px; flex:0 0 auto; margin:1px 0 0; padding:0;}
         button{width:100%; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
@@ -561,11 +565,16 @@ app.get("/invite", async (req, res) => {
         <input name="username" type="text" autocomplete="username" required />
         <label>Password</label>
         <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required />
-        <div class="password-guidance">Use at least 8 characters. For a stronger password, use 12 or more characters with uppercase and lowercase letters, a number, and a symbol.</div>
-        <div class="strength" aria-hidden="true"><span id="passwordStrengthBar"></span></div>
-        <div id="passwordStrengthLabel" class="strength-label" aria-live="polite">Password strength: not entered</div>
         <label>Confirm password</label>
         <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+        <div class="password-guidance">For a stronger password, use 12 or more characters and meet the recommendations below.</div>
+        <div class="strength-label" aria-live="polite">Password strength: <strong id="passwordStrengthLabel">Not entered</strong></div>
+        <ul class="password-requirements" aria-label="Password recommendations">
+          <li class="password-requirement" data-password-rule="length">At least 8 characters</li>
+          <li class="password-requirement" data-password-rule="letterCase">Uppercase and lowercase character</li>
+          <li class="password-requirement" data-password-rule="special">One special character</li>
+          <li class="password-requirement" data-password-rule="number">One number</li>
+        </ul>
         <label class="terms"><input name="agreeToTerms" type="checkbox" value="yes" required /> <span>I agree to the Terms of Use.</span></label>
         <button type="submit">+ Create account</button>
       </form>
@@ -573,21 +582,29 @@ app.get("/invite", async (req, res) => {
         (function () {
           var password = document.getElementById("password");
           var confirmation = document.getElementById("confirmPassword");
-          var bar = document.getElementById("passwordStrengthBar");
           var label = document.getElementById("passwordStrengthLabel");
+          var requirements = {
+            length: document.querySelector('[data-password-rule="length"]'),
+            letterCase: document.querySelector('[data-password-rule="letterCase"]'),
+            special: document.querySelector('[data-password-rule="special"]'),
+            number: document.querySelector('[data-password-rule="number"]')
+          };
           function updatePasswordStatus() {
             var value = password.value;
-            var score = 0;
-            if (value.length >= 8) score += 1;
-            if (value.length >= 12) score += 1;
-            if (/[a-z]/.test(value) && /[A-Z]/.test(value)) score += 1;
-            if (/\\d/.test(value)) score += 1;
-            if (/[^A-Za-z0-9]/.test(value)) score += 1;
-            var states = ["not entered", "weak", "fair", "good", "strong", "very strong"];
-            var colors = ["#334155", "#ef4444", "#f97316", "#eab308", "#22c55e", "#00c08b"];
-            bar.style.width = (score * 20) + "%";
-            bar.style.background = colors[score];
-            label.textContent = "Password strength: " + states[score];
+            var met = {
+              length: value.length >= 8,
+              letterCase: /[a-z]/.test(value) && /[A-Z]/.test(value),
+              special: /[^A-Za-z0-9]/.test(value),
+              number: /\\d/.test(value)
+            };
+            var score = Object.keys(met).filter(function (key) { return met[key]; }).length;
+            Object.keys(met).forEach(function (key) {
+              requirements[key].classList.toggle("met", met[key]);
+            });
+            var state = !value ? "Not entered" : (score <= 1 ? "Weak" : score === 2 ? "Fair" : score === 3 ? "Good" : value.length >= 12 ? "Strong" : "Good");
+            var colors = { "Not entered": "#94a3b8", Weak: "#f87171", Fair: "#fb923c", Good: "#facc15", Strong: "#86efac" };
+            label.textContent = state;
+            label.style.color = colors[state];
             confirmation.setCustomValidity(confirmation.value && confirmation.value !== value ? "Passwords do not match." : "");
           }
           password.addEventListener("input", updatePasswordStatus);
