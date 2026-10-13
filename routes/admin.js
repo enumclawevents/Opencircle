@@ -13538,6 +13538,78 @@ return `
       @media (max-width: 560px){ .updates-filters{ grid-template-columns:1fr; } .updates-filters .btn{ width:100%; } }
       @media (max-width: 900px){ #updates .card > form.filters{ grid-template-columns:1fr 1fr; } }
       @media (max-width: 560px){ #updates .card > form.filters{ grid-template-columns:1fr; } #updates .card > form.filters .btn{ width:100%; } }
+      /* Refined OpenCircle sidebar: retains the existing permission-aware links while
+         supporting a compact icon-only working mode on desktop. */
+      .sidebar{
+        width:252px;
+        padding:16px 12px 14px;
+        background:linear-gradient(180deg,#0f172a 0%,#0b1220 100%);
+        box-shadow:inset -1px 0 rgba(255,255,255,.035);
+        transition:width .22s ease, padding .22s ease;
+      }
+      .sidebar-collapse-toggle{
+        position:absolute;
+        top:76px;
+        right:-15px;
+        z-index:4;
+        width:30px;
+        height:38px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        border:1px solid rgba(148,163,184,.35);
+        border-radius:10px;
+        background:#182235;
+        color:#d8e1ed;
+        box-shadow:0 6px 14px rgba(2,6,23,.22);
+        cursor:pointer;
+      }
+      .sidebar-collapse-toggle:hover{ background:#22304a; color:#fff; }
+      .sb-brand{ margin:0 0 14px; padding:0 8px 14px; }
+      .sb-top{ min-height:42px; gap:10px; }
+      .sb-icon{ width:34px; height:34px; flex-basis:34px; border-radius:10px; background:rgba(255,255,255,.035); }
+      .sb-icon::after{ display:none; }
+      .sb-top::after{ left:0; right:0; }
+      .sb-city-wrap{ width:auto; flex:1; height:34px; margin:0; }
+      .sb-city-btn{ padding:0 4px; font-weight:750; font-size:14px; }
+      .sb-city-menu{ border-radius:10px; margin-top:6px; padding:5px; box-shadow:0 14px 32px rgba(2,6,23,.4); }
+      .sb-city-opt{ border-radius:7px; padding:9px 10px; }
+      .nav{ width:100%; margin:0; gap:5px; }
+      .sb-divider{ margin:8px 4px; background:rgba(148,163,184,.17); }
+      .nav-group{ border-radius:10px; overflow:hidden; }
+      .nav-title-btn{ height:44px; padding:0 12px; border-radius:10px; color:#cbd5e1 !important; font-weight:600; transition:background .16s ease,color .16s ease; }
+      .nav-title-btn .nav-title-icon{ width:21px; margin-right:11px; font-size:17px; color:#aebbd0; }
+      .nav-title-btn:hover{ background:rgba(148,163,184,.12); }
+      .nav-group.is-open > .nav-title-btn{ background:rgba(0,192,139,.16); color:#f8fffd !important; border:1px solid rgba(0,192,139,.16); }
+      .nav-group.is-open > .nav-title-btn .nav-title-icon{ color:#36ddb1; }
+      .nav-group > .nav-title-btn::after{ content:"\\f107"; display:block; margin-left:auto; width:auto; height:auto; border:0; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:11px; color:#93a3ba; transform:none; }
+      .nav-group.is-open > .nav-title-btn::after{ transform:rotate(180deg); color:#d5fff2; }
+      .nav-sub{ margin:3px 0 0 12px; width:calc(100% - 12px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
+      .subnav-link{ min-height:34px; padding:7px 10px; border-radius:7px; color:#93a3ba !important; font-size:13px; }
+      .subnav-link:hover{ background:rgba(148,163,184,.12); color:#fff !important; }
+      .subnav-link.active{ color:#fff !important; background:rgba(148,163,184,.13) !important; }
+      .sb-bottom{ padding:0 4px; }
+      .sidebar .sb-bottom .subnav-link{ padding:10px; border-radius:8px; }
+      body.sidebar-collapsed .sidebar{ width:76px; padding-left:10px; padding-right:10px; overflow:visible; }
+      body.sidebar-collapsed .sb-brand{ padding-left:10px; padding-right:10px; justify-content:center; }
+      body.sidebar-collapsed .sb-top{ justify-content:center; }
+      body.sidebar-collapsed .sb-city-wrap,
+      body.sidebar-collapsed .nav-title-btn > span,
+      body.sidebar-collapsed .nav-sub,
+      body.sidebar-collapsed .sidebar .sb-bottom .subnav-link:not([href="/logout"]),
+      body.sidebar-collapsed .sidebar .sb-bottom .sb-divider{ display:none !important; }
+      body.sidebar-collapsed .nav{ gap:8px; }
+      body.sidebar-collapsed .nav-group{ overflow:visible; }
+      body.sidebar-collapsed .nav-title-btn{ width:56px; height:48px; justify-content:center; padding:0; border-radius:10px; }
+      body.sidebar-collapsed .nav-title-btn .nav-title-icon{ width:auto; margin:0; font-size:19px; }
+      body.sidebar-collapsed .nav-title-btn::after{ display:none; }
+      body.sidebar-collapsed .sb-divider{ margin:8px 4px; }
+      body.sidebar-collapsed .sb-bottom{ display:flex; justify-content:center; padding:0; }
+      body.sidebar-collapsed .sb-bottom .subnav-link[href="/logout"]{ width:48px; overflow:hidden; font-size:0; justify-content:center; }
+      body.sidebar-collapsed .sb-bottom .subnav-link[href="/logout"]::before{ content:"\\f2f5"; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:17px; }
+      body.sidebar-collapsed .sidebar-collapse-toggle{ right:-15px; }
+      body.sidebar-collapsed .sidebar-collapse-toggle i{ transform:rotate(180deg); }
+      @media (max-width:1100px){ .sidebar-collapse-toggle{ display:none; } body.sidebar-collapsed .sidebar{ width:220px; padding:5px 18px 18px; } }
 </style>
   </head>
   <body>
@@ -13546,6 +13618,7 @@ return `
 
       <!-- Sidebar -->
       <aside class="sidebar" id="adminSidebar">
+        <button type="button" class="sidebar-collapse-toggle" id="sidebarCollapseToggle" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
         <div class="sb-brand">
           <div class="sb-top">
           <div class="sb-icon">
@@ -17161,6 +17234,16 @@ return `
         var groups = document.querySelectorAll("[data-nav-group]");
         if (!groups || !groups.length) return;
         groups.forEach(function(group){
+          var titleLink = group.querySelector(".nav-title-btn");
+          if (!titleLink) return;
+          titleLink.addEventListener("click", function(event){
+            // The right edge acts as a disclosure control; the remainder remains a normal navigation link.
+            if (event.offsetX < titleLink.clientWidth - 42) return;
+            event.preventDefault();
+            group.classList.toggle("is-open");
+          });
+        });
+        groups.forEach(function(group){
           var toggle = group.querySelector("[data-nav-toggle]");
           if (!toggle) return;
           toggle.addEventListener("click", function(){
@@ -17185,6 +17268,34 @@ return `
             group.classList.remove("is-open");
             t.setAttribute("aria-expanded", "false");
           });
+        });
+      })();
+
+      (function(){
+        var body = document.body;
+        var sidebar = document.getElementById("adminSidebar");
+        var toggle = document.getElementById("sidebarCollapseToggle");
+        if (!body || !sidebar || !toggle) return;
+        var storageKey = "oc-admin-sidebar-collapsed";
+        function apply(collapsed){
+          body.classList.toggle("sidebar-collapsed", collapsed);
+          toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+          toggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+          toggle.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+          sidebar.querySelectorAll(".nav-title-btn").forEach(function(link){
+            var label = (link.textContent || "").trim();
+            if (label) link.title = collapsed ? label : "";
+          });
+        }
+        try { apply(localStorage.getItem(storageKey) === "1"); } catch (_) { apply(false); }
+        toggle.addEventListener("click", function(){
+          if (window.innerWidth <= 1100) return;
+          var next = !body.classList.contains("sidebar-collapsed");
+          apply(next);
+          try { localStorage.setItem(storageKey, next ? "1" : "0"); } catch (_) {}
+        });
+        window.addEventListener("resize", function(){
+          if (window.innerWidth <= 1100) body.classList.remove("sidebar-collapsed");
         });
       })();
 
