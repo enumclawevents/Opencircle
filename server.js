@@ -519,8 +519,9 @@ app.get("/invite", async (req, res) => {
   }
 
   const presetEmail = invite.email ? String(invite.email) : "";
-  const accountNameLabel = String(invite.role || "organizer").trim().toLowerCase() === "organizer"
-    ? "Organizer name"
+  const isOrganizerInvite = String(invite.role || "organizer").trim().toLowerCase() === "organizer";
+  const accountNameLabel = isOrganizerInvite
+    ? `Organizer name <span class="help" tabindex="0" aria-label="Organizer name help">?<span class="help-text" role="tooltip">This name will be used as the organizer for every event submitted from this account and cannot be changed. Example: Enumclaw Rotary Club.</span></span>`
     : "Username";
 
   const html = `<!doctype html>
@@ -536,7 +537,16 @@ app.get("/invite", async (req, res) => {
         .title{font-size:22px; font-weight:700; margin:0 0 6px; color:#e5e7eb; text-align:center;}
         .subtitle{font-size:13px; color:#9ca3af; margin:0 0 22px; text-align:center;}
         label{font-size:12px; color:#9ca3af;}
+        .help{position:relative; display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; margin-left:4px; border:1px solid #9ca3af; border-radius:50%; color:#cbd5e1; font-size:10px; font-weight:700; line-height:1; cursor:help; vertical-align:middle;}
+        .help-text{position:absolute; z-index:2; left:50%; bottom:calc(100% + 8px); width:240px; padding:9px 10px; border-radius:8px; background:#020617; color:#e5e7eb; box-shadow:0 8px 20px rgba(0,0,0,.35); font-size:12px; font-weight:400; line-height:1.4; opacity:0; pointer-events:none; transform:translate(-50%, 4px); transition:opacity .15s ease, transform .15s ease;}
+        .help:hover .help-text,.help:focus .help-text{opacity:1; transform:translate(-50%, 0);}
         input{width:100%; box-sizing:border-box; margin:6px 0 20px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
+        .password-guidance{margin:-10px 0 14px; color:#9ca3af; font-size:12px; line-height:1.45;}
+        .strength{height:5px; margin:8px 0 6px; overflow:hidden; border-radius:999px; background:#334155;}
+        .strength > span{display:block; width:0; height:100%; border-radius:inherit; background:#ef4444; transition:width .15s ease, background .15s ease;}
+        .strength-label{font-size:12px; color:#9ca3af;}
+        .terms{display:flex; align-items:flex-start; gap:8px; margin:2px 0 20px; color:#cbd5e1; font-size:12px; line-height:1.4;}
+        .terms input{width:15px; height:15px; flex:0 0 auto; margin:1px 0 0; padding:0;}
         button{width:100%; height:40px; border-radius:8px; border:0; background:#00c08b; color:#fff; font-weight:600; cursor:pointer;}
       </style>
     </head>
@@ -550,9 +560,40 @@ app.get("/invite", async (req, res) => {
         <label>${accountNameLabel}</label>
         <input name="username" type="text" autocomplete="username" required />
         <label>Password</label>
-        <input name="password" type="password" required />
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required />
+        <div class="password-guidance">Use at least 8 characters. For a stronger password, use 12 or more characters with uppercase and lowercase letters, a number, and a symbol.</div>
+        <div class="strength" aria-hidden="true"><span id="passwordStrengthBar"></span></div>
+        <div id="passwordStrengthLabel" class="strength-label" aria-live="polite">Password strength: not entered</div>
+        <label>Confirm password</label>
+        <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+        <label class="terms"><input name="agreeToTerms" type="checkbox" value="yes" required /> <span>I agree to the Terms of Use.</span></label>
         <button type="submit">+ Create account</button>
       </form>
+      <script>
+        (function () {
+          var password = document.getElementById("password");
+          var confirmation = document.getElementById("confirmPassword");
+          var bar = document.getElementById("passwordStrengthBar");
+          var label = document.getElementById("passwordStrengthLabel");
+          function updatePasswordStatus() {
+            var value = password.value;
+            var score = 0;
+            if (value.length >= 8) score += 1;
+            if (value.length >= 12) score += 1;
+            if (/[a-z]/.test(value) && /[A-Z]/.test(value)) score += 1;
+            if (/\\d/.test(value)) score += 1;
+            if (/[^A-Za-z0-9]/.test(value)) score += 1;
+            var states = ["not entered", "weak", "fair", "good", "strong", "very strong"];
+            var colors = ["#334155", "#ef4444", "#f97316", "#eab308", "#22c55e", "#00c08b"];
+            bar.style.width = (score * 20) + "%";
+            bar.style.background = colors[score];
+            label.textContent = "Password strength: " + states[score];
+            confirmation.setCustomValidity(confirmation.value && confirmation.value !== value ? "Passwords do not match." : "");
+          }
+          password.addEventListener("input", updatePasswordStatus);
+          confirmation.addEventListener("input", updatePasswordStatus);
+        })();
+      </script>
     </body>
   </html>`;
   res.send(html);
@@ -575,7 +616,12 @@ app.post("/invite", async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const username = String(req.body?.username || "").trim();
   const password = String(req.body?.password || "");
-  if (!email || !username || !password) return res.status(400).send("All fields are required.");
+  const confirmPassword = String(req.body?.confirmPassword || "");
+  const agreedToTerms = String(req.body?.agreeToTerms || "").toLowerCase() === "yes";
+  if (!email || !username || !password || !confirmPassword) return res.status(400).send("All fields are required.");
+  if (password.length < 8) return res.status(400).send("Password must be at least 8 characters.");
+  if (password !== confirmPassword) return res.status(400).send("Passwords do not match.");
+  if (!agreedToTerms) return res.status(400).send("You must agree to the Terms of Use.");
   if (invite.email && invite.email.toLowerCase() !== email) {
     return res.status(400).send("Invite email does not match.");
   }
