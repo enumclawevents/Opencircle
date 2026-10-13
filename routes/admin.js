@@ -13593,7 +13593,7 @@ return `
       .nav-group.is-open > .nav-title-btn{ background:rgba(0,192,139,.16); color:#f8fffd !important; border:1px solid rgba(0,192,139,.16); }
       .nav-group.is-open > .nav-title-btn .nav-title-icon{ color:#36ddb1; }
       .nav-group > .nav-title-btn::after{ content:"\\f104"; display:block; margin-left:auto; width:auto; height:auto; border:0; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:11px; color:#93a3ba; transform:none; }
-      .nav-group.is-open > .nav-title-btn::after{ content:"\\f107"; transform:none; color:#d5fff2; }
+      .nav-group.is-open > .nav-title-btn::after{ content:"\\f107"; width:auto; height:auto; border:0; transform:none; color:#d5fff2; }
       .nav-sub{ margin:5px 0 0 12px; width:calc(100% - 12px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
       .subnav-link{ min-height:34px; padding:7px 10px; border-radius:12px; color:#93a3ba !important; font-size:13px; }
       .subnav-link:hover{ background:rgba(148,163,184,.12); color:#fff !important; }
