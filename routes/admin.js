@@ -13551,7 +13551,9 @@ return `
         /* Keep the control out of the sidebar's scrollable clipping area so it
            remains above the page panel at every scroll position. */
         position:fixed;
-        top:76px;
+        top:auto;
+        /* Reserve the last part of the sidebar for the logout control. */
+        bottom:72px;
         left:237px;
         right:auto;
         z-index:200;
@@ -13575,8 +13577,10 @@ return `
       .sb-top::after{ left:0; right:0; }
       .sb-city-wrap{ width:auto; flex:1; height:34px; margin:0; }
       .sb-city-btn{ padding:0 4px; font-weight:750; font-size:14px; }
-      .sb-city-menu{ border-radius:10px; margin-top:6px; padding:5px; box-shadow:0 14px 32px rgba(2,6,23,.4); }
+      /* The picker belongs to the sidebar, not just the city-label column. */
+      .sb-city-menu{ left:-52px; right:auto; width:calc(100% + 60px); border-radius:10px; margin-top:6px; padding:5px; box-shadow:0 14px 32px rgba(2,6,23,.4); }
       .sb-city-opt{ border-radius:7px; padding:9px 10px; }
+      .sb-city-opt + .sb-city-opt{ margin-top:4px; }
       .nav{ width:100%; margin:0; gap:2px; }
       /* Group separation is carried by the compact gap above, rather than
          horizontal rules between every top-level item. */
@@ -13593,7 +13597,7 @@ return `
       .nav-group.is-open > .nav-title-btn{ background:rgba(0,192,139,.16); color:#f8fffd !important; border:1px solid rgba(0,192,139,.16); }
       .nav-group.is-open > .nav-title-btn .nav-title-icon{ color:#36ddb1; }
       .nav-group > .nav-title-btn::after{ content:"\\f104"; display:block; margin-left:auto; width:auto; height:auto; border:0; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:11px; color:#93a3ba; transform:none; }
-      .nav-group.is-open > .nav-title-btn::after{ content:"\\f107"; width:auto; height:auto; border:0; transform:none; color:#d5fff2; }
+      .nav-group.is-open > .nav-title-btn::after{ content:"\\f107"; width:auto; height:auto; border:0; top:50%; transform:translateY(-50%); color:#d5fff2; }
       .nav-sub{ margin:5px 0 0 12px; width:calc(100% - 12px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
       .subnav-link{ min-height:34px; padding:7px 10px; border-radius:12px; color:#93a3ba !important; font-size:13px; }
       .subnav-link:hover{ background:rgba(148,163,184,.12); color:#fff !important; }
