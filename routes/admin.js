@@ -7283,7 +7283,9 @@ return `
     if (showAdsAnalytics && !canSeeAdsAnalytics) return res.status(403).send("Forbidden");
     if ((showUpdates || showUpdatesCreate || showUpdatesAnalytics) && !canManageUpdates) return res.status(403).send("Forbidden");
     const isNewsletterTab = showNewsletter || showNewsletterPreview || showNewsletterAudience || showNewsletterAnalytics;
-    const showSearch = !showMessages && (!showPreferences || isNewsletterTab);
+    // Global search is available across the dashboard; result access remains
+    // enforced by the search endpoint for each user role.
+    const showSearch = true;
     const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
       ? "/admin/venues"
       : showJobsApplicants
@@ -13673,16 +13675,8 @@ return `
       body.sidebar-collapsed .sidebar-collapse-toggle i{ transform:rotate(180deg); }
       @media (max-width:1100px){ .sidebar-collapse-toggle{ display:none; } body.sidebar-collapsed .sidebar{ width:220px; padding:5px 18px 18px; } }
 
-      .sidebar-theme-toggle{
-        width:100%; min-height:40px; display:inline-flex; align-items:center; justify-content:center; gap:8px;
-        padding:8px 10px; border:1px solid rgba(148,163,184,.2); border-radius:var(--radius-mid);
-        background:rgba(148,163,184,.08); color:var(--sidebar-text); font:inherit; font-size:12px; cursor:pointer;
-      }
-      .sidebar-theme-toggle:hover{ background:rgba(148,163,184,.16); color:#fff; }
-      .sidebar-theme-toggle:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; }
-      .sidebar-theme-toggle i{ font-size:15px; color:#facc15; }
-      body.sidebar-collapsed .sidebar-theme-toggle{ width:48px; height:48px; min-height:48px; padding:0; }
-      body.sidebar-collapsed .sidebar-theme-toggle span{ display:none; }
+      .theme-preference-toggle{ display:inline-flex; align-items:center; justify-content:center; gap:8px; }
+      .theme-preference-toggle i{ color:#b7791f; }
 
       /* App-wide dark theme. Most dashboard components already inherit these
          tokens; the explicit selectors cover legacy panels with white fills. */
@@ -13730,8 +13724,7 @@ return `
       body.theme-dark input::placeholder,
       body.theme-dark textarea::placeholder{ color:#90a1ba; }
       body.theme-dark .message-bubble.mine{ background:rgba(0,192,139,.14); }
-      body.theme-dark .sidebar-theme-toggle{ background:rgba(250,204,21,.12); border-color:rgba(250,204,21,.24); }
-      body.theme-dark .sidebar-theme-toggle i{ color:#fde68a; }
+      body.theme-dark .theme-preference-toggle i{ color:#fde68a; }
 </style>
   </head>
   <body>
@@ -13868,7 +13861,6 @@ return `
 
         <div class="sb-bottom">
           <div class="sb-divider"></div>
-          <button type="button" class="sidebar-theme-toggle" id="themeToggle" aria-pressed="false" title="Switch to dark mode"><i class="fa-solid fa-moon" aria-hidden="true"></i><span>Dark mode</span></button>
           <div style="margin-top:4px; text-align:center;">
             <a class="subnav-link sidebar-logout" href="/logout"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i><span>Log out</span></a>
           </div>
@@ -15468,6 +15460,17 @@ return `
                   <span>·</span>
                   <span>City: <strong style="color:var(--text);">${esc(currentUser.city || selectedCity)}</strong></span>
                 </div>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:var(--gap);">
+              <div class="sectionTitle"><div><h2>Appearance</h2><p class="sub">Choose how the OpenCircle dashboard looks in this browser.</p></div></div>
+              <div class="mini" style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+                <div>
+                  <strong>Dark mode</strong>
+                  <div class="note" style="margin-top:4px;">Your choice is saved on this device.</div>
+                </div>
+                <button type="button" class="btn theme-preference-toggle" id="themeToggle" aria-pressed="false" title="Switch to dark mode"><i class="fa-solid fa-moon" aria-hidden="true"></i><span>Dark mode</span></button>
               </div>
             </div>
 
