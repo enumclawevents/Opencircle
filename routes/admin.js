@@ -4413,7 +4413,7 @@ let whereParams = [];
     const canSeeAdsAnalytics = canManageAds;
     const canManageNewsletter = hasDeveloperAccess;
     const canSeeNewsletterAnalytics = canManageNewsletter;
-    const canSeeOrganizerAnalytics = hasDeveloperAccess || isOrganizerUser;
+    const canSeeOrganizerAnalytics = hasDeveloperAccess;
     const canSeeAnyAnalytics = canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeJobAnalytics || canSeeAdsAnalytics || canSeeNewsletterAnalytics || canSeeOrganizerAnalytics;
 
     let unreadMessagesCount = 0;
@@ -20301,7 +20301,6 @@ function isOrganizerAllowedAdminPath(pathname) {
   if ([
     "/",
     "/events-analytics",
-    "/events-organizers",
     "/create-events",
     "/event-reports",
     "/existing-events",

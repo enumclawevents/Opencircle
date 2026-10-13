@@ -519,6 +519,9 @@ app.get("/invite", async (req, res) => {
   }
 
   const presetEmail = invite.email ? String(invite.email) : "";
+  const accountNameLabel = String(invite.role || "organizer").trim().toLowerCase() === "organizer"
+    ? "Organizer name"
+    : "Username";
 
   const html = `<!doctype html>
   <html>
@@ -544,8 +547,8 @@ app.get("/invite", async (req, res) => {
         <input type="hidden" name="invite" value="${esc(token)}" />
         <label>Email</label>
         <input name="email" type="email" value="${esc(presetEmail)}" ${presetEmail ? "readonly" : "required"} />
-        <label>Username</label>
-        <input name="username" type="text" required />
+        <label>${accountNameLabel}</label>
+        <input name="username" type="text" autocomplete="username" required />
         <label>Password</label>
         <input name="password" type="password" required />
         <button type="submit">+ Create account</button>
