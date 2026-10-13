@@ -13884,9 +13884,9 @@ return `
                   </div>
                 </div>
               </div>
-              ${canUseMessages ? `<a class="header-icon-btn header-message-icon" href="${messagesAdminHref}" title="Messages" aria-label="Messages">
+              ${canUseMessages ? `<a id="messages-link" class="header-icon-btn header-message-icon" href="${messagesAdminHref}" title="Messages" aria-label="Messages">
                 <i class="fa-regular fa-envelope" aria-hidden="true"></i>
-                ${unreadMessagesCount > 0 ? `<span class="icon-badge">${unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}</span>` : ``}
+                ${unreadMessagesCount > 0 ? `<span id="messages-badge" class="icon-badge">${unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}</span>` : ``}
               </a>` : ``}
               <a id="notifications-link" class="header-icon-btn" href="${esc(notificationHref)}" data-event-reports-href="${esc(buildScopedAdminHref("/admin/event-reports"))}" data-pending-events-href="${esc(buildScopedAdminHref("/admin/approve-events"))}" title="Notifications" aria-label="Notifications">
                 <i class="fa-regular fa-bell" aria-hidden="true"></i>
@@ -13920,6 +13920,7 @@ return `
               }, 200);
             }catch(e){}
           }
+          window.ocPlayNotificationSound = beep;
 
           async function check(){
             try{
@@ -13952,6 +13953,19 @@ return `
                 notificationBadge.textContent = notificationTotal > 99 ? '99+' : String(notificationTotal);
               }else if(notificationBadge){
                 notificationBadge.remove();
+              }
+              var messagesBadge = document.getElementById('messages-badge');
+              var messagesLink = document.getElementById('messages-link');
+              if(m > 0 && messagesLink){
+                if(!messagesBadge){
+                  messagesBadge = document.createElement('span');
+                  messagesBadge.id = 'messages-badge';
+                  messagesBadge.className = 'icon-badge';
+                  messagesLink.appendChild(messagesBadge);
+                }
+                messagesBadge.textContent = m > 99 ? '99+' : String(m);
+              }else if(messagesBadge){
+                messagesBadge.remove();
               }
             }catch(e){}
           }
@@ -14610,7 +14624,7 @@ return `
                   <div class="muted" style="margin-top:6px;">${selectedMessageContact.supportAlias ? `Direct troubleshooting help for ${esc(messageScopeLabel)} users` : `Role: ${esc(formatRoleLabel(selectedMessageContact.role || "organizer"))} · Area: ${esc(getUserAccessAreaLabel(selectedMessageContact, messageComposeCity))}`}</div>
             </div>
             ` : ``}
-            <div class="messages-thread">${messageConversationHtml}</div>
+            <div class="messages-thread" id="messagesThread">${messageConversationHtml}</div>
             ${selectedMessageContact ? `<div class="message-typing-status" id="messageTypingStatus" aria-live="polite"></div>` : ``}
             ${selectedMessageContact ? `
             <form class="messages-compose" method="POST" action="/admin/messages" id="messagesComposeForm">
@@ -14630,7 +14644,10 @@ return `
           var bodyEl = document.getElementById("messagesComposeBody");
           var formEl = document.getElementById("messagesComposeForm");
           var typingEl = document.getElementById("messageTypingStatus");
-          if (!recipientUserId || !bodyEl || !typingEl) return;
+          var threadEl = document.getElementById("messagesThread");
+          if (!recipientUserId || !bodyEl || !typingEl || !threadEl) return;
+          var currentUserId = ${Number(currentUser?.id || 0)};
+          var lastMessageId = ${messageConversationRows.reduce((latest, row) => Math.max(latest, Number(row.id || 0)), 0)};
 
           var lastTypedAt = 0;
           var typingSent = false;
@@ -14719,13 +14736,60 @@ return `
             }catch(e){}
           }
 
+          function formatMessageTime(value){
+            var parsed = new Date(String(value || "").replace(" ", "T") + "Z");
+            if (Number.isNaN(parsed.getTime())) return String(value || "");
+            return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+          }
+
+          function appendMessage(row){
+            var empty = threadEl.querySelector(".messages-empty");
+            if (empty) empty.remove();
+            var mine = Number(row.senderUserId) === currentUserId;
+            var bubble = document.createElement("div");
+            bubble.className = "message-bubble" + (mine ? " mine" : "");
+            var text = document.createElement("div");
+            text.textContent = String(row.body || "");
+            var meta = document.createElement("div");
+            meta.className = "meta";
+            var label = document.createElement("span");
+            label.textContent = (mine ? "You" : String(row.senderName || "User")) + " · " + formatMessageTime(row.createdAt);
+            meta.appendChild(label);
+            bubble.appendChild(text);
+            bubble.appendChild(meta);
+            threadEl.appendChild(bubble);
+            threadEl.scrollTop = threadEl.scrollHeight;
+          }
+
+          async function pollConversation(){
+            try{
+              var url = "/admin/messages/conversation?user=" + encodeURIComponent(String(recipientUserId)) + "&after=" + encodeURIComponent(String(lastMessageId));
+              if (currentCity) url += "&city=" + encodeURIComponent(currentCity);
+              var res = await fetch(url, { cache: "no-store" });
+              if (!res.ok) return;
+              var json = await res.json();
+              var rows = Array.isArray(json && json.messages) ? json.messages : [];
+              var received = false;
+              rows.forEach(function(row){
+                appendMessage(row);
+                lastMessageId = Math.max(lastMessageId, Number(row.id || 0));
+                if (Number(row.senderUserId) !== currentUserId) received = true;
+              });
+              if (received && document.visibilityState === "visible" && typeof window.ocPlayNotificationSound === "function") {
+                window.ocPlayNotificationSound();
+              }
+            }catch(e){}
+          }
+
           pollTyping();
+          pollConversation();
           window.setInterval(function(){
             var hasText = !!String(bodyEl.value || "").trim();
             if (typingSent && hasText && (Date.now() - lastTypedAt) < idleMs) {
               sendTyping(true);
             }
             pollTyping();
+            pollConversation();
           }, heartbeatMs);
         })();
         </script>
@@ -20314,6 +20378,8 @@ function isOrganizerAllowedAdminPath(pathname) {
     "/search",
     "/messages",
     "/messages/typing",
+    "/messages/conversation",
+    "/pending-count",
     "/create-events",
     "/event-reports",
     "/existing-events",
@@ -20732,8 +20798,11 @@ router.get("/pending-count", async (req, res) => {
   try {
     await ensureMessageSchema();
     await ensureUserProfileSchema();
-    const city = String(req.query.city || "Enumclaw");
     const currentUser = await resolveSessionUser(req);
+    if (!currentUser?.id) return res.status(403).json({ ok: false, count: 0, reports: 0, messages: 0 });
+    const role = normalizeRoleValue(req.user?.role || currentUser.role || "organizer");
+    const isOrganizerUser = role === "organizer";
+    const city = pickAccessibleCity(req.query.city, hasDeveloperAccessRole(role) ? { role: "developer" } : currentUser, { fallbackCity: currentUser.city || "Enumclaw" });
     const workspace = String(req.query.workspace || "").trim();
     const canUsePlateauWorkspace = workspace === "Plateau Regional" && (
       hasDeveloperAccessRole(req.user?.role || "") ||
@@ -20742,10 +20811,12 @@ router.get("/pending-count", async (req, res) => {
     const pendingCities = canUsePlateauWorkspace
       ? ["Plateau Area", "Plateau Regional", ...ADMIN_WORKSPACE_GROUPS["Plateau Events"]]
       : [city];
-    const row = await get(
-      `SELECT COUNT(*) AS n FROM pending_events WHERE city IN (${pendingCities.map(() => "?").join(", ")})`,
-      pendingCities
-    );
+    const row = isOrganizerUser
+      ? { n: 0 }
+      : await get(
+        `SELECT COUNT(*) AS n FROM pending_events WHERE city IN (${pendingCities.map(() => "?").join(", ")})`,
+        pendingCities
+      );
     let reports = 0;
     if (hasDeveloperAccessRole(req.user?.role || currentUser?.role || "")) {
       const reportRow = await get(
@@ -20765,10 +20836,16 @@ router.get("/pending-count", async (req, res) => {
         ? ADMIN_SIDEBAR_GROUPS["Plateau Regional"]
         : [city];
       const messagePlaceholders = messageScopeCities.map(() => "?").join(", ");
+      const supportCircleUser = isOrganizerUser ? await resolveSupportCircleUser() : null;
+      if (isOrganizerUser && !supportCircleUser?.id) {
+        return res.json({ ok: true, count: Number(row?.n || 0), reports, messages: 0 });
+      }
       const messageRow = await get(
         `SELECT COUNT(*) AS count FROM messages
-          WHERE recipientUserId = ? AND city IN (${messagePlaceholders}) AND readAt IS NULL`,
-        [currentUser.id, ...messageScopeCities]
+          WHERE recipientUserId = ? AND city IN (${messagePlaceholders}) AND readAt IS NULL${isOrganizerUser ? " AND senderUserId = ?" : ""}`,
+        isOrganizerUser
+          ? [currentUser.id, ...messageScopeCities, supportCircleUser.id]
+          : [currentUser.id, ...messageScopeCities]
       );
       messages = Number(messageRow?.count || 0);
     }
@@ -20805,6 +20882,60 @@ router.post("/messages/clear-orphaned", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to clear unavailable messages.");
+  }
+});
+
+// Lightweight polling feed for the currently open conversation. It is
+// deliberately scoped with the same recipient rules as sending and typing.
+router.get("/messages/conversation", async (req, res) => {
+  try {
+    await ensureMessageSchema();
+    await ensureUserProfileSchema();
+    const currentUser = await resolveSessionUser(req);
+    const supportCircleUser = await resolveSupportCircleUser();
+    if (!currentUser?.id) return res.status(403).json({ ok: false, messages: [] });
+    const role = normalizeRoleValue(req.user?.role || currentUser.role || "organizer");
+    const isOrganizerUser = role === "organizer";
+    const requestedCity = String(req.query?.city || currentUser.city || "Enumclaw").trim() || "Enumclaw";
+    const city = pickAccessibleCity(requestedCity, hasDeveloperAccessRole(role) ? { role: "developer" } : currentUser, { fallbackCity: currentUser.city || "Enumclaw" });
+    const recipientUserId = Number.parseInt(String(req.query?.user || ""), 10);
+    const afterId = Math.max(0, Number.parseInt(String(req.query?.after || "0"), 10) || 0);
+    if (!Number.isInteger(recipientUserId) || recipientUserId <= 0 || recipientUserId === Number(currentUser.id)) {
+      return res.status(400).json({ ok: false, messages: [] });
+    }
+    const recipient = await get("SELECT id, city, permissionsJson FROM users WHERE id = ? LIMIT 1", [recipientUserId]);
+    const isSupportCircleRecipient = supportCircleUser?.id && Number(supportCircleUser.id) === recipientUserId;
+    if (isOrganizerUser && !isSupportCircleRecipient) return res.status(403).json({ ok: false, messages: [] });
+    if (!recipient?.id || (!isSupportCircleRecipient && !getUserAllowedCities(recipient, recipient.city || "Enumclaw").includes(city))) {
+      return res.status(404).json({ ok: false, messages: [] });
+    }
+    const rows = await all(
+      `SELECT m.id, m.body, m.createdAt, m.senderUserId, m.recipientUserId,
+              s.displayName AS senderDisplayName, s.username AS senderUsername, s.email AS senderEmail
+         FROM messages m
+         LEFT JOIN users s ON s.id = m.senderUserId
+        WHERE m.city = ?
+          AND m.id > ?
+          AND ((m.senderUserId = ? AND m.recipientUserId = ?) OR (m.senderUserId = ? AND m.recipientUserId = ?))
+        ORDER BY m.id ASC
+        LIMIT 100`,
+      [city, afterId, currentUser.id, recipientUserId, recipientUserId, currentUser.id]
+    );
+    await run(
+      `UPDATE messages SET readAt = datetime('now')
+        WHERE recipientUserId = ? AND senderUserId = ? AND city = ? AND readAt IS NULL`,
+      [currentUser.id, recipientUserId, city]
+    );
+    const messages = (rows || []).map((row) => ({
+      ...row,
+      senderName: isSupportCircleRecipient && Number(row.senderUserId) === recipientUserId
+        ? "Support Circle"
+        : String(row.senderDisplayName || row.senderUsername || row.senderEmail || "User"),
+    }));
+    return res.json({ ok: true, messages });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, messages: [] });
   }
 });
 
