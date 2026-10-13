@@ -13508,6 +13508,36 @@ return `
       .badge--nav{
         margin-left: auto;
       }
+      .updates-filters{
+        display:grid;
+        grid-template-columns:minmax(260px, 1fr) 190px 220px auto;
+        gap:12px;
+        align-items:end;
+        padding:16px;
+        border:1px solid var(--line);
+        border-radius:var(--radius-inner);
+        background:var(--panel2);
+      }
+      .updates-filters .ctrl{ margin:0; width:100%; }
+      .updates-filters .btn{ min-height:var(--ctrl-h); white-space:nowrap; }
+      .updates-table-empty{ padding:30px !important; text-align:center; color:var(--muted); }
+      #updates .card > form.filters{
+        display:grid;
+        grid-template-columns:minmax(260px, 1fr) 190px 220px auto;
+        gap:12px;
+        align-items:end;
+        padding:16px;
+        border:1px solid var(--line);
+        border-radius:var(--radius-inner);
+        background:var(--panel2);
+      }
+      #updates .card > form.filters .ctrl{ margin:0; width:100%; }
+      #updates .card > form.filters .btn{ min-height:var(--ctrl-h); white-space:nowrap; }
+      #updates .tableWrap tbody > tr > td[colspan]{ padding:30px; text-align:center; color:var(--muted); }
+      @media (max-width: 900px){ .updates-filters{ grid-template-columns:1fr 1fr; } }
+      @media (max-width: 560px){ .updates-filters{ grid-template-columns:1fr; } .updates-filters .btn{ width:100%; } }
+      @media (max-width: 900px){ #updates .card > form.filters{ grid-template-columns:1fr 1fr; } }
+      @media (max-width: 560px){ #updates .card > form.filters{ grid-template-columns:1fr; } #updates .card > form.filters .btn{ width:100%; } }
 </style>
   </head>
   <body>
