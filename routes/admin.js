@@ -13582,20 +13582,26 @@ return `
          horizontal rules between every top-level item. */
       .nav > .sb-divider{ display:none; }
       .sb-divider{ margin:8px 4px; background:rgba(148,163,184,.17); }
-      .nav-group{ border-radius:10px; overflow:hidden; }
-      .nav-title-btn{ height:44px; padding:0 12px; border-radius:10px; color:#cbd5e1 !important; font-weight:600; transition:background .16s ease,color .16s ease; }
+      /* The submenu handles its own clipping. Keeping the group visible lets
+         the active top-level tab retain rounded lower corners. */
+      .nav-group{ border-radius:12px; overflow:visible; }
+      /* Use one radius for every navigation state so hover, open, and active
+         highlights never appear joined or squared off. */
+      .nav-title-btn{ height:44px; padding:0 12px; border-radius:12px !important; color:#cbd5e1 !important; font-weight:600; transition:background .16s ease,color .16s ease; }
       .nav-title-btn .nav-title-icon{ width:21px; margin-right:11px; font-size:17px; color:#aebbd0; }
       .nav-title-btn:hover{ background:rgba(148,163,184,.12); }
       .nav-group.is-open > .nav-title-btn{ background:rgba(0,192,139,.16); color:#f8fffd !important; border:1px solid rgba(0,192,139,.16); }
       .nav-group.is-open > .nav-title-btn .nav-title-icon{ color:#36ddb1; }
-      .nav-group > .nav-title-btn::after{ content:"\\f107"; display:block; margin-left:auto; width:auto; height:auto; border:0; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:11px; color:#93a3ba; transform:none; }
-      .nav-group.is-open > .nav-title-btn::after{ transform:rotate(180deg); color:#d5fff2; }
-      .nav-sub{ margin:3px 0 0 12px; width:calc(100% - 12px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
-      .subnav-link{ min-height:34px; padding:7px 10px; border-radius:7px; color:#93a3ba !important; font-size:13px; }
+      .nav-group > .nav-title-btn::after{ content:"\\f104"; display:block; margin-left:auto; width:auto; height:auto; border:0; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:11px; color:#93a3ba; transform:none; }
+      .nav-group.is-open > .nav-title-btn::after{ content:"\\f107"; transform:none; color:#d5fff2; }
+      .nav-sub{ margin:5px 0 0 12px; width:calc(100% - 12px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
+      .subnav-link{ min-height:34px; padding:7px 10px; border-radius:12px; color:#93a3ba !important; font-size:13px; }
       .subnav-link:hover{ background:rgba(148,163,184,.12); color:#fff !important; }
       .subnav-link.active{ color:#fff !important; background:rgba(148,163,184,.13) !important; }
       .sb-bottom{ padding:0 4px; }
       .sidebar .sb-bottom .subnav-link{ padding:10px; border-radius:8px; }
+      .sidebar-logout{ display:inline-flex !important; align-items:center; justify-content:center; gap:8px; color:var(--sidebar-muted) !important; font-size:12px; }
+      .sidebar-logout i{ font-size:16px; }
       body.sidebar-collapsed .sidebar{ width:76px; padding-left:10px; padding-right:10px; overflow:visible; }
       body.sidebar-collapsed .sb-brand{ padding-left:10px; padding-right:10px; justify-content:center; }
       body.sidebar-collapsed .sb-top{ justify-content:center; }
@@ -13606,13 +13612,14 @@ return `
       body.sidebar-collapsed .sidebar .sb-bottom .sb-divider{ display:none !important; }
       body.sidebar-collapsed .nav{ gap:4px; }
       body.sidebar-collapsed .nav-group{ overflow:visible; }
-      body.sidebar-collapsed .nav-title-btn{ width:56px; height:48px; justify-content:center; padding:0; border-radius:10px; }
+      body.sidebar-collapsed .nav-title-btn{ width:56px; height:48px; justify-content:center; padding:0; border-radius:12px !important; }
       body.sidebar-collapsed .nav-title-btn .nav-title-icon{ width:auto; margin:0; font-size:19px; }
       body.sidebar-collapsed .nav-title-btn::after{ display:none; }
       body.sidebar-collapsed .sb-divider{ margin:8px 4px; }
       body.sidebar-collapsed .sb-bottom{ display:flex; justify-content:center; padding:0; }
-      body.sidebar-collapsed .sb-bottom .subnav-link[href="/logout"]{ width:48px; overflow:hidden; font-size:0; justify-content:center; }
-      body.sidebar-collapsed .sb-bottom .subnav-link[href="/logout"]::before{ content:"\\f2f5"; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:17px; }
+      body.sidebar-collapsed .sidebar-logout{ width:48px; height:48px; padding:0 !important; }
+      body.sidebar-collapsed .sidebar-logout span{ display:none; }
+      body.sidebar-collapsed .sidebar-logout i{ font-size:18px; }
       body.sidebar-collapsed .sidebar-collapse-toggle{ left:61px; }
       body.sidebar-collapsed .sidebar-collapse-toggle i{ transform:rotate(180deg); }
       @media (max-width:1100px){ .sidebar-collapse-toggle{ display:none; } body.sidebar-collapsed .sidebar{ width:220px; padding:5px 18px 18px; } }
@@ -13752,7 +13759,7 @@ return `
         <div class="sb-bottom">
           <div class="sb-divider"></div>
           <div style="margin-top:4px; text-align:center;">
-            <a class="subnav-link" href="/logout" style="display:inline-block; color:var(--sidebar-muted); font-size:12px;">Log out</a>
+            <a class="subnav-link sidebar-logout" href="/logout"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i><span>Log out</span></a>
           </div>
         </div>
       </aside>
