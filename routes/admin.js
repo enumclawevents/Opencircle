@@ -10177,7 +10177,7 @@ return `
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants;
     const adsMenuOpen = showAdsExisting || showAdsCreate;
     const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showOrganizers;
-    const adminMenuOpen = showUsers || showInvites || showPreferences || showUpdatesLog;
+    const adminMenuOpen = showUsers || showInvites || showPreferences;
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
     res.send(`<!doctype html>
@@ -13608,8 +13608,15 @@ return `
       .nav-group.is-open > .nav-title-btn::after{ content:"\\f107"; width:auto; height:auto; border:0; top:50%; transform:translateY(-50%); color:#d5fff2; }
       .nav-sub{ margin:5px 0 0 26px; width:calc(100% - 26px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
       .subnav-link{ min-height:34px; padding:7px 10px; border-radius:6px; color:#aebbd0 !important; font-size:12px !important; font-weight:400; }
+      .subnav-link:link,
+      .subnav-link:visited,
+      .subnav-link:focus,
+      .subnav-link:active{ color:#aebbd0 !important; font-weight:400; }
       .subnav-link:hover{ background:rgba(148,163,184,.12); color:#fff !important; }
-      .subnav-link.active{ color:#aebbd0 !important; background:rgba(148,163,184,.13) !important; font-size:12px !important; font-weight:500; }
+      .subnav-link.active,
+      .subnav-link.active:visited,
+      .subnav-link.active:focus,
+      .subnav-link.active:active{ color:#aebbd0 !important; background:rgba(148,163,184,.13) !important; font-size:12px !important; font-weight:500; }
       .sb-bottom{ padding:0 4px; }
       .sidebar .sb-bottom .subnav-link{ padding:10px; border-radius:var(--radius-mid); }
       .sidebar-logout{ display:inline-flex !important; align-items:center; justify-content:center; gap:8px; color:var(--sidebar-muted) !important; font-size:12px; }
@@ -13671,10 +13678,11 @@ return `
 
         <nav class="nav">
           ${(hasDeveloperAccess || isOrganizerUser) ? `
-          <div class="nav-group nav-collapsible ${showDashboard ? "is-open" : ""}" data-nav-group>
+          <div class="nav-group nav-collapsible ${showDashboard || showUpdatesLog ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${buildScopedAdminHref("/admin")}" aria-current="${showDashboard ? "page" : "false"}"><i class="fa-regular fa-chart-bar nav-title-icon" aria-hidden="true"></i><span>Dashboard</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showDashboard ? "active" : ""}" href="${buildScopedAdminHref("/admin")}">Overview</a>
+              <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates-log")}">Release Notes</a>
             </div>
           </div>
           <div class="sb-divider"></div>
@@ -13761,7 +13769,6 @@ return `
             <a class="nav-title-btn" href="${hasDeveloperAccess ? buildScopedAdminHref("/admin/users") : buildScopedAdminHref("/admin/preferences")}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="${buildScopedAdminHref("/admin/preferences")}">Preferences</a>
-              <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates-log")}">Release Notes</a>
               ${hasAdminAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="${buildScopedAdminHref("/admin/users")}">Users</a>` : ``}
               ${hasAdminAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="${buildScopedAdminHref("/admin/invites")}">Invites</a>` : ``}
             </div>
