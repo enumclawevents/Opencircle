@@ -4396,19 +4396,24 @@ let whereParams = [];
       const qs = params.toString();
       return `${pathname}${qs ? `?${qs}` : ""}`;
     };
-    const canUseMessages = !!currentUser?.id;
-    const canManageEvents = hasDeveloperAccess || sectionPermissions.events;
+    const canUseMessages = hasDeveloperAccess;
+    // Organizers have a deliberately narrow, event-only workspace. Their
+    // legacy per-section flags must not grant venues, jobs, ads, newsletters,
+    // or messaging access.
+    const canManageEvents = hasDeveloperAccess || isOrganizerUser || sectionPermissions.events;
     const canApproveEvents = hasDeveloperAccess;
+    const canManageEventReports = hasDeveloperAccess || isOrganizerUser;
+    const canUploadEvents = hasDeveloperAccess;
     const canSeeEventsAnalytics = canManageEvents;
-    const canManageVenues = hasDeveloperAccess || sectionPermissions.venues;
+    const canManageVenues = hasDeveloperAccess || (!isOrganizerUser && sectionPermissions.venues);
     const canSeeVenueAnalytics = canManageVenues;
-    const canManageJobs = hasDeveloperAccess || sectionPermissions.jobs;
+    const canManageJobs = hasDeveloperAccess || (!isOrganizerUser && sectionPermissions.jobs);
     const canSeeJobAnalytics = canManageJobs;
-    const canManageAds = hasDeveloperAccess || sectionPermissions.ads;
+    const canManageAds = hasDeveloperAccess || (!isOrganizerUser && sectionPermissions.ads);
     const canSeeAdsAnalytics = canManageAds;
-    const canManageNewsletter = canManageEvents;
+    const canManageNewsletter = hasDeveloperAccess;
     const canSeeNewsletterAnalytics = canManageNewsletter;
-    const canSeeOrganizerAnalytics = hasDeveloperAccess;
+    const canSeeOrganizerAnalytics = hasDeveloperAccess || isOrganizerUser;
     const canSeeAnyAnalytics = canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeJobAnalytics || canSeeAdsAnalytics || canSeeNewsletterAnalytics || canSeeOrganizerAnalytics;
 
     let unreadMessagesCount = 0;
@@ -7252,9 +7257,9 @@ return `
     }
     if (showUpdatesLog && !(hasDeveloperAccess || isOrganizerUser)) return res.status(403).send("Forbidden");
     if (showApprove && !canApproveEvents) return res.status(403).send("Forbidden");
-    if (showEventReports && !canApproveEvents) return res.status(403).send("Forbidden");
+    if (showEventReports && !canManageEventReports) return res.status(403).send("Forbidden");
     if (showCreate && !canManageEvents) return res.status(403).send("Forbidden");
-    if (showUpload && !canManageEvents) return res.status(403).send("Forbidden");
+    if (showUpload && !canUploadEvents) return res.status(403).send("Forbidden");
     if (showOrganizers && !canSeeOrganizerAnalytics) return res.status(403).send("Forbidden");
     if (showVenueCreate && !canManageVenues) return res.status(403).send("Forbidden");
     if (showVenueExisting && !canManageVenues) return res.status(403).send("Forbidden");
@@ -7268,7 +7273,7 @@ return `
     if (showAdsAnalytics && !canSeeAdsAnalytics) return res.status(403).send("Forbidden");
     if ((showUpdates || showUpdatesCreate || showUpdatesAnalytics) && !canManageUpdates) return res.status(403).send("Forbidden");
     const isNewsletterTab = showNewsletter || showNewsletterPreview || showNewsletterAudience || showNewsletterAnalytics;
-    const showSearch = !showMessages && (!showPreferences || isNewsletterTab);
+    const showSearch = !isOrganizerUser && !showMessages && (!showPreferences || isNewsletterTab);
     const searchAction = showVenueCreate || showVenueExisting || showVenueAnalytics
       ? "/admin/venues"
       : showJobsApplicants
@@ -8044,21 +8049,28 @@ return `
       : "all";
     let eventReportRows = [];
     let openEventReportCount = 0;
-    if (canApproveEvents) {
+    if (canManageEventReports) {
       try {
         const reportScopeCities = pendingScopeCities;
         const reportScopePlaceholders = reportScopeCities.map(() => "?").join(", ");
+        const organizerReportScope = isOrganizerUser && organizerOwnerClause
+          ? ` AND ${organizerOwnerClause.sql}`
+          : "";
+        const organizerReportParams = isOrganizerUser && organizerOwnerClause
+          ? organizerOwnerClause.params
+          : [];
         const countRow = await get(
           `SELECT COUNT(*) AS n
              FROM event_reports r
              INNER JOIN events e ON e.id = r.eventId
-            WHERE e.city IN (${reportScopePlaceholders}) AND r.status = 'open'`,
-          reportScopeCities
+            WHERE e.city IN (${reportScopePlaceholders}) AND r.status = 'open'${organizerReportScope}`,
+          [...reportScopeCities, ...organizerReportParams]
         );
         openEventReportCount = Number(countRow?.n || 0);
         if (showEventReports) {
           const reportWhere = [`e.city IN (${reportScopePlaceholders})`];
-          const reportParams = [...reportScopeCities];
+          const reportParams = [...reportScopeCities, ...organizerReportParams];
+          if (organizerReportScope) reportWhere.push(organizerOwnerClause.sql);
           if (requestedEventReportStatus !== "all") {
             reportWhere.push("r.status = ?");
             reportParams.push(requestedEventReportStatus);
@@ -9785,6 +9797,12 @@ return `
       const organizerWhereParts = [];
       const organizerWhereParams = [];
       pushCityScopeCondition(organizerWhereParts, organizerWhereParams, selectedAdminCities);
+      // Organizers can view this analytics surface, but only for events that
+      // belong to their own organizer identity.
+      if (isOrganizerUser && organizerOwnerClause) {
+        organizerWhereParts.push(organizerOwnerClause.sql);
+        organizerWhereParams.push(...organizerOwnerClause.params);
+      }
       if (hasArchiveCols2) {
         organizerWhereParts.push("(isArchived IS NULL OR isArchived = 0)");
       }
@@ -9874,7 +9892,9 @@ return `
       );
       organizerAnalyticsOptions = organizerLeaderboard.map((row) => row.organizer);
       const requestedOrganizer = String(req.query.organizer || "").trim();
-      selectedOrganizer = organizerAnalyticsOptions.find((name) => name === requestedOrganizer) || "";
+      selectedOrganizer = isOrganizerUser
+        ? (organizerAnalyticsOptions[0] || "")
+        : (organizerAnalyticsOptions.find((name) => name === requestedOrganizer) || "");
 
       organizerPageSummary = organizerLeaderboard.reduce((acc, row) => {
         acc.uniqueEvents += Number(row.uniqueEvents || 0);
@@ -13698,12 +13718,12 @@ return `
                 <span>Approve Events</span>
                 ${pendingCount > 0 ? `<span class="badge badge--nav">${pendingCount}</span>` : ``}
               </a>` : ``}
-              ${canApproveEvents ? `
+              ${canManageEventReports ? `
               <a class="subnav-link ${showEventReports ? "active" : ""}" href="${buildScopedAdminHref("/admin/event-reports")}" style="display:flex; align-items:center; gap:8px;">
                 <span>Event Reports</span>
                 ${openEventReportCount > 0 ? `<span class="badge badge--nav">${openEventReportCount}</span>` : ``}
               </a>` : ``}
-              <a class="subnav-link ${showUpload ? "active" : ""}" href="${buildScopedAdminHref("/admin/upload-events")}">Upload Events</a>
+              ${canUploadEvents ? `<a class="subnav-link ${showUpload ? "active" : ""}" href="${buildScopedAdminHref("/admin/upload-events")}">Upload Events</a>` : ``}
             </div>
           </div>
           <div class="sb-divider"></div>` : ``}
@@ -13756,7 +13776,7 @@ return `
             <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/events-analytics")}" aria-current="${analyticsMenuOpen ? "page" : "false"}"><i class="fa-solid fa-chart-column nav-title-icon" aria-hidden="true"></i><span>Analytics</span></a>
             <div class="nav-sub" data-nav-sub>
               ${canSeeEventsAnalytics ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/events-analytics")}">Events</a>` : ``}
-              ${canSeeOrganizerAnalytics ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="${buildScopedAdminHref("/admin/events-organizers")}">Organizers</a>` : ``}
+              ${canSeeOrganizerAnalytics ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="${buildScopedAdminHref("/admin/events-organizers")}">${isOrganizerUser ? "Organizer" : "Organizers"}</a>` : ``}
               ${canSeeNewsletterAnalytics ? `<a class="subnav-link ${showNewsletterAnalytics ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter/analytics")}">Newsletter</a>` : ``}
               ${canSeeVenueAnalytics ? `<a class="subnav-link ${showVenueAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/venues/analytics")}">Venues</a>` : ``}
               ${canSeeJobAnalytics ? `<a class="subnav-link ${showJobsAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/jobs/analytics")}">Jobs</a>` : ``}
@@ -20274,6 +20294,41 @@ return `
   }
 }
 
+// Keep organizer access enforced for direct URLs and form posts as well as in
+// the sidebar. Developers and admins retain their existing route access.
+function isOrganizerAllowedAdminPath(pathname) {
+  const path = String(pathname || "");
+  if ([
+    "/",
+    "/events-analytics",
+    "/events-organizers",
+    "/create-events",
+    "/event-reports",
+    "/existing-events",
+    "/preferences",
+    "/preferences/status",
+    "/preferences/password",
+    "/updates-log",
+    "/events",
+    "/events/quick-add",
+  ].includes(path)) return true;
+  if (/^\/events\/\d+\/(delete|archive|unarchive)$/.test(path)) return true;
+  return /^\/event-reports\/\d+\/status$/.test(path);
+}
+
+router.use(async (req, res, next) => {
+  try {
+    const sessionUser = await resolveSessionUser(req);
+    const role = normalizeRoleValue(req.user?.role || sessionUser?.role || "organizer");
+    if (role === "organizer" && !isOrganizerAllowedAdminPath(req.path)) {
+      return res.status(403).send("Forbidden");
+    }
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/", async (req, res) => renderAdmin(req, res, "dashboard"));
 router.get("/events-analytics", async (req, res) => renderAdmin(req, res, "events-analytics"));
 router.get("/events-organizers", async (req, res) => renderAdmin(req, res, "events-organizers"));
@@ -22456,7 +22511,8 @@ router.post("/event-reports/:id/status", async (req, res) => {
   try {
     const sessionUser = await resolveSessionUser(req);
     const role = normalizeRoleValue(req.user?.role || sessionUser?.role || "organizer");
-    if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
+    const isOrganizer = role === "organizer";
+    if (!hasDeveloperAccessRole(role) && !isOrganizer) return res.status(403).send("Forbidden");
 
     const reportId = Number.parseInt(req.params.id, 10);
     const status = String(req.body?.status || "").trim().toLowerCase();
@@ -22471,13 +22527,15 @@ router.post("/event-reports/:id/status", async (req, res) => {
     const allowedCities = getUserAllowedCities(sessionUser || { role, city: fallbackCity }, fallbackCity);
     if (!allowedCities.length) return res.status(403).send("Forbidden");
     const cityPlaceholders = allowedCities.map(() => "?").join(", ");
+    const organizerValues = isOrganizer ? getOrganizerAccessValues(sessionUser, req) : [];
+    const organizerScope = isOrganizer ? buildOrganizerOwnerClause("e.organizer", organizerValues) : null;
     const report = await get(
       `SELECT r.id, r.reporterEmail, r.eventUrl, r.changesJson, e.title AS eventTitle
          FROM event_reports r
          INNER JOIN events e ON e.id = r.eventId
-        WHERE r.id = ? AND e.city IN (${cityPlaceholders})
+        WHERE r.id = ? AND e.city IN (${cityPlaceholders})${organizerScope ? ` AND ${organizerScope.sql}` : ""}
         LIMIT 1`,
-      [reportId, ...allowedCities]
+      [reportId, ...allowedCities, ...(organizerScope?.params || [])]
     );
     if (!report) return redirectToQueue("not_found");
 
