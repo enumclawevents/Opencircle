@@ -1253,6 +1253,20 @@ initDB()
     runNewsletterScheduler();
     setInterval(runNewsletterScheduler, 5 * 60 * 1000);
 
+    const runEmailReportScheduler = () => {
+      if (typeof adminRouter.processScheduledEmailReports !== "function") return;
+      adminRouter.processScheduledEmailReports()
+        .then((result) => {
+          if (result && (result.sent || result.failed)) {
+            console.log("[EMAIL REPORTS] Scheduler result:", result);
+          }
+        })
+        .catch((err) => console.error("[EMAIL REPORTS] Scheduler failed:", err));
+    };
+
+    runEmailReportScheduler();
+    setInterval(runEmailReportScheduler, 5 * 60 * 1000);
+
     const runUpdatePublisher = () => {
       publishDueUpdates()
         .then((result) => { if (result?.published) console.log("[UPDATES] Published scheduled updates:", result.published); })

@@ -3,6 +3,7 @@
 const path = require("path");
 const fs = require("fs");
 const sqlite3 = require("sqlite3");
+const { normalizeStoredRole } = require("./lib/roles");
 
 // --------------------
 // DB location (prefer Render disk)
@@ -347,11 +348,18 @@ async function initDB() {
   await addInviteCol("permissionsJson", `ALTER TABLE invites ADD COLUMN permissionsJson TEXT;`);
   await addInviteCol("createdByUserId", `ALTER TABLE invites ADD COLUMN createdByUserId INTEGER;`);
 
-  // Keep the live role model simple: developer or organizer.
-  await tryExec(`UPDATE users SET role = 'developer' WHERE lower(COALESCE(role,'')) IN ('admin','developer','area_manager');`);
-  await tryExec(`UPDATE users SET role = 'organizer' WHERE lower(COALESCE(role,'')) NOT IN ('developer') OR role IS NULL OR role = '';`);
-  await tryExec(`UPDATE invites SET role = 'developer' WHERE lower(COALESCE(role,'')) IN ('admin','developer','area_manager');`);
-  await tryExec(`UPDATE invites SET role = 'organizer' WHERE lower(COALESCE(role,'')) NOT IN ('developer') OR role IS NULL OR role = '';`);
+  // Preserve valid Admin, Developer, and Organizer assignments. `area_manager`
+  // is the only retired spelling, and safely maps to Developer. This is
+  // idempotent and cannot downgrade a legitimate Admin during startup.
+  for (const table of ["users", "invites"]) {
+    const roleRows = await all(`SELECT rowid, role FROM ${table}`);
+    for (const row of roleRows) {
+      const normalized = normalizeStoredRole(row.role);
+      if (String(row.role || "").trim().toLowerCase() !== normalized) {
+        await run(`UPDATE ${table} SET role = ? WHERE rowid = ?`, [normalized, row.rowid]);
+      }
+    }
+  }
 
   const organizerAllPermissions = JSON.stringify({
     events: true,

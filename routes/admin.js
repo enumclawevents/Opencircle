@@ -15,6 +15,7 @@ const { hashPassword, hashToken, verifyPassword } = require("../lib/auth");
 const { DateTime } = require("luxon");
 const { esc } = require("../lib/html");
 const { safeParseJson } = require("../lib/json");
+const { normalizeStoredRole } = require("../lib/roles");
 const { eventReportChangeLabel, eventReportChangeValue, parseEventReportChanges } = require("../lib/event-report-changes");
 const { notifyMessageRecipient } = require("../lib/admin-notification-email");
 const { ALLOWED_CATEGORIES, ALLOWED_VENUE_CATEGORIES, DEFAULT_TZ } = require("../lib/admin-constants");
@@ -2483,10 +2484,23 @@ async function ensureUserProfileSchema() {
   await addCol("notificationPreferencesJson", "ALTER TABLE users ADD COLUMN notificationPreferencesJson TEXT");
 
   try {
-    await run(`UPDATE users SET role = 'admin' WHERE lower(COALESCE(email,'')) = ?`, [SOLE_ADMIN_EMAIL]);
-    await run(`UPDATE users SET role = 'developer' WHERE lower(COALESCE(role,'')) = 'admin' AND lower(COALESCE(email,'')) <> ?`, [SOLE_ADMIN_EMAIL]);
-    await run(`UPDATE users SET role = 'developer' WHERE lower(COALESCE(role,'')) IN ('developer','area_manager')`);
-    await run(`UPDATE users SET role = 'organizer' WHERE lower(COALESCE(role,'')) NOT IN ('admin','developer') OR role IS NULL OR role = ''`);
+    // Keep the original designated bootstrap administrator recoverable after
+    // older versions downgraded it, but never demote or otherwise overwrite
+    // any other valid Admin, Developer, or Organizer assignment.
+    await run(
+      "UPDATE users SET role = 'admin' WHERE lower(COALESCE(email, '')) = ? AND lower(COALESCE(role, '')) <> 'admin'",
+      [SOLE_ADMIN_EMAIL]
+    );
+    // Preserve all three supported roles during normal startup. The old
+    // single-admin bootstrap code downgraded every other Admin, even when the
+    // assignment was legitimate. Only normalize retired/invalid role values.
+    const roleRows = await all("SELECT id, role FROM users");
+    for (const row of roleRows) {
+      const normalized = normalizeStoredRole(row.role);
+      if (String(row.role || "").trim().toLowerCase() !== normalized) {
+        await run("UPDATE users SET role = ? WHERE id = ?", [normalized, row.id]);
+      }
+    }
     await run(
       `UPDATE users
           SET permissionsJson = ?
@@ -3570,6 +3584,270 @@ async function processScheduledNewsletters() {
   return summary;
 }
 
+let _emailReportSchemaEnsured = false;
+async function ensureEmailReportSchema() {
+  if (_emailReportSchemaEnsured) return;
+  await run(`
+    CREATE TABLE IF NOT EXISTS email_report_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recipientUserId INTEGER NOT NULL,
+      frequency TEXT NOT NULL,
+      periodStart TEXT NOT NULL,
+      periodEnd TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      sentAt TEXT,
+      errorText TEXT,
+      createdAt TEXT DEFAULT (datetime('now')),
+      updatedAt TEXT DEFAULT (datetime('now')),
+      UNIQUE(recipientUserId, frequency, periodStart)
+    )
+  `);
+  await run("CREATE INDEX IF NOT EXISTS idx_email_report_deliveries_status ON email_report_deliveries(status, frequency, periodStart)");
+  _emailReportSchemaEnsured = true;
+}
+
+function reportPeriodBounds(frequency, now = DateTime.now().setZone(DEFAULT_TZ)) {
+  const normalized = frequency === "monthly" ? "monthly" : "weekly";
+  if (normalized === "monthly") {
+    const end = now.startOf("month");
+    return { frequency: normalized, start: end.minus({ months: 1 }), end };
+  }
+  const end = now.startOf("week");
+  return { frequency: normalized, start: end.minus({ weeks: 1 }), end };
+}
+
+function reportTimestampInRange(value, startMs, endMs) {
+  const timestamp = Date.parse(String(value || "").trim());
+  return Number.isFinite(timestamp) && timestamp >= startMs && timestamp < endMs;
+}
+
+function createReportCitySummary(city) {
+  return {
+    city,
+    submitted: 0,
+    published: 0,
+    upcoming: 0,
+    occurred: 0,
+    views: 0,
+    uniqueViewerHashes: 0,
+  };
+}
+
+async function buildEmailReportAnalytics(user, frequency, now = DateTime.now().setZone(DEFAULT_TZ)) {
+  const period = reportPeriodBounds(frequency, now);
+  const periodStartMs = period.start.toMillis();
+  const periodEndMs = period.end.toMillis();
+  const role = normalizeRoleValue(user?.role);
+  const cities = getUserAllowedCities(user, user?.city || "Enumclaw");
+  const cityPlaceholders = cities.map(() => "?").join(",");
+  const organizerValues = role === "organizer" ? getOrganizerAccessValues(user, {}) : [];
+  const eventRows = await all(
+    `SELECT id, city, organizer, createdByUserId, startDateTime, endDateTime,
+            hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate,
+            recurrenceUntilDate, submittedAt, createdAt
+       FROM events
+      WHERE city IN (${cityPlaceholders})
+        AND COALESCE(archived, 0) = 0`,
+    cities
+  );
+  const ownsEvent = (event) => role !== "organizer"
+    || organizerOwnsEvent(event, organizerValues)
+    || Number(event?.createdByUserId || 0) === Number(user?.id || 0);
+  const scopedEvents = (eventRows || []).filter(ownsEvent);
+  const citySummaries = new Map(cities.map((city) => [city, createReportCitySummary(city)]));
+  const getCity = (city) => {
+    if (!citySummaries.has(city)) citySummaries.set(city, createReportCitySummary(city));
+    return citySummaries.get(city);
+  };
+  const upcomingEndMs = now.plus(frequency === "monthly" ? { months: 1 } : { weeks: 1 }).toMillis();
+
+  for (const event of scopedEvents) {
+    const summary = getCity(event.city);
+    if (reportTimestampInRange(event.submittedAt, periodStartMs, periodEndMs)) summary.submitted += 1;
+    if (reportTimestampInRange(event.createdAt, periodStartMs, periodEndMs)) summary.published += 1;
+
+    const isRecurring = Number(event?.hasRecurrence || 0) === 1 || hasRecurringData(event);
+    if (isRecurring && hasRecurringData(event)) {
+      const occurrences = generateAdminOccurrences(event, periodStartMs, Math.max(periodEndMs, upcomingEndMs));
+      for (const occurrence of occurrences) {
+        const startMs = Date.parse(String(occurrence?.startDateTime || "").trim());
+        if (!Number.isFinite(startMs)) continue;
+        if (startMs >= periodStartMs && startMs < periodEndMs) summary.occurred += 1;
+        if (startMs >= now.toMillis() && startMs < upcomingEndMs) summary.upcoming += 1;
+      }
+    } else {
+      const startMs = Date.parse(String(event?.startDateTime || "").trim());
+      if (Number.isFinite(startMs) && startMs >= periodStartMs && startMs < periodEndMs) summary.occurred += 1;
+      if (Number.isFinite(startMs) && startMs >= now.toMillis() && startMs < upcomingEndMs) summary.upcoming += 1;
+    }
+  }
+
+  // Pending submissions are separate from published events. Once approved,
+  // their submittedAt value moves with the event into the published dataset.
+  try {
+    const pendingRows = await all(
+      `SELECT city, organizer, submitterEmail, createdAt
+         FROM pending_events
+        WHERE city IN (${cityPlaceholders})
+          AND datetime(createdAt) >= datetime(?)
+          AND datetime(createdAt) < datetime(?)`,
+      [...cities, period.start.toUTC().toISO(), period.end.toUTC().toISO()]
+    );
+    for (const pending of pendingRows || []) {
+      const belongsToOrganizer = role !== "organizer" || organizerValues.includes(normalizeOrganizerIdentity(pending.organizer)) || organizerValues.includes(normalizeOrganizerIdentity(pending.submitterEmail));
+      if (belongsToOrganizer) getCity(pending.city).submitted += 1;
+    }
+  } catch (_) {
+    // Older installations without a pending queue still receive the report.
+  }
+
+  let engagementAvailable = false;
+  try {
+    const eventIds = scopedEvents.map((event) => Number(event.id)).filter((id) => Number.isInteger(id) && id > 0);
+    if (eventIds.length) {
+      const eventIdPlaceholders = eventIds.map(() => "?").join(",");
+      const engagementRows = await all(
+        `SELECT e.city, COUNT(*) AS views, COUNT(DISTINCT ev.ipHash) AS uniqueViewerHashes
+           FROM event_views ev
+           JOIN events e ON e.id = ev.eventId
+          WHERE ev.eventId IN (${eventIdPlaceholders})
+            AND datetime(ev.viewedAt) >= datetime(?)
+            AND datetime(ev.viewedAt) < datetime(?)
+          GROUP BY e.city`,
+        [...eventIds, period.start.toUTC().toISO(), period.end.toUTC().toISO()]
+      );
+      for (const row of engagementRows || []) {
+        const summary = getCity(row.city);
+        summary.views = Number(row.views || 0);
+        summary.uniqueViewerHashes = Number(row.uniqueViewerHashes || 0);
+      }
+      engagementAvailable = true;
+    }
+  } catch (_) {
+    // Do not substitute lifetime counters for a period metric.
+    engagementAvailable = false;
+  }
+
+  const communities = [...citySummaries.values()].filter((summary) =>
+    role !== "organizer" || summary.submitted || summary.published || summary.upcoming || summary.occurred || summary.views
+  );
+  const totals = communities.reduce((acc, summary) => ({
+    submitted: acc.submitted + summary.submitted,
+    published: acc.published + summary.published,
+    upcoming: acc.upcoming + summary.upcoming,
+    occurred: acc.occurred + summary.occurred,
+    views: acc.views + summary.views,
+    uniqueViewerHashes: acc.uniqueViewerHashes + summary.uniqueViewerHashes,
+  }), createReportCitySummary("All communities"));
+  let platformActivity = null;
+  if (role === "admin") {
+    platformActivity = { organizersAdded: 0, developersAdded: 0, messages: 0, eventReports: 0 };
+    try {
+      const accountRows = await all(
+        `SELECT role, COUNT(*) AS count FROM users
+          WHERE datetime(createdAt) >= datetime(?) AND datetime(createdAt) < datetime(?)
+          GROUP BY role`,
+        [period.start.toUTC().toISO(), period.end.toUTC().toISO()]
+      );
+      for (const row of accountRows || []) {
+        if (normalizeRoleValue(row.role) === "organizer") platformActivity.organizersAdded += Number(row.count || 0);
+        if (normalizeRoleValue(row.role) === "developer") platformActivity.developersAdded += Number(row.count || 0);
+      }
+      platformActivity.messages = Number((await get(
+        "SELECT COUNT(*) AS count FROM messages WHERE datetime(createdAt) >= datetime(?) AND datetime(createdAt) < datetime(?)",
+        [period.start.toUTC().toISO(), period.end.toUTC().toISO()]
+      ))?.count || 0);
+      platformActivity.eventReports = Number((await get(
+        "SELECT COUNT(*) AS count FROM event_reports WHERE datetime(createdAt) >= datetime(?) AND datetime(createdAt) < datetime(?)",
+        [period.start.toUTC().toISO(), period.end.toUTC().toISO()]
+      ))?.count || 0);
+    } catch (_) {
+      // Optional platform tables vary on older installations.
+    }
+  }
+  return { role, period, communities, totals, engagementAvailable, platformActivity };
+}
+
+function formatEmailReport(report, user, { preview = false } = {}) {
+  const number = (value) => Number(value || 0).toLocaleString("en-US");
+  const periodLabel = `${report.period.start.toFormat("LLLL d, yyyy")} – ${report.period.end.minus({ days: 1 }).toFormat("LLLL d, yyyy")}`;
+  const scopeLabel = report.role === "admin"
+    ? "all OpenCircle communities"
+    : report.role === "developer"
+      ? "your authorized communities"
+      : "your events";
+  const rows = report.communities.map((summary) => `
+    <tr><td style="padding:9px;border-bottom:1px solid #e2e8f0;">${esc(summary.city)}</td><td style="padding:9px;border-bottom:1px solid #e2e8f0;text-align:right;">${number(summary.submitted)}</td><td style="padding:9px;border-bottom:1px solid #e2e8f0;text-align:right;">${number(summary.published)}</td><td style="padding:9px;border-bottom:1px solid #e2e8f0;text-align:right;">${number(summary.upcoming)}</td><td style="padding:9px;border-bottom:1px solid #e2e8f0;text-align:right;">${number(summary.occurred)}</td><td style="padding:9px;border-bottom:1px solid #e2e8f0;text-align:right;">${report.engagementAvailable ? number(summary.views) : "Not available"}</td></tr>`).join("");
+  const subject = `${preview ? "Preview: " : ""}OpenCircle ${report.period.frequency === "monthly" ? "monthly" : "weekly"} report · ${periodLabel}`;
+  const platformText = report.platformActivity
+    ? `\nPlatform activity: ${number(report.platformActivity.organizersAdded)} organizers added, ${number(report.platformActivity.developersAdded)} developers added, ${number(report.platformActivity.messages)} messages, ${number(report.platformActivity.eventReports)} event reports.`
+    : "";
+  const platformHtml = report.platformActivity
+    ? `<h2 style="font-size:17px;margin:22px 0 8px;">Platform activity</h2><p style="margin:0;color:#334155;">${number(report.platformActivity.organizersAdded)} organizers added · ${number(report.platformActivity.developersAdded)} developers added · ${number(report.platformActivity.messages)} messages · ${number(report.platformActivity.eventReports)} event reports</p>`
+    : "";
+  const text = [
+    `OpenCircle ${report.period.frequency} report for ${periodLabel}`,
+    `Scope: ${scopeLabel}.`,
+    "",
+    `Events newly submitted: ${number(report.totals.submitted)}`,
+    `Events newly published: ${number(report.totals.published)}`,
+    `Upcoming event occurrences: ${number(report.totals.upcoming)}`,
+    `Event occurrences during this period: ${number(report.totals.occurred)}`,
+    report.engagementAvailable ? `Measured event views: ${number(report.totals.views)} (${number(report.totals.uniqueViewerHashes)} distinct viewer hashes)` : "Measured engagement: Not available for this period.",
+    platformText,
+    "",
+    "Submitted and published are separate lifecycle timestamps. Engagement measures tracked page views, not attendance, ticket sales, or unique people. Historical/manual event records may not distinguish a public submission from direct creation.",
+  ].join("\n");
+  const html = `<!doctype html><html><body style="margin:0;background:#eef3f8;font-family:Arial,sans-serif;color:#14213d;"><div style="max-width:760px;margin:24px auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #dce5ee;"><div style="padding:26px 30px;background:#0f172a;color:#fff;"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5eead4;">OpenCircle${preview ? " · Preview" : ""}</div><h1 style="margin:8px 0 0;font-size:26px;">${esc(report.period.frequency === "monthly" ? "Monthly" : "Weekly")} report</h1><p style="margin:7px 0 0;color:#cbd5e1;">${esc(periodLabel)} · ${esc(scopeLabel)}</p></div><div style="padding:26px 30px;"><table role="presentation" width="100%" style="border-collapse:collapse;margin-bottom:20px;"><tr><td style="padding:0 0 10px;"><strong>Events newly submitted</strong><br><span style="font-size:24px;">${number(report.totals.submitted)}</span></td><td style="padding:0 0 10px;"><strong>Events newly published</strong><br><span style="font-size:24px;">${number(report.totals.published)}</span></td><td style="padding:0 0 10px;"><strong>Upcoming occurrences</strong><br><span style="font-size:24px;">${number(report.totals.upcoming)}</span></td></tr><tr><td><strong>Occurred this period</strong><br><span style="font-size:24px;">${number(report.totals.occurred)}</span></td><td colspan="2"><strong>Measured engagement</strong><br><span style="font-size:24px;">${report.engagementAvailable ? `${number(report.totals.views)} views` : "Not available"}</span>${report.engagementAvailable ? `<span style="color:#64748b;"> · ${number(report.totals.uniqueViewerHashes)} distinct viewer hashes</span>` : ""}</td></tr></table><h2 style="font-size:17px;">Community breakdown</h2><table width="100%" style="border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:9px;text-align:left;">Community</th><th style="padding:9px;text-align:right;">Submitted</th><th style="padding:9px;text-align:right;">Published</th><th style="padding:9px;text-align:right;">Upcoming</th><th style="padding:9px;text-align:right;">Occurred</th><th style="padding:9px;text-align:right;">Views</th></tr></thead><tbody>${rows || `<tr><td colspan="6" style="padding:12px;color:#64748b;">No reportable activity in this period.</td></tr>`}</tbody></table>${platformHtml}<p style="margin:22px 0 0;color:#64748b;font-size:12px;line-height:1.5;">Submitted and published are separate lifecycle metrics. Engagement is based on tracked event-page views; it does not measure attendance, ticket sales, or unique people. Historical/manual event records may not distinguish a public submission from direct creation.</p></div></div></body></html>`;
+  return { subject, text, html };
+}
+
+async function sendEmailReport({ user, frequency, now, preview = false }) {
+  const report = await buildEmailReportAnalytics(user, frequency, now);
+  const message = formatEmailReport(report, user, { preview });
+  const result = await sendEmail({ to: user.email, ...message, from: PASSWORD_RESET_FROM, replyTo: PASSWORD_RESET_REPLY_TO });
+  if (!result) throw new Error("SMTP is not configured");
+  return report;
+}
+
+async function processScheduledEmailReports() {
+  await ensureEmailReportSchema();
+  const now = DateTime.now().setZone(DEFAULT_TZ);
+  // Run after 8:00 AM Pacific so the completed period has fully closed.
+  if (now.hour < 8) return { checked: 0, sent: 0, skipped: 0, failed: 0 };
+  const users = await all("SELECT id, email, username, displayName, role, city, permissionsJson, notificationPreferencesJson FROM users WHERE email IS NOT NULL AND trim(email) <> ''");
+  const summary = { checked: 0, sent: 0, skipped: 0, failed: 0 };
+  for (const user of users || []) {
+    const prefs = parsePermissionsObject(user.notificationPreferencesJson) || {};
+    for (const frequency of ["weekly", "monthly"]) {
+      const enabled = frequency === "weekly" ? prefs.weeklyReports === true : prefs.monthlyReports === true;
+      const due = frequency === "weekly" ? now.weekday === 1 : now.day === 1;
+      if (!enabled || !due) continue;
+      summary.checked += 1;
+      const period = reportPeriodBounds(frequency, now);
+      const periodStart = period.start.toUTC().toISO();
+      const periodEnd = period.end.toUTC().toISO();
+      let delivery = await get("SELECT id, status FROM email_report_deliveries WHERE recipientUserId = ? AND frequency = ? AND periodStart = ?", [user.id, frequency, periodStart]);
+      if (delivery?.status === "sent") { summary.skipped += 1; continue; }
+      if (!delivery) {
+        const inserted = await run("INSERT OR IGNORE INTO email_report_deliveries (recipientUserId, frequency, periodStart, periodEnd, status) VALUES (?, ?, ?, ?, 'pending')", [user.id, frequency, periodStart, periodEnd]);
+        delivery = inserted.lastID ? { id: inserted.lastID, status: "pending" } : await get("SELECT id, status FROM email_report_deliveries WHERE recipientUserId = ? AND frequency = ? AND periodStart = ?", [user.id, frequency, periodStart]);
+      }
+      if (!delivery || delivery.status === "sent") { summary.skipped += 1; continue; }
+      try {
+        await sendEmailReport({ user, frequency, now });
+        await run("UPDATE email_report_deliveries SET status = 'sent', sentAt = ?, errorText = NULL, updatedAt = datetime('now') WHERE id = ?", [now.toUTC().toISO(), delivery.id]);
+        summary.sent += 1;
+      } catch (error) {
+        await run("UPDATE email_report_deliveries SET status = 'failed', errorText = ?, updatedAt = datetime('now') WHERE id = ?", [String(error?.message || "Send failed").slice(0, 1000), delivery.id]);
+        summary.failed += 1;
+        console.error("[EMAIL REPORT] Scheduled delivery failed:", error);
+      }
+    }
+  }
+  return summary;
+}
+
 async function resolveSessionUser(req) {
   await ensureUserProfileSchema();
   const rawKey = String(req.user?.user || "").trim();
@@ -3784,10 +4062,7 @@ function formatOrganizerPermissionLabel(key) {
 }
 
 function normalizeRoleValue(value) {
-  const normalized = String(value || "organizer").trim().toLowerCase();
-  if (normalized === "admin") return "admin";
-  if (["developer", "area_manager"].includes(normalized)) return "developer";
-  return "organizer";
+  return normalizeStoredRole(value);
 }
 
 function isAdminRole(role) {
@@ -4236,6 +4511,7 @@ async function renderAdmin(req, res, view) {
     await ensureAdSchema();
     await ensureJobApplicantSchema();
     await ensureUserProfileSchema();
+    await ensureEmailReportSchema();
     await ensureMessageSchema();
     await ensureUpdatesSchema();
     // ✅ Pagination + total count + optional server-side search
@@ -7435,6 +7711,10 @@ return `
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">Current password is incorrect.</div>`
           : prefNotice === "user_not_found"
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">User record not found.</div>`
+          : prefNotice === "report_preview_sent"
+          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Weekly report preview sent to your email.</div>`
+          : prefNotice === "report_preview_failed"
+          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">The preview could not be sent. Check email delivery configuration.</div>`
           : "")
       : "";
 
@@ -15527,8 +15807,12 @@ return `
 
                   ${(() => {
                     const emailPrefs = parsePermissionsObject(currentUser.notificationPreferencesJson) || {};
-                    const checked = (key) => emailPrefs[key] !== false ? "checked" : "";
-                    return `<div class="mini" style="margin-top:18px;"><strong>Email notifications</strong><div class="note" style="margin:4px 0 10px;">Choose which in-app alerts should also be sent to your email.</div><label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_eventSubmissions" value="1" ${checked("eventSubmissions")} /> New event submissions in my areas</label><label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_eventReports" value="1" ${checked("eventReports")} /> New event reports in my areas</label><label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_messages" value="1" ${checked("messages")} /> Direct messages to me</label></div>`;
+                    const instantChecked = (key) => emailPrefs[key] !== false ? "checked" : "";
+                    const reportChecked = (key) => emailPrefs[key] === true ? "checked" : "";
+                    const preferenceRole = normalizeRoleValue(currentUser.role);
+                    const reportScope = preferenceRole === "admin" ? "all OpenCircle communities" : preferenceRole === "developer" ? "your authorized communities" : "your events";
+                    const areaAlerts = preferenceRole === "organizer" ? "" : `<label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_eventSubmissions" value="1" ${instantChecked("eventSubmissions")} /> New event submissions in my permitted areas</label><label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_eventReports" value="1" ${instantChecked("eventReports")} /> New event reports in my permitted areas</label>`;
+                    return `<div class="mini" style="margin-top:18px;"><strong>Email Reports & Notifications</strong><div class="note" style="margin:4px 0 10px;">Choose which alerts and performance reports OpenCircle should send to ${esc(currentUser.email || "your email")}.</div>${areaAlerts}<label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_messages" value="1" ${instantChecked("messages")} /> Direct messages to me</label><div style="height:1px;background:var(--line);margin:14px 0;"></div><strong style="font-size:14px;">Performance reports</strong><div class="note" style="margin:4px 0 10px;">Reports cover ${esc(reportScope)} and separate submissions, publishing, upcoming and completed occurrences, and measured engagement.</div><label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_weeklyReports" value="1" ${reportChecked("weeklyReports")} /> Send me a weekly report</label><label style="display:flex; align-items:center; gap:8px; margin:8px 0;"><input type="checkbox" name="email_monthlyReports" value="1" ${reportChecked("monthlyReports")} /> Send me a monthly report</label></div>`;
                   })()}
 
                   <div class="actions">
@@ -15553,6 +15837,16 @@ return `
                   <span>City: <strong style="color:var(--text);">${esc(currentUser.city || selectedCity)}</strong></span>
                 </div>
               </div>
+            </div>
+
+            <div class="card" style="margin-top:var(--gap);">
+              <div class="sectionTitle"><div><h2>Email Reports & Notifications</h2><p class="sub">Preview the weekly report using your current role and access.</p></div></div>
+              <form method="POST" action="/admin/preferences/email-reports/preview">
+                <div class="mini" style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+                  <div><strong>Preview weekly report</strong><div class="note" style="margin-top:4px;">Sends a report preview to ${esc(currentUser.email || "your account email")} without changing your preferences.</div></div>
+                  <button class="btn btn-primary" type="submit">Preview Weekly Report</button>
+                </div>
+              </form>
             </div>
 
             <div class="card" style="margin-top:var(--gap);">
@@ -20566,6 +20860,7 @@ function isOrganizerAllowedAdminPath(pathname) {
     "/event-reports",
     "/existing-events",
     "/preferences",
+    "/preferences/email-reports/preview",
     "/preferences/status",
     "/preferences/password",
     "/updates-log",
@@ -21330,10 +21625,14 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
     const displayName = String(req.body?.displayName || "").trim().slice(0, 120);
     const phone = String(req.body?.phone || "").trim().slice(0, 40);
     const bio = String(req.body?.bio || "").trim().slice(0, 3000);
+    const existingPreferences = parsePermissionsObject(u.notificationPreferencesJson) || {};
     const notificationPreferencesJson = JSON.stringify({
+      ...existingPreferences,
       eventSubmissions: isCheckedValue(req.body?.email_eventSubmissions),
       eventReports: isCheckedValue(req.body?.email_eventReports),
       messages: isCheckedValue(req.body?.email_messages),
+      weeklyReports: isCheckedValue(req.body?.email_weeklyReports),
+      monthlyReports: isCheckedValue(req.body?.email_monthlyReports),
     });
     let photoUrl = normalizeHttpUrl(req.body?.photoUrl || "");
 
@@ -21349,6 +21648,21 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to update preferences.");
+  }
+});
+
+router.post("/preferences/email-reports/preview", async (req, res) => {
+  try {
+    const user = await resolveSessionUser(req);
+    const role = normalizeRoleValue(req.user?.role || user?.role || "organizer");
+    if (!user?.id || !(hasDeveloperAccessRole(role) || role === "organizer") || !user.email) {
+      return res.redirect("/admin/preferences?notice=report_preview_failed");
+    }
+    await sendEmailReport({ user, frequency: "weekly", now: DateTime.now().setZone(DEFAULT_TZ), preview: true });
+    return res.redirect("/admin/preferences?notice=report_preview_sent");
+  } catch (error) {
+    console.error("[EMAIL REPORT] Preview failed:", error);
+    return res.redirect("/admin/preferences?notice=report_preview_failed");
   }
 });
 
@@ -23131,5 +23445,6 @@ router.post("/events/:id/unarchive", async (req, res) => {
 });
 
 router.processScheduledNewsletters = processScheduledNewsletters;
+router.processScheduledEmailReports = processScheduledEmailReports;
 
 module.exports = router;
