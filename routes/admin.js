@@ -13726,6 +13726,43 @@ return `
       body.sidebar-collapsed .sidebar-logout{ width:48px; height:48px; padding:0 !important; }
       body.sidebar-collapsed .sidebar-logout span{ display:none; }
       body.sidebar-collapsed .sidebar-logout i{ font-size:18px; }
+      /* In icon-only mode, retain a clear way to identify every destination
+         without forcing the sidebar open. Labels appear on hover and keyboard
+         focus, alongside the highlighted icon. */
+      body.sidebar-collapsed .nav-title-btn,
+      body.sidebar-collapsed .sidebar-logout{ position:relative; }
+      body.sidebar-collapsed .nav-title-btn::before,
+      body.sidebar-collapsed .sidebar-logout::before{
+        content:attr(data-sidebar-tooltip);
+        position:absolute;
+        left:calc(100% + 8px);
+        top:50%;
+        z-index:300;
+        width:max-content;
+        max-width:190px;
+        padding:7px 10px;
+        border:1px solid rgba(148,163,184,.28);
+        border-radius:var(--radius-inner);
+        background:#182235;
+        box-shadow:0 8px 18px rgba(2,6,23,.3);
+        color:#f8fafc !important;
+        font-size:12px;
+        font-weight:650;
+        line-height:1.2;
+        opacity:0;
+        pointer-events:none;
+        transform:translate(-4px,-50%);
+        transition:opacity .14s ease, transform .14s ease, visibility .14s ease;
+        visibility:hidden;
+      }
+      body.sidebar-collapsed .nav-title-btn:hover::before,
+      body.sidebar-collapsed .nav-title-btn:focus-visible::before,
+      body.sidebar-collapsed .sidebar-logout:hover::before,
+      body.sidebar-collapsed .sidebar-logout:focus-visible::before{
+        opacity:1;
+        transform:translate(0,-50%);
+        visibility:visible;
+      }
       body.sidebar-collapsed .sidebar-collapse-toggle{ left:61px; }
       body.sidebar-collapsed .sidebar-collapse-toggle i{ transform:rotate(180deg); }
       @media (max-width:1100px){ .sidebar-collapse-toggle{ display:none; } body.sidebar-collapsed .sidebar{ width:220px; padding:5px 18px 18px; } }
@@ -17552,8 +17589,10 @@ return `
           toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
           toggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
           toggle.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
-          sidebar.querySelectorAll(".nav-title-btn").forEach(function(link){
-            var label = (link.textContent || "").trim();
+          sidebar.querySelectorAll(".nav-title-btn, .sidebar-logout").forEach(function(link){
+            var labelElement = link.querySelector("span");
+            var label = (labelElement ? labelElement.textContent : link.textContent || "").trim();
+            if (label) link.dataset.sidebarTooltip = label;
             if (label) link.title = collapsed ? label : "";
           });
         }
