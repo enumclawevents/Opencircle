@@ -13983,7 +13983,7 @@ return `
       .subnav-link.active,
       .subnav-link.active:visited,
       .subnav-link.active:focus,
-      .subnav-link.active:active{ color:#aebbd0 !important; background:rgba(148,163,184,.13) !important; font-size:12px !important; font-weight:500; }
+      .subnav-link.active:active{ color:#fff !important; background:rgba(148,163,184,.13) !important; font-size:12px !important; font-weight:500; }
       .sb-bottom{ padding:0 4px; }
       .sidebar .sb-bottom .subnav-link{ padding:10px; border-radius:var(--radius-mid); }
       .sidebar-logout{ display:inline-flex !important; align-items:center; justify-content:center; gap:8px; color:var(--sidebar-muted) !important; font-size:12px; }
