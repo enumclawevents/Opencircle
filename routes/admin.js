@@ -14422,11 +14422,14 @@ return `
       .dashboard-custom-range[hidden]{ display:none !important; }
       .dashboard-custom-range .ctrl{ min-width:0; margin:0; padding:8px; font-size:12px; }
       .dashboard-kpi-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--gap); }
-      .dashboard-kpi-card{ display:grid; gap:5px; min-height:100px; padding:16px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); color:var(--text) !important; text-decoration:none; transition:border-color .14s ease, background-color .14s ease; }
+      .dashboard-kpi-card{ display:flex; align-items:flex-end; justify-content:space-between; gap:10px; min-height:0; padding:16px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); color:var(--text) !important; text-decoration:none; transition:border-color .14s ease, background-color .14s ease; }
       .dashboard-kpi-card:hover{ border-color:rgba(15,23,42,.18); background:#f8fafc; }
-      .dashboard-kpi-label{ color:var(--muted); font-size:12px; font-weight:600; }
-      .dashboard-kpi-card strong{ color:var(--text); font-size:22px; font-weight:650; line-height:1.1; letter-spacing:.2px; }
-      .dashboard-kpi-detail{ min-height:16px; color:var(--muted); font-size:12px; line-height:1.35; }
+      .dashboard-kpi-content{ display:block; min-width:0; }
+      .dashboard-kpi-label{ display:block; color:var(--muted); font-size:12px; font-weight:600; }
+      .dashboard-kpi-card strong{ display:block; margin-top:6px; color:var(--text); font-size:22px; font-weight:650; line-height:1; letter-spacing:.2px; }
+      /* Dashboard context stays available to assistive technology without
+         changing the Analytics metric-card shape. */
+      .dashboard-kpi-detail{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
       .dashboard-kpi-detail.is-positive{ color:#07845f; }
       .dashboard-kpi-detail.is-negative{ color:#b45309; }
       /* Activity uses the full four-column dashboard width; supporting
@@ -14443,8 +14446,8 @@ return `
       .dashboard-attention-copy span{ font-size:13px; line-height:1.45; }
       .dashboard-attention-count{ font-weight:650; color:var(--text); }
       .dashboard-positive-empty{ padding:14px; border:1px dashed var(--line); border-radius:var(--radius-mid); color:var(--muted); font-size:13px; }
-      .dashboard-activity-chart{ position:relative; min-height:258px; padding-top:8px; }
-      .dashboard-activity-chart svg{ display:block; width:100%; height:250px; }
+      .dashboard-activity-chart{ position:relative; min-height:408px; padding-top:8px; }
+      .dashboard-activity-chart svg{ display:block; width:100%; height:400px; }
       .dashboard-chart-tooltip{ position:absolute; z-index:3; min-width:190px; max-width:240px; padding:12px 14px; border:1px solid rgba(148,163,184,.52); border-radius:var(--radius); background:rgba(255,255,255,.98); color:var(--text); box-shadow:0 18px 36px rgba(15,23,42,.16); pointer-events:none; font-size:13px; line-height:1.4; }
       .dashboard-chart-tooltip-title{ margin-bottom:7px; font-size:14px; font-weight:700; }
       .dashboard-chart-tooltip-row{ display:flex; justify-content:space-between; gap:18px; color:var(--muted); }
@@ -14461,7 +14464,7 @@ return `
       .dashboard-quick-actions{ display:flex; flex-wrap:wrap; gap:8px; }
       .dashboard-quick-actions .quick-link{ min-width:0; flex:0 1 auto; padding:8px 11px; font-size:12px; }
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity{ grid-column:auto; } }
-      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ min-height:108px; padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-community-metrics{ gap:5px; } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-community-metrics{ gap:5px; } }
 </style>
   </head>
   <body>
@@ -14803,10 +14806,10 @@ return `
           </div>
 
           <div class="dashboard-kpi-grid" aria-live="polite" aria-busy="true" id="dashboardKpis">
-            <a class="dashboard-kpi-card" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-label">${isOrganizerUser ? "My upcoming events" : "Upcoming events"}</span><strong id="dashboardKpiUpcoming">—</strong><span class="dashboard-kpi-detail">In the selected reporting window</span></a>
-            <a class="dashboard-kpi-card" href="${buildScopedAdminHref("/admin/events-analytics")}"><span class="dashboard-kpi-label">${isOrganizerUser ? "My unique event views" : "Event views"}</span><strong id="dashboardKpiViews">—</strong><span class="dashboard-kpi-detail" id="dashboardKpiViewsChange">Loading measured engagement…</span></a>
-            <a class="dashboard-kpi-card" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-label">Events added</span><strong id="dashboardKpiAdded">—</strong><span class="dashboard-kpi-detail" id="dashboardKpiAddedChange">Loading…</span></a>
-            <a class="dashboard-kpi-card" href="${buildScopedAdminHref(isOrganizerUser ? "/admin/events-analytics" : "/admin/events-organizers")}"><span class="dashboard-kpi-label">${isOrganizerUser ? "My event views" : "Active organizers"}</span><strong id="dashboardKpiOrganizers">—</strong><span class="dashboard-kpi-detail" id="dashboardKpiOrganizersDetail">Loading…</span></a>
+            <a class="dashboard-kpi-card" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label">${isOrganizerUser ? "My upcoming events" : "Upcoming events"}</span><strong id="dashboardKpiUpcoming">—</strong></span><span class="dashboard-kpi-detail">In the selected reporting window</span></a>
+            <a class="dashboard-kpi-card" href="${buildScopedAdminHref("/admin/events-analytics")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label">${isOrganizerUser ? "My unique event views" : "Event views"}</span><strong id="dashboardKpiViews">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiViewsChange">Loading measured engagement…</span></a>
+            <a class="dashboard-kpi-card" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label">Events added</span><strong id="dashboardKpiAdded">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiAddedChange">Loading…</span></a>
+            <a class="dashboard-kpi-card" href="${buildScopedAdminHref(isOrganizerUser ? "/admin/events-analytics" : "/admin/events-organizers")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label">${isOrganizerUser ? "My event views" : "Active organizers"}</span><strong id="dashboardKpiOrganizers">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiOrganizersDetail">Loading…</span></a>
           </div>
 
           <div class="dashboard-command-columns">
