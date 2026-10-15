@@ -3811,6 +3811,25 @@ function dashboardPercentChange(current, previous) {
   return ((current - previous) / previous) * 100;
 }
 
+// Dashboard layout choices are deliberately small, safe presentation
+// preferences. They neither expand data access nor alter analytics records.
+const DASHBOARD_PERSONALIZABLE_CARDS = ["attention", "highlights", "performance"];
+function normalizeDashboardPreferences(preferences) {
+  const raw = preferences && typeof preferences === "object" && preferences.dashboard && typeof preferences.dashboard === "object"
+    ? preferences.dashboard
+    : {};
+  const rawVisible = raw.visible && typeof raw.visible === "object" ? raw.visible : {};
+  const visible = Object.fromEntries(DASHBOARD_PERSONALIZABLE_CARDS.map((key) => [key, rawVisible[key] !== false]));
+  const seen = new Set();
+  const order = Array.isArray(raw.order)
+    ? raw.order.filter((key) => DASHBOARD_PERSONALIZABLE_CARDS.includes(key) && !seen.has(key) && seen.add(key))
+    : [];
+  DASHBOARD_PERSONALIZABLE_CARDS.forEach((key) => {
+    if (!seen.has(key)) order.push(key);
+  });
+  return { visible, order };
+}
+
 async function buildDashboardSummaryAnalytics(user, req, period) {
   const role = normalizeRoleValue(user?.role);
   const allowedCities = getUserAllowedCities(user, user?.city || "Enumclaw");
@@ -4875,6 +4894,8 @@ let whereParams = [];
 
     const currentUser = await resolveSessionUser(req);
     const userRole = normalizeRoleValue(currentUser?.role || req.user?.role || "organizer");
+    const dashboardPreferences = normalizeDashboardPreferences(parsePermissionsObject(currentUser?.notificationPreferencesJson) || {});
+    const visibleDashboardCardCount = DASHBOARD_PERSONALIZABLE_CARDS.filter((key) => dashboardPreferences.visible[key]).length;
     const hasDeveloperAccess = hasDeveloperAccessRole(userRole);
     const hasAdminAccess = isAdminRole(userRole);
     const isDeveloperUser = isDeveloperRole(userRole);
@@ -8018,6 +8039,8 @@ return `
     const prefNoticeHtml = prefNotice
       ? (prefNotice === "profile_saved"
           ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Profile updated.</div>`
+          : prefNotice === "dashboard_saved"
+          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Dashboard layout updated.</div>`
           : prefNotice === "status_saved"
           ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Status updated.</div>`
           : prefNotice === "password_saved"
@@ -14449,6 +14472,7 @@ return `
       .dashboard-command-activity{ grid-column:span 4; padding:20px; }
       .dashboard-command-attention{ grid-column:span 2; }
       .dashboard-command-highlights,.dashboard-command-performance{ grid-column:span 3; }
+      .dashboard-command-columns[data-support-card-count="0"] .dashboard-command-activity{ grid-column:1 / -1; }
       .dashboard-command-activity .sectionTitle{ margin-bottom:14px; }
       .dashboard-command-activity .chartLegend{ gap:14px; margin-top:12px; }
       .dashboard-command-activity .chartLegendItem{ gap:7px; font-size:12px; font-weight:500; }
@@ -14486,9 +14510,15 @@ return `
       .dashboard-community-metrics b{ color:var(--text); font-size:12px; }
       .dashboard-quick-actions{ display:flex; flex-wrap:wrap; gap:8px; }
       .dashboard-quick-actions .quick-link{ min-width:0; flex:0 1 auto; padding:8px 11px; font-size:12px; }
+      .dashboard-layout-preferences{ display:grid; gap:10px; margin-bottom:16px; }
+      .dashboard-layout-preference{ display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius-inner); background:var(--panel2); }
+      .dashboard-layout-preference > label:first-child{ margin:0; font-size:13px; font-weight:650; color:var(--text); }
+      .dashboard-layout-preference input{ accent-color:var(--accent); }
+      .dashboard-layout-order{ display:inline-flex; align-items:center; gap:8px; margin:0; color:var(--muted); font-size:12px; font-weight:650; }
+      .dashboard-layout-order .ctrl{ width:62px; min-width:62px; margin:0; padding:6px 8px; font-size:12px; }
       @media (max-width:1250px){ .dashboard-command-columns{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-activity{ grid-column:1 / -1; } .dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-activity-chart{ height:220px; } }
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
-      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity,.dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-command-activity{ padding:18px; } .dashboard-activity-chart{ height:200px; } .dashboard-community-metrics{ gap:5px; } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity,.dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-command-activity{ padding:18px; } .dashboard-activity-chart{ height:200px; } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
 </style>
   </head>
   <body>
@@ -14843,23 +14873,23 @@ return `
             <a class="dashboard-kpi-card" href="${buildScopedAdminHref(isOrganizerUser ? "/admin/events-analytics" : "/admin/events-organizers")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label">${isOrganizerUser ? "My event views" : "Active organizers"}</span><strong id="dashboardKpiOrganizers">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiOrganizersDetail">Loading…</span></a>
           </div>
 
-          <div class="dashboard-command-columns">
+          <div class="dashboard-command-columns" data-support-card-count="${visibleDashboardCardCount}">
             <section class="card dashboard-command-card dashboard-command-activity" aria-labelledby="dashboardActivityTitle">
               <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
               <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
             </section>
-            <section class="card dashboard-command-card dashboard-command-attention" aria-labelledby="dashboardAttentionTitle">
+            ${dashboardPreferences.visible.attention ? `<section class="card dashboard-command-card dashboard-command-attention" data-dashboard-card="attention" style="order:${dashboardPreferences.order.indexOf("attention") + 1}" aria-labelledby="dashboardAttentionTitle">
               <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">${isOrganizerUser ? "SupportCircle messages" : hasAdminAccess ? "Platform priorities" : "Needs your attention"}</h2><p class="sub">${isOrganizerUser ? "Messages and support requests for your organizer account." : hasAdminAccess ? "Platform-wide operational tasks, not limited by the reporting period." : "Current operational tasks, not limited by the reporting period."}</p></div></div>
               <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
-            </section>
-            <section class="card dashboard-command-card dashboard-command-highlights" aria-labelledby="dashboardHighlightsTitle">
+            </section>` : ``}
+            ${dashboardPreferences.visible.highlights ? `<section class="card dashboard-command-card dashboard-command-highlights" data-dashboard-card="highlights" style="order:${dashboardPreferences.order.indexOf("highlights") + 1}" aria-labelledby="dashboardHighlightsTitle">
               <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">${isOrganizerUser ? "My event highlights" : hasAdminAccess ? "Platform highlights" : "Community highlights"}</h2><p class="sub">Useful observations based only on recorded OpenCircle data.</p></div></div>
               <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
-            </section>
-            <section class="card dashboard-command-card dashboard-command-performance" aria-labelledby="dashboardCommunityTitle">
+            </section>` : ``}
+            ${dashboardPreferences.visible.performance ? `<section class="card dashboard-command-card dashboard-command-performance" data-dashboard-card="performance" style="order:${dashboardPreferences.order.indexOf("performance") + 1}" aria-labelledby="dashboardCommunityTitle">
               <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">${isOrganizerUser ? "My event performance" : hasAdminAccess ? "Community comparison" : "Community performance"}</h2><p class="sub">${isOrganizerUser ? "Performance across your events." : hasAdminAccess ? "All OpenCircle communities." : "Only communities within your assigned access."}</p></div></div>
               <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
-            </section>
+            </section>` : ``}
           </div>
         </section>
 
@@ -15725,16 +15755,19 @@ return `
                 </div>
               </div>
               <div class="right">
-                <div class="seg" aria-label="Newsletter chart view">
-                  <a href="${buildNewsletterAnalyticsChartHref("daily")}" class="${chartViewMode === "daily" ? "on" : ""}">Daily</a>
-                  <a href="${buildNewsletterAnalyticsChartHref("weekly")}" class="${chartViewMode === "weekly" ? "on" : ""}">Weekly</a>
-                  <a href="${buildNewsletterAnalyticsChartHref("monthly")}" class="${chartViewMode === "monthly" ? "on" : ""}">Monthly</a>
-                  <a href="${buildNewsletterAnalyticsChartHref("yearly")}" class="${chartViewMode === "yearly" ? "on" : ""}">Yearly</a>
+                <div class="seg" id="newsletterChartViewSeg" aria-label="Newsletter chart view">
+                  <a href="${buildNewsletterAnalyticsChartHref("daily")}" data-view="daily" class="${chartViewMode === "daily" ? "on" : ""}">Daily</a>
+                  <a href="${buildNewsletterAnalyticsChartHref("weekly")}" data-view="weekly" class="${chartViewMode === "weekly" ? "on" : ""}">Weekly</a>
+                  <a href="${buildNewsletterAnalyticsChartHref("monthly")}" data-view="monthly" class="${chartViewMode === "monthly" ? "on" : ""}">Monthly</a>
+                  <a href="${buildNewsletterAnalyticsChartHref("yearly")}" data-view="yearly" class="${chartViewMode === "yearly" ? "on" : ""}">Yearly</a>
                 </div>
               </div>
             </div>
-            <div class="chart-wrap" style="min-height:96px;">
-              <div>${newsletterChartSvgByMode[chartViewMode] || newsletterChartSvgByMode.daily}</div>
+            <div class="chart-wrap" id="newsletterChartWrap" style="min-height:220px;">
+              <div id="newsletterChartSvgHost">${newsletterChartSvgByMode[chartViewMode] || newsletterChartSvgByMode.daily}</div>
+              <div id="newsletterChartData" data-chart="${newsletterChartDataJson}" hidden></div>
+              <canvas id="newsletterChart" style="position:absolute; inset:0; width:100%; height:100%; display:none;"></canvas>
+              <div id="newsletterChartTip" style="position:absolute; display:none; pointer-events:none;"></div>
             </div>
           </div>
 
@@ -16287,6 +16320,19 @@ return `
                 </div>
                 <button type="button" class="btn theme-preference-toggle" id="themeToggle" aria-pressed="false" title="Switch to dark mode"><i class="fa-solid fa-moon" aria-hidden="true"></i><span>Dark mode</span></button>
               </div>
+            </div>
+
+            <div class="card" style="margin-top:var(--gap);">
+              <div class="sectionTitle"><div><h2>Dashboard layout</h2><p class="sub">Choose which supporting dashboard cards you see and the order they appear in. Your activity chart always stays visible.</p></div></div>
+              <form method="POST" action="/admin/preferences/dashboard">
+                ${(() => {
+                  const labels = { attention: "Priority and support card", highlights: "Highlights card", performance: "Performance card" };
+                  const positions = (key) => dashboardPreferences.order.indexOf(key) + 1;
+                  const positionOptions = (selected) => [1, 2, 3].map((value) => `<option value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`).join("");
+                  return `<div class="dashboard-layout-preferences">${DASHBOARD_PERSONALIZABLE_CARDS.map((key) => `<div class="dashboard-layout-preference"><label><input type="checkbox" name="dashboard_show_${key}" value="1" ${dashboardPreferences.visible[key] ? "checked" : ""} /> ${labels[key]}</label><label class="dashboard-layout-order">Order <select class="ctrl" name="dashboard_order_${key}" aria-label="${esc(labels[key])} order">${positionOptions(positions(key))}</select></label></div>`).join("")}</div>`;
+                })()}
+                <div class="actions"><button class="btn btn-primary" type="submit">Save dashboard layout</button></div>
+              </form>
             </div>
 
             <div class="card" style="margin-top:var(--gap);">
@@ -18413,7 +18459,7 @@ return `
           var url = new URL('/admin/dashboard-summary', window.location.origin); url.searchParams.set('range', selected); if (city) url.searchParams.set('city', city);
           if (communityScope && communityScope.value && communityScope.value !== 'all') url.searchParams.set('dashboardScope', communityScope.value);
           if (selected === 'custom') { url.searchParams.set('start', start.value); url.searchParams.set('end', end.value); }
-          fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error('Dashboard data unavailable'); return response.json(); }).then(render).catch(function(){ set('dashboardContext', 'Dashboard data could not be loaded. Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">Dashboard summary is unavailable right now.</div>'; var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
+          fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'Dashboard data is not available for this account.' : 'Dashboard data is temporarily unavailable.'); return response.json(); }).then(render).catch(function(error){ var message = error && error.message ? error.message : 'Dashboard data is temporarily unavailable.'; set('dashboardContext', message + ' Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">' + message + '</div>'; var chart = document.getElementById('dashboardActivityChart'); if (chart) chart.innerHTML = '<div class="dashboard-chart-empty">' + message + '</div>'; var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
         }
         range.addEventListener('change', load); if (communityScope) communityScope.addEventListener('change', load); if (apply) apply.addEventListener('click', load); load();
       })();
@@ -19882,11 +19928,11 @@ return `
   }
 
   function renderChartTipHtml(title, rows){
-    const titleHtml = '<div style="font-size:18px; line-height:1.25; font-weight:500; color:#334155; margin-bottom:14px;">' + String(title || "") + '</div>';
+    const titleHtml = '<div style="font-size:18px; line-height:1.25; font-weight:500; color:var(--text); margin-bottom:14px;">' + String(title || "") + '</div>';
     const rowsHtml = (rows || []).map((row) => {
       return '<div style="display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:8px;">' +
-        '<span style="font-size:16px; color:#334155; white-space:nowrap;">' + String(row.label || "") + '</span>' +
-        '<span style="font-size:18px; font-weight:700; color:' + String(row.color || "#0f172a") + '; white-space:nowrap;">' + String(row.value || "") + '</span>' +
+        '<span style="font-size:16px; color:var(--text); white-space:nowrap;">' + String(row.label || "") + '</span>' +
+        '<span style="font-size:18px; font-weight:700; color:var(--text); white-space:nowrap;">' + String(row.value || "") + '</span>' +
       '</div>';
     }).join("");
     return titleHtml + rowsHtml;
@@ -19894,6 +19940,7 @@ return `
 
   function showChartTipCard($tip, $wrap, anchorX, anchorY, html){
     if (!$tip || !$wrap) return;
+    const isDark = document.body.classList.contains("theme-dark");
     $tip.style.display = "block";
     $tip.style.position = "absolute";
     $tip.style.pointerEvents = "none";
@@ -19901,8 +19948,8 @@ return `
     $tip.style.padding = "18px 22px";
     $tip.style.borderRadius = "18px";
     $tip.style.border = "2px solid rgba(148,163,184,.55)";
-    $tip.style.background = "rgba(255,255,255,.98)";
-    $tip.style.color = "#0f172a";
+    $tip.style.background = isDark ? "rgba(17,26,43,.98)" : "rgba(255,255,255,.98)";
+    $tip.style.color = isDark ? "#e5edf9" : "#0f172a";
     $tip.style.fontSize = "14px";
     $tip.style.lineHeight = "1.25";
     $tip.style.boxShadow = "0 18px 44px rgba(15,23,42,.12)";
@@ -19916,6 +19963,23 @@ return `
     const top = clamp(anchorY - tipRect.height - 24, 12, Math.max(12, wrapRect.height - tipRect.height - 12));
     $tip.style.left = Math.round(left) + "px";
     $tip.style.top = Math.round(top) + "px";
+  }
+
+  // Charts can change size when a sidebar, disclosure, or responsive grid
+  // changes without a browser resize. Observe their actual box just like the
+  // dashboard chart so axes, hover targets, and tooltips always agree.
+  function observeChartResize($wrap, draw){
+    if (!$wrap || !window.ResizeObserver) return;
+    let queued = false;
+    const observer = new ResizeObserver(() => {
+      if (queued) return;
+      queued = true;
+      (window.requestAnimationFrame || window.setTimeout)(() => {
+        queued = false;
+        draw();
+      });
+    });
+    observer.observe($wrap);
   }
 
   function getSvgChartHoverGeometry($svgHost, labels, index, valuesA, valuesB){
@@ -20007,6 +20071,27 @@ return `
     return { frame, points };
   }
 
+  function initNewsletterChart(){
+    const wrap = document.getElementById("newsletterChartWrap"), host = document.getElementById("newsletterChartSvgHost"), data = document.getElementById("newsletterChartData"), canvas = document.getElementById("newsletterChart"), tip = document.getElementById("newsletterChartTip"), seg = document.getElementById("newsletterChartViewSeg");
+    if (!wrap || !canvas || !canvas.getContext) return;
+    const ctx = canvas.getContext("2d"); if (!ctx) return;
+    let chartData = { events:{}, views:{} }; try { chartData = JSON.parse(data?.getAttribute("data-chart") || "{}") || chartData; } catch (_) {}
+    const selected = seg?.querySelector(".on");
+    const mode = String(selected?.getAttribute("data-view") || "daily");
+    const primary = (chartData.events && chartData.events[mode]) || { labels:[], values:[] };
+    const secondary = (chartData.views && chartData.views[mode]) || { labels:[], values:[] };
+    const labels = Array.isArray(primary.labels) ? primary.labels : [];
+    const sent = Array.isArray(primary.values) ? primary.values.map(Number) : [];
+    const opened = Array.isArray(secondary.values) ? secondary.values.map(Number) : [];
+    const overlay = ensureChartHoverOverlay(wrap, "newsletter"); let hover = -1;
+    function size(){ const dpr = Math.max(1, window.devicePixelRatio || 1), w = Math.max(280, Math.round(wrap.clientWidth || 280)), h = Math.max(220, Math.round(wrap.clientHeight || 260)); canvas.style.width=w+"px"; canvas.style.height=h+"px"; canvas.width=Math.floor(w*dpr); canvas.height=Math.floor(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); return {w,h}; }
+    function points(frame, values){ return labels.map((_, i) => ({ x:frame.padL+(labels.length <= 1 ? frame.gw/2 : (frame.gw/(labels.length-1))*i), y:clamp(frame.padT+frame.gh-((Number(values[i]||0)/getYScale(sent.concat(opened)).yMax)*frame.gh),frame.padT,frame.padT+frame.gh) })); }
+    function draw(){ const {w,h}=size(); ctx.clearRect(0,0,w,h); if(!labels.length || !sent.concat(opened).some((v)=>Number(v||0)>0)){ctx.fillStyle=chartTheme.emptyTextColor;ctx.font="600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";ctx.fillText("No newsletter send activity yet",18,90);return;} const frame=getChartFrame(w,h), scale=getYScale(sent.concat(opened)), p1=points(frame,sent), p2=points(frame,opened);ctx.strokeStyle=chartTheme.gridColor;ctx.fillStyle=chartTheme.textColorMuted;ctx.font="500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";for(let i=0;i<=scale.yTicks;i++){const v=i*scale.tickStep,y=frame.padT+frame.gh-(v/scale.yMax)*frame.gh;ctx.beginPath();ctx.moveTo(frame.padL,y);ctx.lineTo(frame.padL+frame.gw,y);ctx.stroke();ctx.fillText(String(v),18,y+4);}const step=labels.length<=4?1:Math.ceil(labels.length/4);labels.forEach((label,i)=>{if(i!==labels.length-1&&i%step)return;ctx.textAlign=i===labels.length-1?"right":i===0?"left":"center";ctx.fillStyle=chartTheme.textColor;ctx.fillText(String(label||""),p1[i].x,frame.padT+frame.gh+30);});ctx.save();ctx.fillStyle=chartTheme.greenFill;drawSmoothAreaFill(ctx,p1,frame.padT+frame.gh);ctx.restore();ctx.save();ctx.strokeStyle=chartTheme.blueStroke;ctx.lineWidth=chartTheme.secondaryStrokeWidth;ctx.setLineDash(chartTheme.secondaryDash);ctx.lineCap="round";drawSmoothLine(ctx,p2);ctx.restore();ctx.save();ctx.strokeStyle=chartTheme.greenStroke;ctx.lineWidth=chartTheme.primaryStrokeWidth;ctx.lineCap="round";drawSmoothLine(ctx,p1);ctx.restore();if(hover>=0&&p1[hover])showChartHoverOverlay(overlay,frame,p1[hover],p2[hover],getChartPalette("events"));}
+    function hide(){hover=-1;if(tip)tip.style.display="none";hideChartHoverOverlay(overlay);draw();}
+    canvas.addEventListener("mousemove",(event)=>{const rect=canvas.getBoundingClientRect(),frame=getChartFrame(rect.width,rect.height), index=getNearestPointIndex(labels.map((_,i)=>({x:frame.padL+(labels.length<=1?frame.gw/2:(frame.gw/(labels.length-1))*i)})),event.clientX-rect.left,event.clientY-rect.top,frame);if(index<0)return hide();hover=index;draw();const y=frame.padT+frame.gh-((Math.max(Number(sent[index]||0),Number(opened[index]||0))/getYScale(sent.concat(opened)).yMax)*frame.gh);showChartTipCard(tip,wrap,frame.padL+(labels.length<=1?frame.gw/2:(frame.gw/(labels.length-1))*index),y,renderChartTipHtml("Period: "+String(labels[index]||""),[{label:"Emails sent",value:Number(sent[index]||0).toLocaleString("en-US"),color:"#0f172a"},{label:"Opens",value:Number(opened[index]||0).toLocaleString("en-US"),color:"#0f172a"}]));});
+    canvas.addEventListener("mouseleave",hide); if(host)host.style.display="none";canvas.style.display="block";draw();window.addEventListener("resize",()=>window.requestAnimationFrame(draw));observeChartResize(wrap,draw);
+  }
+
   function getNearestPointIndex(points, mx, my, frame){
     if (!points.length) return -1;
     if (mx < frame.padL || mx > frame.padL + frame.gw || my < frame.padT || my > frame.padT + frame.gh) return -1;
@@ -20033,7 +20118,7 @@ return `
     const $legend = document.getElementById("eventsChartLegend");
     const $info = document.getElementById("eventsChartInfo");
     const hoverOverlay = ensureChartHoverOverlay($wrap, "events");
-    if ($svgHost) {
+    if ($svgHost && !$canvas) {
       if ($canvas) $canvas.style.display = "none";
       if ($info) $info.style.display = "none";
       let svgChartSets = { events: {}, views: {} };
@@ -20146,6 +20231,7 @@ return `
       $svgHost.addEventListener("pointerleave", hideSvgChartTip);
       return;
     }
+    if ($svgHost) $svgHost.style.display = "none";
     if ($canvas) $canvas.style.display = "block";
     if ($info) $info.style.display = "none";
 
@@ -20223,7 +20309,7 @@ return `
     } catch (_) {}
     const hasCityEventSeries = !!(chartSets.cityEvents && chartSets.cityEvents.daily);
 
-    let mode = "daily";
+    let mode = (($seg && $seg.querySelector(".on")) ? String($seg.querySelector(".on").getAttribute("data-view") || "daily") : "daily");
     let hoverIndex = -1;
     let resizeRetry = 0;
 
@@ -20504,6 +20590,7 @@ return `
   }
 
   window.addEventListener("resize", () => window.requestAnimationFrame(draw));
+  observeChartResize($wrap, draw);
 }
 
   function initOrganizerChart(){
@@ -20545,7 +20632,7 @@ return `
 
     let hoverIndex = -1;
 
-    if ($svgHost) {
+    if ($svgHost && !$canvas) {
       if ($canvas) $canvas.style.display = "none";
       function showSvgTip(index, ev){
         if (!$tip || !ev) return;
@@ -20602,6 +20689,8 @@ return `
       $svgHost.addEventListener("mouseleave", hideSvgTip);
       return;
     }
+    if ($svgHost) $svgHost.style.display = "none";
+    $canvas.style.display = "block";
 
     function syncLegend(){
       if (!$legend) return;
@@ -20782,6 +20871,7 @@ return `
     syncLegend();
     draw();
     window.addEventListener("resize", () => window.requestAnimationFrame(draw));
+    observeChartResize($wrap, draw);
   }
 
   function initVenueChart(){
@@ -20810,6 +20900,8 @@ return `
       syncSvgFallback("views");
       return;
     }
+    if ($svgHost) $svgHost.style.display = "none";
+    $canvas.style.display = "block";
 
     let chartSets = {
       views: { labels: [], values: [] },
@@ -21099,6 +21191,7 @@ return `
     syncSvgFallback(metric);
     draw();
     window.addEventListener("resize", () => window.requestAnimationFrame(draw));
+    observeChartResize($wrap, draw);
   }
 
   function initAdChart(){
@@ -21122,15 +21215,13 @@ return `
       $svgHost.setAttribute("data-active-metric", targetMetric);
     }
 
-    // The server-rendered SVG is the primary chart. Keep the canvas available
-    // only for environments where that SVG cannot render, never as a second
-    // layer over it.
-    if ($canvas) $canvas.style.display = $svgHost ? "none" : "block";
     const ctx = $canvas ? $canvas.getContext("2d") : null;
     if (!ctx || !$canvas) {
       syncSvgFallback("views");
       return;
     }
+    if ($svgHost) $svgHost.style.display = "none";
+    $canvas.style.display = "block";
 
     let chartSets = {
       views: { labels: [], values: [] },
@@ -21422,8 +21513,10 @@ return `
     syncSvgFallback(metric);
     draw();
     window.addEventListener("resize", () => window.requestAnimationFrame(draw));
+    observeChartResize($wrap, draw);
   }
 
+  initNewsletterChart();
   initEventsChart();
   initOrganizerChart();
   initVenueChart();
@@ -21504,6 +21597,7 @@ function isOrganizerAllowedAdminPath(pathname) {
     "/event-reports",
     "/existing-events",
     "/preferences",
+    "/preferences/dashboard",
     "/preferences/email-reports/preview",
     "/preferences/status",
     "/preferences/password",
@@ -22306,6 +22400,40 @@ router.post("/preferences", upload.single("profilePhoto"), async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).send("Failed to update preferences.");
+  }
+});
+
+router.post("/preferences/dashboard", async (req, res) => {
+  try {
+    const user = await resolveSessionUser(req);
+    const role = normalizeRoleValue(req.user?.role || user?.role || "organizer");
+    if (!user?.id || !(hasDeveloperAccessRole(role) || role === "organizer")) {
+      return res.status(403).send("Forbidden");
+    }
+
+    const existingPreferences = parsePermissionsObject(user.notificationPreferencesJson) || {};
+    const visible = Object.fromEntries(DASHBOARD_PERSONALIZABLE_CARDS.map((key) => [
+      key,
+      isCheckedValue(req.body?.[`dashboard_show_${key}`]),
+    ]));
+    const requestedOrder = DASHBOARD_PERSONALIZABLE_CARDS
+      .map((key, index) => ({
+        key,
+        index,
+        rank: Math.max(1, Math.min(3, Number.parseInt(String(req.body?.[`dashboard_order_${key}`] || ""), 10) || index + 1)),
+      }))
+      .sort((a, b) => a.rank - b.rank || a.index - b.index)
+      .map((entry) => entry.key);
+    const dashboard = normalizeDashboardPreferences({ dashboard: { visible, order: requestedOrder } });
+
+    await run(
+      "UPDATE users SET notificationPreferencesJson = ?, updatedAt = datetime('now') WHERE id = ?",
+      [JSON.stringify({ ...existingPreferences, dashboard }), user.id]
+    );
+    return res.redirect("/admin/preferences?notice=dashboard_saved");
+  } catch (error) {
+    console.error("[dashboard preferences]", error);
+    return res.status(500).send("Failed to update dashboard preferences.");
   }
 });
 
