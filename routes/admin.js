@@ -14369,7 +14369,8 @@ return `
       .dashboard-kpi-detail{ min-height:16px; color:var(--muted); font-size:11px; line-height:1.35; }
       .dashboard-kpi-detail.is-positive{ color:#07845f; }
       .dashboard-kpi-detail.is-negative{ color:#b45309; }
-      .dashboard-command-grid{ display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); gap:var(--gap); align-items:start; }
+      .dashboard-command-columns{ display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); gap:var(--gap); align-items:start; }
+      .dashboard-command-column{ display:grid; align-content:start; gap:var(--gap); min-width:0; }
       .dashboard-command-card{ min-width:0; }
       .dashboard-attention-list,.dashboard-highlights,.dashboard-community-list{ display:grid; gap:8px; }
       .dashboard-attention-item,.dashboard-highlight,.dashboard-community-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 10px; border:1px solid var(--line); border-radius:var(--radius-inner); background:var(--panel2); }
@@ -14394,7 +14395,7 @@ return `
       .dashboard-community-metrics b{ color:var(--text); font-size:12px; }
       .dashboard-quick-actions{ display:flex; flex-wrap:wrap; gap:8px; }
       .dashboard-quick-actions .quick-link{ min-width:0; flex:0 1 auto; padding:8px 11px; font-size:12px; }
-      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-grid{ grid-template-columns:1fr; } }
+      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-columns{ grid-template-columns:1fr; } }
       @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:8px; } .dashboard-kpi-card{ min-height:112px; padding:13px; } .dashboard-kpi-card strong{ font-size:23px; } .dashboard-community-metrics{ gap:5px; } }
 </style>
   </head>
@@ -14744,26 +14745,27 @@ return `
             <a class="dashboard-kpi-card" href="${buildScopedAdminHref(isOrganizerUser ? "/admin/events-analytics" : "/admin/events-organizers")}"><span class="dashboard-kpi-label">${isOrganizerUser ? "My event views" : "Active organizers"}</span><strong id="dashboardKpiOrganizers">—</strong><span class="dashboard-kpi-detail" id="dashboardKpiOrganizersDetail">Loading…</span></a>
           </div>
 
-          <div class="dashboard-command-grid">
-            <section class="card dashboard-command-card" aria-labelledby="dashboardAttentionTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">Needs your attention</h2><p class="sub">Current operational tasks, not limited by the reporting period.</p></div></div>
-              <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
-            </section>
-            <section class="card dashboard-command-card" aria-labelledby="dashboardActivityTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">Community activity</h2><p class="sub" id="dashboardActivitySubtitle">Measured event views during the selected period.</p></div></div>
-              <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event views over time"><div class="muted">Loading activity…</div></div>
-            </section>
-          </div>
-
-          <div class="dashboard-command-grid dashboard-command-grid--highlights">
-            <section class="card dashboard-command-card" aria-labelledby="dashboardHighlightsTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">Community highlights</h2><p class="sub">Useful observations based only on recorded OpenCircle data.</p></div></div>
-              <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
-            </section>
-            <section class="card dashboard-command-card" aria-labelledby="dashboardCommunityTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">Community performance</h2><p class="sub">Only communities within your assigned access.</p></div></div>
-              <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
-            </section>
+          <div class="dashboard-command-columns">
+            <div class="dashboard-command-column">
+              <section class="card dashboard-command-card" aria-labelledby="dashboardAttentionTitle">
+                <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">Needs your attention</h2><p class="sub">Current operational tasks, not limited by the reporting period.</p></div></div>
+                <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
+              </section>
+              <section class="card dashboard-command-card" aria-labelledby="dashboardHighlightsTitle">
+                <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">Community highlights</h2><p class="sub">Useful observations based only on recorded OpenCircle data.</p></div></div>
+                <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
+              </section>
+            </div>
+            <div class="dashboard-command-column">
+              <section class="card dashboard-command-card" aria-labelledby="dashboardActivityTitle">
+                <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">Community activity</h2><p class="sub" id="dashboardActivitySubtitle">Measured event views during the selected period.</p></div></div>
+                <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event views over time"><div class="muted">Loading activity…</div></div>
+              </section>
+              <section class="card dashboard-command-card" aria-labelledby="dashboardCommunityTitle">
+                <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">Community performance</h2><p class="sub">Only communities within your assigned access.</p></div></div>
+                <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
+              </section>
+            </div>
           </div>
         </section>
 
