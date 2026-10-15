@@ -3777,6 +3777,239 @@ async function buildEmailReportAnalytics(user, frequency, now = DateTime.now().s
   return { role, period, communities, totals, engagementAvailable, platformActivity };
 }
 
+// Dashboard 2.0 Phase 1: a read-only aggregation layer. It deliberately
+// queries the existing source tables and never writes, backfills, resets, or
+// otherwise changes any analytics counters or content records.
+function parseDashboardReportingPeriod(query, now = DateTime.now().setZone(DEFAULT_TZ)) {
+  const range = String(query?.range || "30d").trim().toLowerCase();
+  const rangeDays = { "7d": 7, "30d": 30, "90d": 90 };
+  if (Object.prototype.hasOwnProperty.call(rangeDays, range)) {
+    const end = now;
+    return { key: range, start: end.minus({ days: rangeDays[range] }), end };
+  }
+  if (range !== "custom") return { error: "range must be 7d, 30d, 90d, or custom" };
+
+  const startRaw = String(query?.start || "").trim();
+  const endRaw = String(query?.end || "").trim();
+  const start = DateTime.fromISO(startRaw, { zone: DEFAULT_TZ }).startOf("day");
+  const endInclusive = DateTime.fromISO(endRaw, { zone: DEFAULT_TZ }).startOf("day");
+  if (!startRaw || !endRaw || !start.isValid || !endInclusive.isValid || endInclusive < start) {
+    return { error: "custom range requires valid start and end dates" };
+  }
+  const end = endInclusive.plus({ days: 1 });
+  if (end.diff(start, "days").days > 366) return { error: "custom range may not exceed 366 days" };
+  return { key: "custom", start, end };
+}
+
+function dashboardIsoInRange(value, startMs, endMs) {
+  const timestamp = Date.parse(String(value || "").trim());
+  return Number.isFinite(timestamp) && timestamp >= startMs && timestamp < endMs;
+}
+
+function dashboardPercentChange(current, previous) {
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || previous <= 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+async function buildDashboardSummaryAnalytics(user, req, period) {
+  const role = normalizeRoleValue(user?.role);
+  const cities = getUserAllowedCities(user, user?.city || "Enumclaw");
+  const cityPlaceholders = cities.map(() => "?").join(",");
+  const periodStartMs = period.start.toMillis();
+  const periodEndMs = period.end.toMillis();
+  const periodDurationMs = periodEndMs - periodStartMs;
+  const previousStartMs = periodStartMs - periodDurationMs;
+  const nowMs = Date.now();
+  const organizerValues = role === "organizer" ? getOrganizerAccessValues(user, req) : [];
+  const ownsEvent = (event) => role !== "organizer"
+    || organizerOwnsEvent(event, organizerValues)
+    || Number(event?.createdByUserId || 0) === Number(user?.id || 0);
+  const emptyCity = (city) => ({
+    city,
+    publishedEvents: 0,
+    eventsAdded: 0,
+    previousEventsAdded: 0,
+    views: null,
+    previousViews: null,
+    uniqueViews: null,
+    pendingActions: 0,
+  });
+  const citySummaries = new Map(cities.map((city) => [city, emptyCity(city)]));
+  const citySummary = (city) => {
+    if (!citySummaries.has(city)) citySummaries.set(city, emptyCity(city));
+    return citySummaries.get(city);
+  };
+
+  const eventRows = await all(
+    `SELECT id, city, organizer, createdByUserId, startDateTime, endDateTime,
+            hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate,
+            recurrenceUntilDate, createdAt, submittedAt, archived
+       FROM events
+      WHERE city IN (${cityPlaceholders})
+        AND COALESCE(archived, 0) = 0`,
+    cities
+  );
+  const scopedEvents = (eventRows || []).filter(ownsEvent);
+  const eventIds = scopedEvents.map((event) => Number(event.id)).filter((id) => Number.isInteger(id) && id > 0);
+  let upcomingOccurrences = 0;
+  const upcomingWindowEndMs = nowMs + periodDurationMs;
+  for (const event of scopedEvents) {
+    const summary = citySummary(event.city);
+    summary.publishedEvents += 1;
+    if (dashboardIsoInRange(event.createdAt, periodStartMs, periodEndMs)) summary.eventsAdded += 1;
+    if (dashboardIsoInRange(event.createdAt, previousStartMs, periodStartMs)) summary.previousEventsAdded += 1;
+    const isRecurring = Number(event?.hasRecurrence || 0) === 1 || hasRecurringData(event);
+    if (isRecurring && hasRecurringData(event)) {
+      const occurrences = generateAdminOccurrences(event, nowMs, upcomingWindowEndMs);
+      upcomingOccurrences += occurrences.filter((occurrence) => {
+        const startsAt = Date.parse(String(occurrence?.startDateTime || "").trim());
+        return Number.isFinite(startsAt) && startsAt >= nowMs && startsAt < upcomingWindowEndMs;
+      }).length;
+    } else {
+      const startsAt = Date.parse(String(event.startDateTime || "").trim());
+      if (Number.isFinite(startsAt) && startsAt >= nowMs && startsAt < upcomingWindowEndMs) upcomingOccurrences += 1;
+    }
+  }
+
+  let engagementAvailable = false;
+  let engagementSeriesAvailable = false;
+  const dailyViews = new Map();
+  try {
+    if (eventIds.length) {
+      for (const summary of citySummaries.values()) {
+        summary.views = 0;
+        summary.previousViews = 0;
+        summary.uniqueViews = 0;
+      }
+      const eventIdPlaceholders = eventIds.map(() => "?").join(",");
+      const engagementRows = await all(
+        `SELECT e.city,
+                SUM(CASE WHEN datetime(ev.viewedAt) >= datetime(?) AND datetime(ev.viewedAt) < datetime(?) THEN 1 ELSE 0 END) AS views,
+                SUM(CASE WHEN datetime(ev.viewedAt) >= datetime(?) AND datetime(ev.viewedAt) < datetime(?) THEN 1 ELSE 0 END) AS previousViews,
+                COUNT(DISTINCT CASE WHEN datetime(ev.viewedAt) >= datetime(?) AND datetime(ev.viewedAt) < datetime(?) THEN ev.ipHash END) AS uniqueViews
+           FROM event_views ev
+           JOIN events e ON e.id = ev.eventId
+          WHERE ev.eventId IN (${eventIdPlaceholders})
+          GROUP BY e.city`,
+        [
+          period.start.toUTC().toISO(), period.end.toUTC().toISO(),
+          DateTime.fromMillis(previousStartMs).toUTC().toISO(), period.start.toUTC().toISO(),
+          period.start.toUTC().toISO(), period.end.toUTC().toISO(),
+          ...eventIds,
+        ]
+      );
+      for (const row of engagementRows || []) {
+        const summary = citySummary(row.city);
+        summary.views = Number(row.views || 0);
+        summary.previousViews = Number(row.previousViews || 0);
+        summary.uniqueViews = Number(row.uniqueViews || 0);
+      }
+      const trendRows = await all(
+        `SELECT substr(ev.viewedAt, 1, 10) AS date, COUNT(*) AS views
+           FROM event_views ev
+          WHERE ev.eventId IN (${eventIdPlaceholders})
+            AND datetime(ev.viewedAt) >= datetime(?)
+            AND datetime(ev.viewedAt) < datetime(?)
+          GROUP BY substr(ev.viewedAt, 1, 10)
+          ORDER BY date ASC`,
+        [...eventIds, period.start.toUTC().toISO(), period.end.toUTC().toISO()]
+      );
+      for (const row of trendRows || []) dailyViews.set(String(row.date || ""), Number(row.views || 0));
+      engagementAvailable = true;
+      engagementSeriesAvailable = true;
+    }
+  } catch (_) {
+    // Never replace unavailable period-level tracking with lifetime counters.
+    engagementAvailable = false;
+    engagementSeriesAvailable = false;
+  }
+
+  const attention = { pendingApprovals: null, openReports: 0, unreadMessages: 0, pendingInvitations: null, failedNewsletterDeliveries: null };
+  if (role !== "organizer") {
+    try {
+      const row = await get(`SELECT COUNT(*) AS count FROM pending_events WHERE city IN (${cityPlaceholders})`, cities);
+      attention.pendingApprovals = Number(row?.count || 0);
+    } catch (_) {}
+  }
+  try {
+    const reportRows = await all(
+      `SELECT e.city, COUNT(*) AS count
+         FROM event_reports r
+         JOIN events e ON e.id = r.eventId
+        WHERE r.status = 'open' AND e.city IN (${cityPlaceholders})
+        GROUP BY e.city`,
+      cities
+    );
+    for (const row of reportRows || []) {
+      const count = Number(row.count || 0);
+      citySummary(row.city).pendingActions += count;
+      attention.openReports += count;
+    }
+  } catch (_) {}
+  try {
+    attention.unreadMessages = Number((await get(
+      "SELECT COUNT(*) AS count FROM messages WHERE recipientUserId = ? AND readAt IS NULL",
+      [Number(user?.id || 0)]
+    ))?.count || 0);
+  } catch (_) {}
+  if (role === "admin") {
+    try {
+      attention.pendingInvitations = Number((await get("SELECT COUNT(*) AS count FROM invites WHERE usedAt IS NULL AND datetime(expiresAt) >= datetime('now')"))?.count || 0);
+    } catch (_) { attention.pendingInvitations = null; }
+  }
+  if (role !== "organizer") {
+    try {
+      attention.failedNewsletterDeliveries = Number((await get(
+        `SELECT COUNT(*) AS count FROM newsletter_recipients WHERE city IN (${cityPlaceholders}) AND lower(deliveryStatus) IN ('failed', 'bounced')`,
+        cities
+      ))?.count || 0);
+    } catch (_) { attention.failedNewsletterDeliveries = null; }
+  }
+
+  for (const summary of citySummaries.values()) {
+    summary.eventsAddedChangePct = dashboardPercentChange(summary.eventsAdded, summary.previousEventsAdded);
+    summary.viewsChangePct = summary.views === null || summary.previousViews === null
+      ? null
+      : dashboardPercentChange(summary.views, summary.previousViews);
+  }
+  const totals = [...citySummaries.values()].reduce((acc, summary) => ({
+    publishedEvents: acc.publishedEvents + summary.publishedEvents,
+    eventsAdded: acc.eventsAdded + summary.eventsAdded,
+    previousEventsAdded: acc.previousEventsAdded + summary.previousEventsAdded,
+    views: acc.views === null || summary.views === null ? null : acc.views + summary.views,
+    previousViews: acc.previousViews === null || summary.previousViews === null ? null : acc.previousViews + summary.previousViews,
+    uniqueViews: acc.uniqueViews === null || summary.uniqueViews === null ? null : acc.uniqueViews + summary.uniqueViews,
+  }), { publishedEvents: 0, eventsAdded: 0, previousEventsAdded: 0, views: engagementAvailable ? 0 : null, previousViews: engagementAvailable ? 0 : null, uniqueViews: engagementAvailable ? 0 : null });
+
+  const activeOrganizers = new Set(scopedEvents.map((event) => normalizeOrganizerIdentity(event.organizer)).filter(Boolean)).size;
+  const series = [];
+  for (let cursor = period.start.startOf("day"); cursor < period.end; cursor = cursor.plus({ days: 1 })) {
+    const date = cursor.toISODate();
+    series.push({ date, eventViews: engagementSeriesAvailable ? Number(dailyViews.get(date) || 0) : null });
+  }
+  return {
+    role,
+    scope: { cities, organizerOnly: role === "organizer" },
+    period: { key: period.key, start: period.start.toUTC().toISO(), end: period.end.toUTC().toISO(), previousStart: DateTime.fromMillis(previousStartMs).toUTC().toISO(), timezone: DEFAULT_TZ },
+    availability: { engagement: engagementAvailable, uniqueViews: engagementAvailable, eventViewSeries: engagementSeriesAvailable },
+    kpis: {
+      upcomingOccurrences,
+      publishedEvents: totals.publishedEvents,
+      eventViews: totals.views,
+      previousEventViews: totals.previousViews,
+      eventViewsChangePct: totals.views === null || totals.previousViews === null ? null : dashboardPercentChange(totals.views, totals.previousViews),
+      eventsAdded: totals.eventsAdded,
+      previousEventsAdded: totals.previousEventsAdded,
+      eventsAddedChangePct: dashboardPercentChange(totals.eventsAdded, totals.previousEventsAdded),
+      activeOrganizers,
+      uniqueViews: totals.uniqueViews,
+    },
+    attention,
+    communities: [...citySummaries.values()],
+    series,
+  };
+}
+
 function formatEmailReport(report, user, { preview = false } = {}) {
   const number = (value) => Number(value || 0).toLocaleString("en-US");
   const periodLabel = `${report.period.start.toFormat("LLLL d, yyyy")} – ${report.period.end.minus({ days: 1 }).toFormat("LLLL d, yyyy")}`;
@@ -20864,6 +21097,7 @@ function isOrganizerAllowedAdminPath(pathname) {
   const path = String(pathname || "");
   if ([
     "/",
+    "/dashboard-summary",
     "/events-analytics",
     "/search",
     "/messages",
@@ -20899,6 +21133,20 @@ router.use(async (req, res, next) => {
 });
 
 router.get("/", async (req, res) => renderAdmin(req, res, "dashboard"));
+router.get("/dashboard-summary", async (req, res) => {
+  try {
+    const user = await resolveSessionUser(req);
+    if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+    const period = parseDashboardReportingPeriod(req.query, DateTime.now().setZone(DEFAULT_TZ));
+    if (period.error) return res.status(400).json({ error: period.error });
+    const summary = await buildDashboardSummaryAnalytics(user, req, period);
+    res.set("Cache-Control", "private, no-store");
+    return res.json(summary);
+  } catch (error) {
+    console.error("[/admin/dashboard-summary] error:", error && error.stack ? error.stack : error);
+    return res.status(500).json({ error: "Dashboard summary unavailable" });
+  }
+});
 router.get("/events-analytics", async (req, res) => renderAdmin(req, res, "events-analytics"));
 router.get("/events-organizers", async (req, res) => renderAdmin(req, res, "events-organizers"));
 router.get("/create-events", async (req, res) => renderAdmin(req, res, "create"));
