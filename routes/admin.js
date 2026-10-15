@@ -3814,9 +3814,15 @@ function dashboardPercentChange(current, previous) {
 async function buildDashboardSummaryAnalytics(user, req, period) {
   const role = normalizeRoleValue(user?.role);
   const allowedCities = getUserAllowedCities(user, user?.city || "Enumclaw");
-  // The command-center is an access-wide summary. Its community comparison
-  // must never quietly shrink to the primary city carried by sidebar links.
-  const cities = allowedCities.slice();
+  // Developers can intentionally filter the command center to one of their
+  // already-authorized community workspaces; all remains the safe default.
+  const requestedDashboardScope = String(req?.query?.dashboardScope || "all").trim();
+  const developerScopeOptions = role === "developer"
+    ? getAdminSidebarAreaOptions(user, user?.city || "Enumclaw")
+    : [];
+  const cities = role === "developer" && requestedDashboardScope !== "all" && developerScopeOptions.includes(requestedDashboardScope)
+    ? getAdminSidebarAreaCities(requestedDashboardScope, user, user?.city || "Enumclaw")
+    : allowedCities.slice();
   const cityPlaceholders = cities.map(() => "?").join(",");
   const periodStartMs = period.start.toMillis();
   const periodEndMs = period.end.toMillis();
@@ -4051,7 +4057,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
 
   return {
     role,
-    scope: { cities, organizerOnly: role === "organizer" },
+    scope: { cities, organizerOnly: role === "organizer", dashboardScope: requestedDashboardScope },
     period: { key: period.key, start: period.start.toUTC().toISO(), end: period.end.toUTC().toISO(), previousStart: DateTime.fromMillis(previousStartMs).toUTC().toISO(), timezone: DEFAULT_TZ },
     availability: { engagement: engagementAvailable, uniqueViews: engagementAvailable, eventViewSeries: engagementSeriesAvailable },
     kpis: {
@@ -4871,6 +4877,7 @@ let whereParams = [];
     const userRole = normalizeRoleValue(currentUser?.role || req.user?.role || "organizer");
     const hasDeveloperAccess = hasDeveloperAccessRole(userRole);
     const hasAdminAccess = isAdminRole(userRole);
+    const isDeveloperUser = isDeveloperRole(userRole);
     const isOrganizerUser = userRole === "organizer";
     const sectionPermissions = getUserSectionPermissions(currentUser || { role: userRole });
     const userAllowedCities = getUserAllowedCities(currentUser || { role: userRole, city: req.user?.city || "Enumclaw" }, req.user?.city || "Enumclaw");
@@ -4893,6 +4900,9 @@ let whereParams = [];
     const adminWorkspaceOptions = hasDeveloperAccess
       ? getAdminSidebarAreaOptions(accessUser, userCity)
       : getUserAdminWorkspaceOptions(currentUser, userCity);
+    const dashboardScopeOptions = isDeveloperUser
+      ? getAdminSidebarAreaOptions(accessUser, userCity)
+      : [];
     const selectedAdminWorkspace = hasDeveloperAccess
       ? selectedDeveloperSidebarArea
       : pickAccessibleAdminWorkspace(req.query.workspace || req.query.city, currentUser, { fallbackWorkspace: userCity, fallbackCity: userCity });
@@ -14415,6 +14425,7 @@ return `
       .eyebrow{ font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:var(--accent); }
       .dashboard-period-controls{ min-width:220px; display:grid; gap:5px; }
       .dashboard-period-controls label{ margin:0; font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+      .dashboard-community-scope{ display:grid; gap:5px; }
       .dashboard-period-row{ display:flex; gap:8px; align-items:center; }
       .dashboard-period-row .ctrl{ min-width:142px; margin:0; padding:8px 10px; font-size:13px; }
       .dashboard-create-event{ white-space:nowrap; }
@@ -14797,7 +14808,7 @@ return `
           <div class="dashboard-command-head">
             <div>
               <h1 id="dashboardGreeting">Welcome back</h1>
-              <p class="sub" id="dashboardContext">Loading your current community overview…</p>
+              <p class="sub" id="dashboardContext">Loading your current dashboard…</p>
             </div>
             <div class="dashboard-period-controls">
               <label for="dashboardRange">Reporting period</label>
@@ -14809,6 +14820,14 @@ return `
                   <option value="custom">Custom range</option>
                 </select>
               </div>
+              ${dashboardScopeOptions.length > 1 ? `
+              <div class="dashboard-community-scope">
+                <label for="dashboardCommunityScope">Communities</label>
+                <select id="dashboardCommunityScope" class="ctrl" aria-label="Dashboard community scope">
+                  <option value="all">All assigned communities</option>
+                  ${dashboardScopeOptions.map((scope) => `<option value="${esc(scope)}">${esc(scope)}</option>`).join("")}
+                </select>
+              </div>` : ``}
               <div class="dashboard-custom-range" id="dashboardCustomRange" hidden>
                 <input class="ctrl" id="dashboardRangeStart" type="date" aria-label="Dashboard start date" />
                 <input class="ctrl" id="dashboardRangeEnd" type="date" aria-label="Dashboard end date" />
@@ -14826,19 +14845,19 @@ return `
 
           <div class="dashboard-command-columns">
             <section class="card dashboard-command-card dashboard-command-activity" aria-labelledby="dashboardActivityTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">Community activity</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
+              <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
               <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
             </section>
             <section class="card dashboard-command-card dashboard-command-attention" aria-labelledby="dashboardAttentionTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">Needs your attention</h2><p class="sub">Current operational tasks, not limited by the reporting period.</p></div></div>
+              <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">${isOrganizerUser ? "SupportCircle messages" : hasAdminAccess ? "Platform priorities" : "Needs your attention"}</h2><p class="sub">${isOrganizerUser ? "Messages and support requests for your organizer account." : hasAdminAccess ? "Platform-wide operational tasks, not limited by the reporting period." : "Current operational tasks, not limited by the reporting period."}</p></div></div>
               <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
             </section>
             <section class="card dashboard-command-card dashboard-command-highlights" aria-labelledby="dashboardHighlightsTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">Community highlights</h2><p class="sub">Useful observations based only on recorded OpenCircle data.</p></div></div>
+              <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">${isOrganizerUser ? "My event highlights" : hasAdminAccess ? "Platform highlights" : "Community highlights"}</h2><p class="sub">Useful observations based only on recorded OpenCircle data.</p></div></div>
               <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
             </section>
             <section class="card dashboard-command-card dashboard-command-performance" aria-labelledby="dashboardCommunityTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">Community performance</h2><p class="sub">Only communities within your assigned access.</p></div></div>
+              <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">${isOrganizerUser ? "My event performance" : hasAdminAccess ? "Community comparison" : "Community performance"}</h2><p class="sub">${isOrganizerUser ? "Performance across your events." : hasAdminAccess ? "All OpenCircle communities." : "Only communities within your assigned access."}</p></div></div>
               <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
             </section>
           </div>
@@ -18193,6 +18212,7 @@ return `
         var start = document.getElementById('dashboardRangeStart');
         var end = document.getElementById('dashboardRangeEnd');
         var apply = document.getElementById('dashboardCustomApply');
+        var communityScope = document.getElementById('dashboardCommunityScope');
         var city = root.getAttribute('data-city') || '';
         var organizer = root.getAttribute('data-organizer') === '1';
         var number = function(value){ return Number(value || 0).toLocaleString('en-US'); };
@@ -18212,14 +18232,14 @@ return `
           return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
         };
         var adminHref = function(path){ return path + (city ? '?city=' + encodeURIComponent(city) : ''); };
-        var appendAttention = function(host, count, icon, text, href){
-          if (!count) return;
+        var appendAttention = function(host, count, icon, text, href, alwaysShow){
+          if (!count && !alwaysShow) return;
           var link = document.createElement('a'); link.className = 'dashboard-attention-item'; link.href = href;
           var copy = document.createElement('span'); copy.className = 'dashboard-attention-copy';
           var i = document.createElement('i'); i.className = icon; i.setAttribute('aria-hidden', 'true');
           var label = document.createElement('span'); label.textContent = text;
           copy.appendChild(i); copy.appendChild(label);
-          var value = document.createElement('strong'); value.className = 'dashboard-attention-count'; value.textContent = number(count);
+          var value = document.createElement('strong'); value.className = 'dashboard-attention-count'; value.textContent = count ? number(count) : 'Open';
           link.appendChild(copy); link.appendChild(value); host.appendChild(link);
         };
         function render(summary){
@@ -18228,7 +18248,10 @@ return `
           var availability = summary.availability || {};
           var greeting = new Date().getHours() < 12 ? 'Good morning' : (new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening');
           set('dashboardGreeting', greeting);
-          var scope = organizer ? 'your events' : ((summary.scope && summary.scope.cities && summary.scope.cities.length > 1) ? 'your assigned communities' : (summary.scope && summary.scope.cities ? summary.scope.cities[0] : 'your community'));
+          var selectedScope = communityScope && communityScope.value !== 'all'
+            ? communityScope.options[communityScope.selectedIndex].text
+            : '';
+          var scope = organizer ? 'your events' : (summary.role === 'admin' ? 'the OpenCircle platform' : (selectedScope || ((summary.scope && summary.scope.cities && summary.scope.cities.length > 1) ? 'your assigned communities' : (summary.scope && summary.scope.cities ? summary.scope.cities[0] : 'your community'))));
           set('dashboardContext', "Here’s what’s happening in " + scope + '.');
           set('dashboardKpiUpcoming', number(kpis.upcomingOccurrences));
           set('dashboardKpiViews', availability.engagement ? number(organizer ? kpis.uniqueViews : kpis.eventViews) : '—');
@@ -18242,11 +18265,15 @@ return `
           var attentionHost = document.getElementById('dashboardAttention');
           if (attentionHost) {
             attentionHost.replaceChildren();
-            appendAttention(attentionHost, attention.pendingApprovals, 'fa-regular fa-calendar', 'Review pending events', adminHref('/admin/approve-events'));
-            appendAttention(attentionHost, attention.openReports, 'fa-regular fa-flag', 'Review open event reports', adminHref('/admin/event-reports'));
-            appendAttention(attentionHost, attention.unreadMessages, 'fa-regular fa-envelope', 'Respond to unread messages', adminHref('/admin/messages'));
-            appendAttention(attentionHost, attention.failedNewsletterDeliveries, 'fa-solid fa-triangle-exclamation', 'Review failed newsletter deliveries', adminHref('/admin/newsletter/analytics'));
-            appendAttention(attentionHost, attention.pendingInvitations, 'fa-regular fa-user', 'Review pending invitations', adminHref('/admin/invites'));
+            if (organizer) {
+              appendAttention(attentionHost, attention.unreadMessages, 'fa-regular fa-comments', attention.unreadMessages ? 'Open SupportCircle messages' : 'Contact SupportCircle', adminHref('/admin/messages'), true);
+            } else {
+              appendAttention(attentionHost, attention.pendingApprovals, 'fa-regular fa-calendar', 'Review pending events', adminHref('/admin/approve-events'));
+              appendAttention(attentionHost, attention.openReports, 'fa-regular fa-flag', 'Review open event reports', adminHref('/admin/event-reports'));
+              appendAttention(attentionHost, attention.unreadMessages, 'fa-regular fa-envelope', 'Respond to unread messages', adminHref('/admin/messages'));
+              appendAttention(attentionHost, attention.failedNewsletterDeliveries, 'fa-solid fa-triangle-exclamation', 'Review failed newsletter deliveries', adminHref('/admin/newsletter/analytics'));
+              appendAttention(attentionHost, attention.pendingInvitations, 'fa-regular fa-user', 'Review pending invitations', adminHref('/admin/invites'));
+            }
             if (!attentionHost.childElementCount) { var empty = document.createElement('div'); empty.className = 'dashboard-positive-empty'; empty.textContent = "You’re all caught up. Nothing needs your attention right now."; attentionHost.appendChild(empty); }
           }
           var chart = document.getElementById('dashboardActivityChart');
@@ -18384,10 +18411,11 @@ return `
           custom.hidden = selected !== 'custom';
           if (selected === 'custom' && (!start.value || !end.value)) return;
           var url = new URL('/admin/dashboard-summary', window.location.origin); url.searchParams.set('range', selected); if (city) url.searchParams.set('city', city);
+          if (communityScope && communityScope.value && communityScope.value !== 'all') url.searchParams.set('dashboardScope', communityScope.value);
           if (selected === 'custom') { url.searchParams.set('start', start.value); url.searchParams.set('end', end.value); }
           fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error('Dashboard data unavailable'); return response.json(); }).then(render).catch(function(){ set('dashboardContext', 'Dashboard data could not be loaded. Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">Dashboard summary is unavailable right now.</div>'; var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
         }
-        range.addEventListener('change', load); if (apply) apply.addEventListener('click', load); load();
+        range.addEventListener('change', load); if (communityScope) communityScope.addEventListener('change', load); if (apply) apply.addEventListener('click', load); load();
       })();
 
       // ---- helpers ----
