@@ -6761,7 +6761,7 @@ return `
       padL: 56,
       padR: 18,
       padT: 18,
-      padB: 42,
+      padB: 32,
       textColor: "#475569",
       gridColor: "rgba(15,23,42,.08)",
       emptyTextColor: "rgba(15,23,42,.75)",
@@ -6802,7 +6802,7 @@ return `
       }
 
       const maxValue = Math.max(1, ...allValues);
-      const tickCount = Math.min(6, maxValue);
+      const tickCount = Math.min(4, maxValue);
       const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
       const yMax = tickStep * tickCount;
       const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
@@ -7440,7 +7440,7 @@ return `
       }
 
       const maxValue = Math.max(1, ...allValues);
-      const tickCount = Math.min(6, maxValue);
+      const tickCount = Math.min(4, maxValue);
       const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
       const yMax = tickStep * tickCount;
       const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
@@ -8583,7 +8583,7 @@ return `
           `;
         }
         const maxValue = Math.max(1, ...allValues);
-        const tickCount = Math.min(6, maxValue);
+        const tickCount = Math.min(4, maxValue);
         const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
         const yMax = tickStep * tickCount;
         const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
@@ -10249,7 +10249,7 @@ return `
       }
 
       const maxValue = Math.max(1, ...allValues);
-      const tickCount = Math.min(6, maxValue);
+      const tickCount = Math.min(4, maxValue);
       const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
       const yMax = tickStep * tickCount;
       const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
@@ -10373,7 +10373,7 @@ return `
       }
 
       const maxValue = Math.max(1, ...allValues);
-      const tickCount = Math.min(6, maxValue);
+      const tickCount = Math.min(4, maxValue);
       const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
       const yMax = tickStep * tickCount;
       const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
@@ -14429,12 +14429,10 @@ return `
       .dashboard-kpi-detail{ min-height:16px; color:var(--muted); font-size:12px; line-height:1.35; }
       .dashboard-kpi-detail.is-positive{ color:#07845f; }
       .dashboard-kpi-detail.is-negative{ color:#b45309; }
-      /* Match the four-column KPI rhythm: a compact one-column operations
-         rail and a three-column analytics canvas. */
-      .dashboard-command-columns{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--gap); align-items:start; }
-      .dashboard-command-column{ display:grid; align-content:start; gap:var(--gap); min-width:0; }
-      .dashboard-command-side{ grid-column:span 1; }
-      .dashboard-command-main{ grid-column:span 3; }
+      /* Activity uses the full four-column dashboard width; supporting
+         operational cards share an equal three-column row below it. */
+      .dashboard-command-columns{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--gap); align-items:start; }
+      .dashboard-command-activity{ grid-column:1 / -1; }
       .dashboard-command-card{ min-width:0; }
       .dashboard-attention-list,.dashboard-highlights,.dashboard-community-list{ display:grid; gap:10px; }
       .dashboard-attention-item,.dashboard-highlight,.dashboard-community-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel2); }
@@ -14445,8 +14443,12 @@ return `
       .dashboard-attention-copy span{ font-size:13px; line-height:1.45; }
       .dashboard-attention-count{ font-weight:650; color:var(--text); }
       .dashboard-positive-empty{ padding:14px; border:1px dashed var(--line); border-radius:var(--radius-mid); color:var(--muted); font-size:13px; }
-      .dashboard-activity-chart{ min-height:258px; padding-top:8px; }
+      .dashboard-activity-chart{ position:relative; min-height:258px; padding-top:8px; }
       .dashboard-activity-chart svg{ display:block; width:100%; height:250px; }
+      .dashboard-chart-tooltip{ position:absolute; z-index:3; min-width:190px; max-width:240px; padding:12px 14px; border:1px solid rgba(148,163,184,.52); border-radius:var(--radius); background:rgba(255,255,255,.98); color:var(--text); box-shadow:0 18px 36px rgba(15,23,42,.16); pointer-events:none; font-size:13px; line-height:1.4; }
+      .dashboard-chart-tooltip-title{ margin-bottom:7px; font-size:14px; font-weight:700; }
+      .dashboard-chart-tooltip-row{ display:flex; justify-content:space-between; gap:18px; color:var(--muted); }
+      .dashboard-chart-tooltip-row strong{ color:var(--text); font-size:14px; }
       .dashboard-chart-empty{ align-self:center; color:var(--muted); font-size:13px; }
       .dashboard-highlight{ align-items:flex-start; justify-content:flex-start; gap:10px; }
       .dashboard-highlight i{ color:var(--accent); margin-top:2px; }
@@ -14458,7 +14460,7 @@ return `
       .dashboard-community-metrics b{ color:var(--text); font-size:12px; }
       .dashboard-quick-actions{ display:flex; flex-wrap:wrap; gap:8px; }
       .dashboard-quick-actions .quick-link{ min-width:0; flex:0 1 auto; padding:8px 11px; font-size:12px; }
-      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-side,.dashboard-command-main{ grid-column:auto; } }
+      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity{ grid-column:auto; } }
       @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ min-height:108px; padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-community-metrics{ gap:5px; } }
 </style>
   </head>
@@ -14791,7 +14793,6 @@ return `
                   <option value="90d">Last 90 days</option>
                   <option value="custom">Custom range</option>
                 </select>
-                ${canManageEvents ? `<a class="btn btn-primary dashboard-create-event" href="${buildScopedAdminHref("/admin/create-events")}">Create Event</a>` : ``}
               </div>
               <div class="dashboard-custom-range" id="dashboardCustomRange" hidden>
                 <input class="ctrl" id="dashboardRangeStart" type="date" aria-label="Dashboard start date" />
@@ -14809,26 +14810,22 @@ return `
           </div>
 
           <div class="dashboard-command-columns">
-            <div class="dashboard-command-column dashboard-command-side">
-              <section class="card dashboard-command-card" aria-labelledby="dashboardAttentionTitle">
-                <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">Needs your attention</h2><p class="sub">Current operational tasks, not limited by the reporting period.</p></div></div>
-                <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
-              </section>
-              <section class="card dashboard-command-card" aria-labelledby="dashboardHighlightsTitle">
-                <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">Community highlights</h2><p class="sub">Useful observations based only on recorded OpenCircle data.</p></div></div>
-                <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
-              </section>
-            </div>
-            <div class="dashboard-command-column dashboard-command-main">
-              <section class="card dashboard-command-card" aria-labelledby="dashboardActivityTitle">
-                <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">Community activity</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
-                <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
-              </section>
-              <section class="card dashboard-command-card" aria-labelledby="dashboardCommunityTitle">
-                <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">Community performance</h2><p class="sub">Only communities within your assigned access.</p></div></div>
-                <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
-              </section>
-            </div>
+            <section class="card dashboard-command-card dashboard-command-activity" aria-labelledby="dashboardActivityTitle">
+              <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">Community activity</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
+              <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
+            </section>
+            <section class="card dashboard-command-card" aria-labelledby="dashboardAttentionTitle">
+              <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">Needs your attention</h2><p class="sub">Current operational tasks, not limited by the reporting period.</p></div></div>
+              <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
+            </section>
+            <section class="card dashboard-command-card" aria-labelledby="dashboardHighlightsTitle">
+              <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">Community highlights</h2><p class="sub">Useful observations based only on recorded OpenCircle data.</p></div></div>
+              <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
+            </section>
+            <section class="card dashboard-command-card" aria-labelledby="dashboardCommunityTitle">
+              <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">Community performance</h2><p class="sub">Only communities within your assigned access.</p></div></div>
+              <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
+            </section>
           </div>
         </section>
 
@@ -18241,12 +18238,12 @@ return `
               if (subtitle) subtitle.textContent = 'This chart appears once timestamped event-view tracking is available.';
             } else {
               var series = summary.series || [];
-              var width = 1000, height = 250, padL = 52, padR = 20, padT = 12, padB = 42;
+              var width = 1000, height = 250, padL = 52, padR = 20, padT = 12, padB = 30;
               var plotW = width - padL - padR, plotH = height - padT - padB;
               var events = series.map(function(item){ return Number(item.eventOccurrences || 0); });
               var views = series.map(function(item){ return Number(item.eventViews || 0); });
               var maximum = Math.max.apply(null, events.concat(views, [1]));
-              var tickCount = Math.min(6, Math.max(1, maximum));
+              var tickCount = Math.min(4, Math.max(1, maximum));
               var tickStep = Math.max(1, Math.ceil(maximum / tickCount));
               var yMax = tickStep * tickCount;
               var stepX = series.length <= 1 ? 0 : plotW / (series.length - 1);
@@ -18278,6 +18275,50 @@ return `
                 return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 30).toFixed(2) + '" text-anchor="' + anchor + '" fill="#526377" font-size="12" font-weight="500">' + dateLabel(item.date) + '</text>';
               }).join('');
               chart.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.10)"></path>' : '') + '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2.5" stroke-dasharray="7 7" stroke-linecap="round" stroke-linejoin="round"></path><path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>' + labels + '</g></svg>';
+              var svg = chart.querySelector('svg');
+              var svgNode = 'http://www.w3.org/2000/svg';
+              var highlight = document.createElementNS(svgNode, 'g');
+              highlight.setAttribute('display', 'none');
+              var guide = document.createElementNS(svgNode, 'line');
+              guide.setAttribute('y1', padT); guide.setAttribute('y2', padT + plotH);
+              guide.setAttribute('stroke', 'rgba(100,116,139,.30)'); guide.setAttribute('stroke-width', '1');
+              var eventHalo = document.createElementNS(svgNode, 'circle');
+              eventHalo.setAttribute('r', '13'); eventHalo.setAttribute('fill', 'rgba(16,185,129,.14)');
+              var eventDot = document.createElementNS(svgNode, 'circle');
+              eventDot.setAttribute('r', '7'); eventDot.setAttribute('fill', '#ffffff'); eventDot.setAttribute('stroke', 'rgba(16,185,129,.90)'); eventDot.setAttribute('stroke-width', '3');
+              var viewDot = document.createElementNS(svgNode, 'circle');
+              viewDot.setAttribute('r', '5'); viewDot.setAttribute('fill', '#ffffff'); viewDot.setAttribute('stroke', 'rgba(37,99,235,.82)'); viewDot.setAttribute('stroke-width', '2.5');
+              highlight.appendChild(guide); highlight.appendChild(eventHalo); highlight.appendChild(eventDot); highlight.appendChild(viewDot); svg.appendChild(highlight);
+              var tooltip = document.createElement('div');
+              tooltip.className = 'dashboard-chart-tooltip'; tooltip.hidden = true;
+              var tooltipTitle = document.createElement('div'); tooltipTitle.className = 'dashboard-chart-tooltip-title';
+              var eventRow = document.createElement('div'); eventRow.className = 'dashboard-chart-tooltip-row'; eventRow.innerHTML = '<span>Events</span><strong></strong>';
+              var viewRow = document.createElement('div'); viewRow.className = 'dashboard-chart-tooltip-row'; viewRow.innerHTML = '<span>Views</span><strong></strong>';
+              tooltip.appendChild(tooltipTitle); tooltip.appendChild(eventRow); tooltip.appendChild(viewRow); chart.appendChild(tooltip);
+              var updateHighlight = function(pointerEvent){
+                var bounds = svg.getBoundingClientRect();
+                if (!bounds.width || !series.length) return;
+                var x = ((pointerEvent.clientX - bounds.left) / bounds.width) * width;
+                var index = stepX ? Math.round((x - padL) / stepX) : 0;
+                index = Math.max(0, Math.min(series.length - 1, index));
+                var eventPoint = eventPoints[index], viewPoint = viewPoints[index];
+                guide.setAttribute('x1', eventPoint.x); guide.setAttribute('x2', eventPoint.x);
+                [eventHalo, eventDot].forEach(function(dot){ dot.setAttribute('cx', eventPoint.x); dot.setAttribute('cy', eventPoint.y); });
+                viewDot.setAttribute('cx', viewPoint.x); viewDot.setAttribute('cy', viewPoint.y);
+                highlight.setAttribute('display', '');
+                tooltipTitle.textContent = 'Day: ' + dateLabel(series[index].date);
+                eventRow.querySelector('strong').textContent = number(events[index]);
+                viewRow.querySelector('strong').textContent = number(views[index]);
+                tooltip.hidden = false;
+                var tooltipWidth = tooltip.offsetWidth || 200;
+                var left = ((eventPoint.x / width) * bounds.width) - (tooltipWidth / 2);
+                left = Math.max(8, Math.min(chart.clientWidth - tooltipWidth - 8, left));
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = Math.max(8, ((Math.min(eventPoint.y, viewPoint.y) / height) * bounds.height) - tooltip.offsetHeight - 14) + 'px';
+              };
+              svg.addEventListener('mousemove', updateHighlight);
+              svg.addEventListener('mouseenter', updateHighlight);
+              svg.addEventListener('mouseleave', function(){ highlight.setAttribute('display', 'none'); tooltip.hidden = true; });
               if (subtitle) subtitle.textContent = 'Events and measured views during the selected reporting period.';
             }
           }
@@ -19625,7 +19666,7 @@ return `
   }
 
   function getChartFrame(width, height){
-    const padL = 56, padR = 18, padT = 18, padB = 46;
+    const padL = 56, padR = 18, padT = 18, padB = 34;
     return {
       padL, padR, padT, padB,
       gw: width - padL - padR,
@@ -19635,7 +19676,7 @@ return `
 
   function getYScale(values){
     const maxV = Math.max(1, ...(values || [0]));
-    const yTicks = Math.min(6, maxV);
+    const yTicks = Math.min(4, maxV);
     const tickStep = Math.max(1, Math.ceil(maxV / yTicks));
     return { yTicks, tickStep, yMax: tickStep * yTicks };
   }
@@ -19818,7 +19859,7 @@ return `
     const padL = rect.width * (56 / 1200);
     const padR = rect.width * (18 / 1200);
     const padT = rect.height * (18 / viewBoxHeight);
-    const padB = rect.height * (42 / viewBoxHeight);
+    const padB = rect.height * (32 / viewBoxHeight);
     const frame = { padT, gh: rect.height - padT - padB };
     const safeIndex = Math.max(0, Math.min(Number(index || 0), Math.max(0, labels.length - 1)));
     const pointX = labels.length > 1 ? padL + ((rect.width - padL - padR) / (labels.length - 1)) * safeIndex : rect.width / 2;
@@ -19960,7 +20001,7 @@ return `
         const viewBoxHeight = Number(svgEl?.viewBox?.baseVal?.height || 260);
         const plotFrame = svgRect ? {
           padT: svgRect.height * (18 / viewBoxHeight),
-          gh: svgRect.height - (svgRect.height * (18 / viewBoxHeight)) - (svgRect.height * (42 / viewBoxHeight)),
+          gh: svgRect.height - (svgRect.height * (18 / viewBoxHeight)) - (svgRect.height * (32 / viewBoxHeight)),
         } : null;
         const pointX = svgRect && labels.length > 1
           ? (svgRect.width * (56 / 1200)) + ((svgRect.width - (svgRect.width * (56 / 1200)) - (svgRect.width * (18 / 1200))) / (labels.length - 1)) * safeIndex
@@ -20012,7 +20053,7 @@ return `
         const padL = rect.width * (56 / 1200);
         const padR = rect.width * (18 / 1200);
         const padT = rect.height * (18 / viewBoxHeight);
-        const padB = rect.height * (42 / viewBoxHeight);
+        const padB = rect.height * (32 / viewBoxHeight);
         const plotW = rect.width - padL - padR;
         const plotH = rect.height - padT - padB;
         if (mx < padL || mx > padL + plotW || my < padT || my > padT + plotH) return -1;
@@ -20474,7 +20515,7 @@ return `
         const padL = rect.width * (56 / 1200);
         const padR = rect.width * (18 / 1200);
         const padT = rect.height * (18 / 260);
-        const padB = rect.height * (42 / 260);
+        const padB = rect.height * (32 / 260);
         const plotW = rect.width - padL - padR;
         const plotH = rect.height - padT - padB;
         if (mx < padL || mx > padL + plotW || my < padT || my > padT + plotH) return -1;
@@ -20942,7 +20983,7 @@ return `
       const padL = rect.width * (56 / 1200);
       const padR = rect.width * (18 / 1200);
       const padT = rect.height * (18 / 260);
-      const padB = rect.height * (42 / 260);
+      const padB = rect.height * (32 / 260);
       const plotW = rect.width - padL - padR;
       const plotH = rect.height - padT - padB;
       const mx = ev.clientX - rect.left;
@@ -21265,7 +21306,7 @@ return `
       const padL = rect.width * (56 / 1200);
       const padR = rect.width * (18 / 1200);
       const padT = rect.height * (18 / 260);
-      const padB = rect.height * (42 / 260);
+      const padB = rect.height * (32 / 260);
       const plotW = rect.width - padL - padR;
       const plotH = rect.height - padT - padB;
       const mx = ev.clientX - rect.left;
