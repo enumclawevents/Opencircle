@@ -14429,8 +14429,12 @@ return `
       .dashboard-kpi-detail{ min-height:16px; color:var(--muted); font-size:12px; line-height:1.35; }
       .dashboard-kpi-detail.is-positive{ color:#07845f; }
       .dashboard-kpi-detail.is-negative{ color:#b45309; }
-      .dashboard-command-columns{ display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); gap:var(--gap); align-items:start; }
+      /* Match the four-column KPI rhythm: a compact one-column operations
+         rail and a three-column analytics canvas. */
+      .dashboard-command-columns{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--gap); align-items:start; }
       .dashboard-command-column{ display:grid; align-content:start; gap:var(--gap); min-width:0; }
+      .dashboard-command-side{ grid-column:span 1; }
+      .dashboard-command-main{ grid-column:span 3; }
       .dashboard-command-card{ min-width:0; }
       .dashboard-attention-list,.dashboard-highlights,.dashboard-community-list{ display:grid; gap:10px; }
       .dashboard-attention-item,.dashboard-highlight,.dashboard-community-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel2); }
@@ -14454,7 +14458,7 @@ return `
       .dashboard-community-metrics b{ color:var(--text); font-size:12px; }
       .dashboard-quick-actions{ display:flex; flex-wrap:wrap; gap:8px; }
       .dashboard-quick-actions .quick-link{ min-width:0; flex:0 1 auto; padding:8px 11px; font-size:12px; }
-      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-columns{ grid-template-columns:1fr; } }
+      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-side,.dashboard-command-main{ grid-column:auto; } }
       @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ min-height:108px; padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-community-metrics{ gap:5px; } }
 </style>
   </head>
@@ -14805,7 +14809,7 @@ return `
           </div>
 
           <div class="dashboard-command-columns">
-            <div class="dashboard-command-column">
+            <div class="dashboard-command-column dashboard-command-side">
               <section class="card dashboard-command-card" aria-labelledby="dashboardAttentionTitle">
                 <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">Needs your attention</h2><p class="sub">Current operational tasks, not limited by the reporting period.</p></div></div>
                 <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
@@ -14815,7 +14819,7 @@ return `
                 <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
               </section>
             </div>
-            <div class="dashboard-command-column">
+            <div class="dashboard-command-column dashboard-command-main">
               <section class="card dashboard-command-card" aria-labelledby="dashboardActivityTitle">
                 <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">Community activity</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
                 <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
