@@ -14435,7 +14435,13 @@ return `
       /* Activity uses the full four-column dashboard width; supporting
          operational cards share an equal three-column row below it. */
       .dashboard-command-columns{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--gap); align-items:start; }
-      .dashboard-command-activity{ grid-column:1 / -1; }
+      .dashboard-command-activity{ grid-column:1 / -1; padding:22px; }
+      .dashboard-command-activity .sectionTitle{ margin-bottom:14px; }
+      .dashboard-command-activity .chartLegend{ gap:14px; margin-top:12px; }
+      .dashboard-command-activity .chartLegendItem{ gap:7px; font-size:12px; font-weight:500; }
+      .dashboard-command-activity .chartLegendLine{ width:22px; border-top-width:2px; }
+      .dashboard-command-activity .chartLegendLine.is-dashed{ border-top-width:2px; }
+      .dashboard-command-activity .chartLegend .sub{ flex-basis:100%; margin:0; font-size:12px; color:var(--muted); }
       .dashboard-command-card{ min-width:0; }
       .dashboard-attention-list,.dashboard-highlights,.dashboard-community-list{ display:grid; gap:10px; }
       .dashboard-attention-item,.dashboard-highlight,.dashboard-community-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel2); }
@@ -14446,12 +14452,16 @@ return `
       .dashboard-attention-copy span{ font-size:13px; line-height:1.45; }
       .dashboard-attention-count{ font-weight:650; color:var(--text); }
       .dashboard-positive-empty{ padding:14px; border:1px dashed var(--line); border-radius:var(--radius-mid); color:var(--muted); font-size:13px; }
-      .dashboard-activity-chart{ position:relative; min-height:408px; padding-top:8px; }
-      .dashboard-activity-chart svg{ display:block; width:100%; height:400px; }
-      .dashboard-chart-tooltip{ position:absolute; z-index:3; min-width:190px; max-width:240px; padding:12px 14px; border:1px solid rgba(148,163,184,.52); border-radius:var(--radius); background:rgba(255,255,255,.98); color:var(--text); box-shadow:0 18px 36px rgba(15,23,42,.16); pointer-events:none; font-size:13px; line-height:1.4; }
-      .dashboard-chart-tooltip-title{ margin-bottom:7px; font-size:14px; font-weight:700; }
-      .dashboard-chart-tooltip-row{ display:flex; justify-content:space-between; gap:18px; color:var(--muted); }
-      .dashboard-chart-tooltip-row strong{ color:var(--text); font-size:14px; }
+      .dashboard-activity-chart{ position:relative; min-height:288px; padding:2px 0 0; }
+      .dashboard-activity-chart svg{ display:block; width:100%; height:280px; }
+      .dashboard-chart-tooltip{ position:absolute; z-index:3; width:170px; padding:10px 12px; border:1px solid rgba(148,163,184,.42); border-radius:var(--radius-mid); background:rgba(255,255,255,.98); color:var(--text); box-shadow:0 10px 24px rgba(15,23,42,.10); pointer-events:none; font-size:12px; line-height:1.4; }
+      .dashboard-chart-tooltip-title{ margin-bottom:6px; font-size:12px; font-weight:650; }
+      .dashboard-chart-tooltip-row{ display:flex; justify-content:space-between; gap:12px; color:var(--muted); }
+      .dashboard-chart-tooltip-label{ display:inline-flex; align-items:center; gap:6px; font-weight:400; }
+      .dashboard-chart-tooltip-label i{ width:6px; height:6px; border-radius:999px; background:rgba(16,185,129,.90); }
+      .dashboard-chart-tooltip-label.is-views i{ background:rgba(37,99,235,.82); }
+      .dashboard-chart-tooltip-row strong{ color:var(--text); font-size:12px; font-weight:650; }
+      body.theme-dark .dashboard-chart-tooltip{ background:rgba(17,26,43,.98); border-color:rgba(148,163,184,.28); box-shadow:0 10px 24px rgba(0,0,0,.26); }
       .dashboard-chart-empty{ align-self:center; color:var(--muted); font-size:13px; }
       .dashboard-highlight{ align-items:flex-start; justify-content:flex-start; gap:10px; }
       .dashboard-highlight i{ color:var(--accent); margin-top:2px; }
@@ -14463,8 +14473,8 @@ return `
       .dashboard-community-metrics b{ color:var(--text); font-size:12px; }
       .dashboard-quick-actions{ display:flex; flex-wrap:wrap; gap:8px; }
       .dashboard-quick-actions .quick-link{ min-width:0; flex:0 1 auto; padding:8px 11px; font-size:12px; }
-      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity{ grid-column:auto; } }
-      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-community-metrics{ gap:5px; } }
+      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity{ grid-column:auto; } .dashboard-activity-chart{ min-height:248px; } .dashboard-activity-chart svg{ height:240px; } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-activity{ padding:18px; } .dashboard-activity-chart{ min-height:228px; } .dashboard-activity-chart svg{ height:220px; } .dashboard-community-metrics{ gap:5px; } }
 </style>
   </head>
   <body>
@@ -18194,6 +18204,11 @@ return `
           var parts = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
           return parts ? parts[2] + '-' + parts[3] : '';
         };
+        var fullDateLabel = function(iso){
+          var parts = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (!parts) return '';
+          return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+        };
         var adminHref = function(path){ return path + (city ? '?city=' + encodeURIComponent(city) : ''); };
         var appendAttention = function(host, count, icon, text, href){
           if (!count) return;
@@ -18249,6 +18264,9 @@ return `
               var tickCount = Math.min(4, Math.max(1, maximum));
               var tickStep = Math.max(1, Math.ceil(maximum / tickCount));
               var yMax = tickStep * tickCount;
+              var darkChart = document.body.classList.contains('theme-dark');
+              var axisColor = darkChart ? '#aab8cc' : '#64748b';
+              var gridColor = darkChart ? 'rgba(148,163,184,.16)' : 'rgba(15,23,42,.08)';
               var stepX = series.length <= 1 ? 0 : plotW / (series.length - 1);
               var points = function(values){ return values.map(function(value, index){ return { x: padL + stepX * index, y: padT + plotH - ((value / yMax) * plotH) }; }); };
               var eventPoints = points(events), viewPoints = points(views);
@@ -18257,10 +18275,10 @@ return `
                 var path = 'M ' + items[0].x.toFixed(2) + ' ' + items[0].y.toFixed(2);
                 for (var i = 0; i < items.length - 1; i++) {
                   var p0 = items[i - 1] || items[i], p1 = items[i], p2 = items[i + 1], p3 = items[i + 2] || p2;
-                  var cp1x = p1.x + (p2.x - p0.x) / 6;
-                  var cp1y = Math.max(padT, Math.min(padT + plotH, p1.y + (p2.y - p0.y) / 6));
-                  var cp2x = p2.x - (p3.x - p1.x) / 6;
-                  var cp2y = Math.max(padT, Math.min(padT + plotH, p2.y - (p3.y - p1.y) / 6));
+                  var cp1x = p1.x + (p2.x - p0.x) / 8;
+                  var cp1y = Math.max(padT, Math.min(padT + plotH, p1.y + (p2.y - p0.y) / 8));
+                  var cp2x = p2.x - (p3.x - p1.x) / 8;
+                  var cp2y = Math.max(padT, Math.min(padT + plotH, p2.y - (p3.y - p1.y) / 8));
                   path += ' C ' + cp1x.toFixed(2) + ' ' + cp1y.toFixed(2) + ', ' + cp2x.toFixed(2) + ' ' + cp2y.toFixed(2) + ', ' + p2.x.toFixed(2) + ' ' + p2.y.toFixed(2);
                 }
                 return path;
@@ -18269,34 +18287,34 @@ return `
               var fillPath = eventPoints.length ? 'M ' + eventPoints[0].x.toFixed(2) + ' ' + (padT + plotH).toFixed(2) + ' L ' + eventPoints[0].x.toFixed(2) + ' ' + eventPoints[0].y.toFixed(2) + ' ' + eventPath.replace(/^M [^ ]+ [^ ]+ ?/, '') + ' L ' + eventPoints[eventPoints.length - 1].x.toFixed(2) + ' ' + (padT + plotH).toFixed(2) + ' Z' : '';
               var grid = Array.from({ length: tickCount + 1 }, function(_, i){
                 var value = i * tickStep, y = padT + plotH - ((value / yMax) * plotH);
-                return '<line x1="' + padL + '" y1="' + y.toFixed(2) + '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(2) + '" stroke="rgba(15,23,42,.10)" stroke-width="1"></line><text x="18" y="' + (y + 4).toFixed(2) + '" fill="#526377" font-size="12" font-weight="500">' + value + '</text>';
+                return '<line x1="' + padL + '" y1="' + y.toFixed(2) + '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(2) + '" stroke="' + gridColor + '" stroke-width="1"></line><text x="18" y="' + (y + 4).toFixed(2) + '" fill="' + axisColor + '" font-size="11" font-weight="400">' + value + '</text>';
               }).join('');
               var labelStep = series.length <= 4 ? 1 : Math.ceil(series.length / 4);
               var labels = series.map(function(item, index){
                 if (index !== series.length - 1 && index % labelStep !== 0) return '';
                 var anchor = index === series.length - 1 ? 'end' : (index === 0 ? 'start' : 'middle');
-                return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 30).toFixed(2) + '" text-anchor="' + anchor + '" fill="#526377" font-size="12" font-weight="500">' + dateLabel(item.date) + '</text>';
+                return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 30).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + dateLabel(item.date) + '</text>';
               }).join('');
-              chart.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.10)"></path>' : '') + '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2.5" stroke-dasharray="7 7" stroke-linecap="round" stroke-linejoin="round"></path><path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>' + labels + '</g></svg>';
+              chart.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path><path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' + labels + '</g></svg>';
               var svg = chart.querySelector('svg');
               var svgNode = 'http://www.w3.org/2000/svg';
               var highlight = document.createElementNS(svgNode, 'g');
               highlight.setAttribute('display', 'none');
               var guide = document.createElementNS(svgNode, 'line');
               guide.setAttribute('y1', padT); guide.setAttribute('y2', padT + plotH);
-              guide.setAttribute('stroke', 'rgba(100,116,139,.30)'); guide.setAttribute('stroke-width', '1');
+              guide.setAttribute('stroke', 'rgba(100,116,139,.22)'); guide.setAttribute('stroke-width', '1');
               var eventHalo = document.createElementNS(svgNode, 'circle');
-              eventHalo.setAttribute('r', '13'); eventHalo.setAttribute('fill', 'rgba(16,185,129,.14)');
+              eventHalo.setAttribute('r', '7'); eventHalo.setAttribute('fill', 'rgba(16,185,129,.12)');
               var eventDot = document.createElementNS(svgNode, 'circle');
-              eventDot.setAttribute('r', '7'); eventDot.setAttribute('fill', '#ffffff'); eventDot.setAttribute('stroke', 'rgba(16,185,129,.90)'); eventDot.setAttribute('stroke-width', '3');
+              eventDot.setAttribute('r', '4'); eventDot.setAttribute('fill', '#ffffff'); eventDot.setAttribute('stroke', 'rgba(16,185,129,.90)'); eventDot.setAttribute('stroke-width', '2');
               var viewDot = document.createElementNS(svgNode, 'circle');
-              viewDot.setAttribute('r', '5'); viewDot.setAttribute('fill', '#ffffff'); viewDot.setAttribute('stroke', 'rgba(37,99,235,.82)'); viewDot.setAttribute('stroke-width', '2.5');
+              viewDot.setAttribute('r', '4'); viewDot.setAttribute('fill', '#ffffff'); viewDot.setAttribute('stroke', 'rgba(37,99,235,.82)'); viewDot.setAttribute('stroke-width', '2');
               highlight.appendChild(guide); highlight.appendChild(eventHalo); highlight.appendChild(eventDot); highlight.appendChild(viewDot); svg.appendChild(highlight);
               var tooltip = document.createElement('div');
               tooltip.className = 'dashboard-chart-tooltip'; tooltip.hidden = true;
               var tooltipTitle = document.createElement('div'); tooltipTitle.className = 'dashboard-chart-tooltip-title';
-              var eventRow = document.createElement('div'); eventRow.className = 'dashboard-chart-tooltip-row'; eventRow.innerHTML = '<span>Events</span><strong></strong>';
-              var viewRow = document.createElement('div'); viewRow.className = 'dashboard-chart-tooltip-row'; viewRow.innerHTML = '<span>Views</span><strong></strong>';
+              var eventRow = document.createElement('div'); eventRow.className = 'dashboard-chart-tooltip-row'; eventRow.innerHTML = '<span class="dashboard-chart-tooltip-label"><i></i>Events</span><strong></strong>';
+              var viewRow = document.createElement('div'); viewRow.className = 'dashboard-chart-tooltip-row'; viewRow.innerHTML = '<span class="dashboard-chart-tooltip-label is-views"><i></i>Views</span><strong></strong>';
               tooltip.appendChild(tooltipTitle); tooltip.appendChild(eventRow); tooltip.appendChild(viewRow); chart.appendChild(tooltip);
               var updateHighlight = function(pointerEvent){
                 var bounds = svg.getBoundingClientRect();
@@ -18309,7 +18327,7 @@ return `
                 [eventHalo, eventDot].forEach(function(dot){ dot.setAttribute('cx', eventPoint.x); dot.setAttribute('cy', eventPoint.y); });
                 viewDot.setAttribute('cx', viewPoint.x); viewDot.setAttribute('cy', viewPoint.y);
                 highlight.setAttribute('display', '');
-                tooltipTitle.textContent = 'Day: ' + dateLabel(series[index].date);
+                tooltipTitle.textContent = fullDateLabel(series[index].date);
                 eventRow.querySelector('strong').textContent = number(events[index]);
                 viewRow.querySelector('strong').textContent = number(views[index]);
                 tooltip.hidden = false;
