@@ -14432,10 +14432,12 @@ return `
       .dashboard-kpi-detail{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
       .dashboard-kpi-detail.is-positive{ color:#07845f; }
       .dashboard-kpi-detail.is-negative{ color:#b45309; }
-      /* Activity uses the full four-column dashboard width; supporting
-         operational cards share an equal three-column row below it. */
-      .dashboard-command-columns{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--gap); align-items:start; }
-      .dashboard-command-activity{ grid-column:1 / -1; padding:22px; }
+      /* The primary row balances trend insight with actionable work; the
+         supporting insight cards then form their own natural-height row. */
+      .dashboard-command-columns{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:var(--gap); align-items:start; }
+      .dashboard-command-activity{ grid-column:span 4; padding:20px; }
+      .dashboard-command-attention{ grid-column:span 2; }
+      .dashboard-command-highlights,.dashboard-command-performance{ grid-column:span 3; }
       .dashboard-command-activity .sectionTitle{ margin-bottom:14px; }
       .dashboard-command-activity .chartLegend{ gap:14px; margin-top:12px; }
       .dashboard-command-activity .chartLegendItem{ gap:7px; font-size:12px; font-weight:500; }
@@ -14452,8 +14454,8 @@ return `
       .dashboard-attention-copy span{ font-size:13px; line-height:1.45; }
       .dashboard-attention-count{ font-weight:650; color:var(--text); }
       .dashboard-positive-empty{ padding:14px; border:1px dashed var(--line); border-radius:var(--radius-mid); color:var(--muted); font-size:13px; }
-      .dashboard-activity-chart{ position:relative; min-height:288px; padding:2px 0 0; }
-      .dashboard-activity-chart svg{ display:block; width:100%; height:280px; }
+      .dashboard-activity-chart{ position:relative; height:250px; padding:2px 0 0; }
+      .dashboard-activity-chart svg{ display:block; width:100%; height:100%; }
       .dashboard-chart-tooltip{ position:absolute; z-index:3; width:170px; padding:10px 12px; border:1px solid rgba(148,163,184,.42); border-radius:var(--radius-mid); background:rgba(255,255,255,.98); color:var(--text); box-shadow:0 10px 24px rgba(15,23,42,.10); pointer-events:none; font-size:12px; line-height:1.4; }
       .dashboard-chart-tooltip-title{ margin-bottom:6px; font-size:12px; font-weight:650; }
       .dashboard-chart-tooltip-row{ display:flex; justify-content:space-between; gap:12px; color:var(--muted); }
@@ -14473,8 +14475,9 @@ return `
       .dashboard-community-metrics b{ color:var(--text); font-size:12px; }
       .dashboard-quick-actions{ display:flex; flex-wrap:wrap; gap:8px; }
       .dashboard-quick-actions .quick-link{ min-width:0; flex:0 1 auto; padding:8px 11px; font-size:12px; }
-      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity{ grid-column:auto; } .dashboard-activity-chart{ min-height:248px; } .dashboard-activity-chart svg{ height:240px; } }
-      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-activity{ padding:18px; } .dashboard-activity-chart{ min-height:228px; } .dashboard-activity-chart svg{ height:220px; } .dashboard-community-metrics{ gap:5px; } }
+      @media (max-width:1250px){ .dashboard-command-columns{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-activity{ grid-column:1 / -1; } .dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-activity-chart{ height:220px; } }
+      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity,.dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-command-activity{ padding:18px; } .dashboard-activity-chart{ height:200px; } .dashboard-community-metrics{ gap:5px; } }
 </style>
   </head>
   <body>
@@ -14827,15 +14830,15 @@ return `
               <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">Community activity</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
               <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
             </section>
-            <section class="card dashboard-command-card" aria-labelledby="dashboardAttentionTitle">
+            <section class="card dashboard-command-card dashboard-command-attention" aria-labelledby="dashboardAttentionTitle">
               <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">Needs your attention</h2><p class="sub">Current operational tasks, not limited by the reporting period.</p></div></div>
               <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
             </section>
-            <section class="card dashboard-command-card" aria-labelledby="dashboardHighlightsTitle">
+            <section class="card dashboard-command-card dashboard-command-highlights" aria-labelledby="dashboardHighlightsTitle">
               <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">Community highlights</h2><p class="sub">Useful observations based only on recorded OpenCircle data.</p></div></div>
               <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
             </section>
-            <section class="card dashboard-command-card" aria-labelledby="dashboardCommunityTitle">
+            <section class="card dashboard-command-card dashboard-command-performance" aria-labelledby="dashboardCommunityTitle">
               <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">Community performance</h2><p class="sub">Only communities within your assigned access.</p></div></div>
               <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
             </section>
@@ -18256,7 +18259,12 @@ return `
               if (subtitle) subtitle.textContent = 'This chart appears once timestamped event-view tracking is available.';
             } else {
               var series = summary.series || [];
-              var width = 1000, height = 250, padL = 52, padR = 20, padT = 12, padB = 30;
+              // Match the SVG coordinate system to the actual chart box.
+              // This prevents browser/side-menu resizes from stretching the
+              // chart's paths, strokes, or labels independently.
+              var width = Math.max(1, Math.round(chart.clientWidth || 1000));
+              var height = Math.max(1, Math.round(chart.clientHeight || 250));
+              var padL = 48, padR = 14, padT = 12, padB = 28;
               var plotW = width - padL - padR, plotH = height - padT - padB;
               var events = series.map(function(item){ return Number(item.eventOccurrences || 0); });
               var views = series.map(function(item){ return Number(item.eventViews || 0); });
@@ -18295,7 +18303,7 @@ return `
                 var anchor = index === series.length - 1 ? 'end' : (index === 0 ? 'start' : 'middle');
                 return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 30).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + dateLabel(item.date) + '</text>';
               }).join('');
-              chart.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path><path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' + labels + '</g></svg>';
+              chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path><path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' + labels + '</g></svg>';
               var svg = chart.querySelector('svg');
               var svgNode = 'http://www.w3.org/2000/svg';
               var highlight = document.createElementNS(svgNode, 'g');
@@ -18340,6 +18348,18 @@ return `
               svg.addEventListener('mousemove', updateHighlight);
               svg.addEventListener('mouseenter', updateHighlight);
               svg.addEventListener('mouseleave', function(){ highlight.setAttribute('display', 'none'); tooltip.hidden = true; });
+              if (window.ResizeObserver && !chart._dashboardChartResizeObserver) {
+                var resizeQueued = false;
+                chart._dashboardChartResizeObserver = new ResizeObserver(function(){
+                  if (resizeQueued) return;
+                  resizeQueued = true;
+                  (window.requestAnimationFrame || function(callback){ return window.setTimeout(callback, 0); })(function(){
+                    resizeQueued = false;
+                    render(summary);
+                  });
+                });
+                chart._dashboardChartResizeObserver.observe(chart);
+              }
               if (subtitle) subtitle.textContent = 'Events and measured views during the selected reporting period.';
             }
           }
