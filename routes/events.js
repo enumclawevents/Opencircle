@@ -17,6 +17,9 @@ const {
 const PAST_EVENTS_LIMIT = 24;
 const PAST_EVENTS_CACHE_MS = 5 * 60 * 1000;
 const pastEventsCache = new Map();
+const EVENT_LIST_CACHE_MS = 30 * 1000;
+const EVENT_LIST_CACHE_MAX_ENTRIES = 100;
+const eventListCache = new Map();
 const EVENT_REPORT_TYPES = new Set(["changed_details", "cancelled", "other"]);
 const EVENT_REPORT_SOURCES = new Set(["event_page"]);
 const EVENT_REPORT_RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -24,6 +27,34 @@ const EVENT_REPORT_MAX_PER_IP = 12;
 const EVENT_REPORT_MAX_PER_IP_EVENT = 3;
 const eventReportRateBuckets = new Map();
 const ADMIN_APP_URL = String(process.env.ADMIN_APP_URL || "https://api.opencircleapi.com").replace(/\/$/, "");
+
+function readCachedPayload(cache, key, nowTs) {
+  const cached = cache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= nowTs) {
+    cache.delete(key);
+    return null;
+  }
+  return cached.payload;
+}
+
+function cachePayload(cache, key, payload, ttlMs, maxEntries) {
+  if (cache.size >= maxEntries) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) cache.delete(oldestKey);
+  }
+  cache.set(key, { expiresAt: Date.now() + ttlMs, payload });
+}
+
+// Public event responses are safe to cache only briefly. Every event mutation
+// clears both caches through the server middleware below, so this is a speed-up
+// rather than a source of stale event content.
+function clearPublicEventCaches() {
+  eventListCache.clear();
+  pastEventsCache.clear();
+}
+
+router.clearPublicEventCaches = clearPublicEventCaches;
 
 /**
  * Helpers
@@ -1520,6 +1551,18 @@ router.get("/", async (req, res) => {
       windowEndUtc = nowUtc + windowDays * 86400 * 1000;
     }
 
+    // Archived results are permission-sensitive and therefore never cached.
+    // All other variants are public and can be reused for a very short window.
+    const eventListCacheKey = status === "archived" ? "" : JSON.stringify([
+      city.toLowerCase(), expand, status, sort, q.toLowerCase(), category.toLowerCase(),
+      organizer.toLowerCase(), venue.toLowerCase(), featuredOnly, limit, offset,
+      fromISO, toISO, windowDays,
+    ]);
+    if (eventListCacheKey) {
+      const cachedPayload = readCachedPayload(eventListCache, eventListCacheKey, nowUtc);
+      if (cachedPayload) return res.json(cachedPayload);
+    }
+
     const rowWhere = ["city = ? COLLATE NOCASE"];
     const rowParams = [city];
     if (category) {
@@ -1621,7 +1664,9 @@ router.get("/", async (req, res) => {
         return compareEventIds(a, b);
       });
 
-      return res.json(paginate(items, limit, offset));
+      const payload = paginate(items, limit, offset);
+      if (eventListCacheKey) cachePayload(eventListCache, eventListCacheKey, payload, EVENT_LIST_CACHE_MS, EVENT_LIST_CACHE_MAX_ENTRIES);
+      return res.json(payload);
     }
 
     // Expand into occurrences
@@ -1692,7 +1737,9 @@ router.get("/", async (req, res) => {
     });
 
     // Paginate
-    return res.json(paginate(expanded, limit, offset));
+    const payload = paginate(expanded, limit, offset);
+    if (eventListCacheKey) cachePayload(eventListCache, eventListCacheKey, payload, EVENT_LIST_CACHE_MS, EVENT_LIST_CACHE_MAX_ENTRIES);
+    return res.json(payload);
   } catch (err) {
     console.error("[/events] error:", err && err.stack ? err.stack : err);
     console.error("[/events] query:", req.query);
@@ -1714,10 +1761,10 @@ router.get("/past", async (req, res) => {
     const nowTs = Date.now();
 
     const cacheKey = `${city.toLowerCase()}::${page}`;
-    const cached = pastEventsCache.get(cacheKey);
-    if (cached && cached.expiresAt > nowTs) {
+    const cachedPayload = readCachedPayload(pastEventsCache, cacheKey, nowTs);
+    if (cachedPayload) {
       res.set("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=60");
-      return res.json(cached.payload);
+      return res.json(cachedPayload);
     }
 
     let rows = await all(
@@ -1779,7 +1826,7 @@ router.get("/past", async (req, res) => {
       },
     };
 
-    pastEventsCache.set(cacheKey, { expiresAt: nowTs + PAST_EVENTS_CACHE_MS, payload });
+    cachePayload(pastEventsCache, cacheKey, payload, PAST_EVENTS_CACHE_MS, 100);
     res.set("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=60");
     return res.json(payload);
   } catch (err) {

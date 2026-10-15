@@ -56,6 +56,28 @@ app.use((req, res, next) => {
 // route semantics, and response bodies unchanged.
 app.use(compression({ threshold: 1024 }));
 
+// Public event-list calculations expand recurring schedules and are expensive
+// enough to benefit from a short in-memory cache. Clear it only after a
+// successful event-related mutation, keeping every existing response current.
+app.use((req, res, next) => {
+  const method = String(req.method || "").toUpperCase();
+  const pathname = req.path || "";
+  const mayChangeEvents = ["POST", "PUT", "PATCH", "DELETE"].includes(method) && (
+    pathname === "/events" ||
+    pathname.startsWith("/events/") ||
+    pathname.startsWith("/admin/events") ||
+    pathname.startsWith("/admin/approve-events")
+  );
+  if (mayChangeEvents) {
+    res.once("finish", () => {
+      if (res.statusCode >= 200 && res.statusCode < 400) {
+        eventsRouter.clearPublicEventCaches?.();
+      }
+    });
+  }
+  next();
+});
+
 // Host uploads publicly
 app.use("/uploads", express.static(UPLOAD_DIR, {
   maxAge: STATIC_CACHE_MAX_AGE_MS,
@@ -1250,7 +1272,10 @@ initDB()
     // Run once on boot
     try {
       const r = await archiveExpiredEvents();
-      if (r?.archived) console.log("[ARCHIVE] Archived on boot:", r.archived);
+      if (r?.archived) {
+        eventsRouter.clearPublicEventCaches?.();
+        console.log("[ARCHIVE] Archived on boot:", r.archived);
+      }
     } catch (e) {
       console.error("[ARCHIVE] Boot run failed:", e);
     }
@@ -1259,7 +1284,10 @@ initDB()
     setInterval(() => {
       archiveExpiredEvents()
         .then((r) => {
-          if (r?.archived) console.log("[ARCHIVE] Archived:", r.archived);
+          if (r?.archived) {
+            eventsRouter.clearPublicEventCaches?.();
+            console.log("[ARCHIVE] Archived:", r.archived);
+          }
         })
         .catch((e) => console.error("[ARCHIVE] Interval failed:", e));
     }, 15 * 60 * 1000);
