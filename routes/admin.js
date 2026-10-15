@@ -5155,17 +5155,22 @@ function sortEventsByNextOccurrence(rows) {
       let sortDateUtcMs = Date.parse(String(event?.startDateTime || "").trim());
       let nextOccurrenceStartDateTime = "";
       const isRecurring = Number(event?.hasRecurrence || 0) === 1 || hasRecurringData(event);
-      if (isRecurring && hasRecurringData(event)) {
+      if (isRecurring) {
         const eventEndUtcMs = Date.parse(String(event?.endDateTime || "").trim());
         const eventDurationMs = Number.isFinite(sortDateUtcMs) && Number.isFinite(eventEndUtcMs)
           ? Math.max(0, eventEndUtcMs - sortDateUtcMs)
           : 0;
-        const nextOccurrence = generateAdminOccurrences(event, nowUtcMs - eventDurationMs, occurrenceWindowEndUtcMs)
-          .find((occurrence) => {
-            const startUtcMs = Date.parse(String(occurrence?.startDateTime || "").trim());
-            const endUtcMs = Date.parse(String(occurrence?.endDateTime || occurrence?.startDateTime || "").trim());
-            return Number.isFinite(startUtcMs) && Number.isFinite(endUtcMs) && endUtcMs >= nowUtcMs;
-          });
+        const nextOccurrence = hasRecurringData(event)
+          ? generateAdminOccurrences(event, nowUtcMs - eventDurationMs, occurrenceWindowEndUtcMs)
+              .find((occurrence) => {
+                const startUtcMs = Date.parse(String(occurrence?.startDateTime || "").trim());
+                const endUtcMs = Date.parse(String(occurrence?.endDateTime || occurrence?.startDateTime || "").trim());
+                return Number.isFinite(startUtcMs) && Number.isFinite(endUtcMs) && endUtcMs >= nowUtcMs;
+              })
+          : null;
+        // A series marked recurring without a usable recurrence rule must not
+        // sort by its old series anchor. Put it after events with a known next
+        // date rather than falsely placing it at the top of the list.
         sortDateUtcMs = nextOccurrence
           ? Date.parse(String(nextOccurrence.startDateTime || "").trim())
           : Number.POSITIVE_INFINITY;
