@@ -1274,6 +1274,15 @@ function normalizeRowTimes(row, tz = DEFAULT_TZ) {
   };
 }
 
+function formatEventListDateTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "—";
+  const parsed = DateTime.fromISO(raw, { setZone: true });
+  return parsed.isValid
+    ? parsed.setZone(DEFAULT_TZ).toFormat("MM/dd/yyyy h:mm a")
+    : raw;
+}
+
 function hasRecurringData(row) {
   if (parseStoredRule(row?.recurrenceRule)) return true;
   const dates = parseStoredDates(row?.recurrenceDates);
@@ -5471,7 +5480,7 @@ return `
 
         <div class="event-meta">
           <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
-          <div><strong>${e.nextOccurrenceStartDateTime ? "Next" : "Start"}:</strong> ${esc(e.nextOccurrenceStartDateTime || e.startDateTime)}</div>
+          <div><strong>Date:</strong> ${esc(formatEventListDateTime(e.nextOccurrenceStartDateTime || e.startDateTime))}</div>
           <div><strong>Location:</strong> ${esc(e.location)}</div>
         </div>
       </div>
