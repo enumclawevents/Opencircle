@@ -14796,7 +14796,6 @@ return `
         <section class="dashboard-command" id="dashboardCommand" data-city="${esc(selectedAdminPrimaryCity || "")}" data-organizer="${isOrganizerUser ? "1" : "0"}">
           <div class="dashboard-command-head">
             <div>
-              <div class="eyebrow">${isOrganizerUser ? "Organizer workspace" : "Community command center"}</div>
               <h1 id="dashboardGreeting">Welcome back</h1>
               <p class="sub" id="dashboardContext">Loading your current community overview…</p>
             </div>
