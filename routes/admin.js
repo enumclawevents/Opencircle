@@ -3813,7 +3813,11 @@ function dashboardPercentChange(current, previous) {
 
 async function buildDashboardSummaryAnalytics(user, req, period) {
   const role = normalizeRoleValue(user?.role);
-  const cities = getUserAllowedCities(user, user?.city || "Enumclaw");
+  const allowedCities = getUserAllowedCities(user, user?.city || "Enumclaw");
+  const requestedCity = String(req?.query?.city || "").trim();
+  const cities = requestedCity && allowedCities.includes(requestedCity)
+    ? [requestedCity]
+    : allowedCities;
   const cityPlaceholders = cities.map(() => "?").join(",");
   const periodStartMs = period.start.toMillis();
   const periodEndMs = period.end.toMillis();
@@ -14344,6 +14348,53 @@ return `
       body.theme-dark textarea::placeholder{ color:#90a1ba; }
       body.theme-dark .message-bubble.mine{ background:rgba(0,192,139,.14); }
       body.theme-dark .theme-preference-toggle i{ color:#fde68a; }
+      .dashboard-command{ display:grid; gap:var(--gap); margin-bottom:var(--gap); }
+      .dashboard-command-head{ display:flex; justify-content:space-between; align-items:flex-end; gap:18px; padding:2px 2px 0; }
+      .dashboard-command-head h1{ margin:2px 0 4px; font-size:28px; letter-spacing:-.035em; }
+      .dashboard-command-head .sub{ margin:0; }
+      .eyebrow{ font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:var(--accent); }
+      .dashboard-period-controls{ min-width:220px; display:grid; gap:6px; }
+      .dashboard-period-controls label{ margin:0; font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+      .dashboard-period-row{ display:flex; gap:8px; align-items:center; }
+      .dashboard-period-row .ctrl{ min-width:142px; margin:0; padding:9px 10px; font-size:13px; }
+      .dashboard-create-event{ white-space:nowrap; }
+      .dashboard-custom-range{ display:flex; gap:6px; align-items:center; }
+      .dashboard-custom-range .ctrl{ min-width:0; margin:0; padding:8px; font-size:12px; }
+      .dashboard-kpi-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+      .dashboard-kpi-card{ display:grid; gap:6px; min-height:122px; padding:16px; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel); color:var(--text); text-decoration:none; transition:border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
+      .dashboard-kpi-card:hover{ border-color:rgba(0,192,139,.5); transform:translateY(-1px); box-shadow:0 7px 18px rgba(15,23,42,.06); }
+      .dashboard-kpi-label{ color:var(--muted); font-size:12px; font-weight:700; }
+      .dashboard-kpi-card strong{ font-size:28px; line-height:1.05; letter-spacing:-.04em; }
+      .dashboard-kpi-detail{ min-height:16px; color:var(--muted); font-size:11px; line-height:1.35; }
+      .dashboard-kpi-detail.is-positive{ color:#07845f; }
+      .dashboard-kpi-detail.is-negative{ color:#b45309; }
+      .dashboard-command-grid{ display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); gap:var(--gap); }
+      .dashboard-command-card{ min-width:0; }
+      .dashboard-attention-list,.dashboard-highlights,.dashboard-community-list{ display:grid; gap:8px; }
+      .dashboard-attention-item,.dashboard-highlight,.dashboard-community-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 11px; border:1px solid var(--line); border-radius:var(--radius-inner); background:var(--panel2); }
+      .dashboard-attention-item{ color:var(--text); text-decoration:none; }
+      .dashboard-attention-item:hover{ border-color:rgba(0,192,139,.5); }
+      .dashboard-attention-copy{ display:flex; gap:9px; align-items:flex-start; min-width:0; }
+      .dashboard-attention-copy i{ color:var(--accent); margin-top:2px; }
+      .dashboard-attention-copy span{ font-size:13px; line-height:1.35; }
+      .dashboard-attention-count{ font-weight:800; color:var(--text); }
+      .dashboard-positive-empty{ padding:13px; border:1px dashed var(--line); border-radius:var(--radius-inner); color:var(--muted); font-size:13px; }
+      .dashboard-activity-chart{ min-height:160px; display:flex; align-items:flex-end; gap:3px; padding:12px 2px 0; border-bottom:1px solid var(--line); }
+      .dashboard-chart-bar{ flex:1 1 0; min-width:3px; border-radius:4px 4px 0 0; background:linear-gradient(180deg,rgba(0,192,139,.92),rgba(0,192,139,.3)); position:relative; }
+      .dashboard-chart-bar:hover::after{ content:attr(data-tip); position:absolute; z-index:2; bottom:calc(100% + 5px); left:50%; transform:translateX(-50%); white-space:nowrap; padding:5px 7px; border-radius:5px; background:var(--text); color:var(--panel); font-size:11px; }
+      .dashboard-chart-empty{ align-self:center; color:var(--muted); font-size:13px; }
+      .dashboard-highlight{ align-items:flex-start; }
+      .dashboard-highlight i{ color:var(--accent); margin-top:2px; }
+      .dashboard-highlight strong{ display:block; font-size:13px; margin-bottom:3px; }
+      .dashboard-highlight span{ color:var(--muted); font-size:12px; line-height:1.35; }
+      .dashboard-community-row{ align-items:center; }
+      .dashboard-community-row strong{ font-size:13px; }
+      .dashboard-community-metrics{ display:flex; align-items:center; gap:9px; color:var(--muted); font-size:11px; text-align:right; }
+      .dashboard-community-metrics b{ color:var(--text); font-size:12px; }
+      .dashboard-quick-actions{ display:flex; flex-wrap:wrap; gap:8px; }
+      .dashboard-quick-actions .quick-link{ min-width:0; flex:0 1 auto; padding:9px 12px; font-size:12px; }
+      @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-grid{ grid-template-columns:1fr; } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:8px; } .dashboard-kpi-card{ min-height:112px; padding:13px; } .dashboard-kpi-card strong{ font-size:23px; } .dashboard-community-metrics{ gap:5px; } }
 </style>
   </head>
   <body>
@@ -14659,47 +14710,81 @@ return `
 
         <!-- Dashboard Overview -->
         ${showDashboard ? `
+        <section class="dashboard-command" id="dashboardCommand" data-city="${esc(selectedAdminPrimaryCity || "")}" data-organizer="${isOrganizerUser ? "1" : "0"}">
+          <div class="dashboard-command-head">
+            <div>
+              <div class="eyebrow">${isOrganizerUser ? "Organizer workspace" : "Community command center"}</div>
+              <h1 id="dashboardGreeting">Welcome back</h1>
+              <p class="sub" id="dashboardContext">Loading your current community overview…</p>
+            </div>
+            <div class="dashboard-period-controls">
+              <label for="dashboardRange">Reporting period</label>
+              <div class="dashboard-period-row">
+                <select id="dashboardRange" class="ctrl" aria-label="Dashboard reporting period">
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d" selected>Last 30 days</option>
+                  <option value="90d">Last 90 days</option>
+                  <option value="custom">Custom range</option>
+                </select>
+                ${canManageEvents ? `<a class="btn btn-primary dashboard-create-event" href="${buildScopedAdminHref("/admin/create-events")}">Create Event</a>` : ``}
+              </div>
+              <div class="dashboard-custom-range" id="dashboardCustomRange" hidden>
+                <input class="ctrl" id="dashboardRangeStart" type="date" aria-label="Dashboard start date" />
+                <input class="ctrl" id="dashboardRangeEnd" type="date" aria-label="Dashboard end date" />
+                <button class="btn" type="button" id="dashboardCustomApply">Apply</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="dashboard-kpi-grid" aria-live="polite" aria-busy="true" id="dashboardKpis">
+            <a class="dashboard-kpi-card" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-label">${isOrganizerUser ? "My upcoming events" : "Upcoming events"}</span><strong id="dashboardKpiUpcoming">—</strong><span class="dashboard-kpi-detail">In the selected reporting window</span></a>
+            <a class="dashboard-kpi-card" href="${buildScopedAdminHref("/admin/events-analytics")}"><span class="dashboard-kpi-label">${isOrganizerUser ? "My unique event views" : "Event views"}</span><strong id="dashboardKpiViews">—</strong><span class="dashboard-kpi-detail" id="dashboardKpiViewsChange">Loading measured engagement…</span></a>
+            <a class="dashboard-kpi-card" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-label">Events added</span><strong id="dashboardKpiAdded">—</strong><span class="dashboard-kpi-detail" id="dashboardKpiAddedChange">Loading…</span></a>
+            <a class="dashboard-kpi-card" href="${buildScopedAdminHref(isOrganizerUser ? "/admin/events-analytics" : "/admin/events-organizers")}"><span class="dashboard-kpi-label">${isOrganizerUser ? "My event views" : "Active organizers"}</span><strong id="dashboardKpiOrganizers">—</strong><span class="dashboard-kpi-detail" id="dashboardKpiOrganizersDetail">Loading…</span></a>
+          </div>
+
+          <div class="dashboard-command-grid">
+            <section class="card dashboard-command-card" aria-labelledby="dashboardAttentionTitle">
+              <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">Needs your attention</h2><p class="sub">Current operational tasks, not limited by the reporting period.</p></div></div>
+              <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
+            </section>
+            <section class="card dashboard-command-card" aria-labelledby="dashboardActivityTitle">
+              <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">Community activity</h2><p class="sub" id="dashboardActivitySubtitle">Measured event views during the selected period.</p></div></div>
+              <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event views over time"><div class="muted">Loading activity…</div></div>
+            </section>
+          </div>
+
+          <div class="dashboard-command-grid dashboard-command-grid--highlights">
+            <section class="card dashboard-command-card" aria-labelledby="dashboardHighlightsTitle">
+              <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">Community highlights</h2><p class="sub">Useful observations based only on recorded OpenCircle data.</p></div></div>
+              <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
+            </section>
+            <section class="card dashboard-command-card" aria-labelledby="dashboardCommunityTitle">
+              <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">Community performance</h2><p class="sub">Only communities within your assigned access.</p></div></div>
+              <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
+            </section>
+          </div>
+        </section>
+
         <section class="dashboard-shell" id="dashboard-overview">
           <div class="dashboard-col dashboard-col-fill">
             <details class="card dashboard-card" id="dashboard-quick-links" data-collapsible-card open>
               <summary class="sectionTitle">
                 <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
-                  <h2>Quick links</h2>
+                  <h2>Quick actions</h2>
                   <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
                 </span>
               </summary>
               <div class="card-body" id="dashboard-quick-links-body">
-                <div class="quick-links-grid${isOrganizerUser ? ` is-organizer` : ``}">
-                  ${canManageEvents ? `<div class="quick-links-group">
-                    <div class="quick-links-group-title">Events</div>
-                    <a class="btn quick-link" href="/admin/existing-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">${isOrganizerUser ? "My Events" : "All Events"}</a>
-                    <a class="btn quick-link" href="/admin/create-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Event</a>
-                    ${isOrganizerUser
-                      ? `<a class="btn quick-link" href="/admin/upload-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Upload Events</a>`
-                      : canApproveEvents
-                      ? `<a class="btn quick-link" href="/admin/approve-events${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Approve Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>`
-                      : (canSeeEventsAnalytics
-                        ? `<a class="btn quick-link" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Events Analytics</a>`
-                        : ``)}
-                  </div>` : ``}
-                  ${canManageVenues ? `<div class="quick-links-group">
-                    <div class="quick-links-group-title">Venues</div>
-                    <a class="btn quick-link" href="/admin/venues${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Venues</a>
-                    <a class="btn quick-link" href="/admin/venues/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Venue</a>
-                    ${canSeeVenueAnalytics ? `<a class="btn quick-link" href="/admin/venues/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Venue Analytics</a>` : ``}
-                  </div>` : ``}
-                  ${canManageJobs ? `<div class="quick-links-group">
-                    <div class="quick-links-group-title">Jobs</div>
-                    <a class="btn quick-link" href="/admin/jobs${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Jobs</a>
-                    <a class="btn quick-link" href="/admin/jobs/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Job</a>
-                    <a class="btn quick-link" href="/admin/jobs/applicants${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Applicants</a>
-                  </div>` : ``}
-                  ${canManageAds ? `<div class="quick-links-group">
-                    <div class="quick-links-group-title">Ads</div>
-                    <a class="btn quick-link" href="/admin/ads${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">All Ads</a>
-                    <a class="btn quick-link" href="/admin/ads/create${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Create Ad</a>
-                    ${canSeeAdsAnalytics ? `<a class="btn quick-link" href="/admin/ads/analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Ads Analytics</a>` : ``}
-                  </div>` : ``}
+                <div class="dashboard-quick-actions">
+                  ${canManageEvents ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/create-events")}">Create Event</a>` : ``}
+                  ${canApproveEvents ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/approve-events")}">Review Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>` : ``}
+                  ${canManageEventReports ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/event-reports")}">Event Reports${openEventReportCount > 0 ? ` (${openEventReportCount})` : ""}</a>` : ``}
+                  ${canManageVenues ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/venues/create")}">Create Venue</a>` : ``}
+                  ${canManageJobs ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/jobs/create")}">Create Job</a>` : ``}
+                  ${canManageAds ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/ads/create")}">Create Ad</a>` : ``}
+                  ${canManageNewsletter ? `<a class="btn quick-link" href="${buildNewsletterHref("/admin/newsletter")}">Send Newsletter</a>` : ``}
+                  ${canUseMessages ? `<a class="btn quick-link" href="${messagesAdminHref}">View Messages</a>` : ``}
                 </div>
               </div>
             </details>
@@ -14707,7 +14792,7 @@ return `
             <details class="card dashboard-card" id="dashboard-activity-card" data-dashboard-card="activity" data-collapsible-card open>
               <summary class="sectionTitle">
                 <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-activity-body">
-                  <h2>Activity</h2>
+                  <h2>Recent activity</h2>
                   <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
                 </span>
               </summary>
@@ -18022,6 +18107,106 @@ return `
     </div>
 
     <script>
+      (function(){
+        var root = document.getElementById('dashboardCommand');
+        if (!root || !window.fetch) return;
+        var range = document.getElementById('dashboardRange');
+        var custom = document.getElementById('dashboardCustomRange');
+        var start = document.getElementById('dashboardRangeStart');
+        var end = document.getElementById('dashboardRangeEnd');
+        var apply = document.getElementById('dashboardCustomApply');
+        var city = root.getAttribute('data-city') || '';
+        var organizer = root.getAttribute('data-organizer') === '1';
+        var number = function(value){ return Number(value || 0).toLocaleString('en-US'); };
+        var set = function(id, value){ var node = document.getElementById(id); if (node) node.textContent = value; };
+        var pct = function(value){
+          if (value === null || value === undefined || !Number.isFinite(Number(value))) return 'No comparable previous period';
+          var rounded = Math.abs(Number(value)).toFixed(1) + '%';
+          return (Number(value) > 0 ? '↑ ' : Number(value) < 0 ? '↓ ' : '') + rounded + ' vs previous period';
+        };
+        var dateLabel = function(iso){
+          var date = new Date(iso);
+          return isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+        };
+        var adminHref = function(path){ return path + (city ? '?city=' + encodeURIComponent(city) : ''); };
+        var appendAttention = function(host, count, icon, text, href){
+          if (!count) return;
+          var link = document.createElement('a'); link.className = 'dashboard-attention-item'; link.href = href;
+          var copy = document.createElement('span'); copy.className = 'dashboard-attention-copy';
+          var i = document.createElement('i'); i.className = icon; i.setAttribute('aria-hidden', 'true');
+          var label = document.createElement('span'); label.textContent = text;
+          copy.appendChild(i); copy.appendChild(label);
+          var value = document.createElement('strong'); value.className = 'dashboard-attention-count'; value.textContent = number(count);
+          link.appendChild(copy); link.appendChild(value); host.appendChild(link);
+        };
+        function render(summary){
+          var kpis = summary.kpis || {};
+          var attention = summary.attention || {};
+          var availability = summary.availability || {};
+          var greeting = new Date().getHours() < 12 ? 'Good morning' : (new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening');
+          set('dashboardGreeting', greeting);
+          var scope = organizer ? 'your events' : ((summary.scope && summary.scope.cities && summary.scope.cities.length > 1) ? 'your assigned communities' : (summary.scope && summary.scope.cities ? summary.scope.cities[0] : 'your community'));
+          set('dashboardContext', "Here’s what’s happening in " + scope + '.');
+          set('dashboardKpiUpcoming', number(kpis.upcomingOccurrences));
+          set('dashboardKpiViews', availability.engagement ? number(organizer ? kpis.uniqueViews : kpis.eventViews) : '—');
+          set('dashboardKpiAdded', number(kpis.eventsAdded));
+          set('dashboardKpiOrganizers', organizer ? (availability.engagement ? number(kpis.eventViews) : '—') : number(kpis.activeOrganizers));
+          var viewDetail = document.getElementById('dashboardKpiViewsChange');
+          if (viewDetail) { viewDetail.textContent = availability.engagement ? (organizer ? 'Measured unique visitor hashes; not attendance' : pct(kpis.eventViewsChangePct)) : 'Period-based view tracking is unavailable'; viewDetail.className = 'dashboard-kpi-detail' + (!organizer && Number(kpis.eventViewsChangePct) > 0 ? ' is-positive' : !organizer && Number(kpis.eventViewsChangePct) < 0 ? ' is-negative' : ''); }
+          var addedDetail = document.getElementById('dashboardKpiAddedChange');
+          if (addedDetail) { addedDetail.textContent = pct(kpis.eventsAddedChangePct); addedDetail.className = 'dashboard-kpi-detail' + (Number(kpis.eventsAddedChangePct) > 0 ? ' is-positive' : Number(kpis.eventsAddedChangePct) < 0 ? ' is-negative' : ''); }
+          set('dashboardKpiOrganizersDetail', organizer ? 'Measured views across your events' : 'Organizers with published events');
+          var attentionHost = document.getElementById('dashboardAttention');
+          if (attentionHost) {
+            attentionHost.replaceChildren();
+            appendAttention(attentionHost, attention.pendingApprovals, 'fa-regular fa-calendar', 'Review pending events', adminHref('/admin/approve-events'));
+            appendAttention(attentionHost, attention.openReports, 'fa-regular fa-flag', 'Review open event reports', adminHref('/admin/event-reports'));
+            appendAttention(attentionHost, attention.unreadMessages, 'fa-regular fa-envelope', 'Respond to unread messages', adminHref('/admin/messages'));
+            appendAttention(attentionHost, attention.failedNewsletterDeliveries, 'fa-solid fa-triangle-exclamation', 'Review failed newsletter deliveries', adminHref('/admin/newsletter/analytics'));
+            appendAttention(attentionHost, attention.pendingInvitations, 'fa-regular fa-user', 'Review pending invitations', adminHref('/admin/invites'));
+            if (!attentionHost.childElementCount) { var empty = document.createElement('div'); empty.className = 'dashboard-positive-empty'; empty.textContent = "You’re all caught up. Nothing needs your attention right now."; attentionHost.appendChild(empty); }
+          }
+          var chart = document.getElementById('dashboardActivityChart');
+          var subtitle = document.getElementById('dashboardActivitySubtitle');
+          if (chart) {
+            chart.replaceChildren();
+            if (!availability.eventViewSeries) {
+              var emptyChart = document.createElement('div'); emptyChart.className = 'dashboard-chart-empty'; emptyChart.textContent = 'Period-based event view tracking is not available yet.'; chart.appendChild(emptyChart);
+              if (subtitle) subtitle.textContent = 'This chart appears once timestamped event-view tracking is available.';
+            } else {
+              var series = summary.series || []; var maximum = Math.max.apply(null, series.map(function(item){ return Number(item.eventViews || 0); }).concat([1]));
+              series.forEach(function(item){ var bar = document.createElement('div'); bar.className = 'dashboard-chart-bar'; bar.style.height = Math.max(3, Math.round((Number(item.eventViews || 0) / maximum) * 132)) + 'px'; bar.dataset.tip = dateLabel(item.date) + ': ' + number(item.eventViews) + ' views'; chart.appendChild(bar); });
+              if (subtitle) subtitle.textContent = 'Measured event views during the selected reporting period.';
+            }
+          }
+          var highlights = document.getElementById('dashboardHighlights');
+          if (highlights) {
+            highlights.replaceChildren();
+            var facts = [];
+            facts.push({ icon:'fa-regular fa-calendar-plus', title:number(kpis.eventsAdded) + ' event' + (Number(kpis.eventsAdded) === 1 ? '' : 's') + ' added', detail:'Recorded during this reporting period.' });
+            if (availability.engagement) facts.push({ icon:'fa-solid fa-chart-line', title:number(kpis.eventViews) + ' measured event views', detail:pct(kpis.eventViewsChangePct) + '.' });
+            facts.push({ icon:'fa-regular fa-calendar', title:number(kpis.upcomingOccurrences) + ' upcoming occurrence' + (Number(kpis.upcomingOccurrences) === 1 ? '' : 's'), detail:'Scheduled within the selected reporting window.' });
+            facts.slice(0, 3).forEach(function(fact){ var row = document.createElement('div'); row.className = 'dashboard-highlight'; var icon = document.createElement('i'); icon.className = fact.icon; icon.setAttribute('aria-hidden','true'); var copy = document.createElement('div'); var title = document.createElement('strong'); title.textContent = fact.title; var detail = document.createElement('span'); detail.textContent = fact.detail; copy.appendChild(title); copy.appendChild(detail); row.appendChild(icon); row.appendChild(copy); highlights.appendChild(row); });
+          }
+          var communities = document.getElementById('dashboardCommunityList');
+          if (communities) {
+            communities.replaceChildren();
+            (summary.communities || []).forEach(function(item){ var row = document.createElement('div'); row.className = 'dashboard-community-row'; var name = document.createElement('strong'); name.textContent = item.city; var metrics = document.createElement('div'); metrics.className = 'dashboard-community-metrics'; var events = document.createElement('span'); events.innerHTML = '<b>' + number(item.publishedEvents) + '</b> events'; var views = document.createElement('span'); views.innerHTML = availability.engagement ? '<b>' + number(item.views) + '</b> views' : 'Views unavailable'; metrics.appendChild(events); metrics.appendChild(views); row.appendChild(name); row.appendChild(metrics); communities.appendChild(row); });
+            if (!communities.childElementCount) { var emptyCommunity = document.createElement('div'); emptyCommunity.className = 'dashboard-positive-empty'; emptyCommunity.textContent = 'No published event activity is available for this scope yet.'; communities.appendChild(emptyCommunity); }
+          }
+          var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false');
+        }
+        function load(){
+          var selected = range.value;
+          custom.hidden = selected !== 'custom';
+          if (selected === 'custom' && (!start.value || !end.value)) return;
+          var url = new URL('/admin/dashboard-summary', window.location.origin); url.searchParams.set('range', selected); if (city) url.searchParams.set('city', city);
+          if (selected === 'custom') { url.searchParams.set('start', start.value); url.searchParams.set('end', end.value); }
+          fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error('Dashboard data unavailable'); return response.json(); }).then(render).catch(function(){ set('dashboardContext', 'Dashboard data could not be loaded. Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">Dashboard summary is unavailable right now.</div>'; var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
+        }
+        range.addEventListener('change', load); if (apply) apply.addEventListener('click', load); load();
+      })();
+
       // ---- helpers ----
       (function(){
         // Keep creation and addition actions recognizable throughout the
