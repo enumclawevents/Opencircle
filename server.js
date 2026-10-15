@@ -3,6 +3,7 @@
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
+const compression = require("compression");
 const crypto = require("crypto");
 const { sendEmail, PASSWORD_RESET_FROM, PASSWORD_RESET_REPLY_TO } = require("./mailer");
 const { hashPassword, hashToken, verifyPassword } = require("./lib/auth");
@@ -21,6 +22,7 @@ const jobsRouter = require("./routes/jobs");
 
 const app = express();
 app.locals.reqTimes = [];
+const STATIC_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 const NEWSLETTER_PUBLIC_CITIES = Object.freeze([
   "Enumclaw",
   "Buckley",
@@ -36,11 +38,38 @@ app.set("trust proxy", 1);
 
 console.log("[UPLOADS] Using folder:", UPLOAD_DIR);
 
-// Host uploads publicly
-app.use("/uploads", express.static(UPLOAD_DIR));
+// Keep a low-overhead record of genuinely slow requests without changing a
+// response body, route contract, or user-visible behavior. This is deliberately
+// limited to slow requests so normal traffic does not create noisy logs.
+app.use((req, res, next) => {
+  const startedAt = process.hrtime.bigint();
+  res.once("finish", () => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    if (durationMs >= 500) {
+      console.info(`[PERF] ${req.method} ${req.path} ${res.statusCode} ${durationMs.toFixed(1)}ms`);
+    }
+  });
+  next();
+});
 
-// Static assets
-app.use("/assets", express.static(path.join(__dirname, "public")));
+// Compression reduces transfer time for HTML and JSON while leaving uploads,
+// route semantics, and response bodies unchanged.
+app.use(compression({ threshold: 1024 }));
+
+// Host uploads publicly
+app.use("/uploads", express.static(UPLOAD_DIR, {
+  maxAge: STATIC_CACHE_MAX_AGE_MS,
+  etag: true,
+  lastModified: true,
+}));
+
+// Short browser/CDN caching makes repeat dashboard loads faster without making
+// an updated asset stale for more than five minutes.
+app.use("/assets", express.static(path.join(__dirname, "public"), {
+  maxAge: STATIC_CACHE_MAX_AGE_MS,
+  etag: true,
+  lastModified: true,
+}));
 
 // Middleware
 const allowedOrigins = [

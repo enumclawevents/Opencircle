@@ -537,6 +537,13 @@ async function initDB() {
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_city_nocase_startDateTime ON events(city COLLATE NOCASE, startDateTime);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_slug ON events(slug);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_archived ON events(archived);`);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_city_archived_startDateTime ON events(city, archived, startDateTime);`);
+
+  // event_views is created by the analytics deployment path in some existing
+  // installations. These no-op safely where it is absent and speed up the
+  // existing de-duplication and event analytics queries where it is present.
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_event_views_event_ip_viewedAt ON event_views(eventId, ipHash, viewedAt DESC);`);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_event_views_event_viewedAt ON event_views(eventId, viewedAt DESC);`);
 
   console.log("[DB] Using:", DB_PATH);
   console.log("[DB] init ok");
