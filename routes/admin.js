@@ -3814,10 +3814,9 @@ function dashboardPercentChange(current, previous) {
 async function buildDashboardSummaryAnalytics(user, req, period) {
   const role = normalizeRoleValue(user?.role);
   const allowedCities = getUserAllowedCities(user, user?.city || "Enumclaw");
-  const requestedCity = String(req?.query?.city || "").trim();
-  const cities = requestedCity && allowedCities.includes(requestedCity)
-    ? [requestedCity]
-    : allowedCities;
+  // The command-center is an access-wide summary. Its community comparison
+  // must never quietly shrink to the primary city carried by sidebar links.
+  const cities = allowedCities.slice();
   const cityPlaceholders = cities.map(() => "?").join(",");
   const periodStartMs = period.start.toMillis();
   const periodEndMs = period.end.toMillis();
@@ -3878,6 +3877,27 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
   let engagementAvailable = false;
   let engagementSeriesAvailable = false;
   const dailyViews = new Map();
+  // Keep the dashboard trend aligned with Events Analytics: one series for
+  // scheduled event occurrences and one for measured event-page views.
+  const dailyEventOccurrences = new Map();
+  const addDailyOccurrence = (dateTime) => {
+    const date = DateTime.fromISO(String(dateTime || ""), { setZone: true }).setZone(DEFAULT_TZ).toISODate();
+    if (!date) return;
+    dailyEventOccurrences.set(date, Number(dailyEventOccurrences.get(date) || 0) + 1);
+  };
+  for (const event of scopedEvents) {
+    const recurring = Number(event?.hasRecurrence || 0) === 1 || hasRecurringData(event);
+    if (recurring && hasRecurringData(event)) {
+      for (const occurrence of generateAdminOccurrences(event, periodStartMs, periodEndMs)) {
+        addDailyOccurrence(occurrence?.startDateTime);
+      }
+    } else {
+      const startsAt = Date.parse(String(event?.startDateTime || ""));
+      if (Number.isFinite(startsAt) && startsAt >= periodStartMs && startsAt < periodEndMs) {
+        addDailyOccurrence(event.startDateTime);
+      }
+    }
+  }
   try {
     if (eventIds.length) {
       for (const summary of citySummaries.values()) {
@@ -3989,8 +4009,46 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
   const series = [];
   for (let cursor = period.start.startOf("day"); cursor < period.end; cursor = cursor.plus({ days: 1 })) {
     const date = cursor.toISODate();
-    series.push({ date, eventViews: engagementSeriesAvailable ? Number(dailyViews.get(date) || 0) : null });
+    series.push({
+      date,
+      eventOccurrences: Number(dailyEventOccurrences.get(date) || 0),
+      eventViews: engagementSeriesAvailable ? Number(dailyViews.get(date) || 0) : null,
+    });
   }
+  const dashboardCommunities = [];
+  const enumclawSummary = citySummaries.get("Enumclaw");
+  if (enumclawSummary) dashboardCommunities.push({ ...enumclawSummary });
+  const plateauCities = ADMIN_SIDEBAR_GROUPS["Plateau Regional"].filter((city) => citySummaries.has(city));
+  if (plateauCities.length) {
+    const plateauSummary = plateauCities.reduce((acc, city) => {
+      const summary = citySummaries.get(city);
+      acc.publishedEvents += Number(summary?.publishedEvents || 0);
+      acc.eventsAdded += Number(summary?.eventsAdded || 0);
+      acc.previousEventsAdded += Number(summary?.previousEventsAdded || 0);
+      acc.pendingActions += Number(summary?.pendingActions || 0);
+      if (engagementAvailable) {
+        acc.views += Number(summary?.views || 0);
+        acc.previousViews += Number(summary?.previousViews || 0);
+        acc.uniqueViews += Number(summary?.uniqueViews || 0);
+      }
+      return acc;
+    }, {
+      city: "Plateau Regional",
+      publishedEvents: 0,
+      eventsAdded: 0,
+      previousEventsAdded: 0,
+      views: engagementAvailable ? 0 : null,
+      previousViews: engagementAvailable ? 0 : null,
+      uniqueViews: engagementAvailable ? 0 : null,
+      pendingActions: 0,
+    });
+    plateauSummary.eventsAddedChangePct = dashboardPercentChange(plateauSummary.eventsAdded, plateauSummary.previousEventsAdded);
+    plateauSummary.viewsChangePct = engagementAvailable
+      ? dashboardPercentChange(plateauSummary.views, plateauSummary.previousViews)
+      : null;
+    dashboardCommunities.push(plateauSummary);
+  }
+
   return {
     role,
     scope: { cities, organizerOnly: role === "organizer" },
@@ -4009,7 +4067,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
       uniqueViews: totals.uniqueViews,
     },
     attention,
-    communities: [...citySummaries.values()],
+    communities: dashboardCommunities,
     series,
   };
 }
@@ -14383,9 +14441,8 @@ return `
       .dashboard-attention-copy span{ font-size:13px; line-height:1.45; }
       .dashboard-attention-count{ font-weight:650; color:var(--text); }
       .dashboard-positive-empty{ padding:14px; border:1px dashed var(--line); border-radius:var(--radius-mid); color:var(--muted); font-size:13px; }
-      .dashboard-activity-chart{ min-height:194px; display:flex; align-items:flex-end; gap:3px; padding:14px 2px 0; border-bottom:1px solid var(--line); }
-      .dashboard-chart-bar{ flex:1 1 0; min-width:3px; border-radius:4px 4px 0 0; background:linear-gradient(180deg,rgba(0,192,139,.86),rgba(0,192,139,.20)); position:relative; }
-      .dashboard-chart-bar:hover::after{ content:attr(data-tip); position:absolute; z-index:2; bottom:calc(100% + 5px); left:50%; transform:translateX(-50%); white-space:nowrap; padding:5px 7px; border-radius:5px; background:var(--text); color:var(--panel); font-size:11px; }
+      .dashboard-activity-chart{ min-height:258px; padding-top:8px; }
+      .dashboard-activity-chart svg{ display:block; width:100%; height:250px; }
       .dashboard-chart-empty{ align-self:center; color:var(--muted); font-size:13px; }
       .dashboard-highlight{ align-items:flex-start; justify-content:flex-start; gap:10px; }
       .dashboard-highlight i{ color:var(--accent); margin-top:2px; }
@@ -14760,8 +14817,8 @@ return `
             </div>
             <div class="dashboard-command-column">
               <section class="card dashboard-command-card" aria-labelledby="dashboardActivityTitle">
-                <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">Community activity</h2><p class="sub" id="dashboardActivitySubtitle">Measured event views during the selected period.</p></div></div>
-                <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event views over time"><div class="muted">Loading activity…</div></div>
+                <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">Community activity</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
+                <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
               </section>
               <section class="card dashboard-command-card" aria-labelledby="dashboardCommunityTitle">
                 <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">Community performance</h2><p class="sub">Only communities within your assigned access.</p></div></div>
@@ -18130,8 +18187,8 @@ return `
           return (Number(value) > 0 ? '↑ ' : Number(value) < 0 ? '↓ ' : '') + rounded + ' vs previous period';
         };
         var dateLabel = function(iso){
-          var date = new Date(iso);
-          return isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+          var parts = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          return parts ? parts[2] + '-' + parts[3] : '';
         };
         var adminHref = function(path){ return path + (city ? '?city=' + encodeURIComponent(city) : ''); };
         var appendAttention = function(host, count, icon, text, href){
@@ -18179,9 +18236,45 @@ return `
               var emptyChart = document.createElement('div'); emptyChart.className = 'dashboard-chart-empty'; emptyChart.textContent = 'Period-based event view tracking is not available yet.'; chart.appendChild(emptyChart);
               if (subtitle) subtitle.textContent = 'This chart appears once timestamped event-view tracking is available.';
             } else {
-              var series = summary.series || []; var maximum = Math.max.apply(null, series.map(function(item){ return Number(item.eventViews || 0); }).concat([1]));
-              series.forEach(function(item){ var bar = document.createElement('div'); bar.className = 'dashboard-chart-bar'; bar.style.height = Math.max(3, Math.round((Number(item.eventViews || 0) / maximum) * 132)) + 'px'; bar.dataset.tip = dateLabel(item.date) + ': ' + number(item.eventViews) + ' views'; chart.appendChild(bar); });
-              if (subtitle) subtitle.textContent = 'Measured event views during the selected reporting period.';
+              var series = summary.series || [];
+              var width = 1000, height = 250, padL = 52, padR = 20, padT = 12, padB = 42;
+              var plotW = width - padL - padR, plotH = height - padT - padB;
+              var events = series.map(function(item){ return Number(item.eventOccurrences || 0); });
+              var views = series.map(function(item){ return Number(item.eventViews || 0); });
+              var maximum = Math.max.apply(null, events.concat(views, [1]));
+              var tickCount = Math.min(6, Math.max(1, maximum));
+              var tickStep = Math.max(1, Math.ceil(maximum / tickCount));
+              var yMax = tickStep * tickCount;
+              var stepX = series.length <= 1 ? 0 : plotW / (series.length - 1);
+              var points = function(values){ return values.map(function(value, index){ return { x: padL + stepX * index, y: padT + plotH - ((value / yMax) * plotH) }; }); };
+              var eventPoints = points(events), viewPoints = points(views);
+              var smoothPath = function(items){
+                if (!items.length) return '';
+                var path = 'M ' + items[0].x.toFixed(2) + ' ' + items[0].y.toFixed(2);
+                for (var i = 0; i < items.length - 1; i++) {
+                  var p0 = items[i - 1] || items[i], p1 = items[i], p2 = items[i + 1], p3 = items[i + 2] || p2;
+                  var cp1x = p1.x + (p2.x - p0.x) / 6;
+                  var cp1y = Math.max(padT, Math.min(padT + plotH, p1.y + (p2.y - p0.y) / 6));
+                  var cp2x = p2.x - (p3.x - p1.x) / 6;
+                  var cp2y = Math.max(padT, Math.min(padT + plotH, p2.y - (p3.y - p1.y) / 6));
+                  path += ' C ' + cp1x.toFixed(2) + ' ' + cp1y.toFixed(2) + ', ' + cp2x.toFixed(2) + ' ' + cp2y.toFixed(2) + ', ' + p2.x.toFixed(2) + ' ' + p2.y.toFixed(2);
+                }
+                return path;
+              };
+              var eventPath = smoothPath(eventPoints), viewPath = smoothPath(viewPoints);
+              var fillPath = eventPoints.length ? 'M ' + eventPoints[0].x.toFixed(2) + ' ' + (padT + plotH).toFixed(2) + ' L ' + eventPoints[0].x.toFixed(2) + ' ' + eventPoints[0].y.toFixed(2) + ' ' + eventPath.replace(/^M [^ ]+ [^ ]+ ?/, '') + ' L ' + eventPoints[eventPoints.length - 1].x.toFixed(2) + ' ' + (padT + plotH).toFixed(2) + ' Z' : '';
+              var grid = Array.from({ length: tickCount + 1 }, function(_, i){
+                var value = i * tickStep, y = padT + plotH - ((value / yMax) * plotH);
+                return '<line x1="' + padL + '" y1="' + y.toFixed(2) + '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(2) + '" stroke="rgba(15,23,42,.10)" stroke-width="1"></line><text x="18" y="' + (y + 4).toFixed(2) + '" fill="#526377" font-size="12" font-weight="500">' + value + '</text>';
+              }).join('');
+              var labelStep = series.length <= 4 ? 1 : Math.ceil(series.length / 4);
+              var labels = series.map(function(item, index){
+                if (index !== series.length - 1 && index % labelStep !== 0) return '';
+                var anchor = index === series.length - 1 ? 'end' : (index === 0 ? 'start' : 'middle');
+                return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 30).toFixed(2) + '" text-anchor="' + anchor + '" fill="#526377" font-size="12" font-weight="500">' + dateLabel(item.date) + '</text>';
+              }).join('');
+              chart.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.10)"></path>' : '') + '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2.5" stroke-dasharray="7 7" stroke-linecap="round" stroke-linejoin="round"></path><path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>' + labels + '</g></svg>';
+              if (subtitle) subtitle.textContent = 'Events and measured views during the selected reporting period.';
             }
           }
           var highlights = document.getElementById('dashboardHighlights');
