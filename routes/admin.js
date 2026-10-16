@@ -14589,8 +14589,15 @@ return `
       .dashboard-community-row strong{ font-size:13px; font-weight:650; }
       .dashboard-community-metrics{ display:flex; align-items:center; gap:9px; color:var(--muted); font-size:11px; text-align:right; }
       .dashboard-community-metrics b{ color:var(--text); font-size:12px; }
-      .dashboard-quick-actions{ display:flex; flex-wrap:wrap; gap:8px; }
-      .dashboard-quick-actions .quick-link{ min-width:0; flex:0 1 auto; padding:8px 11px; font-size:12px; }
+      .dashboard-quick-links-card{ padding:20px; }
+      .dashboard-quick-links-card .sectionTitle{ margin-bottom:14px; }
+      .dashboard-quick-links{ display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:10px; }
+      .dashboard-quick-link{ display:flex; min-width:0; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:6px 4px; border-radius:var(--radius-mid); color:var(--text); text-decoration:none; transition:background-color .14s ease, color .14s ease; }
+      .dashboard-quick-link-icon{ display:inline-flex; width:38px; height:38px; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:var(--radius-inner); background:var(--panel2); color:var(--accent); font-size:16px; transition:border-color .14s ease, background-color .14s ease, transform .14s ease; }
+      .dashboard-quick-link-label{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; font-weight:600; line-height:1.25; text-align:center; }
+      .dashboard-quick-link:hover{ background:rgba(0,192,139,.07); color:var(--text); }
+      .dashboard-quick-link:hover .dashboard-quick-link-icon{ border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.11); transform:translateY(-1px); }
+      .dashboard-quick-link:focus-visible{ outline:2px solid rgba(0,192,139,.62); outline-offset:2px; }
       .dashboard-layout-preferences{ display:grid; gap:10px; margin-bottom:16px; }
       .dashboard-layout-preference{ display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius-inner); background:var(--panel2); }
       .dashboard-layout-preference > label:first-child{ margin:0; font-size:13px; font-weight:650; color:var(--text); }
@@ -14600,7 +14607,9 @@ return `
       @media (max-width:1100px){ .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-category-donut{ width:min(100%,184px); } .dashboard-activity-chart{ height:210px; } }
       @media (max-width:850px){ .dashboard-command-insights{ grid-template-columns:1fr; } }
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+      @media (max-width:720px){ .dashboard-quick-links{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
       @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns,.dashboard-command-insights{ grid-template-columns:1fr; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-donut{ width:min(100%,200px); } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
+      @media (max-width:420px){ .dashboard-quick-links{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-quick-link-label{ white-space:normal; } }
       @media (max-width:420px){ .dashboard-category-legend{ max-width:280px; } .dashboard-category-row{ grid-template-columns:10px 36px minmax(0,1fr) auto; gap:7px; font-size:10px; } }
 </style>
   </head>
@@ -14992,26 +15001,19 @@ return `
 
         <section class="dashboard-shell" id="dashboard-overview">
           <div class="dashboard-col dashboard-col-fill">
-            <details class="card dashboard-card" id="dashboard-quick-links" data-collapsible-card open>
-              <summary class="sectionTitle">
-                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-quick-links-body">
-                  <h2>Quick actions</h2>
-                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </span>
-              </summary>
-              <div class="card-body" id="dashboard-quick-links-body">
-                <div class="dashboard-quick-actions">
-                  ${canManageEvents ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/create-events")}">Create Event</a>` : ``}
-                  ${canApproveEvents ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/approve-events")}">Review Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</a>` : ``}
-                  ${canManageEventReports ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/event-reports")}">Event Reports${openEventReportCount > 0 ? ` (${openEventReportCount})` : ""}</a>` : ``}
-                  ${canManageVenues ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/venues/create")}">Create Venue</a>` : ``}
-                  ${canManageJobs ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/jobs/create")}">Create Job</a>` : ``}
-                  ${canManageAds ? `<a class="btn quick-link" href="${buildScopedAdminHref("/admin/ads/create")}">Create Ad</a>` : ``}
-                  ${canManageNewsletter ? `<a class="btn quick-link" href="${buildNewsletterHref("/admin/newsletter")}">Send Newsletter</a>` : ``}
-                  ${canUseMessages ? `<a class="btn quick-link" href="${messagesAdminHref}">View Messages</a>` : ``}
-                </div>
-              </div>
-            </details>
+            <section class="card dashboard-quick-links-card" id="dashboard-quick-links" aria-labelledby="dashboardQuickLinksTitle">
+              <div class="sectionTitle"><h2 id="dashboardQuickLinksTitle">Quick Links</h2></div>
+              <nav class="dashboard-quick-links" aria-label="Quick links">
+                ${canManageEvents ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/create-events")}"><span class="dashboard-quick-link-icon"><i class="fa-regular fa-calendar-plus" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Create Event</span></a>` : ``}
+                ${canApproveEvents ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/approve-events")}"><span class="dashboard-quick-link-icon"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Review Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</span></a>` : ``}
+                ${canManageEventReports ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/event-reports")}"><span class="dashboard-quick-link-icon"><i class="fa-solid fa-chart-no-axes-combined" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Event Reports${openEventReportCount > 0 ? ` (${openEventReportCount})` : ""}</span></a>` : ``}
+                ${canManageVenues ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/venues/create")}"><span class="dashboard-quick-link-icon"><i class="fa-solid fa-map-pin" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Create Venue</span></a>` : ``}
+                ${canManageJobs ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/jobs/create")}"><span class="dashboard-quick-link-icon"><i class="fa-solid fa-briefcase-business" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Create Job</span></a>` : ``}
+                ${canManageAds ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/ads/create")}"><span class="dashboard-quick-link-icon"><i class="fa-solid fa-megaphone" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Create Ad</span></a>` : ``}
+                ${canManageNewsletter ? `<a class="dashboard-quick-link" href="${buildNewsletterHref("/admin/newsletter")}"><span class="dashboard-quick-link-icon"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Send Newsletter</span></a>` : ``}
+                ${canUseMessages ? `<a class="dashboard-quick-link" href="${messagesAdminHref}"><span class="dashboard-quick-link-icon"><i class="fa-regular fa-message" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">View Messages</span></a>` : ``}
+              </nav>
+            </section>
 
             <details class="card dashboard-card" id="dashboard-activity-card" data-dashboard-card="activity" data-collapsible-card open>
               <summary class="sectionTitle">
