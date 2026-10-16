@@ -14525,7 +14525,9 @@ return `
          the right-side operational cards never inherit a row height from the
          larger chart on the left. */
       .dashboard-command-columns{ display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:var(--gap); align-items:stretch; }
-      .dashboard-command-left,.dashboard-command-right{ display:grid; gap:var(--gap); align-content:start; min-width:0; }
+      .dashboard-command-left{ display:grid; gap:var(--gap); align-content:start; min-width:0; }
+      .dashboard-command-right{ display:flex; flex-direction:column; gap:var(--gap); min-width:0; }
+      .dashboard-command-right .dashboard-command-performance{ flex:1 1 auto; }
       .dashboard-command-left{ grid-template-rows:auto minmax(246px,1fr); }
       .dashboard-command-insights{ display:grid; grid-template-columns:minmax(300px,2fr) minmax(0,3fr); gap:var(--gap); align-items:stretch; }
       .dashboard-command-card{ padding:20px; }
