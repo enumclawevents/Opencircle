@@ -14511,7 +14511,7 @@ return `
       .dashboard-custom-range[hidden]{ display:none !important; }
       .dashboard-custom-range .ctrl{ min-width:0; margin:0; padding:8px; font-size:12px; }
       .dashboard-kpi-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--gap); }
-      .dashboard-kpi-card{ display:flex; align-items:flex-end; justify-content:space-between; gap:10px; min-height:104px; padding:16px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); color:var(--text) !important; text-decoration:none; transition:border-color .14s ease, background-color .14s ease; }
+      .dashboard-kpi-card{ display:flex; align-items:flex-end; justify-content:space-between; gap:10px; padding:16px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); color:var(--text) !important; text-decoration:none; transition:border-color .14s ease, background-color .14s ease; }
       .dashboard-kpi-card:hover{ border-color:rgba(15,23,42,.18); background:#f8fafc; }
       .dashboard-kpi-content{ display:block; min-width:0; }
       .dashboard-kpi-label{ display:block; color:var(--muted); font-size:12px; font-weight:600; }
@@ -14555,13 +14555,13 @@ return `
       .dashboard-insight-card .sectionTitle{ margin-bottom:10px; }
       .dashboard-insight-card .sectionTitle h2{ font-size:17px; }
       .dashboard-insight-card .sectionTitle .sub{ margin-top:4px; font-size:12px; }
-      .dashboard-category-chart{ position:relative; display:grid; grid-template-columns:112px minmax(0,1fr); align-items:center; gap:14px; flex:1; min-height:0; }
-      .dashboard-category-donut{ width:112px; height:112px; display:block; overflow:visible; }
-      .dashboard-category-total{ font-size:20px; font-weight:700; fill:var(--text); }
-      .dashboard-category-total-label{ font-size:9px; font-weight:600; fill:var(--muted); }
-      .dashboard-category-legend{ display:grid; gap:6px; min-width:0; }
-      .dashboard-category-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--muted); font-size:11px; line-height:1.25; }
-      .dashboard-category-label{ display:flex; align-items:center; gap:6px; min-width:0; }
+      .dashboard-category-chart{ position:relative; display:grid; grid-template-columns:minmax(148px,38%) minmax(0,1fr); align-items:center; gap:16px; flex:1; min-height:0; }
+      .dashboard-category-donut{ width:min(100%,168px); height:auto; aspect-ratio:1; justify-self:center; display:block; overflow:visible; }
+      .dashboard-category-total{ font-size:22px; font-weight:700; fill:var(--text); }
+      .dashboard-category-total-label{ font-size:10px; font-weight:600; fill:var(--muted); }
+      .dashboard-category-legend{ display:grid; gap:7px; min-width:0; }
+      .dashboard-category-row{ display:flex; align-items:center; justify-content:flex-start; gap:8px; color:var(--muted); font-size:11px; line-height:1.25; }
+      .dashboard-category-label{ display:flex; align-items:center; gap:6px; min-width:0; max-width:calc(100% - 64px); }
       .dashboard-category-dot{ width:7px; height:7px; flex:0 0 auto; border-radius:999px; }
       .dashboard-category-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .dashboard-category-value{ color:var(--text); font-weight:650; white-space:nowrap; }
@@ -14594,7 +14594,8 @@ return `
       .dashboard-layout-order .ctrl{ width:62px; min-width:62px; margin:0; padding:6px 8px; font-size:12px; }
       @media (max-width:1100px){ .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-insights{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-activity-chart{ height:210px; } }
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
-      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ min-height:96px; padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns,.dashboard-command-insights{ grid-template-columns:1fr; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-chart{ grid-template-columns:104px minmax(0,1fr); gap:10px; } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns,.dashboard-command-insights{ grid-template-columns:1fr; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-chart{ grid-template-columns:minmax(138px,38%) minmax(0,1fr); gap:12px; } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
+      @media (max-width:420px){ .dashboard-category-chart{ grid-template-columns:1fr; justify-items:center; gap:14px; } .dashboard-category-legend{ width:100%; max-width:280px; } }
 </style>
   </head>
   <body>
@@ -18398,11 +18399,11 @@ return `
           var palette = ['rgba(16,185,129,.90)', 'rgba(37,99,235,.80)', 'rgba(99,102,241,.72)', 'rgba(100,116,139,.68)', 'rgba(148,163,184,.58)'];
           var svgNode = 'http://www.w3.org/2000/svg';
           var donut = document.createElementNS(svgNode, 'svg'); donut.setAttribute('class', 'dashboard-category-donut'); donut.setAttribute('viewBox', '0 0 120 120'); donut.setAttribute('aria-hidden', 'true');
-          var background = document.createElementNS(svgNode, 'circle'); background.setAttribute('cx','60'); background.setAttribute('cy','60'); background.setAttribute('r','42'); background.setAttribute('fill','none'); background.setAttribute('stroke','rgba(148,163,184,.16)'); background.setAttribute('stroke-width','15'); donut.appendChild(background);
+          var background = document.createElementNS(svgNode, 'circle'); background.setAttribute('cx','60'); background.setAttribute('cy','60'); background.setAttribute('r','42'); background.setAttribute('fill','none'); background.setAttribute('stroke','rgba(148,163,184,.16)'); background.setAttribute('stroke-width','17'); donut.appendChild(background);
           var circumference = 2 * Math.PI * 42, offset = 0;
           categories.forEach(function(category, index){
             var segment = document.createElementNS(svgNode, 'circle'); var amount = Math.max(0, Number(category.count || 0)); var length = (amount / total) * circumference;
-            segment.setAttribute('cx','60'); segment.setAttribute('cy','60'); segment.setAttribute('r','42'); segment.setAttribute('fill','none'); segment.setAttribute('stroke',palette[index % palette.length]); segment.setAttribute('stroke-width','15'); segment.setAttribute('stroke-linecap','butt'); segment.setAttribute('stroke-dasharray',Math.max(0, length - 1.5) + ' ' + circumference); segment.setAttribute('stroke-dashoffset',String(-offset)); segment.setAttribute('transform','rotate(-90 60 60)'); segment.style.cursor = 'default'; segment.setAttribute('data-category-index', String(index)); donut.appendChild(segment); offset += length;
+            segment.setAttribute('cx','60'); segment.setAttribute('cy','60'); segment.setAttribute('r','42'); segment.setAttribute('fill','none'); segment.setAttribute('stroke',palette[index % palette.length]); segment.setAttribute('stroke-width','17'); segment.setAttribute('stroke-linecap','butt'); segment.setAttribute('stroke-dasharray',Math.max(0, length - 1.5) + ' ' + circumference); segment.setAttribute('stroke-dashoffset',String(-offset)); segment.setAttribute('transform','rotate(-90 60 60)'); segment.style.cursor = 'default'; segment.setAttribute('data-category-index', String(index)); donut.appendChild(segment); offset += length;
           });
           var totalLabel = document.createElementNS(svgNode, 'text'); totalLabel.setAttribute('x','60'); totalLabel.setAttribute('y','57'); totalLabel.setAttribute('text-anchor','middle'); totalLabel.setAttribute('class','dashboard-category-total'); totalLabel.textContent = number(total); donut.appendChild(totalLabel);
           var totalCaption = document.createElementNS(svgNode, 'text'); totalCaption.setAttribute('x','60'); totalCaption.setAttribute('y','70'); totalCaption.setAttribute('text-anchor','middle'); totalCaption.setAttribute('class','dashboard-category-total-label'); totalCaption.textContent = 'assignments'; donut.appendChild(totalCaption);
@@ -18424,7 +18425,7 @@ return `
           host.replaceChildren();
           if (!summary.availability || !summary.availability.weekdayViews) { var empty = document.createElement('div'); empty.className = 'dashboard-chart-empty'; empty.textContent = 'Measured event-view tracking is not available yet.'; host.appendChild(empty); return; }
           var values = (summary.insights && summary.insights.weekdayViews) || []; var days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-          var width = Math.max(1, Math.round(host.clientWidth || 280)), height = Math.max(1, Math.round(host.clientHeight || 132)); var padL = 20, padR = 6, padT = 8, padB = 23, plotW = width - padL - padR, plotH = height - padT - padB; var max = Math.max.apply(null, values.concat([1])); var gridColor = document.body.classList.contains('theme-dark') ? 'rgba(148,163,184,.16)' : 'rgba(15,23,42,.08)', axisColor = document.body.classList.contains('theme-dark') ? '#aab8cc' : '#64748b'; var step = plotW / 7, barW = Math.min(24, step * .58), winner = values.indexOf(max);
+          var width = Math.max(1, Math.round(host.clientWidth || 280)), height = Math.max(1, Math.round(host.clientHeight || 132)); var padL = 12, padR = 10, padT = 4, padB = 23, plotW = width - padL - padR, plotH = height - padT - padB; var max = Math.max.apply(null, values.concat([1])); var gridColor = document.body.classList.contains('theme-dark') ? 'rgba(148,163,184,.16)' : 'rgba(15,23,42,.08)', axisColor = document.body.classList.contains('theme-dark') ? '#aab8cc' : '#64748b'; var step = plotW / 7, barW = Math.min(34, step * .72), winner = values.indexOf(max);
           var grid = [0.5, 1].map(function(ratio){ var y = padT + plotH - (plotH * ratio); return '<line x1="' + padL + '" y1="' + y.toFixed(2) + '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(2) + '" stroke="' + gridColor + '" stroke-width="1"></line>'; }).join('');
           var bars = values.map(function(value, index){ var barH = Math.max(value ? 3 : 1, (Number(value || 0) / max) * plotH), x = padL + step * index + ((step - barW) / 2), y = padT + plotH - barH, color = index === winner && max > 0 ? 'rgba(37,99,235,.92)' : 'rgba(37,99,235,.64)'; return '<rect data-day-index="' + index + '" x="' + x.toFixed(2) + '" y="' + y.toFixed(2) + '" width="' + barW.toFixed(2) + '" height="' + barH.toFixed(2) + '" rx="2" fill="' + color + '"></rect><text x="' + (x + barW / 2).toFixed(2) + '" y="' + (padT + plotH + 17).toFixed(2) + '" text-anchor="middle" fill="' + axisColor + '" font-size="10" font-weight="500">' + days[index] + '</text>'; }).join('');
           host.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Event views Monday through Sunday"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + bars + '</g></svg>';
