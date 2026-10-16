@@ -18406,10 +18406,19 @@ return `
           var donut = document.createElementNS(svgNode, 'svg'); donut.setAttribute('class', 'dashboard-category-donut'); donut.setAttribute('viewBox', '0 0 120 120'); donut.setAttribute('aria-hidden', 'true');
           var dividerColor = document.body.classList.contains('theme-dark') ? '#111a2b' : '#ffffff';
           var background = document.createElementNS(svgNode, 'circle'); background.setAttribute('cx','60'); background.setAttribute('cy','60'); background.setAttribute('r','42'); background.setAttribute('fill','none'); background.setAttribute('stroke',dividerColor); background.setAttribute('stroke-width','19'); donut.appendChild(background);
-          var circumference = 2 * Math.PI * 42, offset = 0;
+          var circumference = 2 * Math.PI * 42, offset = 0, separatorAngles = [];
           categories.forEach(function(category, index){
             var segment = document.createElementNS(svgNode, 'circle'); var amount = Math.max(0, Number(category.count || 0)); var length = (amount / total) * circumference;
-            segment.setAttribute('cx','60'); segment.setAttribute('cy','60'); segment.setAttribute('r','42'); segment.setAttribute('fill','none'); segment.setAttribute('stroke',palette[index % palette.length]); segment.setAttribute('stroke-width','19'); segment.setAttribute('stroke-linecap','butt'); segment.setAttribute('stroke-dasharray',Math.max(0, length - 1.4) + ' ' + circumference); segment.setAttribute('stroke-dashoffset',String(-offset)); segment.setAttribute('transform','rotate(-90 60 60)'); segment.style.cursor = 'default'; segment.setAttribute('data-category-index', String(index)); donut.appendChild(segment); offset += length;
+            segment.setAttribute('cx','60'); segment.setAttribute('cy','60'); segment.setAttribute('r','42'); segment.setAttribute('fill','none'); segment.setAttribute('stroke',palette[index % palette.length]); segment.setAttribute('stroke-width','19'); segment.setAttribute('stroke-linecap','butt'); segment.setAttribute('stroke-dasharray',length + ' ' + circumference); segment.setAttribute('stroke-dashoffset',String(-offset)); segment.setAttribute('transform','rotate(-90 60 60)'); segment.style.cursor = 'default'; segment.setAttribute('data-category-index', String(index)); donut.appendChild(segment); offset += length; separatorAngles.push((offset / circumference) * Math.PI * 2 - (Math.PI / 2));
+          });
+          // Draw separators as explicit straight radial cuts. A stroked line
+          // with butt caps keeps its width consistent from the inner edge to
+          // the outer edge, unlike gaps cut out of circular SVG strokes.
+          separatorAngles.forEach(function(angle){
+            var separator = document.createElementNS(svgNode, 'line'); var innerRadius = 32.5, outerRadius = 51.5;
+            separator.setAttribute('x1', (60 + Math.cos(angle) * innerRadius).toFixed(3)); separator.setAttribute('y1', (60 + Math.sin(angle) * innerRadius).toFixed(3));
+            separator.setAttribute('x2', (60 + Math.cos(angle) * outerRadius).toFixed(3)); separator.setAttribute('y2', (60 + Math.sin(angle) * outerRadius).toFixed(3));
+            separator.setAttribute('stroke', dividerColor); separator.setAttribute('stroke-width', '2'); separator.setAttribute('stroke-linecap', 'butt'); donut.appendChild(separator);
           });
           var totalLabel = document.createElementNS(svgNode, 'text'); totalLabel.setAttribute('x','60'); totalLabel.setAttribute('y','56'); totalLabel.setAttribute('text-anchor','middle'); totalLabel.setAttribute('class','dashboard-category-total'); totalLabel.textContent = number(total); donut.appendChild(totalLabel);
           var totalCaption = document.createElementNS(svgNode, 'text'); totalCaption.setAttribute('x','60'); totalCaption.setAttribute('y','69'); totalCaption.setAttribute('text-anchor','middle'); totalCaption.setAttribute('class','dashboard-category-total-label'); totalCaption.textContent = 'assignments'; donut.appendChild(totalCaption);
