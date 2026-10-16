@@ -14521,17 +14521,14 @@ return `
       .dashboard-kpi-detail{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
       .dashboard-kpi-detail.is-positive{ color:#07845f; }
       .dashboard-kpi-detail.is-negative{ color:#b45309; }
-      /* The command center is intentionally asymmetric: the activity chart
-         carries the visual weight, while its supporting cards form a compact
-         and naturally sized right-hand stack. This prevents a short priority
-         card from creating an empty half-row beneath itself. */
-      .dashboard-command-columns{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(280px,1fr); gap:var(--gap); align-items:start; }
+      /* The two command-center columns deliberately stack independently, so
+         the right-side operational cards never inherit a row height from the
+         larger chart on the left. */
+      .dashboard-command-columns{ display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:var(--gap); align-items:start; }
+      .dashboard-command-left,.dashboard-command-right{ display:grid; gap:var(--gap); align-content:start; min-width:0; }
+      .dashboard-command-insights{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--gap); }
       .dashboard-command-card{ padding:20px; }
-      .dashboard-command-activity{ grid-column:1 / span 2; }
-      .dashboard-command-category{ grid-column:1; }
-      .dashboard-command-weekdays{ grid-column:2; }
-      .dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:3; }
-      .dashboard-command-columns[data-support-card-count="0"] .dashboard-command-activity{ grid-column:1 / -1; }
+      .dashboard-command-columns[data-support-card-count="0"] .dashboard-command-left{ grid-column:1 / -1; }
       .dashboard-command-activity .sectionTitle{ margin-bottom:16px; }
       .dashboard-command-activity .chartLegend{ gap:14px; margin-top:8px; }
       .dashboard-command-activity .chartLegendItem{ gap:7px; font-size:12px; font-weight:500; }
@@ -14594,9 +14591,9 @@ return `
       .dashboard-layout-preference input{ accent-color:var(--accent); }
       .dashboard-layout-order{ display:inline-flex; align-items:center; gap:8px; margin:0; color:var(--muted); font-size:12px; font-weight:650; }
       .dashboard-layout-order .ctrl{ width:62px; min-width:62px; margin:0; padding:6px 8px; font-size:12px; }
-      @media (max-width:1100px){ .dashboard-command-columns{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-activity{ grid-column:1 / -1; grid-row:auto; } .dashboard-command-category,.dashboard-command-weekdays,.dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-activity-chart{ height:210px; } }
+      @media (max-width:1100px){ .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-insights{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-activity-chart{ height:210px; } }
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
-      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ min-height:96px; padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity,.dashboard-command-category,.dashboard-command-weekdays,.dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; grid-row:auto; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-chart{ grid-template-columns:104px minmax(0,1fr); gap:10px; } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ min-height:96px; padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns,.dashboard-command-insights{ grid-template-columns:1fr; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-chart{ grid-template-columns:104px minmax(0,1fr); gap:10px; } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
 </style>
   </head>
   <body>
@@ -14952,18 +14949,23 @@ return `
           </div>
 
           <div class="dashboard-command-columns" data-support-card-count="${visibleDashboardCardCount}">
-            <section class="card dashboard-command-card dashboard-command-activity" aria-labelledby="dashboardActivityTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
-              <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
-            </section>
-            <section class="card dashboard-command-card dashboard-insight-card dashboard-command-category" aria-labelledby="dashboardCategoryTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardCategoryTitle">Event categories</h2><p class="sub">Distribution of event category assignments.</p></div></div>
-              <div class="dashboard-category-chart" id="dashboardCategoryChart" role="img" aria-label="Event category distribution"><div class="muted">Loading categories…</div></div>
-            </section>
-            <section class="card dashboard-command-card dashboard-insight-card dashboard-command-weekdays" aria-labelledby="dashboardWeekdayTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardWeekdayTitle">Top performing days</h2><p class="sub">Measured event views by day of week.</p></div></div>
-              <div class="dashboard-weekday-chart" id="dashboardWeekdayChart" role="img" aria-label="Measured event views by day of week"><div class="muted">Loading daily views…</div></div>
-            </section>
+            <div class="dashboard-command-left">
+              <section class="card dashboard-command-card dashboard-command-activity" aria-labelledby="dashboardActivityTitle">
+                <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
+                <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
+              </section>
+              <div class="dashboard-command-insights">
+                <section class="card dashboard-command-card dashboard-insight-card dashboard-command-category" aria-labelledby="dashboardCategoryTitle">
+                  <div class="sectionTitle"><div><h2 id="dashboardCategoryTitle">Event categories</h2><p class="sub">Distribution of event category assignments.</p></div></div>
+                  <div class="dashboard-category-chart" id="dashboardCategoryChart" role="img" aria-label="Event category distribution"><div class="muted">Loading categories…</div></div>
+                </section>
+                <section class="card dashboard-command-card dashboard-insight-card dashboard-command-weekdays" aria-labelledby="dashboardWeekdayTitle">
+                  <div class="sectionTitle"><div><h2 id="dashboardWeekdayTitle">Top performing days</h2><p class="sub">Measured event views by day of week.</p></div></div>
+                  <div class="dashboard-weekday-chart" id="dashboardWeekdayChart" role="img" aria-label="Measured event views by day of week"><div class="muted">Loading daily views…</div></div>
+                </section>
+              </div>
+            </div>
+            <div class="dashboard-command-right">
             ${dashboardPreferences.visible.attention ? `<section class="card dashboard-command-card dashboard-command-attention" data-dashboard-card="attention" style="order:${dashboardPreferences.order.indexOf("attention") + 1}" aria-labelledby="dashboardAttentionTitle">
               <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">${isOrganizerUser ? "SupportCircle messages" : hasAdminAccess ? "Platform priorities" : "Needs your attention"}</h2><p class="sub">${isOrganizerUser ? "Messages and support requests for your organizer account." : hasAdminAccess ? "Platform-wide operational tasks, not limited by the reporting period." : "Current operational tasks, not limited by the reporting period."}</p></div></div>
               <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
@@ -14976,6 +14978,7 @@ return `
               <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">${isOrganizerUser ? "My event performance" : hasAdminAccess ? "Community comparison" : "Community performance"}</h2><p class="sub">${isOrganizerUser ? "Performance across your events." : hasAdminAccess ? "All OpenCircle communities." : "Only communities within your assigned access."}</p></div></div>
               <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
             </section>` : ``}
+            </div>
           </div>
         </section>
 
