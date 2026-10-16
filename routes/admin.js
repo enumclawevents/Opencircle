@@ -14589,16 +14589,17 @@ return `
       .dashboard-community-row strong{ font-size:13px; font-weight:650; }
       .dashboard-community-metrics{ display:flex; align-items:center; gap:9px; color:var(--muted); font-size:11px; text-align:right; }
       .dashboard-community-metrics b{ color:var(--text); font-size:12px; }
-      .dashboard-quick-links-card{ padding:16px 18px 18px; }
+      .dashboard-quick-links-card{ container-type:inline-size; padding:20px; }
       .dashboard-quick-links-card .sectionTitle{ margin-bottom:12px; }
-      .dashboard-quick-links{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); width:min(100%,720px); margin:0 auto; column-gap:16px; row-gap:22px; }
+      .dashboard-quick-links{ display:grid; grid-template-columns:repeat(8,minmax(108px,1fr)); width:min(100%,1080px); margin:0 auto; gap:16px; }
       .dashboard-quick-link{ display:flex; min-width:0; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:4px; border-radius:var(--radius-mid); color:var(--text); text-decoration:none; transition:background-color .14s ease, color .14s ease; }
       .dashboard-quick-link-icon{ display:inline-flex; width:56px; height:56px; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:var(--radius-inner); background:var(--panel2); color:var(--accent); font-size:24px; transition:border-color .14s ease, background-color .14s ease, transform .14s ease; }
       .dashboard-quick-link-label{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:13px; font-weight:500; line-height:1.25; text-align:center; }
       .dashboard-quick-link:hover{ background:rgba(0,192,139,.07); color:var(--text); }
       .dashboard-quick-link:hover .dashboard-quick-link-icon{ border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.11); transform:translateY(-1px); }
       .dashboard-quick-link:focus-visible{ outline:2px solid rgba(0,192,139,.62); outline-offset:2px; }
-      @media (min-width:1800px){ .dashboard-quick-links{ grid-template-columns:repeat(8,minmax(0,1fr)); width:min(100%,1080px); } }
+      @container (max-width:980px){ .dashboard-quick-links{ grid-template-columns:repeat(4,minmax(0,1fr)); row-gap:20px; } }
+      @container (max-width:480px){ .dashboard-quick-links{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-quick-link-label{ white-space:normal; } }
       .dashboard-layout-preferences{ display:grid; gap:10px; margin-bottom:16px; }
       .dashboard-layout-preference{ display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius-inner); background:var(--panel2); }
       .dashboard-layout-preference > label:first-child{ margin:0; font-size:13px; font-weight:650; color:var(--text); }
@@ -14609,7 +14610,6 @@ return `
       @media (max-width:850px){ .dashboard-command-insights{ grid-template-columns:1fr; } }
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
       @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns,.dashboard-command-insights{ grid-template-columns:1fr; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-donut{ width:min(100%,200px); } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
-      @media (max-width:420px){ .dashboard-quick-links{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-quick-link-label{ white-space:normal; } }
       @media (max-width:420px){ .dashboard-category-legend{ max-width:280px; } .dashboard-category-row{ grid-template-columns:10px 36px minmax(0,1fr) auto; gap:7px; font-size:10px; } }
 </style>
   </head>
