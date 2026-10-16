@@ -14555,11 +14555,11 @@ return `
       .dashboard-insight-card .sectionTitle{ margin-bottom:10px; }
       .dashboard-insight-card .sectionTitle h2{ font-size:17px; }
       .dashboard-insight-card .sectionTitle .sub{ margin-top:4px; font-size:12px; }
-      .dashboard-category-chart{ position:relative; display:grid; grid-template-columns:minmax(148px,2fr) minmax(0,3fr); align-items:center; gap:18px; flex:1; min-height:0; }
-      .dashboard-category-donut{ width:min(100%,168px); height:auto; aspect-ratio:1; justify-self:center; display:block; overflow:visible; }
+      .dashboard-category-chart{ position:relative; display:flex; flex:1; min-height:0; flex-direction:column; align-items:center; justify-content:center; gap:14px; }
+      .dashboard-category-donut{ width:min(100%,210px); height:auto; aspect-ratio:1; display:block; overflow:visible; }
       .dashboard-category-total{ font-size:20px; font-weight:700; fill:var(--text); }
       .dashboard-category-total-label{ font-size:7px; font-weight:600; fill:var(--muted); letter-spacing:.02em; }
-      .dashboard-category-legend{ display:grid; gap:8px; width:100%; max-width:310px; min-width:0; justify-self:center; }
+      .dashboard-category-legend{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 16px; width:100%; max-width:400px; min-width:0; }
       .dashboard-category-row{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; color:var(--muted); font-size:11px; line-height:1.25; }
       .dashboard-category-label{ display:flex; align-items:center; gap:6px; min-width:0; }
       .dashboard-category-dot{ width:7px; height:7px; flex:0 0 auto; border-radius:999px; }
@@ -14592,10 +14592,10 @@ return `
       .dashboard-layout-preference input{ accent-color:var(--accent); }
       .dashboard-layout-order{ display:inline-flex; align-items:center; gap:8px; margin:0; color:var(--muted); font-size:12px; font-weight:650; }
       .dashboard-layout-order .ctrl{ width:62px; min-width:62px; margin:0; padding:6px 8px; font-size:12px; }
-      @media (max-width:1100px){ .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-insights{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-activity-chart{ height:210px; } }
+      @media (max-width:1100px){ .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-insights{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-category-donut{ width:min(100%,184px); } .dashboard-activity-chart{ height:210px; } }
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
-      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns,.dashboard-command-insights{ grid-template-columns:1fr; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-chart{ grid-template-columns:minmax(138px,2fr) minmax(0,3fr); gap:14px; } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
-      @media (max-width:420px){ .dashboard-category-chart{ grid-template-columns:1fr; justify-items:center; gap:14px; } .dashboard-category-legend{ width:100%; max-width:280px; } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns,.dashboard-command-insights{ grid-template-columns:1fr; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-donut{ width:min(100%,200px); } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
+      @media (max-width:420px){ .dashboard-category-legend{ grid-template-columns:1fr; max-width:280px; } }
 </style>
   </head>
   <body>
@@ -18399,11 +18399,11 @@ return `
           var palette = ['rgba(16,185,129,.90)', 'rgba(37,99,235,.80)', 'rgba(99,102,241,.72)', 'rgba(100,116,139,.68)', 'rgba(148,163,184,.58)'];
           var svgNode = 'http://www.w3.org/2000/svg';
           var donut = document.createElementNS(svgNode, 'svg'); donut.setAttribute('class', 'dashboard-category-donut'); donut.setAttribute('viewBox', '0 0 120 120'); donut.setAttribute('aria-hidden', 'true');
-          var background = document.createElementNS(svgNode, 'circle'); background.setAttribute('cx','60'); background.setAttribute('cy','60'); background.setAttribute('r','42'); background.setAttribute('fill','none'); background.setAttribute('stroke','rgba(148,163,184,.16)'); background.setAttribute('stroke-width','17'); donut.appendChild(background);
+          var background = document.createElementNS(svgNode, 'circle'); background.setAttribute('cx','60'); background.setAttribute('cy','60'); background.setAttribute('r','42'); background.setAttribute('fill','none'); background.setAttribute('stroke','rgba(148,163,184,.16)'); background.setAttribute('stroke-width','19'); donut.appendChild(background);
           var circumference = 2 * Math.PI * 42, offset = 0;
           categories.forEach(function(category, index){
             var segment = document.createElementNS(svgNode, 'circle'); var amount = Math.max(0, Number(category.count || 0)); var length = (amount / total) * circumference;
-            segment.setAttribute('cx','60'); segment.setAttribute('cy','60'); segment.setAttribute('r','42'); segment.setAttribute('fill','none'); segment.setAttribute('stroke',palette[index % palette.length]); segment.setAttribute('stroke-width','17'); segment.setAttribute('stroke-linecap','butt'); segment.setAttribute('stroke-dasharray',Math.max(0, length - 1.5) + ' ' + circumference); segment.setAttribute('stroke-dashoffset',String(-offset)); segment.setAttribute('transform','rotate(-90 60 60)'); segment.style.cursor = 'default'; segment.setAttribute('data-category-index', String(index)); donut.appendChild(segment); offset += length;
+            segment.setAttribute('cx','60'); segment.setAttribute('cy','60'); segment.setAttribute('r','42'); segment.setAttribute('fill','none'); segment.setAttribute('stroke',palette[index % palette.length]); segment.setAttribute('stroke-width','19'); segment.setAttribute('stroke-linecap','butt'); segment.setAttribute('stroke-dasharray',Math.max(0, length - 1.5) + ' ' + circumference); segment.setAttribute('stroke-dashoffset',String(-offset)); segment.setAttribute('transform','rotate(-90 60 60)'); segment.style.cursor = 'default'; segment.setAttribute('data-category-index', String(index)); donut.appendChild(segment); offset += length;
           });
           var totalLabel = document.createElementNS(svgNode, 'text'); totalLabel.setAttribute('x','60'); totalLabel.setAttribute('y','56'); totalLabel.setAttribute('text-anchor','middle'); totalLabel.setAttribute('class','dashboard-category-total'); totalLabel.textContent = number(total); donut.appendChild(totalLabel);
           var totalCaption = document.createElementNS(svgNode, 'text'); totalCaption.setAttribute('x','60'); totalCaption.setAttribute('y','74'); totalCaption.setAttribute('text-anchor','middle'); totalCaption.setAttribute('class','dashboard-category-total-label'); totalCaption.textContent = 'assignments'; donut.appendChild(totalCaption);
