@@ -18492,6 +18492,17 @@ return `
               if (subtitle) subtitle.textContent = 'This chart appears once timestamped event-view tracking is available.';
             } else {
               var series = summary.series || [];
+              // Dashboard summaries normally expose an ISO date per bucket.
+              // Keep the label reliable for cached/legacy bucket shapes too by
+              // deriving it from the selected reporting period when necessary.
+              var seriesDate = function(index){
+                var item = series[index] || {};
+                var value = item.date || item.day || item.bucket || item.label;
+                if (value) return value;
+                var start = String(summary.period && summary.period.start || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+                if (!start) return '';
+                return new Date(Date.UTC(Number(start[1]), Number(start[2]) - 1, Number(start[3]) + index)).toISOString().slice(0, 10);
+              };
               // Match the SVG coordinate system to the actual chart box.
               // This prevents browser/side-menu resizes from stretching the
               // chart's paths, strokes, or labels independently.
@@ -18534,7 +18545,7 @@ return `
               var labels = series.map(function(item, index){
                 if (index !== series.length - 1 && index % labelStep !== 0) return '';
                 var anchor = index === series.length - 1 ? 'end' : (index === 0 ? 'start' : 'middle');
-                return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 30).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + dateLabel(item.date) + '</text>';
+                return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 30).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + dateLabel(seriesDate(index)) + '</text>';
               }).join('');
               chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path><path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' + labels + '</g></svg>';
               var svg = chart.querySelector('svg');
@@ -18568,7 +18579,7 @@ return `
                 [eventHalo, eventDot].forEach(function(dot){ dot.setAttribute('cx', eventPoint.x); dot.setAttribute('cy', eventPoint.y); });
                 viewDot.setAttribute('cx', viewPoint.x); viewDot.setAttribute('cy', viewPoint.y);
                 highlight.setAttribute('display', '');
-                tooltipTitle.textContent = 'Date: ' + fullDateLabel(series[index].date);
+                tooltipTitle.textContent = 'Date: ' + fullDateLabel(seriesDate(index));
                 eventRow.querySelector('strong').textContent = number(events[index]);
                 viewRow.querySelector('strong').textContent = number(views[index]);
                 tooltip.hidden = false;
