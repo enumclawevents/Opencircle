@@ -108,6 +108,16 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
     "INSERT INTO events (city, slug, title, organizer, location, categories, startDateTime, endDateTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     ["Plateau Regional", "outside-event", "Outside Event", "another-organizer", "Plateau Hall", JSON.stringify(["Sports"]), recent, recent]
   );
+  await execSql(
+    dbPath,
+    "CREATE TABLE event_views (id INTEGER PRIMARY KEY, eventId INTEGER NOT NULL, occurrenceDate TEXT, viewedAt TEXT NOT NULL, ipHash TEXT)"
+  );
+  const viewedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
+  await execSql(
+    dbPath,
+    "INSERT INTO event_views (eventId, occurrenceDate, viewedAt, ipHash) SELECT id, ?, ?, ? FROM events WHERE slug = ?",
+    [recent.slice(0, 10), viewedAt, "organizer-viewer", "organizer-event"]
+  );
 
   const developerCookie = await signIn(baseUrl, "developer@example.test", password);
   const developerResponse = await fetch(`${baseUrl}/admin/dashboard-summary?range=30d&dashboardScope=Plateau%20Regional`, {
@@ -131,6 +141,7 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
   assert.deepEqual(organizerSummary.insights.categoryDistribution.map((category) => category.name), ["Arts"]);
   assert.equal(organizerSummary.insights.categoryAssignmentTotal, 1);
   assert.equal(organizerSummary.insights.weekdayViews.length, 7);
+  assert.equal(organizerSummary.insights.weekdayViews.reduce((total, views) => total + views, 0), 1);
 
   const saveResponse = await fetch(`${baseUrl}/admin/preferences/dashboard`, {
     method: "POST",

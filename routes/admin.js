@@ -3974,7 +3974,13 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
         [...eventIds, period.start.toUTC().toISO(), period.end.toUTC().toISO()]
       );
       for (const row of weekdayRows || []) {
-        const viewedAt = DateTime.fromISO(String(row?.viewedAt || ""), { setZone: true }).setZone(DEFAULT_TZ);
+        const rawViewedAt = String(row?.viewedAt || "").trim();
+        // SQLite's datetime('now') default is a UTC SQL timestamp such as
+        // "2026-10-16 18:30:00", while some deployments persist ISO strings.
+        // Support both before bucketing in the reporting timezone.
+        let viewedAt = DateTime.fromISO(rawViewedAt, { setZone: true });
+        if (!viewedAt.isValid) viewedAt = DateTime.fromSQL(rawViewedAt, { zone: "utc" });
+        viewedAt = viewedAt.setZone(DEFAULT_TZ);
         if (viewedAt.isValid) weekdayViews[viewedAt.weekday - 1] += 1;
       }
       engagementAvailable = true;
