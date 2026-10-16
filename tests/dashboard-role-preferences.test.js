@@ -92,21 +92,21 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
     );
   }
 
-  const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const recent = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   await execSql(
     dbPath,
-    "INSERT INTO events (city, slug, title, organizer, location, startDateTime, endDateTime) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ["Enumclaw", "organizer-event", "Organizer Event", "my-organizer", "Town Hall", future, future]
+    "INSERT INTO events (city, slug, title, organizer, location, categories, startDateTime, endDateTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ["Enumclaw", "organizer-event", "Organizer Event", "my-organizer", "Town Hall", JSON.stringify(["Arts"]), recent, recent]
   );
   await execSql(
     dbPath,
-    "INSERT INTO events (city, slug, title, organizer, location, startDateTime, endDateTime) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ["Enumclaw", "other-event", "Other Event", "another-organizer", "Town Hall", future, future]
+    "INSERT INTO events (city, slug, title, organizer, location, categories, startDateTime, endDateTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ["Enumclaw", "other-event", "Other Event", "another-organizer", "Town Hall", JSON.stringify(["Music"]), recent, recent]
   );
   await execSql(
     dbPath,
-    "INSERT INTO events (city, slug, title, organizer, location, startDateTime, endDateTime) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ["Plateau Regional", "outside-event", "Outside Event", "another-organizer", "Plateau Hall", future, future]
+    "INSERT INTO events (city, slug, title, organizer, location, categories, startDateTime, endDateTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ["Plateau Regional", "outside-event", "Outside Event", "another-organizer", "Plateau Hall", JSON.stringify(["Sports"]), recent, recent]
   );
 
   const developerCookie = await signIn(baseUrl, "developer@example.test", password);
@@ -128,6 +128,9 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
   assert.equal(organizerSummary.role, "organizer");
   assert.equal(organizerSummary.scope.organizerOnly, true);
   assert.equal(organizerSummary.communities.reduce((total, community) => total + community.publishedEvents, 0), 1);
+  assert.deepEqual(organizerSummary.insights.categoryDistribution.map((category) => category.name), ["Arts"]);
+  assert.equal(organizerSummary.insights.categoryAssignmentTotal, 1);
+  assert.equal(organizerSummary.insights.weekdayViews.length, 7);
 
   const saveResponse = await fetch(`${baseUrl}/admin/preferences/dashboard`, {
     method: "POST",

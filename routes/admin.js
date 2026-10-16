@@ -3869,7 +3869,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
   };
 
   const eventRows = await all(
-    `SELECT id, city, organizer, createdByUserId, startDateTime, endDateTime,
+    `SELECT id, city, organizer, createdByUserId, categories, startDateTime, endDateTime,
             hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate,
             recurrenceUntilDate, createdAt, submittedAt, archived
        FROM events
@@ -3901,6 +3901,8 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
 
   let engagementAvailable = false;
   let engagementSeriesAvailable = false;
+  let weekdayViewsAvailable = false;
+  const weekdayViews = Array.from({ length: 7 }, () => 0);
   const dailyViews = new Map();
   // Keep the dashboard trend aligned with Events Analytics: one series for
   // scheduled event occurrences and one for measured event-page views.
@@ -3964,14 +3966,56 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
         [...eventIds, period.start.toUTC().toISO(), period.end.toUTC().toISO()]
       );
       for (const row of trendRows || []) dailyViews.set(String(row.date || ""), Number(row.views || 0));
+      const weekdayRows = await all(
+        `SELECT viewedAt FROM event_views
+          WHERE eventId IN (${eventIdPlaceholders})
+            AND datetime(viewedAt) >= datetime(?)
+            AND datetime(viewedAt) < datetime(?)`,
+        [...eventIds, period.start.toUTC().toISO(), period.end.toUTC().toISO()]
+      );
+      for (const row of weekdayRows || []) {
+        const viewedAt = DateTime.fromISO(String(row?.viewedAt || ""), { setZone: true }).setZone(DEFAULT_TZ);
+        if (viewedAt.isValid) weekdayViews[viewedAt.weekday - 1] += 1;
+      }
       engagementAvailable = true;
       engagementSeriesAvailable = true;
+      weekdayViewsAvailable = true;
     }
   } catch (_) {
     // Never replace unavailable period-level tracking with lifetime counters.
     engagementAvailable = false;
     engagementSeriesAvailable = false;
   }
+
+  // Category totals are category assignments per scheduled occurrence. An
+  // event tagged in two categories contributes once to each category instead
+  // of being presented as a misleading unique-event total.
+  const categoryTotals = new Map();
+  for (const event of scopedEvents) {
+    const parsedCategories = safeParseJson(event?.categories, []);
+    const categories = Array.isArray(parsedCategories)
+      ? parsedCategories.map((value) => String(value || "").trim()).filter(Boolean)
+      : [];
+    if (!categories.length) continue;
+    const recurring = Number(event?.hasRecurrence || 0) === 1 || hasRecurringData(event);
+    const occurrenceCount = recurring && hasRecurringData(event)
+      ? generateAdminOccurrences(event, periodStartMs, periodEndMs).length
+      : (dashboardIsoInRange(event?.startDateTime, periodStartMs, periodEndMs) ? 1 : 0);
+    if (!occurrenceCount) continue;
+    categories.forEach((category) => categoryTotals.set(category, Number(categoryTotals.get(category) || 0) + occurrenceCount));
+  }
+  const categoryEntries = [...categoryTotals.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  const categoryLimit = 4;
+  const leadingCategories = categoryEntries.slice(0, categoryLimit);
+  const otherCategoryCount = categoryEntries.slice(categoryLimit).reduce((total, category) => total + category.count, 0);
+  if (otherCategoryCount) leadingCategories.push({ name: "Other", count: otherCategoryCount });
+  const categoryAssignmentTotal = leadingCategories.reduce((total, category) => total + category.count, 0);
+  const categoryDistribution = leadingCategories.map((category) => ({
+    ...category,
+    percentage: categoryAssignmentTotal ? (category.count / categoryAssignmentTotal) * 100 : 0,
+  }));
 
   const attention = { pendingApprovals: null, openReports: 0, unreadMessages: 0, pendingInvitations: null, failedNewsletterDeliveries: null };
   if (role !== "organizer") {
@@ -4078,7 +4122,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
     role,
     scope: { cities, organizerOnly: role === "organizer", dashboardScope: requestedDashboardScope },
     period: { key: period.key, start: period.start.toUTC().toISO(), end: period.end.toUTC().toISO(), previousStart: DateTime.fromMillis(previousStartMs).toUTC().toISO(), timezone: DEFAULT_TZ },
-    availability: { engagement: engagementAvailable, uniqueViews: engagementAvailable, eventViewSeries: engagementSeriesAvailable },
+    availability: { engagement: engagementAvailable, uniqueViews: engagementAvailable, eventViewSeries: engagementSeriesAvailable, weekdayViews: weekdayViewsAvailable },
     kpis: {
       upcomingOccurrences,
       publishedEvents: totals.publishedEvents,
@@ -4094,6 +4138,11 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
     attention,
     communities: dashboardCommunities,
     series,
+    insights: {
+      categoryDistribution,
+      categoryAssignmentTotal,
+      weekdayViews,
+    },
   };
 }
 
@@ -14470,10 +14519,12 @@ return `
          carries the visual weight, while its supporting cards form a compact
          and naturally sized right-hand stack. This prevents a short priority
          card from creating an empty half-row beneath itself. */
-      .dashboard-command-columns{ display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:var(--gap); align-items:start; }
+      .dashboard-command-columns{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(280px,1fr); gap:var(--gap); align-items:start; }
       .dashboard-command-card{ padding:20px; }
-      .dashboard-command-activity{ grid-column:1; grid-row:1 / span 3; }
-      .dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:2; }
+      .dashboard-command-activity{ grid-column:1 / span 2; }
+      .dashboard-command-category{ grid-column:1; }
+      .dashboard-command-weekdays{ grid-column:2; }
+      .dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:3; }
       .dashboard-command-columns[data-support-card-count="0"] .dashboard-command-activity{ grid-column:1 / -1; }
       .dashboard-command-activity .sectionTitle{ margin-bottom:16px; }
       .dashboard-command-activity .chartLegend{ gap:14px; margin-top:8px; }
@@ -14496,6 +14547,22 @@ return `
       .dashboard-positive-empty{ padding:14px; border:1px dashed var(--line); border-radius:var(--radius-mid); color:var(--muted); font-size:13px; }
       .dashboard-activity-chart{ position:relative; height:220px; padding:0; }
       .dashboard-activity-chart svg{ display:block; width:100%; height:100%; }
+      .dashboard-insight-card{ min-height:246px; display:flex; flex-direction:column; }
+      .dashboard-insight-card .sectionTitle{ margin-bottom:10px; }
+      .dashboard-insight-card .sectionTitle h2{ font-size:17px; }
+      .dashboard-insight-card .sectionTitle .sub{ margin-top:4px; font-size:12px; }
+      .dashboard-category-chart{ position:relative; display:grid; grid-template-columns:112px minmax(0,1fr); align-items:center; gap:14px; flex:1; min-height:0; }
+      .dashboard-category-donut{ width:112px; height:112px; display:block; overflow:visible; }
+      .dashboard-category-total{ font-size:20px; font-weight:700; fill:var(--text); }
+      .dashboard-category-total-label{ font-size:9px; font-weight:600; fill:var(--muted); }
+      .dashboard-category-legend{ display:grid; gap:6px; min-width:0; }
+      .dashboard-category-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--muted); font-size:11px; line-height:1.25; }
+      .dashboard-category-label{ display:flex; align-items:center; gap:6px; min-width:0; }
+      .dashboard-category-dot{ width:7px; height:7px; flex:0 0 auto; border-radius:999px; }
+      .dashboard-category-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .dashboard-category-value{ color:var(--text); font-weight:650; white-space:nowrap; }
+      .dashboard-weekday-chart{ position:relative; height:132px; flex:1; min-height:0; }
+      .dashboard-weekday-chart svg{ display:block; width:100%; height:100%; overflow:visible; }
       .dashboard-chart-tooltip{ position:absolute; z-index:3; width:170px; padding:10px 12px; border:1px solid rgba(148,163,184,.42); border-radius:var(--radius-mid); background:rgba(255,255,255,.98); color:var(--text); box-shadow:0 10px 24px rgba(15,23,42,.10); pointer-events:none; font-size:12px; line-height:1.4; }
       .dashboard-chart-tooltip-title{ margin-bottom:6px; font-size:12px; font-weight:650; }
       .dashboard-chart-tooltip-row{ display:flex; justify-content:space-between; gap:12px; color:var(--muted); }
@@ -14521,9 +14588,9 @@ return `
       .dashboard-layout-preference input{ accent-color:var(--accent); }
       .dashboard-layout-order{ display:inline-flex; align-items:center; gap:8px; margin:0; color:var(--muted); font-size:12px; font-weight:650; }
       .dashboard-layout-order .ctrl{ width:62px; min-width:62px; margin:0; padding:6px 8px; font-size:12px; }
-      @media (max-width:1100px){ .dashboard-command-columns{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-activity{ grid-column:1 / -1; grid-row:auto; } .dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-activity-chart{ height:210px; } }
+      @media (max-width:1100px){ .dashboard-command-columns{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-activity{ grid-column:1 / -1; grid-row:auto; } .dashboard-command-category,.dashboard-command-weekdays,.dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-activity-chart{ height:210px; } }
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
-      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ min-height:96px; padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity,.dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; grid-row:auto; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ min-height:96px; padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity,.dashboard-command-category,.dashboard-command-weekdays,.dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; grid-row:auto; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-chart{ grid-template-columns:104px minmax(0,1fr); gap:10px; } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
 </style>
   </head>
   <body>
@@ -14882,6 +14949,14 @@ return `
             <section class="card dashboard-command-card dashboard-command-activity" aria-labelledby="dashboardActivityTitle">
               <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
               <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
+            </section>
+            <section class="card dashboard-command-card dashboard-insight-card dashboard-command-category" aria-labelledby="dashboardCategoryTitle">
+              <div class="sectionTitle"><div><h2 id="dashboardCategoryTitle">Event categories</h2><p class="sub">Distribution of event category assignments.</p></div></div>
+              <div class="dashboard-category-chart" id="dashboardCategoryChart" role="img" aria-label="Event category distribution"><div class="muted">Loading categories…</div></div>
+            </section>
+            <section class="card dashboard-command-card dashboard-insight-card dashboard-command-weekdays" aria-labelledby="dashboardWeekdayTitle">
+              <div class="sectionTitle"><div><h2 id="dashboardWeekdayTitle">Top performing days</h2><p class="sub">Measured event views by day of week.</p></div></div>
+              <div class="dashboard-weekday-chart" id="dashboardWeekdayChart" role="img" aria-label="Measured event views by day of week"><div class="muted">Loading daily views…</div></div>
             </section>
             ${dashboardPreferences.visible.attention ? `<section class="card dashboard-command-card dashboard-command-attention" data-dashboard-card="attention" style="order:${dashboardPreferences.order.indexOf("attention") + 1}" aria-labelledby="dashboardAttentionTitle">
               <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">${isOrganizerUser ? "SupportCircle messages" : hasAdminAccess ? "Platform priorities" : "Needs your attention"}</h2><p class="sub">${isOrganizerUser ? "Messages and support requests for your organizer account." : hasAdminAccess ? "Platform-wide operational tasks, not limited by the reporting period." : "Current operational tasks, not limited by the reporting period."}</p></div></div>
@@ -18293,6 +18368,60 @@ return `
           var value = document.createElement('strong'); value.className = 'dashboard-attention-count'; value.textContent = count ? number(count) : 'Open';
           link.appendChild(copy); link.appendChild(value); host.appendChild(link);
         };
+        var createInsightTooltip = function(host){
+          var tooltip = document.createElement('div'); tooltip.className = 'dashboard-chart-tooltip'; tooltip.hidden = true;
+          var title = document.createElement('div'); title.className = 'dashboard-chart-tooltip-title';
+          var row = document.createElement('div'); row.className = 'dashboard-chart-tooltip-row';
+          var label = document.createElement('span'); label.className = 'dashboard-chart-tooltip-label';
+          var dot = document.createElement('i'); label.appendChild(dot);
+          var labelText = document.createElement('span'); label.appendChild(labelText);
+          var value = document.createElement('strong'); row.appendChild(label); row.appendChild(value);
+          tooltip.appendChild(title); tooltip.appendChild(row); host.appendChild(tooltip);
+          return { tooltip:tooltip, title:title, dot:dot, label:labelText, value:value };
+        };
+        var renderCategoryInsight = function(summary){
+          var host = document.getElementById('dashboardCategoryChart'); if (!host) return;
+          host.replaceChildren();
+          var categories = (summary.insights && summary.insights.categoryDistribution) || [];
+          var total = Number(summary.insights && summary.insights.categoryAssignmentTotal || 0);
+          if (!categories.length || !total) { var empty = document.createElement('div'); empty.className = 'dashboard-chart-empty'; empty.textContent = 'No categorized event occurrences are available for this period.'; host.appendChild(empty); return; }
+          var palette = ['rgba(16,185,129,.90)', 'rgba(37,99,235,.80)', 'rgba(99,102,241,.72)', 'rgba(100,116,139,.68)', 'rgba(148,163,184,.58)'];
+          var svgNode = 'http://www.w3.org/2000/svg';
+          var donut = document.createElementNS(svgNode, 'svg'); donut.setAttribute('class', 'dashboard-category-donut'); donut.setAttribute('viewBox', '0 0 120 120'); donut.setAttribute('aria-hidden', 'true');
+          var background = document.createElementNS(svgNode, 'circle'); background.setAttribute('cx','60'); background.setAttribute('cy','60'); background.setAttribute('r','42'); background.setAttribute('fill','none'); background.setAttribute('stroke','rgba(148,163,184,.16)'); background.setAttribute('stroke-width','15'); donut.appendChild(background);
+          var circumference = 2 * Math.PI * 42, offset = 0;
+          categories.forEach(function(category, index){
+            var segment = document.createElementNS(svgNode, 'circle'); var amount = Math.max(0, Number(category.count || 0)); var length = (amount / total) * circumference;
+            segment.setAttribute('cx','60'); segment.setAttribute('cy','60'); segment.setAttribute('r','42'); segment.setAttribute('fill','none'); segment.setAttribute('stroke',palette[index % palette.length]); segment.setAttribute('stroke-width','15'); segment.setAttribute('stroke-linecap','butt'); segment.setAttribute('stroke-dasharray',Math.max(0, length - 1.5) + ' ' + circumference); segment.setAttribute('stroke-dashoffset',String(-offset)); segment.setAttribute('transform','rotate(-90 60 60)'); segment.style.cursor = 'default'; segment.setAttribute('data-category-index', String(index)); donut.appendChild(segment); offset += length;
+          });
+          var totalLabel = document.createElementNS(svgNode, 'text'); totalLabel.setAttribute('x','60'); totalLabel.setAttribute('y','57'); totalLabel.setAttribute('text-anchor','middle'); totalLabel.setAttribute('class','dashboard-category-total'); totalLabel.textContent = number(total); donut.appendChild(totalLabel);
+          var totalCaption = document.createElementNS(svgNode, 'text'); totalCaption.setAttribute('x','60'); totalCaption.setAttribute('y','70'); totalCaption.setAttribute('text-anchor','middle'); totalCaption.setAttribute('class','dashboard-category-total-label'); totalCaption.textContent = 'assignments'; donut.appendChild(totalCaption);
+          var legend = document.createElement('div'); legend.className = 'dashboard-category-legend';
+          var tooltip = createInsightTooltip(host);
+          var showTooltip = function(category, index, target){
+            tooltip.title.textContent = category.name; tooltip.label.textContent = number(category.count) + ' assignment' + (Number(category.count) === 1 ? '' : 's'); tooltip.value.textContent = Number(category.percentage || 0).toFixed(0) + '%'; tooltip.dot.style.background = palette[index % palette.length]; tooltip.tooltip.hidden = false;
+            var rect = target.getBoundingClientRect(), hostRect = host.getBoundingClientRect();
+            tooltip.tooltip.style.left = Math.max(6, Math.min(host.clientWidth - (tooltip.tooltip.offsetWidth || 170) - 6, rect.left - hostRect.left)) + 'px'; tooltip.tooltip.style.top = Math.max(4, rect.top - hostRect.top - (tooltip.tooltip.offsetHeight || 62) - 6) + 'px';
+          };
+          categories.forEach(function(category, index){
+            var row = document.createElement('div'); row.className = 'dashboard-category-row'; var label = document.createElement('span'); label.className = 'dashboard-category-label'; var dot = document.createElement('i'); dot.className = 'dashboard-category-dot'; dot.style.background = palette[index % palette.length]; var name = document.createElement('span'); name.className = 'dashboard-category-name'; name.textContent = category.name; label.appendChild(dot); label.appendChild(name); var value = document.createElement('span'); value.className = 'dashboard-category-value'; value.textContent = number(category.count) + ' · ' + Number(category.percentage || 0).toFixed(0) + '%'; row.appendChild(label); row.appendChild(value); row.addEventListener('mouseenter', function(){ showTooltip(category, index, row); }); row.addEventListener('mouseleave', function(){ tooltip.tooltip.hidden = true; }); legend.appendChild(row);
+            var segment = donut.querySelector('[data-category-index="' + index + '"]'); if (segment) { segment.addEventListener('mouseenter', function(){ showTooltip(category, index, segment); }); segment.addEventListener('mouseleave', function(){ tooltip.tooltip.hidden = true; }); }
+          });
+          host.appendChild(donut); host.appendChild(legend);
+        };
+        var renderWeekdayInsight = function(summary){
+          var host = document.getElementById('dashboardWeekdayChart'); if (!host) return;
+          host.replaceChildren();
+          if (!summary.availability || !summary.availability.weekdayViews) { var empty = document.createElement('div'); empty.className = 'dashboard-chart-empty'; empty.textContent = 'Measured event-view tracking is not available yet.'; host.appendChild(empty); return; }
+          var values = (summary.insights && summary.insights.weekdayViews) || []; var days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+          var width = Math.max(1, Math.round(host.clientWidth || 280)), height = Math.max(1, Math.round(host.clientHeight || 132)); var padL = 20, padR = 6, padT = 8, padB = 23, plotW = width - padL - padR, plotH = height - padT - padB; var max = Math.max.apply(null, values.concat([1])); var gridColor = document.body.classList.contains('theme-dark') ? 'rgba(148,163,184,.16)' : 'rgba(15,23,42,.08)', axisColor = document.body.classList.contains('theme-dark') ? '#aab8cc' : '#64748b'; var step = plotW / 7, barW = Math.min(24, step * .58), winner = values.indexOf(max);
+          var grid = [0.5, 1].map(function(ratio){ var y = padT + plotH - (plotH * ratio); return '<line x1="' + padL + '" y1="' + y.toFixed(2) + '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(2) + '" stroke="' + gridColor + '" stroke-width="1"></line>'; }).join('');
+          var bars = values.map(function(value, index){ var barH = Math.max(value ? 3 : 1, (Number(value || 0) / max) * plotH), x = padL + step * index + ((step - barW) / 2), y = padT + plotH - barH, color = index === winner && max > 0 ? 'rgba(37,99,235,.92)' : 'rgba(37,99,235,.64)'; return '<rect data-day-index="' + index + '" x="' + x.toFixed(2) + '" y="' + y.toFixed(2) + '" width="' + barW.toFixed(2) + '" height="' + barH.toFixed(2) + '" rx="2" fill="' + color + '"></rect><text x="' + (x + barW / 2).toFixed(2) + '" y="' + (padT + plotH + 17).toFixed(2) + '" text-anchor="middle" fill="' + axisColor + '" font-size="10" font-weight="500">' + days[index] + '</text>'; }).join('');
+          host.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Event views Monday through Sunday"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + bars + '</g></svg>';
+          var tooltip = createInsightTooltip(host), svg = host.querySelector('svg');
+          Array.prototype.forEach.call(svg.querySelectorAll('[data-day-index]'), function(bar){ var index = Number(bar.getAttribute('data-day-index')); bar.style.cursor = 'default'; bar.addEventListener('mouseenter', function(){ tooltip.title.textContent = days[index]; tooltip.label.textContent = 'Event views'; tooltip.value.textContent = number(values[index]); tooltip.dot.style.background = 'rgba(37,99,235,.82)'; tooltip.tooltip.hidden = false; var rect = bar.getBoundingClientRect(), hostRect = host.getBoundingClientRect(); tooltip.tooltip.style.left = Math.max(4, Math.min(host.clientWidth - (tooltip.tooltip.offsetWidth || 170) - 4, rect.left - hostRect.left - 50)) + 'px'; tooltip.tooltip.style.top = Math.max(2, rect.top - hostRect.top - (tooltip.tooltip.offsetHeight || 62) - 6) + 'px'; }); bar.addEventListener('mouseleave', function(){ tooltip.tooltip.hidden = true; }); });
+          if (window.ResizeObserver && !host._dashboardWeekdayResizeObserver) { var queued = false; host._dashboardWeekdayResizeObserver = new ResizeObserver(function(){ if (queued) return; queued = true; (window.requestAnimationFrame || function(callback){ return window.setTimeout(callback, 0); })(function(){ queued = false; renderWeekdayInsight(summary); }); }); host._dashboardWeekdayResizeObserver.observe(host); }
+        };
         function render(summary){
           var kpis = summary.kpis || {};
           var attention = summary.attention || {};
@@ -18440,6 +18569,8 @@ return `
               if (subtitle) subtitle.textContent = 'Events and measured views during the selected reporting period.';
             }
           }
+          renderCategoryInsight(summary);
+          renderWeekdayInsight(summary);
           var highlights = document.getElementById('dashboardHighlights');
           if (highlights) {
             highlights.replaceChildren();
@@ -18464,7 +18595,7 @@ return `
           var url = new URL('/admin/dashboard-summary', window.location.origin); url.searchParams.set('range', selected); if (city) url.searchParams.set('city', city);
           if (communityScope && communityScope.value && communityScope.value !== 'all') url.searchParams.set('dashboardScope', communityScope.value);
           if (selected === 'custom') { url.searchParams.set('start', start.value); url.searchParams.set('end', end.value); }
-          fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'Dashboard data is not available for this account.' : 'Dashboard data is temporarily unavailable.'); return response.json(); }).then(render).catch(function(error){ var message = error && error.message ? error.message : 'Dashboard data is temporarily unavailable.'; set('dashboardContext', message + ' Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">' + message + '</div>'; var chart = document.getElementById('dashboardActivityChart'); if (chart) chart.innerHTML = '<div class="dashboard-chart-empty">' + message + '</div>'; var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
+          fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'Dashboard data is not available for this account.' : 'Dashboard data is temporarily unavailable.'); return response.json(); }).then(render).catch(function(error){ var message = error && error.message ? error.message : 'Dashboard data is temporarily unavailable.'; set('dashboardContext', message + ' Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">' + message + '</div>'; ['dashboardActivityChart','dashboardCategoryChart','dashboardWeekdayChart'].forEach(function(id){ var chart = document.getElementById(id); if (chart) chart.innerHTML = '<div class="dashboard-chart-empty">' + message + '</div>'; }); var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
         }
         range.addEventListener('change', load); if (communityScope) communityScope.addEventListener('change', load); if (apply) apply.addEventListener('click', load); load();
       })();
