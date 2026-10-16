@@ -18369,8 +18369,8 @@ return `
           return parts ? parts[2] + '-' + parts[3] : '';
         };
         var fullDateLabel = function(iso){
-          var parts = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-          if (!parts) return '';
+          var parts = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (!parts) return 'Unavailable';
           return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
         };
         var adminHref = function(path){ return path + (city ? '?city=' + encodeURIComponent(city) : ''); };
@@ -18568,7 +18568,7 @@ return `
                 [eventHalo, eventDot].forEach(function(dot){ dot.setAttribute('cx', eventPoint.x); dot.setAttribute('cy', eventPoint.y); });
                 viewDot.setAttribute('cx', viewPoint.x); viewDot.setAttribute('cy', viewPoint.y);
                 highlight.setAttribute('display', '');
-                tooltipTitle.textContent = fullDateLabel(series[index].date);
+                tooltipTitle.textContent = 'Date: ' + fullDateLabel(series[index].date);
                 eventRow.querySelector('strong').textContent = number(events[index]);
                 viewRow.querySelector('strong').textContent = number(views[index]);
                 tooltip.hidden = false;
