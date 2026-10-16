@@ -14456,7 +14456,7 @@ return `
       .dashboard-custom-range[hidden]{ display:none !important; }
       .dashboard-custom-range .ctrl{ min-width:0; margin:0; padding:8px; font-size:12px; }
       .dashboard-kpi-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--gap); }
-      .dashboard-kpi-card{ display:flex; align-items:flex-end; justify-content:space-between; gap:10px; min-height:0; padding:16px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); color:var(--text) !important; text-decoration:none; transition:border-color .14s ease, background-color .14s ease; }
+      .dashboard-kpi-card{ display:flex; align-items:flex-end; justify-content:space-between; gap:10px; min-height:104px; padding:16px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); color:var(--text) !important; text-decoration:none; transition:border-color .14s ease, background-color .14s ease; }
       .dashboard-kpi-card:hover{ border-color:rgba(15,23,42,.18); background:#f8fafc; }
       .dashboard-kpi-content{ display:block; min-width:0; }
       .dashboard-kpi-label{ display:block; color:var(--muted); font-size:12px; font-weight:600; }
@@ -14466,22 +14466,27 @@ return `
       .dashboard-kpi-detail{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
       .dashboard-kpi-detail.is-positive{ color:#07845f; }
       .dashboard-kpi-detail.is-negative{ color:#b45309; }
-      /* The primary row balances trend insight with actionable work; the
-         supporting insight cards then form their own natural-height row. */
-      .dashboard-command-columns{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:var(--gap); align-items:start; }
-      .dashboard-command-activity{ grid-column:span 4; padding:20px; }
-      .dashboard-command-attention{ grid-column:span 2; }
-      .dashboard-command-highlights,.dashboard-command-performance{ grid-column:span 3; }
+      /* The command center is intentionally asymmetric: the activity chart
+         carries the visual weight, while its supporting cards form a compact
+         and naturally sized right-hand stack. This prevents a short priority
+         card from creating an empty half-row beneath itself. */
+      .dashboard-command-columns{ display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:var(--gap); align-items:start; }
+      .dashboard-command-card{ padding:20px; }
+      .dashboard-command-activity{ grid-column:1; grid-row:1 / span 3; }
+      .dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:2; }
       .dashboard-command-columns[data-support-card-count="0"] .dashboard-command-activity{ grid-column:1 / -1; }
-      .dashboard-command-activity .sectionTitle{ margin-bottom:14px; }
-      .dashboard-command-activity .chartLegend{ gap:14px; margin-top:12px; }
+      .dashboard-command-activity .sectionTitle{ margin-bottom:16px; }
+      .dashboard-command-activity .chartLegend{ gap:14px; margin-top:8px; }
       .dashboard-command-activity .chartLegendItem{ gap:7px; font-size:12px; font-weight:500; }
       .dashboard-command-activity .chartLegendLine{ width:22px; border-top-width:2px; }
       .dashboard-command-activity .chartLegendLine.is-dashed{ border-top-width:2px; }
       .dashboard-command-activity .chartLegend .sub{ flex-basis:100%; margin:0; font-size:12px; color:var(--muted); }
       .dashboard-command-card{ min-width:0; }
+      .dashboard-command-card .sectionTitle{ margin-bottom:16px; }
+      .dashboard-command-card .sectionTitle h2{ font-size:20px; line-height:1.25; }
+      .dashboard-command-card .sectionTitle .sub{ margin-top:6px; font-size:13px; line-height:1.4; }
       .dashboard-attention-list,.dashboard-highlights,.dashboard-community-list{ display:grid; gap:10px; }
-      .dashboard-attention-item,.dashboard-highlight,.dashboard-community-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel2); }
+      .dashboard-attention-item,.dashboard-highlight,.dashboard-community-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel2); }
       .dashboard-attention-item{ color:var(--text); text-decoration:none; }
       .dashboard-attention-item:hover{ border-color:rgba(15,23,42,.18); background:#f8fafc; }
       .dashboard-attention-copy{ display:flex; gap:9px; align-items:flex-start; min-width:0; }
@@ -14489,7 +14494,7 @@ return `
       .dashboard-attention-copy span{ font-size:13px; line-height:1.45; }
       .dashboard-attention-count{ font-weight:650; color:var(--text); }
       .dashboard-positive-empty{ padding:14px; border:1px dashed var(--line); border-radius:var(--radius-mid); color:var(--muted); font-size:13px; }
-      .dashboard-activity-chart{ position:relative; height:250px; padding:2px 0 0; }
+      .dashboard-activity-chart{ position:relative; height:220px; padding:0; }
       .dashboard-activity-chart svg{ display:block; width:100%; height:100%; }
       .dashboard-chart-tooltip{ position:absolute; z-index:3; width:170px; padding:10px 12px; border:1px solid rgba(148,163,184,.42); border-radius:var(--radius-mid); background:rgba(255,255,255,.98); color:var(--text); box-shadow:0 10px 24px rgba(15,23,42,.10); pointer-events:none; font-size:12px; line-height:1.4; }
       .dashboard-chart-tooltip-title{ margin-bottom:6px; font-size:12px; font-weight:650; }
@@ -14516,9 +14521,9 @@ return `
       .dashboard-layout-preference input{ accent-color:var(--accent); }
       .dashboard-layout-order{ display:inline-flex; align-items:center; gap:8px; margin:0; color:var(--muted); font-size:12px; font-weight:650; }
       .dashboard-layout-order .ctrl{ width:62px; min-width:62px; margin:0; padding:6px 8px; font-size:12px; }
-      @media (max-width:1250px){ .dashboard-command-columns{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-activity{ grid-column:1 / -1; } .dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-activity-chart{ height:220px; } }
+      @media (max-width:1100px){ .dashboard-command-columns{ grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-command-activity{ grid-column:1 / -1; grid-row:auto; } .dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-activity-chart{ height:210px; } }
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
-      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity,.dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; } .dashboard-command-activity{ padding:18px; } .dashboard-activity-chart{ height:200px; } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ min-height:96px; padding:14px; } .dashboard-kpi-card strong{ font-size:22px; } .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-command-activity,.dashboard-command-attention,.dashboard-command-highlights,.dashboard-command-performance{ grid-column:auto; grid-row:auto; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
 </style>
   </head>
   <body>
