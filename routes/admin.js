@@ -14504,7 +14504,7 @@ return `
       .dashboard-period-controls{ min-width:220px; display:grid; gap:5px; }
       .dashboard-period-controls label{ margin:0; font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
       .dashboard-community-scope{ display:grid; gap:5px; }
-      .dashboard-period-row{ display:flex; gap:8px; align-items:center; }
+      .dashboard-period-row{ display:flex; gap:8px; align-items:center; justify-content:flex-end; }
       .dashboard-period-row .ctrl{ min-width:142px; margin:0; padding:8px 10px; font-size:13px; }
       .dashboard-create-event{ white-space:nowrap; }
       .dashboard-custom-range{ display:flex; gap:6px; align-items:center; }
@@ -14557,7 +14557,7 @@ return `
       .dashboard-insight-card .sectionTitle{ margin-bottom:10px; }
       .dashboard-insight-card .sectionTitle h2{ font-size:17px; }
       .dashboard-insight-card .sectionTitle .sub{ margin-top:4px; font-size:12px; }
-      .dashboard-category-chart{ position:relative; display:flex; flex:1; min-height:0; flex-direction:column; align-items:center; justify-content:center; gap:20px; }
+      .dashboard-category-chart{ position:relative; display:flex; flex:1; min-height:0; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
       .dashboard-category-donut{ width:min(100%,210px); height:auto; aspect-ratio:1; display:block; overflow:visible; }
       .dashboard-category-total{ font-size:17px; font-weight:700; fill:var(--text); }
       .dashboard-category-total-label{ font-size:7px; font-weight:600; fill:var(--muted); letter-spacing:.02em; }
@@ -14925,6 +14925,11 @@ return `
             <div class="dashboard-period-controls">
               <label for="dashboardRange">Reporting period</label>
               <div class="dashboard-period-row">
+                <div class="dashboard-custom-range" id="dashboardCustomRange" hidden>
+                  <input class="ctrl" id="dashboardRangeStart" type="date" aria-label="Dashboard start date" />
+                  <input class="ctrl" id="dashboardRangeEnd" type="date" aria-label="Dashboard end date" />
+                  <button class="btn" type="button" id="dashboardCustomApply">Apply</button>
+                </div>
                 <select id="dashboardRange" class="ctrl" aria-label="Dashboard reporting period">
                   <option value="7d">Last 7 days</option>
                   <option value="30d" selected>Last 30 days</option>
@@ -14940,11 +14945,6 @@ return `
                   ${dashboardScopeOptions.map((scope) => `<option value="${esc(scope)}">${esc(scope)}</option>`).join("")}
                 </select>
               </div>` : ``}
-              <div class="dashboard-custom-range" id="dashboardCustomRange" hidden>
-                <input class="ctrl" id="dashboardRangeStart" type="date" aria-label="Dashboard start date" />
-                <input class="ctrl" id="dashboardRangeEnd" type="date" aria-label="Dashboard end date" />
-                <button class="btn" type="button" id="dashboardCustomApply">Apply</button>
-              </div>
             </div>
           </div>
 
@@ -18420,8 +18420,9 @@ return `
             separator.setAttribute('x2', (60 + Math.cos(angle) * outerRadius).toFixed(3)); separator.setAttribute('y2', (60 + Math.sin(angle) * outerRadius).toFixed(3));
             separator.setAttribute('stroke', dividerColor); separator.setAttribute('stroke-width', '2'); separator.setAttribute('stroke-linecap', 'butt'); donut.appendChild(separator);
           });
-          var totalLabel = document.createElementNS(svgNode, 'text'); totalLabel.setAttribute('x','60'); totalLabel.setAttribute('y','56'); totalLabel.setAttribute('text-anchor','middle'); totalLabel.setAttribute('class','dashboard-category-total'); totalLabel.textContent = number(total); donut.appendChild(totalLabel);
-          var totalCaption = document.createElementNS(svgNode, 'text'); totalCaption.setAttribute('x','60'); totalCaption.setAttribute('y','69'); totalCaption.setAttribute('text-anchor','middle'); totalCaption.setAttribute('class','dashboard-category-total-label'); totalCaption.textContent = 'assignments'; donut.appendChild(totalCaption);
+          // Position the two-line metric as one optical unit at the donut's center.
+          var totalLabel = document.createElementNS(svgNode, 'text'); totalLabel.setAttribute('x','60'); totalLabel.setAttribute('y','60'); totalLabel.setAttribute('text-anchor','middle'); totalLabel.setAttribute('class','dashboard-category-total'); totalLabel.textContent = number(total); donut.appendChild(totalLabel);
+          var totalCaption = document.createElementNS(svgNode, 'text'); totalCaption.setAttribute('x','60'); totalCaption.setAttribute('y','73'); totalCaption.setAttribute('text-anchor','middle'); totalCaption.setAttribute('class','dashboard-category-total-label'); totalCaption.textContent = 'assignments'; donut.appendChild(totalCaption);
           var legend = document.createElement('div'); legend.className = 'dashboard-category-legend';
           var tooltip = createInsightTooltip(host);
           var showTooltip = function(category, index, target){
