@@ -14540,7 +14540,8 @@ return `
       .dashboard-command-activity .chartLegend .sub{ flex-basis:100%; margin:0; font-size:12px; color:var(--muted); }
       .dashboard-command-card{ min-width:0; }
       .dashboard-command-card .sectionTitle{ margin-bottom:16px; }
-      .dashboard-command-card .sectionTitle h2{ font-size:20px; line-height:1.25; }
+      /* Match every dashboard section heading to the existing Quick actions scale. */
+      .dashboard-command-card .sectionTitle h2{ font-size:22px; line-height:1.2; }
       .dashboard-command-card .sectionTitle .sub{ margin-top:6px; font-size:13px; line-height:1.4; }
       .dashboard-attention-list,.dashboard-highlights,.dashboard-community-list{ display:grid; gap:10px; }
       .dashboard-attention-item,.dashboard-highlight,.dashboard-community-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel2); }
@@ -14555,7 +14556,7 @@ return `
       .dashboard-activity-chart svg{ display:block; width:100%; height:100%; }
       .dashboard-insight-card{ min-height:246px; height:100%; display:flex; flex-direction:column; }
       .dashboard-insight-card .sectionTitle{ margin-bottom:10px; }
-      .dashboard-insight-card .sectionTitle h2{ font-size:17px; }
+      .dashboard-insight-card .sectionTitle h2{ font-size:22px; }
       .dashboard-insight-card .sectionTitle .sub{ margin-top:4px; font-size:12px; }
       .dashboard-category-chart{ position:relative; display:flex; flex:1; min-height:0; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
       .dashboard-category-donut{ width:min(100%,210px); height:auto; aspect-ratio:1; display:block; overflow:visible; }
