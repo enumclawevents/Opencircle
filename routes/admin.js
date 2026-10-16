@@ -14524,9 +14524,10 @@ return `
       /* The two command-center columns deliberately stack independently, so
          the right-side operational cards never inherit a row height from the
          larger chart on the left. */
-      .dashboard-command-columns{ display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:var(--gap); align-items:start; }
+      .dashboard-command-columns{ display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:var(--gap); align-items:stretch; }
       .dashboard-command-left,.dashboard-command-right{ display:grid; gap:var(--gap); align-content:start; min-width:0; }
-      .dashboard-command-insights{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--gap); }
+      .dashboard-command-left{ grid-template-rows:auto minmax(246px,1fr); }
+      .dashboard-command-insights{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--gap); align-items:stretch; }
       .dashboard-command-card{ padding:20px; }
       .dashboard-command-columns[data-support-card-count="0"] .dashboard-command-left{ grid-column:1 / -1; }
       .dashboard-command-activity .sectionTitle{ margin-bottom:16px; }
@@ -14550,7 +14551,7 @@ return `
       .dashboard-positive-empty{ padding:14px; border:1px dashed var(--line); border-radius:var(--radius-mid); color:var(--muted); font-size:13px; }
       .dashboard-activity-chart{ position:relative; height:220px; padding:0; }
       .dashboard-activity-chart svg{ display:block; width:100%; height:100%; }
-      .dashboard-insight-card{ min-height:246px; display:flex; flex-direction:column; }
+      .dashboard-insight-card{ min-height:246px; height:100%; display:flex; flex-direction:column; }
       .dashboard-insight-card .sectionTitle{ margin-bottom:10px; }
       .dashboard-insight-card .sectionTitle h2{ font-size:17px; }
       .dashboard-insight-card .sectionTitle .sub{ margin-top:4px; font-size:12px; }
