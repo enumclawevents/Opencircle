@@ -152,14 +152,17 @@ test("event reports are validated, persisted, and rate limited without changing 
     message: "Event not found.",
   });
 
-  for (const message of ["One", "Two"]) {
+  for (const [reportType, message] of [["cancelled", "One"], ["other", "Two"]]) {
     const response = await fetch(`${baseUrl}/events/1/reports`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...payload, reportType: "other", message }),
+      body: JSON.stringify({ ...payload, reportType, message }),
     });
     assert.equal(response.status, 201);
   }
+  const cancellation = await getSql(dbPath, "SELECT reportType, status FROM event_reports WHERE eventId = 1 AND reportType = 'cancelled' LIMIT 1");
+  assert.deepEqual(cancellation, { reportType: "cancelled", status: "open" });
+  assert.deepEqual(await getSql(dbPath, "SELECT title, city FROM events WHERE id = 1"), { title: "Reported Event", city: "Enumclaw" });
   const rateLimited = await fetch(`${baseUrl}/events/1/reports`, {
     method: "POST",
     headers: { "content-type": "application/json" },

@@ -330,6 +330,14 @@ router.post("/submit", async (req, res) => {
             byMonthday: Math.max(1, Math.min(31, parseInt(String(body.byMonthday || "0"), 10) || 0)),
           };
         }
+      } else if (recurrenceType === "annual" || recurrenceType === "yearly") {
+        const startParts = parseIsoParts(startDateTime);
+        recurrenceRule = {
+          type: "annual",
+          interval: recurrenceInterval,
+          byMonth: Math.max(1, Math.min(12, parseInt(String(body.annualMonth || startParts?.month || "0"), 10) || startParts?.month || 1)),
+          byMonthday: Math.max(1, Math.min(31, parseInt(String(body.annualMonthday || startParts?.day || "0"), 10) || startParts?.day || 1)),
+        };
       } else {
         hasRecurrence = 0;
       }
@@ -756,6 +764,37 @@ function utcMsToLocalParts(utcMs, offset) {
   };
 }
 
+// Recurring events are authored in OpenCircle's configured local timezone.
+// Recalculate the offset for each generated local date so a weekly, monthly,
+// or annual event keeps its wall-clock time when DST changes.
+function zonedLocalParts(year, month, day, hour, minute, second, fallbackOffset) {
+  const dt = DateTime.fromObject({ year, month, day, hour, minute, second: second || 0 }, { zone: DEFAULT_TZ });
+  if (!dt.isValid) return { year, month, day, hour, minute, second: second || 0, offset: fallbackOffset };
+  return {
+    year: dt.year,
+    month: dt.month,
+    day: dt.day,
+    hour: dt.hour,
+    minute: dt.minute,
+    second: dt.second,
+    offset: dt.toFormat("ZZ"),
+  };
+}
+
+function zonedPartsFromUtc(utcMs, fallbackOffset) {
+  const dt = DateTime.fromMillis(utcMs, { zone: DEFAULT_TZ });
+  if (!dt.isValid) return utcMsToLocalParts(utcMs, fallbackOffset);
+  return {
+    year: dt.year,
+    month: dt.month,
+    day: dt.day,
+    hour: dt.hour,
+    minute: dt.minute,
+    second: dt.second,
+    offset: dt.toFormat("ZZ"),
+  };
+}
+
 function partsToIso(parts) {
   return (
     `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}` +
@@ -824,12 +863,12 @@ function buildRecurrenceBounds(row, offset, windowStartUtcMs, windowEndUtcMs) {
   const startDate = String(row?.recurrenceStartDate || "").trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
     const [year, month, day] = startDate.split("-").map(Number);
-    startMs = Math.max(startMs, partsToUtcMs({ year, month, day, hour: 0, minute: 0, second: 0, offset }));
+    startMs = Math.max(startMs, partsToUtcMs(zonedLocalParts(year, month, day, 0, 0, 0, offset)));
   }
   const untilDate = String(row?.recurrenceUntilDate || "").trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(untilDate)) {
     const [year, month, day] = untilDate.split("-").map(Number);
-    endMs = Math.min(endMs, partsToUtcMs({ year, month, day, hour: 23, minute: 59, second: 59, offset }));
+    endMs = Math.min(endMs, partsToUtcMs(zonedLocalParts(year, month, day, 23, 59, 59, offset)));
   }
   return { startMs, endMs };
 }
@@ -873,7 +912,7 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
         const sp = parseIsoParts(startIso);
         if (sp) {
           const occEndUtc = occStartUtc + durationMs;
-          const ep = utcMsToLocalParts(occEndUtc, sp.offset);
+          const ep = zonedPartsFromUtc(occEndUtc, sp.offset);
           endIso = partsToIso(ep);
         }
       }
@@ -920,15 +959,7 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
 
     const [yy, mm, dd] = s.split("-").map(Number);
 
-    const occLocalParts = {
-      year: yy,
-      month: mm,
-      day: dd,
-      hour: startParts.hour,
-      minute: startParts.minute,
-      second: startParts.second,
-      offset,
-    };
+    const occLocalParts = zonedLocalParts(yy, mm, dd, startParts.hour, startParts.minute, startParts.second, offset);
 
     const occStartUtc = partsToUtcMs(occLocalParts);
     const occEndUtc = occStartUtc + durationMs2;
@@ -936,7 +967,7 @@ function generateCustomOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     if (occEndUtc < boundedStart || occStartUtc > boundedEnd) continue;
     if (occStartUtc < startUtc) continue;
 
-    const occEndParts = utcMsToLocalParts(occEndUtc, offset);
+    const occEndParts = zonedPartsFromUtc(occEndUtc, offset);
 
     out.push({
       occurrenceDate: toYmd(occLocalParts),
@@ -997,7 +1028,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
 
     const dayMs = 86400 * 1000;
     for (let t = boundedStart; t <= boundedEnd; t += dayMs) {
-      const lp = utcMsToLocalParts(t, offset);
+      const lp = zonedPartsFromUtc(t, offset);
       const wk = weekdayKeyFromLocalParts(lp);
       if (!byDaySet.has(wk)) continue;
 
@@ -1008,15 +1039,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       if (weekIndex < 0) continue;
       if (weekIndex % interval !== 0) continue;
 
-      const occLocalParts = {
-        year: lp.year,
-        month: lp.month,
-        day: lp.day,
-        hour: startParts.hour,
-        minute: startParts.minute,
-        second: startParts.second,
-        offset,
-      };
+      const occLocalParts = zonedLocalParts(lp.year, lp.month, lp.day, startParts.hour, startParts.minute, startParts.second, offset);
 
       const occStartUtc = partsToUtcMs(occLocalParts);
       const occEndUtc = occStartUtc + durationMs;
@@ -1024,7 +1047,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       if (occEndUtc < boundedStart || occStartUtc > boundedEnd) continue;
       if (occStartUtc < startUtc) continue;
 
-      const occEndParts = utcMsToLocalParts(occEndUtc, offset);
+      const occEndParts = zonedPartsFromUtc(occEndUtc, offset);
 
       out.push({
         occurrenceDate: toYmd(occLocalParts),
@@ -1041,8 +1064,8 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   if (type === "monthly") {
     const mode = rule.mode === "nthweekday" ? "nthweekday" : "monthday";
 
-    const windowStartLocal = utcMsToLocalParts(boundedStart, offset);
-    const windowEndLocal = utcMsToLocalParts(boundedEnd, offset);
+    const windowStartLocal = zonedPartsFromUtc(boundedStart, offset);
+    const windowEndLocal = zonedPartsFromUtc(boundedEnd, offset);
 
     const anchorY = anchorLocal.year;
     const anchorM = anchorLocal.month;
@@ -1085,15 +1108,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
       }
 
       for (const day of days) {
-        const occLocalParts = {
-          year: y,
-          month: m,
-          day,
-          hour: startParts.hour,
-          minute: startParts.minute,
-          second: startParts.second,
-          offset,
-        };
+        const occLocalParts = zonedLocalParts(y, m, day, startParts.hour, startParts.minute, startParts.second, offset);
 
         const occStartUtc = partsToUtcMs(occLocalParts);
         const occEndUtc = occStartUtc + durationMs;
@@ -1101,7 +1116,7 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
         if (occEndUtc < boundedStart || occStartUtc > boundedEnd) continue;
         if (occStartUtc < startUtc) continue;
 
-        const occEndParts = utcMsToLocalParts(occEndUtc, offset);
+        const occEndParts = zonedPartsFromUtc(occEndUtc, offset);
 
         out.push({
           occurrenceDate: toYmd(occLocalParts),
@@ -1113,6 +1128,30 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
     }
 
     out.sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+    return out;
+  }
+
+  if (type === "annual" || type === "yearly") {
+    const windowStartLocal = zonedPartsFromUtc(boundedStart, offset);
+    const windowEndLocal = zonedPartsFromUtc(boundedEnd, offset);
+    const month = Math.max(1, Math.min(12, Number(rule.byMonth || startParts.month)));
+    const day = Math.max(1, Math.min(31, Number(rule.byMonthday || startParts.day)));
+    const yearsFromAnchor = Math.max(0, windowStartLocal.year - anchorLocal.year);
+    const firstYear = anchorLocal.year + Math.ceil(yearsFromAnchor / interval) * interval;
+
+    for (let year = firstYear; year <= windowEndLocal.year; year += interval) {
+      const occLocalParts = zonedLocalParts(year, month, Math.min(day, daysInMonth(year, month)), startParts.hour, startParts.minute, startParts.second, offset);
+      const occStartUtc = partsToUtcMs(occLocalParts);
+      const occEndUtc = occStartUtc + durationMs;
+      if (occEndUtc < boundedStart || occStartUtc > boundedEnd || occStartUtc < startUtc) continue;
+      const occEndParts = zonedPartsFromUtc(occEndUtc, offset);
+      out.push({
+        occurrenceDate: toYmd(occLocalParts),
+        startDateTime: partsToIso(occLocalParts),
+        endDateTime: partsToIso(occEndParts),
+        label: formatLabelLocal(occLocalParts),
+      });
+    }
     return out;
   }
 
@@ -1382,6 +1421,50 @@ function pickRecurringDisplayOccurrence(occurrences, nowTs) {
   }
 
   return active || next || null;
+}
+
+function occurrenceSummary(occurrence) {
+  if (!occurrence) return null;
+  return {
+    occurrenceDate: String(occurrence.occurrenceDate || "") || null,
+    startDateTime: String(occurrence.startDateTime || "") || null,
+    endDateTime: String(occurrence.endDateTime || occurrence.startDateTime || "") || null,
+    label: String(occurrence.label || occurrence.occurrenceLabel || "") || null,
+  };
+}
+
+function buildLifecycleSummary(base, occurrences, nowTs) {
+  const isRecurring = Boolean(base.hasRecurrence && base.recurrenceRule);
+  const list = (isRecurring ? (Array.isArray(occurrences) ? occurrences : []) : [{
+    occurrenceDate: parseIsoParts(base.startDateTime) ? toYmd(parseIsoParts(base.startDateTime)) : "",
+    startDateTime: base.startDateTime,
+    endDateTime: base.endDateTime,
+  }])
+    .filter((occurrence) => Number.isFinite(Date.parse(String(occurrence?.startDateTime || ""))))
+    .sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime));
+  const nextUpcomingOccurrence = list.find((occurrence) => Date.parse(String(occurrence.startDateTime)) > nowTs) || null;
+  const completed = list.filter((occurrence) => effectiveEndTs(occurrence) < nowTs);
+  const lastCompletedOccurrence = completed.length ? completed[completed.length - 1] : null;
+  const state = isArchivedRow(base)
+    ? "archived"
+    : (nextUpcomingOccurrence || (isRecurring && pickRecurringDisplayOccurrence(list, nowTs)) ? "upcoming" : lifecycleStatus(base, nowTs));
+
+  return {
+    stableId: Number(base.id) || null,
+    slug: String(base.slug || "") || null,
+    status: state,
+    isRecurring,
+    recurrenceType: isRecurring ? String(base.recurrenceRule?.type || "") || null : null,
+    originalStartDateTime: String(base.startDateTime || "") || null,
+    originalEndDateTime: String(base.endDateTime || "") || null,
+    nextUpcomingOccurrence: occurrenceSummary(nextUpcomingOccurrence),
+    lastCompletedOccurrence: occurrenceSummary(lastCompletedOccurrence),
+    recurrenceStartDate: base.recurrenceStartDate || null,
+    recurrenceUntilDate: base.recurrenceUntilDate || null,
+    community: { city: String(base.city || "") },
+    venue: base.location ? { name: String(base.location) } : null,
+    organizer: base.organizer ? { name: String(base.organizer) } : null,
+  };
 }
 
 // A recurrence rule can begin on a different weekday than the first stored
@@ -1883,6 +1966,10 @@ router.get("/slug/:slug", async (req, res) => {
       ? generateOccurrences(base, windowStartUtc, windowEndUtc)
       : [];
 
+    const lifecycleOccurrences = base.hasRecurrence && base.recurrenceRule
+      ? includeStoredFirstOccurrence(base, generateOccurrences(base, nowUtc - 3650 * 86400 * 1000, nowUtc + 370 * 86400 * 1000), nowUtc - 3650 * 86400 * 1000)
+      : [];
+
     let occurrencesUpcoming = occurrences
       .filter((o) => {
         const startTs = Date.parse(o.startDateTime);
@@ -1900,6 +1987,7 @@ router.get("/slug/:slug", async (req, res) => {
     const detailData = {
       ...base,
       occurrencesUpcoming,
+      lifecycle: buildLifecycleSummary(base, lifecycleOccurrences, nowUtc),
       status: state,
       eventEnded: state === "past" || state === "archived",
       statusLabel: state === "past" || state === "archived" ? "Event ended." : "",
@@ -2384,6 +2472,10 @@ router.get("/:idOrSlug", async (req, res) => {
       ? generateOccurrences(base, windowStartUtc, windowEndUtc)
       : [];
 
+    const lifecycleOccurrences = base.hasRecurrence && base.recurrenceRule
+      ? includeStoredFirstOccurrence(base, generateOccurrences(base, nowUtc - 3650 * 86400 * 1000, nowUtc + 370 * 86400 * 1000), nowUtc - 3650 * 86400 * 1000)
+      : [];
+
     let occurrencesUpcoming = occurrences
       .filter((o) => {
         const startTs = Date.parse(o.startDateTime);
@@ -2401,6 +2493,7 @@ router.get("/:idOrSlug", async (req, res) => {
     const detailData = {
       ...base,
       occurrencesUpcoming,
+      lifecycle: buildLifecycleSummary(base, lifecycleOccurrences, nowUtc),
       status: state,
       eventEnded: state === "past" || state === "archived",
       statusLabel: state === "past" || state === "archived" ? "Event ended." : "",

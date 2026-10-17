@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const sqlite3 = require("sqlite3");
+const { DateTime } = require("luxon");
 
 function execSql(filename, sql) {
   return new Promise((resolve, reject) => {
@@ -120,4 +121,56 @@ test("events API uses date-range overlap and keeps ongoing events out of past re
     assert.deepEqual(Object.keys(payload).sort(), ["data", "error", "meta"]);
     assert.deepEqual(payload.data, []);
   }
+});
+
+test("event details expose bounded lifecycle data for one-time and annual events", async (t) => {
+  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencircle-event-lifecycle-"));
+  const dbPath = path.join(testDir, "opencircle.db");
+  const port = 34000 + Math.floor(Math.random() * 1000);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const server = spawn(process.execPath, ["server.js"], {
+    cwd: path.resolve(__dirname, ".."),
+    env: { ...process.env, DB_PATH: dbPath, PORT: String(port) },
+    stdio: "ignore",
+  });
+  t.after(() => { server.kill(); fs.rmSync(testDir, { recursive: true, force: true }); });
+  await waitForHealth(baseUrl);
+
+  const nextLocal = DateTime.now().setZone("America/Los_Angeles").plus({ days: 20 }).startOf("day").plus({ hours: 10 });
+  const previousLocal = nextLocal.minus({ years: 1 });
+  const annualStart = previousLocal.toISO({ suppressMilliseconds: true });
+  const annualEnd = previousLocal.plus({ hours: 2 }).toISO({ suppressMilliseconds: true });
+  const oneTimeStart = nextLocal.plus({ days: 1 }).toISO({ suppressMilliseconds: true });
+  const oneTimeEnd = nextLocal.plus({ days: 1, hours: 2 }).toISO({ suppressMilliseconds: true });
+  const annualRule = JSON.stringify({ type: "annual", interval: 1, byMonth: nextLocal.month, byMonthday: nextLocal.day }).replace(/'/g, "''");
+  const weeklyAnchor = DateTime.now().setZone("America/Los_Angeles").minus({ years: 1 }).set({ month: 1, day: 5, hour: 10, minute: 0, second: 0, millisecond: 0 });
+  const weeklyStart = weeklyAnchor.toISO({ suppressMilliseconds: true });
+  const weeklyEnd = weeklyAnchor.plus({ hours: 2 }).toISO({ suppressMilliseconds: true });
+  const weeklyRule = JSON.stringify({ type: "weekly", interval: 1, byDay: [weeklyAnchor.toFormat("ccc").slice(0, 2).toUpperCase()] }).replace(/'/g, "''");
+
+  await execSql(dbPath, `
+    INSERT INTO events (city, slug, title, location, organizer, startDateTime, endDateTime)
+    VALUES ('Community A', 'lifecycle-once', 'Lifecycle One-time', 'Community Hall', 'OpenCircle', '${oneTimeStart}', '${oneTimeEnd}');
+    INSERT INTO events (city, slug, title, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceStartDate)
+    VALUES ('Community A', 'lifecycle-annual', 'Lifecycle Annual', 'Annual Hall', 'OpenCircle', '${annualStart}', '${annualEnd}', 1, '${annualRule}', '${previousLocal.toISODate()}');
+    INSERT INTO events (city, slug, title, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceStartDate)
+    VALUES ('Community A', 'lifecycle-weekly', 'Lifecycle Weekly', 'Weekly Hall', 'OpenCircle', '${weeklyStart}', '${weeklyEnd}', 1, '${weeklyRule}', '${weeklyAnchor.toISODate()}');
+  `);
+
+  const once = await (await fetch(`${baseUrl}/events/lifecycle-once`)).json();
+  const annual = await (await fetch(`${baseUrl}/events/lifecycle-annual`)).json();
+  const weekly = await (await fetch(`${baseUrl}/events/lifecycle-weekly`)).json();
+  assert.equal(once.data.lifecycle.status, "upcoming");
+  assert.equal(once.data.lifecycle.isRecurring, false);
+  assert.equal(once.data.lifecycle.slug, "lifecycle-once");
+  assert.equal(once.data.lifecycle.community.city, "Community A");
+  assert.equal(once.data.lifecycle.venue.name, "Community Hall");
+  assert.equal(once.data.lifecycle.nextUpcomingOccurrence.startDateTime, oneTimeStart);
+  assert.equal(annual.data.lifecycle.status, "upcoming");
+  assert.equal(annual.data.lifecycle.isRecurring, true);
+  assert.equal(annual.data.lifecycle.recurrenceType, "annual");
+  assert.equal(annual.data.lifecycle.nextUpcomingOccurrence.occurrenceDate, nextLocal.toISODate());
+  assert.equal(annual.data.lifecycle.lastCompletedOccurrence.occurrenceDate, previousLocal.toISODate());
+  assert.match(annual.data.lifecycle.nextUpcomingOccurrence.startDateTime, /[+-]\d{2}:\d{2}$/);
+  assert.equal(DateTime.fromISO(weekly.data.lifecycle.nextUpcomingOccurrence.startDateTime).setZone("America/Los_Angeles").hour, 10);
 });
