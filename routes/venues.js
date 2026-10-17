@@ -939,6 +939,10 @@ router.get("/:idOrSlug/events", async (req, res) => {
       value: venueLocationIdentifiers(venue),
       enumerable: true,
     });
+    Object.defineProperty(eventReq, "publicEventProjection", {
+      value: true,
+      enumerable: true,
+    });
     return eventsRouter.listEventsHandler(eventReq, res);
   } catch (err) {
     console.error("[/venues/:idOrSlug/events] error:", err && err.stack ? err.stack : err);

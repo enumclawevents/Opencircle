@@ -44,7 +44,9 @@ GET /venues/:idOrSlug/events?city=Enumclaw&limit=24&offset=0
 
 The endpoint always returns upcoming items and reuses the established event
 filtering, recurrence expansion, date-range filters, sorting, and pagination
-logic. It does not create occurrence records.
+logic. It does not create occurrence records. Event items use a public
+allowlist and omit ownership, moderation, and engagement fields such as
+`createdByUserId`, view/click counts, and `lastViewedAt`.
 
 ## Current matching limitation
 

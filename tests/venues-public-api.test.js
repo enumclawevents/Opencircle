@@ -118,18 +118,32 @@ test("public venue detail is city scoped, preserves legacy access, and delegates
   assert.equal(firstPagePayload.meta.hasMore, true);
   assert.equal(firstPagePayload.data[0].city, "Enumclaw");
   assert.ok(firstPagePayload.data.every((event) => event.location === "1528 Cole Street"));
+  assert.equal(firstPagePayload.data[0].id > 0, true);
+  assert.equal(firstPagePayload.data[0].isOccurrence, false);
+  for (const privateField of ["createdByUserId", "viewCount", "uniqueViewCount", "ticketClickCount", "lastViewedAt", "submissionId", "archived", "archived_at"]) {
+    assert.equal(privateField in firstPagePayload.data[0], false, privateField);
+  }
   const secondPage = await fetch(`${baseUrl}/venues/roaring-underground/events?city=Enumclaw&limit=2&offset=1&windowDays=30`);
   assert.equal(secondPage.status, 200);
   const secondPagePayload = await secondPage.json();
   assert.equal(secondPagePayload.meta.total, 3);
   assert.equal(secondPagePayload.data.length, 2);
   assert.ok(secondPagePayload.data.some((event) => event.isOccurrence));
+  assert.ok(secondPagePayload.data.filter((event) => event.isOccurrence).every((event) => typeof event.instanceId === "string" && event.instanceId.length > 0));
   const pagedItems = [...firstPagePayload.data, ...secondPagePayload.data];
   assert.equal(new Set(pagedItems.map((event) => `${event.id}:${event.startDateTime}`)).size, 3);
   assert.deepEqual(
     pagedItems.map((event) => event.startDateTime),
     pagedItems.map((event) => event.startDateTime).slice().sort()
   );
+
+  // Existing /events consumers retain their established raw response shape;
+  // the public projection is intentionally limited to venue entity pages.
+  const legacyEventFeed = await fetch(`${baseUrl}/events?city=Enumclaw&venue=1528%20Cole%20Street&limit=1&windowDays=30`);
+  assert.equal(legacyEventFeed.status, 200);
+  const legacyEvent = (await legacyEventFeed.json()).data[0];
+  assert.equal("viewCount" in legacyEvent, true);
+  assert.equal("createdByUserId" in legacyEvent, true);
   assert.equal((await fetch(`${baseUrl}/venues/1/events?city=Buckley`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/venues/1/events`)).status, 400);
 

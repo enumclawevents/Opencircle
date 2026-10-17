@@ -5,6 +5,7 @@ const router = express.Router();
 const { all, get, run } = require("../db");
 const crypto = require("crypto");
 const { safeParseJson } = require("../lib/json");
+const { toPublicEventListItem } = require("../lib/public-event-list");
 const { matchesVenueLocation, normalizeVenueIdentifier } = require("../lib/venue-matching");
 const { normalizeEventReportChanges } = require("../lib/event-report-changes");
 const { notifyAreaApprovers } = require("../lib/admin-notification-email");
@@ -1510,14 +1511,14 @@ function includeStoredFirstOccurrence(event, occurrences, windowStartUtc) {
   return list;
 }
 
-function paginate(items, limit, offset, context = null) {
+function paginate(items, limit, offset, context = null, projectItem = null) {
   const total = items.length;
   const start = Math.max(0, offset);
   const end = Math.min(total, start + limit);
   const slice = items.slice(start, end);
   const hasMore = end < total;
   return {
-    data: slice,
+    data: typeof projectItem === "function" ? slice.map(projectItem) : slice,
     meta: {
       total,
       limit,
@@ -1600,6 +1601,7 @@ async function listEventsHandler(req, res) {
     }
     const organizer = organizerParam.value;
     const venue = venueParam.value;
+    const publicEventProjection = req.publicEventProjection === true ? toPublicEventListItem : null;
     // Internal venue pages may supply a small, exact set of the venue's known
     // location labels (currently name and address). Keep public `venue=`
     // behavior unchanged for compatibility.
@@ -1782,7 +1784,7 @@ async function listEventsHandler(req, res) {
       const payload = paginate(items, limit, offset, category ? {
         category: { name: category.name, slug: category.slug },
         community: { city },
-      } : null);
+      } : null, publicEventProjection);
       if (eventListCacheKey) cachePayload(eventListCache, eventListCacheKey, payload, EVENT_LIST_CACHE_MS, EVENT_LIST_CACHE_MAX_ENTRIES);
       return res.json(payload);
     }
@@ -1858,7 +1860,7 @@ async function listEventsHandler(req, res) {
     const payload = paginate(expanded, limit, offset, category ? {
       category: { name: category.name, slug: category.slug },
       community: { city },
-    } : null);
+    } : null, publicEventProjection);
     if (eventListCacheKey) cachePayload(eventListCache, eventListCacheKey, payload, EVENT_LIST_CACHE_MS, EVENT_LIST_CACHE_MAX_ENTRIES);
     return res.json(payload);
   } catch (err) {
