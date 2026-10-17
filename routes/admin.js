@@ -14534,7 +14534,8 @@ return `
       .dashboard-command-insights{ display:grid; grid-template-columns:minmax(300px,2fr) minmax(0,3fr); gap:var(--gap); align-items:stretch; }
       .dashboard-command-card{ padding:20px; }
       .dashboard-command-columns[data-support-card-count="0"] .dashboard-command-left{ grid-column:1 / -1; }
-      .dashboard-command-activity .sectionTitle{ margin-bottom:16px; }
+      .dashboard-command-activity .sectionTitle{ margin-bottom:16px; align-items:flex-start; }
+      .dashboard-activity-copy{ min-width:0; }
       .dashboard-command-activity .chartLegend{ gap:14px; margin-top:8px; }
       .dashboard-command-activity .chartLegendItem{ gap:7px; font-size:12px; font-weight:500; }
       .dashboard-command-activity .chartLegendLine{ width:22px; border-top-width:2px; }
@@ -14543,6 +14544,7 @@ return `
       .dashboard-series-control{ min-height:26px; padding:0 9px; border:0; border-radius:999px; background:transparent; color:var(--muted); font-size:11px; font-weight:650; cursor:pointer; }
       .dashboard-series-control:hover,.dashboard-series-control[aria-pressed="true"]{ color:var(--text); background:rgba(0,192,139,.12); }
       .dashboard-series-control:focus-visible{ outline:2px solid rgba(0,192,139,.62); outline-offset:1px; }
+      @media (max-width:650px){ .dashboard-command-activity .sectionTitle{ flex-wrap:wrap; } .dashboard-command-activity .dashboard-series-controls{ margin-left:0; } }
       .dashboard-command-activity .chartLegend .sub{ flex-basis:100%; margin:0; font-size:12px; color:var(--muted); }
       .dashboard-command-card{ min-width:0; }
       .dashboard-command-card .sectionTitle{ margin-bottom:16px; }
@@ -14977,7 +14979,7 @@ return `
           <div class="dashboard-command-columns" data-support-card-count="${visibleDashboardCardCount}">
             <div class="dashboard-command-left">
               <section class="card dashboard-command-card dashboard-command-activity" aria-labelledby="dashboardActivityTitle">
-                <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><div class="dashboard-series-controls" aria-label="Activity chart series"><button type="button" class="dashboard-series-control" data-dashboard-series="both" aria-pressed="true">Both</button><button type="button" class="dashboard-series-control" data-dashboard-series="events" aria-pressed="false">Events</button><button type="button" class="dashboard-series-control" data-dashboard-series="views" aria-pressed="false">Views</button></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
+                <div class="sectionTitle"><div class="dashboard-activity-copy"><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div><div class="dashboard-series-controls" aria-label="Activity chart series"><button type="button" class="dashboard-series-control" data-dashboard-series="both" aria-pressed="true">Both</button><button type="button" class="dashboard-series-control" data-dashboard-series="events" aria-pressed="false">Events</button><button type="button" class="dashboard-series-control" data-dashboard-series="views" aria-pressed="false">Views</button></div></div>
                 <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
               </section>
               <div class="dashboard-command-insights">
@@ -18502,7 +18504,7 @@ return `
               var showEvents = activitySeriesMode !== 'views', showViews = activitySeriesMode !== 'events';
               var width = Math.max(1, Math.round(chart.clientWidth || 1000));
               var height = Math.max(1, Math.round(chart.clientHeight || 250));
-              var padL = 48, padR = showViews && showEvents ? 48 : 14, padT = 12, padB = 28;
+              var padL = 48, padR = showViews && showEvents ? 48 : 14, padT = 30, padB = 28;
               var plotW = width - padL - padR, plotH = height - padT - padB;
               var events = series.map(function(item){ return Number(item.eventOccurrences || 0); });
               var views = series.map(function(item){ return Number(item.eventViews || 0); });
@@ -18531,7 +18533,7 @@ return `
               var fillPath = showEvents && eventPoints.length ? 'M ' + eventPoints[0].x.toFixed(2) + ' ' + (padT + plotH).toFixed(2) + ' L ' + eventPoints[0].x.toFixed(2) + ' ' + eventPoints[0].y.toFixed(2) + ' ' + eventPath.replace(/^M [^ ]+ [^ ]+ ?/, '') + ' L ' + eventPoints[eventPoints.length - 1].x.toFixed(2) + ' ' + (padT + plotH).toFixed(2) + ' Z' : '';
               var grid = Array.from({ length: eventScale.tickCount + 1 }, function(_, i){
                 var y = padT + plotH - ((i / eventScale.tickCount) * plotH), leftValue = showEvents ? i * eventScale.tickStep : i * viewScale.tickStep, rightValue = i * viewScale.tickStep;
-                return '<line x1="' + padL + '" y1="' + y.toFixed(2) + '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(2) + '" stroke="' + gridColor + '" stroke-width="1"></line><text x="18" y="' + (y + 4).toFixed(2) + '" fill="' + axisColor + '" font-size="11" font-weight="400">' + leftValue + '</text>' + (showViews && showEvents ? '<text x="' + (width - 18) + '" y="' + (y + 4).toFixed(2) + '" text-anchor="end" fill="' + axisColor + '" font-size="11" font-weight="400">' + rightValue + '</text>' : '');
+                return '<line x1="' + padL + '" y1="' + y.toFixed(2) + '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(2) + '" stroke="' + gridColor + '" stroke-width="1"></line><text x="' + (padL - 8) + '" y="' + (y + 4).toFixed(2) + '" text-anchor="end" fill="' + axisColor + '" font-size="11" font-weight="400">' + leftValue + '</text>' + (showViews && showEvents ? '<text x="' + (padL + plotW + 8) + '" y="' + (y + 4).toFixed(2) + '" text-anchor="start" fill="' + axisColor + '" font-size="11" font-weight="400">' + rightValue + '</text>' : '');
               }).join('');
               var labelStep = series.length <= 4 ? 1 : Math.ceil(series.length / 4);
               var labels = series.map(function(item, index){
@@ -18539,7 +18541,7 @@ return `
                 var anchor = index === series.length - 1 ? 'end' : (index === 0 ? 'start' : 'middle');
                 return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 30).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + dateLabel(seriesDate(index)) + '</text>';
               }).join('');
-              var axisTitles = (showEvents ? '<text x="10" y="' + (padT + 8) + '" fill="rgba(16,185,129,.90)" font-size="10" font-weight="650">Events</text>' : '<text x="10" y="' + (padT + 8) + '" fill="rgba(37,99,235,.82)" font-size="10" font-weight="650">Views</text>') + (showViews && showEvents ? '<text x="' + (width - 10) + '" y="' + (padT + 8) + '" text-anchor="end" fill="rgba(37,99,235,.82)" font-size="10" font-weight="650">Views</text>' : '');
+              var axisTitles = (showEvents ? '<text x="' + padL + '" y="14" fill="rgba(16,185,129,.90)" font-size="10" font-weight="650">Events</text>' : '<text x="' + padL + '" y="14" fill="rgba(37,99,235,.82)" font-size="10" font-weight="650">Views</text>') + (showViews && showEvents ? '<text x="' + (padL + plotW) + '" y="14" text-anchor="end" fill="rgba(37,99,235,.82)" font-size="10" font-weight="650">Views</text>' : '');
               chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + axisTitles + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + (showViews ? '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + (showEvents ? '<path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + labels + '</g></svg>';
               var svg = chart.querySelector('svg');
               var svgNode = 'http://www.w3.org/2000/svg';
