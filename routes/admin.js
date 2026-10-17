@@ -18357,11 +18357,11 @@ return `
           return (Number(value) > 0 ? '↑ ' : Number(value) < 0 ? '↓ ' : '') + rounded + ' vs previous period';
         };
         var dateLabel = function(iso){
-          var parts = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          var parts = String(iso || '').match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})$/);
           return parts ? parts[2] + '-' + parts[3] : '';
         };
         var fullDateLabel = function(iso){
-          var parts = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+          var parts = String(iso || '').match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})/);
           if (!parts) return 'Unavailable';
           return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
         };
@@ -18492,7 +18492,7 @@ return `
               // Keep the label reliable for cached/legacy bucket shapes too by
               // deriving it from the selected reporting period when necessary.
               var isoDate = function(value){
-                var match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+                var match = String(value || '').match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})/);
                 return match ? match[1] + '-' + match[2] + '-' + match[3] : '';
               };
               var seriesStartDate = function(){
@@ -18509,7 +18509,7 @@ return `
                 var item = series[index] || {};
                 var bucketDate = isoDate(item.date || item.day || item.bucket || item.label);
                 if (bucketDate) return bucketDate;
-                var startParts = seriesStartDate().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                var startParts = seriesStartDate().match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})$/);
                 return new Date(Date.UTC(Number(startParts[1]), Number(startParts[2]) - 1, Number(startParts[3]) + index)).toISOString().slice(0, 10);
               };
               // Match the SVG coordinate system to the actual chart box.
