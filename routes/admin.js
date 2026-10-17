@@ -9765,7 +9765,7 @@ return `
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bTime - aTime;
       });
-      let activityCardItems = sortedActivityItems.slice(0, 5);
+      let activityCardItems = sortedActivityItems.slice(0, 3);
       const mostRecentEvent = sortedActivityItems.find((item) => item.type === "Event");
       const mostRecentOwnEvent = sortedActivityItems.find((item) => item.type === "Event" && item.isOwnEvent);
       const guaranteedItems = [mostRecentOwnEvent, mostRecentEvent].filter(Boolean);
@@ -9782,7 +9782,7 @@ return `
             seen.add(key);
             return true;
           })
-          .slice(0, 5);
+          .slice(0, 3);
       }
 
       activityDashboardHtml = activityCardItems.length
@@ -13754,7 +13754,7 @@ return `
       }
       .activity-list{
         display:grid;
-        gap:10px;
+        gap:8px;
       }
       .dashboard-calendar{
         display:grid;
@@ -14059,8 +14059,8 @@ return `
       }
       .activity-item{
         display:grid;
-        grid-template-columns:128px minmax(0,1fr);
-        gap:12px;
+        grid-template-columns:96px minmax(0,1fr);
+        gap:10px;
         align-items:stretch;
         padding:12px 14px;
         border:1px solid var(--line);
@@ -14069,11 +14069,13 @@ return `
         text-decoration:none;
         color:inherit;
       }
-      .activity-thumb{width:128px;min-height:64px;height:auto;align-self:stretch;border-radius:var(--radius-mid);overflow:hidden;background:rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;text-align:center;padding:0}
+      .activity-thumb{width:96px;min-height:58px;height:auto;align-self:stretch;border-radius:var(--radius-mid);overflow:hidden;background:rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;text-align:center;padding:0}
       .activity-thumb img{width:100%;height:100%;object-fit:cover;display:block}
       .activity-thumb span{padding:6px}
-      .activity-content{min-width:0;display:grid;gap:6px}
-      .activity-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}.activity-actions .btn{min-height:32px;padding:6px 10px;font-size:12px}
+      .activity-content{min-width:0;display:grid;gap:4px}
+      .activity-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:1px}.activity-actions .btn{min-height:28px;padding:4px 8px;font-size:11px}
+      .dashboard-activity-footer{ margin-top:10px; }
+      .dashboard-activity-footer .btn{ min-height:30px; padding:5px 9px; font-size:12px; }
       .activity-item:hover{
         border-color:rgba(15,23,42,.18);
         background:#fbfdff;
@@ -14537,6 +14539,10 @@ return `
       .dashboard-command-activity .chartLegendItem{ gap:7px; font-size:12px; font-weight:500; }
       .dashboard-command-activity .chartLegendLine{ width:22px; border-top-width:2px; }
       .dashboard-command-activity .chartLegendLine.is-dashed{ border-top-width:2px; }
+      .dashboard-series-controls{ display:inline-flex; align-items:center; gap:4px; padding:3px; border:1px solid var(--line); border-radius:999px; background:var(--panel2); }
+      .dashboard-series-control{ min-height:26px; padding:0 9px; border:0; border-radius:999px; background:transparent; color:var(--muted); font-size:11px; font-weight:650; cursor:pointer; }
+      .dashboard-series-control:hover,.dashboard-series-control[aria-pressed="true"]{ color:var(--text); background:rgba(0,192,139,.12); }
+      .dashboard-series-control:focus-visible{ outline:2px solid rgba(0,192,139,.62); outline-offset:1px; }
       .dashboard-command-activity .chartLegend .sub{ flex-basis:100%; margin:0; font-size:12px; color:var(--muted); }
       .dashboard-command-card{ min-width:0; }
       .dashboard-command-card .sectionTitle{ margin-bottom:16px; }
@@ -14582,6 +14588,9 @@ return `
       body.theme-dark .dashboard-chart-tooltip{ background:rgba(17,26,43,.98); border-color:rgba(148,163,184,.28); box-shadow:0 10px 24px rgba(0,0,0,.26); }
       .dashboard-chart-empty{ align-self:center; color:var(--muted); font-size:13px; }
       .dashboard-highlight{ align-items:flex-start; justify-content:flex-start; gap:10px; }
+      a.dashboard-highlight{ color:var(--text); text-decoration:none; }
+      a.dashboard-highlight:hover{ border-color:rgba(0,192,139,.30); background:rgba(0,192,139,.045); }
+      a.dashboard-highlight:focus-visible{ outline:2px solid rgba(0,192,139,.62); outline-offset:2px; }
       .dashboard-highlight i{ color:var(--accent); margin-top:2px; }
       .dashboard-highlight strong{ display:block; font-size:13px; font-weight:650; margin-bottom:3px; }
       .dashboard-highlight span{ color:var(--muted); font-size:12px; line-height:1.35; }
@@ -14968,7 +14977,7 @@ return `
           <div class="dashboard-command-columns" data-support-card-count="${visibleDashboardCardCount}">
             <div class="dashboard-command-left">
               <section class="card dashboard-command-card dashboard-command-activity" aria-labelledby="dashboardActivityTitle">
-                <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
+                <div class="sectionTitle"><div><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><div class="dashboard-series-controls" aria-label="Activity chart series"><button type="button" class="dashboard-series-control" data-dashboard-series="both" aria-pressed="true">Both</button><button type="button" class="dashboard-series-control" data-dashboard-series="events" aria-pressed="false">Events</button><button type="button" class="dashboard-series-control" data-dashboard-series="views" aria-pressed="false">Views</button></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div></div>
                 <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
               </section>
               <div class="dashboard-command-insights">
@@ -14988,7 +14997,7 @@ return `
               <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
             </section>` : ``}
             ${dashboardPreferences.visible.highlights ? `<section class="card dashboard-command-card dashboard-command-highlights" data-dashboard-card="highlights" style="order:${dashboardPreferences.order.indexOf("highlights") + 1}" aria-labelledby="dashboardHighlightsTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">${isOrganizerUser ? "My event highlights" : hasAdminAccess ? "Platform highlights" : "Community highlights"}</h2><p class="sub">Useful observations based only on recorded OpenCircle data.</p></div></div>
+              <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">${isOrganizerUser ? "My event insights" : "Insights"}</h2><p class="sub">Actionable observations based only on recorded OpenCircle data.</p></div></div>
               <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
             </section>` : ``}
             ${dashboardPreferences.visible.performance ? `<section class="card dashboard-command-card dashboard-command-performance" data-dashboard-card="performance" style="order:${dashboardPreferences.order.indexOf("performance") + 1}" aria-labelledby="dashboardCommunityTitle">
@@ -15024,32 +15033,7 @@ return `
               </summary>
               <div class="card-body" id="dashboard-activity-body">
                 <div class="activity-list">${activityDashboardHtml}</div>
-              </div>
-            </details>
-
-            <details class="card dashboard-card" id="dashboard-release-notes-card" data-dashboard-card="release-notes" data-collapsible-card open>
-              <summary class="sectionTitle">
-                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-release-notes-body">
-                  <h2>Release notes</h2>
-                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </span>
-              </summary>
-              <div class="card-body" id="dashboard-release-notes-body">
-                <div class="mini">
-                  <div style="font-weight:650; margin-bottom:8px;">Release notes</div>
-                  <div class="release-meta">
-                    <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
-                    <div class="release-row"><div class="label">Latest update</div><div class="value">${esc(latestRelease.date)}</div></div>
-                  </div>
-                  <div style="margin-top:12px; display:grid; gap:8px;">
-                    <div class="release-latest">
-                      <div class="value">${esc(latestRelease.text)}</div>
-                    </div>
-                  </div>
-                  <div style="margin-top:12px;">
-                    <a class="btn" href="/admin/updates-log">View full release notes</a>
-                  </div>
-                </div>
+                <div class="dashboard-activity-footer"><a class="btn" href="${buildScopedAdminHref("/admin/existing-events")}">View All Activity</a></div>
               </div>
             </details>
 
@@ -15083,7 +15067,7 @@ return `
               </div>
             </details>` : ``}
 
-            ${(canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeAdsAnalytics || canSeeNewsletterAnalytics) ? `<details class="card dashboard-card" id="dashboard-insights-card" data-dashboard-card="insights" data-collapsible-card open>
+            ${false && (canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeAdsAnalytics || canSeeNewsletterAnalytics) ? `<details class="card dashboard-card" id="dashboard-insights-card" data-dashboard-card="insights" data-collapsible-card open>
               <summary class="sectionTitle">
                 <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-insights-body">
                   <h2>Insights</h2>
@@ -18360,6 +18344,8 @@ return `
         var communityScope = document.getElementById('dashboardCommunityScope');
         var city = root.getAttribute('data-city') || '';
         var organizer = root.getAttribute('data-organizer') === '1';
+        var activitySeriesMode = 'both';
+        var latestDashboardSummary = null;
         var number = function(value){ return Number(value || 0).toLocaleString('en-US'); };
         var set = function(id, value){ var node = document.getElementById(id); if (node) node.textContent = value; };
         var pct = function(value){
@@ -18453,6 +18439,10 @@ return `
           if (window.ResizeObserver && !host._dashboardWeekdayResizeObserver) { var queued = false; host._dashboardWeekdayResizeObserver = new ResizeObserver(function(){ if (queued) return; queued = true; (window.requestAnimationFrame || function(callback){ return window.setTimeout(callback, 0); })(function(){ queued = false; renderWeekdayInsight(summary); }); }); host._dashboardWeekdayResizeObserver.observe(host); }
         };
         function render(summary){
+          latestDashboardSummary = summary;
+          Array.prototype.forEach.call(document.querySelectorAll('[data-dashboard-series]'), function(control){
+            control.setAttribute('aria-pressed', control.getAttribute('data-dashboard-series') === activitySeriesMode ? 'true' : 'false');
+          });
           var kpis = summary.kpis || {};
           var attention = summary.attention || {};
           var availability = summary.availability || {};
@@ -18509,22 +18499,21 @@ return `
               // Match the SVG coordinate system to the actual chart box.
               // This prevents browser/side-menu resizes from stretching the
               // chart's paths, strokes, or labels independently.
+              var showEvents = activitySeriesMode !== 'views', showViews = activitySeriesMode !== 'events';
               var width = Math.max(1, Math.round(chart.clientWidth || 1000));
               var height = Math.max(1, Math.round(chart.clientHeight || 250));
-              var padL = 48, padR = 14, padT = 12, padB = 28;
+              var padL = 48, padR = showViews && showEvents ? 48 : 14, padT = 12, padB = 28;
               var plotW = width - padL - padR, plotH = height - padT - padB;
               var events = series.map(function(item){ return Number(item.eventOccurrences || 0); });
               var views = series.map(function(item){ return Number(item.eventViews || 0); });
-              var maximum = Math.max.apply(null, events.concat(views, [1]));
-              var tickCount = Math.min(4, Math.max(1, maximum));
-              var tickStep = Math.max(1, Math.ceil(maximum / tickCount));
-              var yMax = tickStep * tickCount;
+              var scaleFor = function(values){ var maximum = Math.max.apply(null, values.concat([1])); var tickCount = 4, roughStep = maximum / tickCount, magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(roughStep, 1)))), tickStep = Math.max(1, Math.ceil(roughStep / magnitude) * magnitude); return { tickCount:tickCount, tickStep:tickStep, max:tickStep * tickCount }; };
+              var eventScale = scaleFor(events), viewScale = scaleFor(views);
               var darkChart = document.body.classList.contains('theme-dark');
               var axisColor = darkChart ? '#aab8cc' : '#64748b';
               var gridColor = darkChart ? 'rgba(148,163,184,.16)' : 'rgba(15,23,42,.08)';
               var stepX = series.length <= 1 ? 0 : plotW / (series.length - 1);
-              var points = function(values){ return values.map(function(value, index){ return { x: padL + stepX * index, y: padT + plotH - ((value / yMax) * plotH) }; }); };
-              var eventPoints = points(events), viewPoints = points(views);
+              var points = function(values, yMax){ return values.map(function(value, index){ return { x: padL + stepX * index, y: padT + plotH - ((value / yMax) * plotH) }; }); };
+              var eventPoints = points(events, eventScale.max), viewPoints = points(views, viewScale.max);
               var smoothPath = function(items){
                 if (!items.length) return '';
                 var path = 'M ' + items[0].x.toFixed(2) + ' ' + items[0].y.toFixed(2);
@@ -18539,10 +18528,10 @@ return `
                 return path;
               };
               var eventPath = smoothPath(eventPoints), viewPath = smoothPath(viewPoints);
-              var fillPath = eventPoints.length ? 'M ' + eventPoints[0].x.toFixed(2) + ' ' + (padT + plotH).toFixed(2) + ' L ' + eventPoints[0].x.toFixed(2) + ' ' + eventPoints[0].y.toFixed(2) + ' ' + eventPath.replace(/^M [^ ]+ [^ ]+ ?/, '') + ' L ' + eventPoints[eventPoints.length - 1].x.toFixed(2) + ' ' + (padT + plotH).toFixed(2) + ' Z' : '';
-              var grid = Array.from({ length: tickCount + 1 }, function(_, i){
-                var value = i * tickStep, y = padT + plotH - ((value / yMax) * plotH);
-                return '<line x1="' + padL + '" y1="' + y.toFixed(2) + '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(2) + '" stroke="' + gridColor + '" stroke-width="1"></line><text x="18" y="' + (y + 4).toFixed(2) + '" fill="' + axisColor + '" font-size="11" font-weight="400">' + value + '</text>';
+              var fillPath = showEvents && eventPoints.length ? 'M ' + eventPoints[0].x.toFixed(2) + ' ' + (padT + plotH).toFixed(2) + ' L ' + eventPoints[0].x.toFixed(2) + ' ' + eventPoints[0].y.toFixed(2) + ' ' + eventPath.replace(/^M [^ ]+ [^ ]+ ?/, '') + ' L ' + eventPoints[eventPoints.length - 1].x.toFixed(2) + ' ' + (padT + plotH).toFixed(2) + ' Z' : '';
+              var grid = Array.from({ length: eventScale.tickCount + 1 }, function(_, i){
+                var y = padT + plotH - ((i / eventScale.tickCount) * plotH), leftValue = showEvents ? i * eventScale.tickStep : i * viewScale.tickStep, rightValue = i * viewScale.tickStep;
+                return '<line x1="' + padL + '" y1="' + y.toFixed(2) + '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(2) + '" stroke="' + gridColor + '" stroke-width="1"></line><text x="18" y="' + (y + 4).toFixed(2) + '" fill="' + axisColor + '" font-size="11" font-weight="400">' + leftValue + '</text>' + (showViews && showEvents ? '<text x="' + (width - 18) + '" y="' + (y + 4).toFixed(2) + '" text-anchor="end" fill="' + axisColor + '" font-size="11" font-weight="400">' + rightValue + '</text>' : '');
               }).join('');
               var labelStep = series.length <= 4 ? 1 : Math.ceil(series.length / 4);
               var labels = series.map(function(item, index){
@@ -18550,7 +18539,8 @@ return `
                 var anchor = index === series.length - 1 ? 'end' : (index === 0 ? 'start' : 'middle');
                 return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 30).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + dateLabel(seriesDate(index)) + '</text>';
               }).join('');
-              chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path><path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' + labels + '</g></svg>';
+              var axisTitles = (showEvents ? '<text x="10" y="' + (padT + 8) + '" fill="rgba(16,185,129,.90)" font-size="10" font-weight="650">Events</text>' : '<text x="10" y="' + (padT + 8) + '" fill="rgba(37,99,235,.82)" font-size="10" font-weight="650">Views</text>') + (showViews && showEvents ? '<text x="' + (width - 10) + '" y="' + (padT + 8) + '" text-anchor="end" fill="rgba(37,99,235,.82)" font-size="10" font-weight="650">Views</text>' : '');
+              chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + axisTitles + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + (showViews ? '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + (showEvents ? '<path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + labels + '</g></svg>';
               var svg = chart.querySelector('svg');
               var svgNode = 'http://www.w3.org/2000/svg';
               var highlight = document.createElementNS(svgNode, 'g');
@@ -18579,10 +18569,11 @@ return `
                 index = Math.max(0, Math.min(series.length - 1, index));
                 var eventPoint = eventPoints[index], viewPoint = viewPoints[index];
                 guide.setAttribute('x1', eventPoint.x); guide.setAttribute('x2', eventPoint.x);
-                [eventHalo, eventDot].forEach(function(dot){ dot.setAttribute('cx', eventPoint.x); dot.setAttribute('cy', eventPoint.y); });
-                viewDot.setAttribute('cx', viewPoint.x); viewDot.setAttribute('cy', viewPoint.y);
+                [eventHalo, eventDot].forEach(function(dot){ dot.setAttribute('cx', eventPoint.x); dot.setAttribute('cy', eventPoint.y); dot.setAttribute('display', showEvents ? '' : 'none'); });
+                viewDot.setAttribute('cx', viewPoint.x); viewDot.setAttribute('cy', viewPoint.y); viewDot.setAttribute('display', showViews ? '' : 'none');
                 highlight.setAttribute('display', '');
                 tooltipTitle.textContent = 'Date: ' + fullDateLabel(seriesDate(index));
+                eventRow.hidden = !showEvents; viewRow.hidden = !showViews;
                 eventRow.querySelector('strong').textContent = number(events[index]);
                 viewRow.querySelector('strong').textContent = number(views[index]);
                 tooltip.hidden = false;
@@ -18590,7 +18581,8 @@ return `
                 var left = ((eventPoint.x / width) * bounds.width) - (tooltipWidth / 2);
                 left = Math.max(8, Math.min(chart.clientWidth - tooltipWidth - 8, left));
                 tooltip.style.left = left + 'px';
-                tooltip.style.top = Math.max(8, ((Math.min(eventPoint.y, viewPoint.y) / height) * bounds.height) - tooltip.offsetHeight - 14) + 'px';
+                var activePointY = Math.min(showEvents ? eventPoint.y : Infinity, showViews ? viewPoint.y : Infinity);
+                tooltip.style.top = Math.max(8, ((activePointY / height) * bounds.height) - tooltip.offsetHeight - 14) + 'px';
               };
               svg.addEventListener('mousemove', updateHighlight);
               svg.addEventListener('mouseenter', updateHighlight);
@@ -18616,10 +18608,18 @@ return `
           if (highlights) {
             highlights.replaceChildren();
             var facts = [];
-            facts.push({ icon:'fa-regular fa-calendar-plus', title:number(kpis.eventsAdded) + ' event' + (Number(kpis.eventsAdded) === 1 ? '' : 's') + ' added', detail:'Recorded during this reporting period.' });
-            if (availability.engagement) facts.push({ icon:'fa-solid fa-chart-line', title:number(kpis.eventViews) + ' measured event views', detail:pct(kpis.eventViewsChangePct) + '.' });
-            facts.push({ icon:'fa-regular fa-calendar', title:number(kpis.upcomingOccurrences) + ' upcoming occurrence' + (Number(kpis.upcomingOccurrences) === 1 ? '' : 's'), detail:'Scheduled within the selected reporting window.' });
-            facts.slice(0, 3).forEach(function(fact){ var row = document.createElement('div'); row.className = 'dashboard-highlight'; var icon = document.createElement('i'); icon.className = fact.icon; icon.setAttribute('aria-hidden','true'); var copy = document.createElement('div'); var title = document.createElement('strong'); title.textContent = fact.title; var detail = document.createElement('span'); detail.textContent = fact.detail; copy.appendChild(title); copy.appendChild(detail); row.appendChild(icon); row.appendChild(copy); highlights.appendChild(row); });
+            var engagementChange = Number(kpis.eventViewsChangePct);
+            if (availability.engagement && Number.isFinite(engagementChange)) {
+              var engagementDirection = engagementChange > 0 ? 'increased' : engagementChange < 0 ? 'decreased' : 'held steady';
+              facts.push({ icon:'fa-solid fa-chart-line', title:'Event engagement ' + engagementDirection + (engagementChange ? ' ' + Math.abs(engagementChange).toFixed(1) + '%' : ''), detail:'Measured event-page views compared with the previous equivalent period; this does not measure attendance.', href:adminHref('/admin/events-analytics') });
+            }
+            var weekdayValues = (summary.insights && summary.insights.weekdayViews) || [], weekdays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+            var strongestDayValue = weekdayValues.length ? Math.max.apply(null, weekdayValues) : 0, strongestDayIndex = weekdayValues.indexOf(strongestDayValue);
+            if (availability.engagement && strongestDayValue > 0 && strongestDayIndex >= 0) facts.push({ icon:'fa-regular fa-calendar', title:weekdays[strongestDayIndex] + ' is your strongest engagement day', detail:number(strongestDayValue) + ' measured event views were recorded on ' + weekdays[strongestDayIndex] + ' in this reporting period.', href:adminHref('/admin/events-analytics') });
+            var categories = (summary.insights && summary.insights.categoryDistribution) || [];
+            if (categories.length) { var leadingCategory = categories.slice().sort(function(a,b){ return Number(b.count || 0) - Number(a.count || 0); })[0]; if (leadingCategory && Number(leadingCategory.count || 0) > 0) facts.push({ icon:'fa-regular fa-calendar-plus', title:String(leadingCategory.name || 'Uncategorized') + ' is the leading event category', detail:number(leadingCategory.count) + ' category assignments (' + Number(leadingCategory.percentage || 0).toFixed(0) + '%) fall in this category during the reporting period.' }); }
+            if (!facts.length) facts.push({ icon:'fa-solid fa-chart-line', title:'More insight will appear as activity is recorded', detail:'OpenCircle needs recorded event activity and measured views before meaningful comparisons can be calculated.' });
+            facts.slice(0, 3).forEach(function(fact){ var row = document.createElement(fact.href ? 'a' : 'div'); row.className = 'dashboard-highlight'; if (fact.href) row.href = fact.href; var icon = document.createElement('i'); icon.className = fact.icon; icon.setAttribute('aria-hidden','true'); var copy = document.createElement('div'); var title = document.createElement('strong'); title.textContent = fact.title; var detail = document.createElement('span'); detail.textContent = fact.detail; copy.appendChild(title); copy.appendChild(detail); row.appendChild(icon); row.appendChild(copy); highlights.appendChild(row); });
           }
           var communities = document.getElementById('dashboardCommunityList');
           if (communities) {
@@ -18638,6 +18638,7 @@ return `
           if (selected === 'custom') { url.searchParams.set('start', start.value); url.searchParams.set('end', end.value); }
           fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'Dashboard data is not available for this account.' : 'Dashboard data is temporarily unavailable.'); return response.json(); }).then(render).catch(function(error){ var message = error && error.message ? error.message : 'Dashboard data is temporarily unavailable.'; set('dashboardContext', message + ' Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">' + message + '</div>'; ['dashboardActivityChart','dashboardCategoryChart','dashboardWeekdayChart'].forEach(function(id){ var chart = document.getElementById(id); if (chart) chart.innerHTML = '<div class="dashboard-chart-empty">' + message + '</div>'; }); var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
         }
+        Array.prototype.forEach.call(document.querySelectorAll('[data-dashboard-series]'), function(control){ control.addEventListener('click', function(){ activitySeriesMode = control.getAttribute('data-dashboard-series') || 'both'; if (latestDashboardSummary) render(latestDashboardSummary); }); });
         range.addEventListener('change', load); if (communityScope) communityScope.addEventListener('change', load); if (apply) apply.addEventListener('click', load); load();
       })();
 
