@@ -18491,13 +18491,26 @@ return `
               // Dashboard summaries normally expose an ISO date per bucket.
               // Keep the label reliable for cached/legacy bucket shapes too by
               // deriving it from the selected reporting period when necessary.
+              var isoDate = function(value){
+                var match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+                return match ? match[1] + '-' + match[2] + '-' + match[3] : '';
+              };
+              var seriesStartDate = function(){
+                var summaryStart = isoDate(summary.period && summary.period.start);
+                if (summaryStart) return summaryStart;
+                var customStart = isoDate(start && start.value);
+                if (customStart) return customStart;
+                var selectedRangeDays = { '7d':7, '30d':30, '90d':90 };
+                var days = selectedRangeDays[range && range.value] || 30;
+                var today = new Date();
+                return new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate() - days)).toISOString().slice(0, 10);
+              };
               var seriesDate = function(index){
                 var item = series[index] || {};
-                var value = item.date || item.day || item.bucket || item.label;
-                if (value) return value;
-                var start = String(summary.period && summary.period.start || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-                if (!start) return '';
-                return new Date(Date.UTC(Number(start[1]), Number(start[2]) - 1, Number(start[3]) + index)).toISOString().slice(0, 10);
+                var bucketDate = isoDate(item.date || item.day || item.bucket || item.label);
+                if (bucketDate) return bucketDate;
+                var startParts = seriesStartDate().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                return new Date(Date.UTC(Number(startParts[1]), Number(startParts[2]) - 1, Number(startParts[3]) + index)).toISOString().slice(0, 10);
               };
               // Match the SVG coordinate system to the actual chart box.
               // This prevents browser/side-menu resizes from stretching the
