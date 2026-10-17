@@ -8,7 +8,7 @@ const { safeParseJson } = require("../lib/json");
 const { normalizeEventReportChanges } = require("../lib/event-report-changes");
 const { notifyAreaApprovers } = require("../lib/admin-notification-email");
 const { esc } = require("../lib/html");
-const { ALLOWED_CATEGORIES } = require("../lib/admin-constants");
+const { findEventCategory } = require("../lib/admin-constants");
 const {
   buildEventStructuredData,
   buildSeoDescriptor,
@@ -1181,15 +1181,6 @@ function normalizeCats(row) {
   return Array.isArray(cats) ? cats : [];
 }
 
-function normalizeCategoryKey(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
 function readOptionalQueryString(query, keys, { maxLength = 256 } = {}) {
   for (const key of keys) {
     if (!Object.prototype.hasOwnProperty.call(query, key)) continue;
@@ -1229,9 +1220,8 @@ function readEnumQueryValue(query, key, { defaultValue, allowed }) {
 
 function resolveCategoryFilter(value) {
   const raw = String(value || "").trim();
-  const key = normalizeCategoryKey(raw);
-  if (!key) return "";
-  return ALLOWED_CATEGORIES.find((category) => normalizeCategoryKey(category) === key) || raw;
+  if (!raw) return null;
+  return findEventCategory(raw);
 }
 
 function compareEventIds(a, b) {
@@ -1240,10 +1230,11 @@ function compareEventIds(a, b) {
 
 function matchesCategory(item, category) {
   if (!category) return true;
-  const target = normalizeCategoryKey(category);
-  if (!target) return true;
   const cats = Array.isArray(item.categories) ? item.categories : [];
-  return cats.some((c) => normalizeCategoryKey(c) === target);
+  return cats.some((value) => {
+    const candidate = findEventCategory(value);
+    return candidate && candidate.slug === category.slug;
+  });
 }
 
 function matchesQuery(item, q) {
@@ -1420,7 +1411,7 @@ function includeStoredFirstOccurrence(event, occurrences, windowStartUtc) {
   return list;
 }
 
-function paginate(items, limit, offset) {
+function paginate(items, limit, offset, context = null) {
   const total = items.length;
   const start = Math.max(0, offset);
   const end = Math.min(total, start + limit);
@@ -1434,6 +1425,8 @@ function paginate(items, limit, offset) {
       offset: start,
       hasMore,
       nextOffset: hasMore ? end : null,
+      ...(context?.category ? { eventCount: total } : {}),
+      ...(context || {}),
     },
   };
 }
@@ -1499,6 +1492,13 @@ router.get("/", async (req, res) => {
     }
     const q = qParam.value;
     const category = resolveCategoryFilter(categoryParam.value);
+    if (categoryParam.value && !category) {
+      return res.status(400).json({
+        data: [],
+        meta: { total: 0, limit: 0, offset: 0, hasMore: false, nextOffset: null },
+        error: "Invalid category identifier",
+      });
+    }
     const organizer = organizerParam.value;
     const venue = venueParam.value;
     const featuredParam = readEnumQueryValue(req.query, "featured", { defaultValue: "0", allowed: ["0", "1"] });
@@ -1554,7 +1554,7 @@ router.get("/", async (req, res) => {
     // Archived results are permission-sensitive and therefore never cached.
     // All other variants are public and can be reused for a very short window.
     const eventListCacheKey = status === "archived" ? "" : JSON.stringify([
-      city.toLowerCase(), expand, status, sort, q.toLowerCase(), category.toLowerCase(),
+      city.toLowerCase(), expand, status, sort, q.toLowerCase(), category ? category.slug : "",
       organizer.toLowerCase(), venue.toLowerCase(), featuredOnly, limit, offset,
       fromISO, toISO, windowDays,
     ]);
@@ -1571,7 +1571,7 @@ router.get("/", async (req, res) => {
         FROM json_each(CASE WHEN json_valid(categories) THEN categories ELSE '[]' END)
         WHERE LOWER(TRIM(value)) = LOWER(TRIM(?))
       )`);
-      rowParams.push(category);
+      rowParams.push(category.name);
     }
     if (organizer) {
       rowWhere.push("LOWER(TRIM(COALESCE(organizer, ''))) = LOWER(TRIM(?))");
@@ -1615,8 +1615,8 @@ router.get("/", async (req, res) => {
           if (featuredOnly && readFeaturedActive(it) !== 1) return false;
           if (!matchesQuery(it, q)) return false;
           if (!matchesCategory(it, category)) return false;
-          if (organizer && !String(it.organizer || "").toLowerCase().includes(organizer)) return false;
-          if (venue && !String(it.location || "").toLowerCase().includes(venue)) return false;
+          if (organizer && !String(it.organizer || "").toLowerCase().includes(organizer.toLowerCase())) return false;
+          if (venue && !String(it.location || "").toLowerCase().includes(venue.toLowerCase())) return false;
           if (!inIsoRange(it, fromISO, toISO)) return false;
           return true;
         });
@@ -1664,7 +1664,10 @@ router.get("/", async (req, res) => {
         return compareEventIds(a, b);
       });
 
-      const payload = paginate(items, limit, offset);
+      const payload = paginate(items, limit, offset, category ? {
+        category: { name: category.name, slug: category.slug },
+        community: { city },
+      } : null);
       if (eventListCacheKey) cachePayload(eventListCache, eventListCacheKey, payload, EVENT_LIST_CACHE_MS, EVENT_LIST_CACHE_MAX_ENTRIES);
       return res.json(payload);
     }
@@ -1687,8 +1690,8 @@ router.get("/", async (req, res) => {
       if (featuredOnly && readFeaturedActive(it) !== 1) return false;
       if (!matchesQuery(it, q)) return false;
       if (!matchesCategory(it, category)) return false;
-      if (organizer && !String(it.organizer || "").toLowerCase().includes(organizer)) return false;
-      if (venue && !String(it.location || "").toLowerCase().includes(venue)) return false;
+      if (organizer && !String(it.organizer || "").toLowerCase().includes(organizer.toLowerCase())) return false;
+      if (venue && !String(it.location || "").toLowerCase().includes(venue.toLowerCase())) return false;
       if (!inIsoRange(it, fromISO, toISO)) return false;
       return true;
     });
@@ -1737,7 +1740,10 @@ router.get("/", async (req, res) => {
     });
 
     // Paginate
-    const payload = paginate(expanded, limit, offset);
+    const payload = paginate(expanded, limit, offset, category ? {
+      category: { name: category.name, slug: category.slug },
+      community: { city },
+    } : null);
     if (eventListCacheKey) cachePayload(eventListCache, eventListCacheKey, payload, EVENT_LIST_CACHE_MS, EVENT_LIST_CACHE_MAX_ENTRIES);
     return res.json(payload);
   } catch (err) {
