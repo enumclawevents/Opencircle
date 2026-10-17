@@ -15055,21 +15055,6 @@ return `
               </div>
             </details>
 
-            ${canUseMessages ? `<details class="card dashboard-card" id="dashboard-messages-card" data-dashboard-card="messages" data-collapsible-card open>
-              <summary class="sectionTitle">
-                <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-messages-body">
-                  <h2>Messages</h2>
-                  <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
-                </span>
-              </summary>
-              <div class="card-body" id="dashboard-messages-body">
-                <div class="insight-list">${messagesDashboardHtml}</div>
-                <div style="margin-top:12px;">
-                  <a class="btn" href="${messagesAdminHref}">Open messages</a>
-                </div>
-              </div>
-            </details>` : ``}
-
             ${false && (canSeeEventsAnalytics || canSeeVenueAnalytics || canSeeAdsAnalytics || canSeeNewsletterAnalytics) ? `<details class="card dashboard-card" id="dashboard-insights-card" data-dashboard-card="insights" data-collapsible-card open>
               <summary class="sectionTitle">
                 <span class="card-toggle" data-card-toggle aria-expanded="true" aria-controls="dashboard-insights-body">
