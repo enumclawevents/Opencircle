@@ -16,6 +16,16 @@ occurrences preserve the local wall-clock time in `America/Los_Angeles` while
 selecting the correct daylight-saving offset for each date. There is no
 occurrence table and no unbounded occurrence generation.
 
+`recurrenceUntilDate` is the only recurrence termination authority.
+`endDateTime` is the per-occurrence duration template. If a legacy recurring
+row has an invalid or implausibly long template duration (more than fourteen
+days), the API continues to generate occurrences according to its recurrence
+rule but omits each generated occurrence end time rather than inventing a
+months-long end date or silently stopping the schedule. Normal multi-day and
+overnight templates of fourteen days or less are unchanged. Correcting a
+legacy row requires an editorial update that supplies the actual per-occurrence
+`endDateTime` and, if applicable, a separate `recurrenceUntilDate`.
+
 The public feed continues to use `status=upcoming|past|all`; archived records
 require an authorized admin/developer request using `status=archived` and are
 served with `X-Robots-Tag: noindex, nofollow`.

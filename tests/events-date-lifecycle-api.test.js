@@ -147,6 +147,33 @@ test("event details expose bounded lifecycle data for one-time and annual events
   const weeklyStart = weeklyAnchor.toISO({ suppressMilliseconds: true });
   const weeklyEnd = weeklyAnchor.plus({ hours: 2 }).toISO({ suppressMilliseconds: true });
   const weeklyRule = JSON.stringify({ type: "weekly", interval: 1, byDay: [weeklyAnchor.toFormat("ccc").slice(0, 2).toUpperCase()] }).replace(/'/g, "''");
+  const magicAnchor = DateTime.now().setZone("America/Los_Angeles").minus({ months: 8 }).startOf("day").plus({ hours: 16 });
+  const magicStart = magicAnchor.toISO({ suppressMilliseconds: true });
+  const magicTemplateEnd = magicAnchor.plus({ hours: 2 }).toISO({ suppressMilliseconds: true });
+  const magicScheduleEnd = magicAnchor.plus({ months: 11 }).set({ hour: 18 }).toISO({ suppressMilliseconds: true });
+  const magicRule = JSON.stringify({ type: "weekly", interval: 1, byDay: ["SU"] }).replace(/'/g, "''");
+  const legacyRows = [
+    ["used-board-game-puzzle-drop-off-day", "Used Board Game & Puzzle Drop-Off Day", "SU", 1, 10, 15],
+    ["lorcana-kids-club", "Lorcana Kids Club", "SA", 1, 11, 13],
+    ["crafty-connections", "Crafty Connections", "SU", 2, 13, 15],
+  ].map(([slug, title, day, interval, startHour, endHour]) => {
+    const anchor = DateTime.now().setZone("America/Los_Angeles").minus({ months: 8 }).startOf("day").plus({ hours: startHour });
+    return {
+      slug, title, start: anchor.toISO({ suppressMilliseconds: true }),
+      end: anchor.plus({ months: 2 }).set({ hour: endHour }).toISO({ suppressMilliseconds: true }),
+      rule: JSON.stringify({ type: "weekly", interval, byDay: [day] }).replace(/'/g, "''"),
+    };
+  });
+  const monthlyAnchor = DateTime.now().setZone("America/Los_Angeles").minus({ months: 3 }).set({ day: 28, hour: 23, minute: 0, second: 0, millisecond: 0 });
+  const monthlyStart = monthlyAnchor.toISO({ suppressMilliseconds: true });
+  const monthlyEnd = monthlyAnchor.plus({ hours: 2, minutes: 30 }).toISO({ suppressMilliseconds: true });
+  const monthlyRule = JSON.stringify({ type: "monthly", interval: 1, mode: "monthday", byMonthday: 28 }).replace(/'/g, "''");
+  const missingEndStart = DateTime.now().setZone("America/Los_Angeles").plus({ days: 5 }).startOf("day").plus({ hours: 9 }).toISO({ suppressMilliseconds: true });
+  const missingEndRule = JSON.stringify({ type: "weekly", interval: 1, byDay: [DateTime.fromISO(missingEndStart).setZone("America/Los_Angeles").toFormat("ccc").slice(0, 2).toUpperCase()] }).replace(/'/g, "''");
+  const terminatedAnchor = DateTime.now().setZone("America/Los_Angeles").minus({ days: 21 }).startOf("day").plus({ hours: 12 });
+  const terminatedStart = terminatedAnchor.toISO({ suppressMilliseconds: true });
+  const terminatedEnd = terminatedAnchor.plus({ hours: 2 }).toISO({ suppressMilliseconds: true });
+  const terminatedRule = JSON.stringify({ type: "weekly", interval: 1, byDay: [terminatedAnchor.toFormat("ccc").slice(0, 2).toUpperCase()] }).replace(/'/g, "''");
 
   await execSql(dbPath, `
     INSERT INTO events (city, slug, title, location, organizer, startDateTime, endDateTime)
@@ -155,11 +182,25 @@ test("event details expose bounded lifecycle data for one-time and annual events
     VALUES ('Community A', 'lifecycle-annual', 'Lifecycle Annual', 'Annual Hall', 'OpenCircle', '${annualStart}', '${annualEnd}', 1, '${annualRule}', '${previousLocal.toISODate()}');
     INSERT INTO events (city, slug, title, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceStartDate)
     VALUES ('Community A', 'lifecycle-weekly', 'Lifecycle Weekly', 'Weekly Hall', 'OpenCircle', '${weeklyStart}', '${weeklyEnd}', 1, '${weeklyRule}', '${weeklyAnchor.toISODate()}');
+    INSERT INTO events (city, slug, title, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceUntilDate)
+    VALUES ('Enumclaw', 'magic-the-gathering-sunday-casual-commander', 'Magic the Gathering Sunday Casual Commander', 'Cole Street Game Vault', 'Cole Street Game Vault', '${magicStart}', '${magicTemplateEnd}', 1, '${magicRule}', '${magicScheduleEnd.slice(0, 10)}');
+    ${legacyRows.map((row) => `INSERT INTO events (city, slug, title, startDateTime, endDateTime, hasRecurrence, recurrenceRule) VALUES ('Enumclaw', '${row.slug}', '${row.title}', '${row.start}', '${row.end}', 1, '${row.rule}');`).join("\n")}
+    INSERT INTO events (city, slug, title, startDateTime, endDateTime, hasRecurrence, recurrenceRule)
+    VALUES ('Community A', 'lifecycle-monthly-overnight', 'Lifecycle Monthly Overnight', '${monthlyStart}', '${monthlyEnd}', 1, '${monthlyRule}');
+    INSERT INTO events (city, slug, title, startDateTime, endDateTime, hasRecurrence, recurrenceRule)
+    VALUES ('Community A', 'lifecycle-missing-end', 'Lifecycle Missing End', '${missingEndStart}', NULL, 1, '${missingEndRule}');
+    INSERT INTO events (city, slug, title, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceUntilDate)
+    VALUES ('Community A', 'lifecycle-terminated', 'Lifecycle Terminated', '${terminatedStart}', '${terminatedEnd}', 1, '${terminatedRule}', '${terminatedAnchor.plus({ days: 7 }).toISODate()}');
   `);
 
   const once = await (await fetch(`${baseUrl}/events/lifecycle-once`)).json();
   const annual = await (await fetch(`${baseUrl}/events/lifecycle-annual`)).json();
   const weekly = await (await fetch(`${baseUrl}/events/lifecycle-weekly`)).json();
+  const magic = await (await fetch(`${baseUrl}/events/magic-the-gathering-sunday-casual-commander`)).json();
+  const monthly = await (await fetch(`${baseUrl}/events/lifecycle-monthly-overnight`)).json();
+  const missingEnd = await (await fetch(`${baseUrl}/events/lifecycle-missing-end`)).json();
+  const terminated = await (await fetch(`${baseUrl}/events/lifecycle-terminated`)).json();
+  const legacy = await Promise.all(legacyRows.map(async (row) => (await (await fetch(`${baseUrl}/events/${row.slug}`)).json()).data));
   assert.equal(once.data.lifecycle.status, "upcoming");
   assert.equal(once.data.lifecycle.isRecurring, false);
   assert.equal(once.data.lifecycle.slug, "lifecycle-once");
@@ -173,4 +214,22 @@ test("event details expose bounded lifecycle data for one-time and annual events
   assert.equal(annual.data.lifecycle.lastCompletedOccurrence.occurrenceDate, previousLocal.toISODate());
   assert.match(annual.data.lifecycle.nextUpcomingOccurrence.startDateTime, /[+-]\d{2}:\d{2}$/);
   assert.equal(DateTime.fromISO(weekly.data.lifecycle.nextUpcomingOccurrence.startDateTime).setZone("America/Los_Angeles").hour, 10);
+  const magicNext = DateTime.fromISO(magic.data.lifecycle.nextUpcomingOccurrence.startDateTime).setZone("America/Los_Angeles");
+  const magicEnd = DateTime.fromISO(magic.data.lifecycle.nextUpcomingOccurrence.endDateTime).setZone("America/Los_Angeles");
+  assert.equal(magicNext.weekday, 7);
+  assert.equal(magicNext.hour, 16);
+  assert.equal(magicEnd.toISODate(), magicNext.toISODate());
+  assert.equal(magicEnd.hour, 18);
+  assert.equal(magic.data.lifecycle.originalEndDateTime, magicTemplateEnd);
+  const monthlyNext = DateTime.fromISO(monthly.data.lifecycle.nextUpcomingOccurrence.startDateTime).setZone("America/Los_Angeles");
+  const monthlyNextEnd = DateTime.fromISO(monthly.data.lifecycle.nextUpcomingOccurrence.endDateTime).setZone("America/Los_Angeles");
+  assert.equal(monthlyNext.hour, 23);
+  assert.equal(monthlyNextEnd.hour, 1);
+  assert.equal(monthlyNextEnd.toISODate(), monthlyNext.plus({ days: 1 }).toISODate());
+  assert.equal(missingEnd.data.lifecycle.nextUpcomingOccurrence.endDateTime, null);
+  assert.equal(terminated.data.lifecycle.nextUpcomingOccurrence, null);
+  for (const event of legacy) {
+    assert.ok(event.lifecycle.nextUpcomingOccurrence, `${event.slug} remains available`);
+    assert.equal(event.lifecycle.nextUpcomingOccurrence.endDateTime, null, `${event.slug} has no fabricated end time`);
+  }
 });
