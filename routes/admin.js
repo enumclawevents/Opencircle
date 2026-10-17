@@ -14388,7 +14388,7 @@ return `
       .sb-bottom{ padding:0 4px; }
       .sidebar .sb-bottom .subnav-link{ padding:10px; border-radius:var(--radius-mid); }
       .sidebar-logout{ display:inline-flex !important; align-items:center; justify-content:center; gap:8px; color:var(--sidebar-muted) !important; font-size:12px; }
-      .sidebar-logout i{ font-size:16px; }
+      .sidebar-logout svg{ display:block; width:16px; height:16px; flex:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
       body.sidebar-collapsed .sidebar{ width:76px; padding-left:10px; padding-right:10px; overflow:visible; }
       body.sidebar-collapsed .sb-brand{ padding-left:10px; padding-right:10px; justify-content:center; }
       body.sidebar-collapsed .sb-top{ justify-content:center; }
@@ -14406,7 +14406,7 @@ return `
       body.sidebar-collapsed .sb-bottom{ display:flex; justify-content:center; padding:0; }
       body.sidebar-collapsed .sidebar-logout{ width:48px; height:48px; padding:0 !important; }
       body.sidebar-collapsed .sidebar-logout span{ display:none; }
-      body.sidebar-collapsed .sidebar-logout i{ font-size:18px; }
+      body.sidebar-collapsed .sidebar-logout svg{ width:18px; height:18px; }
       /* In icon-only mode, retain a clear way to identify every destination
          without forcing the sidebar open. Labels appear on hover and keyboard
          focus, alongside the highlighted icon. */
@@ -14765,7 +14765,7 @@ return `
         <div class="sb-bottom">
           <div class="sb-divider"></div>
           <div style="margin-top:4px; text-align:center;">
-            <a class="subnav-link sidebar-logout" href="/logout"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i><span>Log out</span></a>
+            <a class="subnav-link sidebar-logout" href="/logout"><i data-lucide="log-out" aria-hidden="true"></i><span>Log out</span></a>
           </div>
         </div>
       </aside>
