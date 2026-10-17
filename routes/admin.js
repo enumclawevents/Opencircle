@@ -18404,7 +18404,7 @@ return `
           });
           // Position the two-line metric as one optical unit at the donut's center.
           var totalLabel = document.createElementNS(svgNode, 'text'); totalLabel.setAttribute('x','60'); totalLabel.setAttribute('y','60'); totalLabel.setAttribute('text-anchor','middle'); totalLabel.setAttribute('class','dashboard-category-total'); totalLabel.textContent = number(total); donut.appendChild(totalLabel);
-          var totalCaption = document.createElementNS(svgNode, 'text'); totalCaption.setAttribute('x','60'); totalCaption.setAttribute('y','73'); totalCaption.setAttribute('text-anchor','middle'); totalCaption.setAttribute('class','dashboard-category-total-label'); totalCaption.textContent = 'assignments'; donut.appendChild(totalCaption);
+          var totalCaption = document.createElementNS(svgNode, 'text'); totalCaption.setAttribute('x','60'); totalCaption.setAttribute('y','70'); totalCaption.setAttribute('text-anchor','middle'); totalCaption.setAttribute('class','dashboard-category-total-label'); totalCaption.textContent = 'assignments'; donut.appendChild(totalCaption);
           var legend = document.createElement('div'); legend.className = 'dashboard-category-legend';
           var tooltip = createInsightTooltip(host);
           var showTooltip = function(category, index, target){
