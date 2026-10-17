@@ -4400,7 +4400,7 @@ function renderDashboardQuickLinkIcon(name) {
     message: '<path d="M20 15a3 3 0 0 1-3 3H9l-5 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v9Z"></path>',
   };
   const content = icons[name] || icons.message;
-  return `<svg class="dashboard-quick-link-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${content}</svg>`;
+  return `<svg class="dashboard-quick-link-svg dashboard-quick-link-svg--${name}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${content}</svg>`;
 }
 
 const ORGANIZER_SECTION_KEYS = ["events", "venues", "jobs", "ads", "featureEvents"];
@@ -14621,7 +14621,15 @@ return `
       .dashboard-quick-links{ display:grid; grid-template-columns:repeat(8,minmax(108px,1fr)); width:min(100%,1080px); margin:0 auto; gap:16px; }
       .dashboard-quick-link{ display:flex; min-width:0; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:4px; border-radius:var(--radius-mid); color:var(--text); text-decoration:none; transition:color .18s ease; }
       .dashboard-quick-link-icon{ display:inline-flex; width:56px; height:56px; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:var(--radius-inner); background:var(--panel2); color:var(--accent); font-size:24px; transition:border-color .18s ease, background-color .18s ease; }
-      .dashboard-quick-link-svg{ display:block; width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+      .dashboard-quick-link-svg{ display:block; width:var(--quick-link-art-size,40px); height:var(--quick-link-art-size,40px); flex:none; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+      .dashboard-quick-link-svg--calendarPlus{ --quick-link-art-size:40px; }
+      .dashboard-quick-link-svg--clipboardCheck{ --quick-link-art-size:40px; }
+      .dashboard-quick-link-svg--chart{ --quick-link-art-size:42px; }
+      .dashboard-quick-link-svg--pinPlus{ --quick-link-art-size:40px; }
+      .dashboard-quick-link-svg--briefcase{ --quick-link-art-size:40px; }
+      .dashboard-quick-link-svg--megaphone{ --quick-link-art-size:42px; }
+      .dashboard-quick-link-svg--send{ --quick-link-art-size:40px; }
+      .dashboard-quick-link-svg--message{ --quick-link-art-size:40px; }
       .dashboard-quick-link-label{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:13px; font-weight:500; line-height:1.25; text-align:center; }
       .dashboard-quick-link:hover{ color:var(--text); }
       .dashboard-quick-link:hover .dashboard-quick-link-icon{ border-color:rgba(0,192,139,.48); background:rgba(0,192,139,.09); }
