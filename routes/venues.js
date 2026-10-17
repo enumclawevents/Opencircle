@@ -2,6 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
+const eventsRouter = require("./events");
 const { all, get, run } = require("../db");
 const { safeParseJson } = require("../lib/json");
 const {
@@ -195,6 +196,30 @@ function mapVenueRow(r) {
   };
 }
 
+// Metrics are operational data rather than public venue entity data.
+function mapPublicVenueRow(r) {
+  const venue = mapVenueRow(r);
+  const {
+    viewCount,
+    phoneClickCount,
+    websiteClickCount,
+    socialClickCount,
+    ...publicVenue
+  } = venue;
+  return publicVenue;
+}
+
+function publicVenuePayload(venue) {
+  const {
+    viewCount,
+    phoneClickCount,
+    websiteClickCount,
+    socialClickCount,
+    ...publicVenue
+  } = venue;
+  return publicVenue;
+}
+
 function getVenueDetailPath(venue) {
   const key = String(venue?.slug || venue?.id || "").trim();
   return `/venues/${encodeURIComponent(key)}`;
@@ -268,16 +293,29 @@ function getVenueSitemapPath(venue) {
   return `/venues/${encodeURIComponent(key)}`;
 }
 
-async function getVenueRowByIdOrSlug(idOrSlug) {
+async function getVenueRowByIdOrSlug(idOrSlug, city = "") {
   const raw = String(idOrSlug || "").trim();
   if (!raw) return null;
 
   const asId = Number(raw);
   const isId = Number.isInteger(asId) && asId > 0;
+  const normalizedCity = String(city || "").trim();
+  const citySql = normalizedCity ? " AND LOWER(city) = LOWER(?)" : "";
+  const params = isId ? [asId] : [raw];
+  if (normalizedCity) params.push(normalizedCity);
 
-  return isId
-    ? await get("SELECT * FROM venues WHERE id = ? LIMIT 1", [asId])
-    : await get("SELECT * FROM venues WHERE LOWER(slug) = LOWER(?) LIMIT 1", [raw]);
+  return await get(
+    isId
+      ? `SELECT * FROM venues WHERE id = ?${citySql} LIMIT 1`
+      : `SELECT * FROM venues WHERE LOWER(slug) = LOWER(?)${citySql} LIMIT 1`,
+    params
+  );
+}
+
+function readOptionalCity(query) {
+  const value = query && query.city;
+  if (Array.isArray(value)) return { error: "Invalid city" };
+  return { value: String(value || "").trim() };
 }
 
 function normalizeSocialPlatform(input) {
@@ -613,6 +651,12 @@ async function getUpcomingEventsForVenue(venue, limit) {
 
   const eventCols = await getEventColumns();
   const hasCol = (name) => eventCols.has(name);
+  const locationPredicates = needles.map(() => `(
+        LOWER(TRIM(COALESCE(location, ''))) = ?
+        OR LOWER(COALESCE(location, '')) LIKE ?
+        OR ? LIKE LOWER(TRIM(COALESCE(location, '')))
+      )`);
+  const locationParams = needles.flatMap((needle) => [needle, `%${needle}%`, needle]);
 
   const rows = await all(
     `SELECT id, slug, title, startDateTime, endDateTime, location, imageUrl, categories,
@@ -625,8 +669,9 @@ async function getUpcomingEventsForVenue(venue, limit) {
        FROM events
       WHERE LOWER(city) = LOWER(?)
         AND COALESCE(${hasCol("archived") ? "archived" : "0"}, 0) = 0
+        AND (${locationPredicates.join(" OR ")})
       ORDER BY datetime(startDateTime) ASC`,
-    [city]
+    [city, ...locationParams]
   );
 
   const nowTs = Date.now() - 5 * 60 * 1000;
@@ -732,7 +777,7 @@ router.get("/", async (req, res) => {
 
     const mapped = [];
     for (const r of rows || []) {
-      const v = mapVenueRow(r);
+      const v = mapPublicVenueRow(r);
       if (includeUpcoming) {
         v.upcomingEvents = await getUpcomingEventsForVenue(v, upcomingLimit);
       }
@@ -795,7 +840,7 @@ router.get("/resolve", async (req, res) => {
     const best = (rows || [])[0] || null;
     if (!best) return res.status(404).json({ error: "Venue not found" });
 
-    return res.json({ data: mapVenueRow(best) });
+    return res.json({ data: mapPublicVenueRow(best) });
   } catch (err) {
     console.error("[/venues/resolve] error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ error: "Server error" });
@@ -849,8 +894,10 @@ router.get("/slug/:slug", async (req, res) => {
 
     const slug = String(req.params.slug || "").trim().toLowerCase();
     if (!slug) return res.status(400).json({ error: "Invalid slug" });
+    const cityParam = readOptionalCity(req.query);
+    if (cityParam.error) return res.status(400).json({ error: cityParam.error });
 
-    const row = await get("SELECT * FROM venues WHERE LOWER(slug) = LOWER(?) LIMIT 1", [slug]);
+    const row = await getVenueRowByIdOrSlug(slug, cityParam.value);
     if (!row) return res.status(404).json({ error: "Venue not found" });
 
     const shouldTrack = shouldTrackPublicView(req);
@@ -863,9 +910,38 @@ router.get("/slug/:slug", async (req, res) => {
     const upcomingLimit = Math.max(1, Math.min(24, parseInt(String(req.query.upcomingLimit || "12"), 10) || 12));
     venue.upcomingEvents = await getUpcomingEventsForVenue(venue, upcomingLimit);
 
-    return res.json({ data: enrichVenueForSeo(req, venue) });
+    return res.json({ data: publicVenuePayload(enrichVenueForSeo(req, venue)) });
   } catch (err) {
     console.error("[/venues/slug/:slug] error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Delegate to the established recurrence-aware event listing implementation.
+// This keeps its filtering, expansion, pagination, and response contract.
+router.get("/:idOrSlug/events", async (req, res) => {
+  try {
+    await ensureVenueSchema();
+    const cityParam = readOptionalCity(req.query);
+    if (cityParam.error) return res.status(400).json({ error: cityParam.error });
+    if (!cityParam.value) return res.status(400).json({ error: "Missing city" });
+
+    const venue = await getVenueRowByIdOrSlug(req.params.idOrSlug, cityParam.value);
+    if (!venue) return res.status(404).json({ error: "Venue not found" });
+
+    const eventReq = Object.create(req);
+    Object.defineProperty(eventReq, "query", {
+      value: {
+        ...req.query,
+        city: String(venue.city || ""),
+        venue: String(venue.name || ""),
+        status: "upcoming",
+      },
+      enumerable: true,
+    });
+    return eventsRouter.listEventsHandler(eventReq, res);
+  } catch (err) {
+    console.error("[/venues/:idOrSlug/events] error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ error: "Server error" });
   }
 });
@@ -938,8 +1014,10 @@ router.get("/:idOrSlug", async (req, res) => {
 
     const raw = String(req.params.idOrSlug || "").trim();
     if (!raw) return res.status(400).json({ error: "Missing id/slug" });
+    const cityParam = readOptionalCity(req.query);
+    if (cityParam.error) return res.status(400).json({ error: cityParam.error });
 
-    const row = await getVenueRowByIdOrSlug(raw);
+    const row = await getVenueRowByIdOrSlug(raw, cityParam.value);
 
     if (!row) return res.status(404).json({ error: "Venue not found" });
 
@@ -953,7 +1031,7 @@ router.get("/:idOrSlug", async (req, res) => {
     const upcomingLimit = Math.max(1, Math.min(24, parseInt(String(req.query.upcomingLimit || "12"), 10) || 12));
     venue.upcomingEvents = await getUpcomingEventsForVenue(venue, upcomingLimit);
 
-    return res.json({ data: enrichVenueForSeo(req, venue) });
+    return res.json({ data: publicVenuePayload(enrichVenueForSeo(req, venue)) });
   } catch (err) {
     console.error("[/venues/:idOrSlug] error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ error: "Server error" });

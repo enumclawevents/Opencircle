@@ -1545,7 +1545,7 @@ function paginate(items, limit, offset, context = null) {
  *  status=upcoming|past|archived|all
  *  windowDays=90 (optional)
  */
-router.get("/", async (req, res) => {
+async function listEventsHandler(req, res) {
   try {
     const cityParam = readOptionalQueryString(req.query, ["city"]);
     if (cityParam.error) {
@@ -1853,7 +1853,9 @@ router.get("/", async (req, res) => {
       error: "Server error",
     });
   }
-});
+}
+
+router.get("/", listEventsHandler);
 
 // GET /events/past
 // Lightweight past listing for archive-style pages.
@@ -2772,3 +2774,4 @@ router.post("/:idOrSlug/engagement", async (req, res) => {
 });
 
 module.exports = router;
+module.exports.listEventsHandler = listEventsHandler;

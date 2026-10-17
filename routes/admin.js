@@ -22961,14 +22961,21 @@ router.post("/venues", upload.fields([{ name: "venueImageFile", maxCount: 1 }, {
     if (!name) return res.status(400).send("Venue name is required.");
 
     const baseSlug = slugify(name);
-    const slug = await ensureUniqueVenueSlug(baseSlug, isUpdate ? id : null);
-
+    let existingVenue = null;
     if (isUpdate) {
-      const existingVenue = await get("SELECT id, createdByUserId FROM venues WHERE id = ? LIMIT 1", [id]);
+      existingVenue = await get("SELECT id, createdByUserId, slug FROM venues WHERE id = ? LIMIT 1", [id]);
       if (!existingVenue?.id) return res.status(404).send("Venue not found.");
       if (isOrganizerUser && Number(existingVenue.createdByUserId || 0) !== Number(sessionUser?.id || 0)) {
         return res.status(403).send("Forbidden");
       }
+    }
+
+    // A published venue slug is an external identifier. Preserve it through
+    // ordinary name edits; intentional renames can later use an alias flow.
+    const slug = String(existingVenue?.slug || "").trim()
+      || await ensureUniqueVenueSlug(baseSlug, isUpdate ? id : null);
+
+    if (isUpdate) {
       await run(
         `UPDATE venues
             SET city = ?, slug = ?, name = ?, address = ?, website = ?, phone = ?, imageUrl = ?, galleryJson = ?, categoriesJson = ?, socialJson = ?, hoursJson = ?, seoTitle = ?, metaDescription = ?, focusKeyphrase = ?, imageAlt = ?, description = ?, createdByUserId = COALESCE(createdByUserId, ?), updatedAt = datetime('now')
