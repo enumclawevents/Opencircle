@@ -4388,21 +4388,6 @@ function renderInlineIcon(name) {
   return "";
 }
 
-function renderDashboardQuickLinkIcon(name) {
-  const icons = {
-    calendarPlus: '<rect x="3" y="4" width="18" height="17" rx="2"></rect><path d="M8 2v4M16 2v4M3 9h18M12 13v5M9.5 15.5h5"></path>',
-    clipboardCheck: '<rect x="6" y="4" width="12" height="17" rx="2"></rect><path d="M9 4V3h6v1M9.5 13l2 2 3.5-4"></path>',
-    chart: '<path d="M4 19V5M4 19h16M8 16v-4M12 16V8M16 16v-6"></path>',
-    pinPlus: '<path d="M12 21s6-5.1 6-11a6 6 0 1 0-12 0c0 5.9 6 11 6 11Z"></path><path d="M12 7v6M9 10h6"></path>',
-    briefcase: '<rect x="3" y="7" width="18" height="12" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 12v2h4v-2"></path>',
-    megaphone: '<path d="m4 14 12-5v10L4 14Z"></path><path d="M16 11.5a4 4 0 0 1 0 5M4 14l1.5 5h3L8 15.7"></path>',
-    send: '<path d="m21 3-8 18-3.5-7.5L3 10l18-7Z"></path><path d="m9.5 13.5 4-4"></path>',
-    message: '<path d="M20 15a3 3 0 0 1-3 3H9l-5 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v9Z"></path>',
-  };
-  const content = icons[name] || icons.message;
-  return `<svg class="dashboard-quick-link-svg dashboard-quick-link-svg--${name}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${content}</svg>`;
-}
-
 const ORGANIZER_SECTION_KEYS = ["events", "venues", "jobs", "ads", "featureEvents"];
 const DEFAULT_ORGANIZER_PERMISSIONS = Object.freeze({
   events: true,
@@ -10966,6 +10951,7 @@ return `
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/assets/brand/favicon.ico" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
     <title>${pageTitle}</title>
     <style>
       :root{
@@ -14621,15 +14607,7 @@ return `
       .dashboard-quick-links{ display:grid; grid-template-columns:repeat(8,minmax(108px,1fr)); width:min(100%,1080px); margin:0 auto; gap:16px; }
       .dashboard-quick-link{ display:flex; min-width:0; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:4px; border-radius:var(--radius-mid); color:var(--text); text-decoration:none; transition:color .18s ease; }
       .dashboard-quick-link-icon{ display:inline-flex; width:56px; height:56px; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:var(--radius-inner); background:var(--panel2); color:var(--accent); font-size:24px; transition:border-color .18s ease, background-color .18s ease; }
-      .dashboard-quick-link-svg{ display:block; width:var(--quick-link-art-size,40px); height:var(--quick-link-art-size,40px); flex:none; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
-      .dashboard-quick-link-svg--calendarPlus{ --quick-link-art-size:40px; }
-      .dashboard-quick-link-svg--clipboardCheck{ --quick-link-art-size:40px; }
-      .dashboard-quick-link-svg--chart{ --quick-link-art-size:42px; }
-      .dashboard-quick-link-svg--pinPlus{ --quick-link-art-size:40px; }
-      .dashboard-quick-link-svg--briefcase{ --quick-link-art-size:40px; }
-      .dashboard-quick-link-svg--megaphone{ --quick-link-art-size:42px; }
-      .dashboard-quick-link-svg--send{ --quick-link-art-size:40px; }
-      .dashboard-quick-link-svg--message{ --quick-link-art-size:40px; }
+      .dashboard-quick-link-icon svg{ display:block; width:30px; height:30px; flex:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
       .dashboard-quick-link-label{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:13px; font-weight:500; line-height:1.25; text-align:center; }
       .dashboard-quick-link:hover{ color:var(--text); }
       .dashboard-quick-link:hover .dashboard-quick-link-icon{ border-color:rgba(0,192,139,.48); background:rgba(0,192,139,.09); }
@@ -15043,14 +15021,14 @@ return `
             <section class="card dashboard-quick-links-card" id="dashboard-quick-links" aria-labelledby="dashboardQuickLinksTitle">
               <div class="sectionTitle"><h2 id="dashboardQuickLinksTitle">Quick Links</h2></div>
               <nav class="dashboard-quick-links" aria-label="Quick links">
-                ${canManageEvents ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/create-events")}"><span class="dashboard-quick-link-icon">${renderDashboardQuickLinkIcon("calendarPlus")}</span><span class="dashboard-quick-link-label">Create Event</span></a>` : ``}
-                ${canApproveEvents ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/approve-events")}"><span class="dashboard-quick-link-icon">${renderDashboardQuickLinkIcon("clipboardCheck")}</span><span class="dashboard-quick-link-label">Review Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</span></a>` : ``}
-                ${canManageEventReports ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/event-reports")}"><span class="dashboard-quick-link-icon">${renderDashboardQuickLinkIcon("chart")}</span><span class="dashboard-quick-link-label">Event Reports${openEventReportCount > 0 ? ` (${openEventReportCount})` : ""}</span></a>` : ``}
-                ${canManageVenues ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/venues/create")}"><span class="dashboard-quick-link-icon">${renderDashboardQuickLinkIcon("pinPlus")}</span><span class="dashboard-quick-link-label">Create Venue</span></a>` : ``}
-                ${canManageJobs ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/jobs/create")}"><span class="dashboard-quick-link-icon">${renderDashboardQuickLinkIcon("briefcase")}</span><span class="dashboard-quick-link-label">Create Job</span></a>` : ``}
-                ${canManageAds ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/ads/create")}"><span class="dashboard-quick-link-icon">${renderDashboardQuickLinkIcon("megaphone")}</span><span class="dashboard-quick-link-label">Create Ad</span></a>` : ``}
-                ${canManageNewsletter ? `<a class="dashboard-quick-link" href="${buildNewsletterHref("/admin/newsletter")}"><span class="dashboard-quick-link-icon">${renderDashboardQuickLinkIcon("send")}</span><span class="dashboard-quick-link-label">Send Newsletter</span></a>` : ``}
-                ${canUseMessages ? `<a class="dashboard-quick-link" href="${messagesAdminHref}"><span class="dashboard-quick-link-icon">${renderDashboardQuickLinkIcon("message")}</span><span class="dashboard-quick-link-label">View Messages</span></a>` : ``}
+                ${canManageEvents ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/create-events")}"><span class="dashboard-quick-link-icon"><i data-lucide="calendar-plus" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Create Event</span></a>` : ``}
+                ${canApproveEvents ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/approve-events")}"><span class="dashboard-quick-link-icon"><i data-lucide="clipboard-check" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Review Events${pendingCount > 0 ? ` (${pendingCount})` : ""}</span></a>` : ``}
+                ${canManageEventReports ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/event-reports")}"><span class="dashboard-quick-link-icon"><i data-lucide="chart-no-axes-combined" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Event Reports${openEventReportCount > 0 ? ` (${openEventReportCount})` : ""}</span></a>` : ``}
+                ${canManageVenues ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/venues/create")}"><span class="dashboard-quick-link-icon"><i data-lucide="map-pin-plus" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Create Venue</span></a>` : ``}
+                ${canManageJobs ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/jobs/create")}"><span class="dashboard-quick-link-icon"><i data-lucide="briefcase-business" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Create Job</span></a>` : ``}
+                ${canManageAds ? `<a class="dashboard-quick-link" href="${buildScopedAdminHref("/admin/ads/create")}"><span class="dashboard-quick-link-icon"><i data-lucide="megaphone" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Create Ad</span></a>` : ``}
+                ${canManageNewsletter ? `<a class="dashboard-quick-link" href="${buildNewsletterHref("/admin/newsletter")}"><span class="dashboard-quick-link-icon"><i data-lucide="send" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">Send Newsletter</span></a>` : ``}
+                ${canUseMessages ? `<a class="dashboard-quick-link" href="${messagesAdminHref}"><span class="dashboard-quick-link-icon"><i data-lucide="message-square" aria-hidden="true"></i></span><span class="dashboard-quick-link-label">View Messages</span></a>` : ``}
               </nav>
             </section>
 
@@ -18668,6 +18646,15 @@ return `
         }
         Array.prototype.forEach.call(document.querySelectorAll('[data-dashboard-series]'), function(control){ control.addEventListener('click', function(){ activitySeriesMode = control.getAttribute('data-dashboard-series') || 'both'; if (latestDashboardSummary) render(latestDashboardSummary); }); });
         range.addEventListener('change', load); if (communityScope) communityScope.addEventListener('change', load); if (apply) apply.addEventListener('click', load); load();
+      })();
+
+      (function(){
+        function renderLucideQuickLinks(){
+          if (!window.lucide || typeof window.lucide.createIcons !== "function") return;
+          window.lucide.createIcons({ attrs: { "stroke-width": 1.8 } });
+        }
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", renderLucideQuickLinks, { once:true });
+        else renderLucideQuickLinks();
       })();
 
       // ---- helpers ----
