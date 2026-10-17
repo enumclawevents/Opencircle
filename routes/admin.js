@@ -14368,7 +14368,7 @@ return `
          highlights never appear joined or squared off. */
       .nav-title-btn{ height:44px; padding:0 12px; border-radius:6px !important; color:#cbd5e1 !important; font-size:13px; font-weight:600; transition:background .16s ease,color .16s ease; }
       /* Keep the label column aligned with the city selector and submenu labels. */
-      .nav-title-btn .nav-title-icon{ width:21px; margin-right:6px; font-size:17px; color:#aebbd0; }
+      .nav-title-btn .nav-title-icon{ display:block; width:21px; height:21px; margin-right:6px; flex:none; color:#aebbd0; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
       .nav-title-btn:hover{ background:rgba(148,163,184,.12); }
       .nav-group.is-open > .nav-title-btn{ background:rgba(0,192,139,.16); color:#f8fffd !important; border:1px solid rgba(0,192,139,.16); }
       .nav-group.is-open > .nav-title-btn .nav-title-icon{ color:#36ddb1; }
@@ -14400,7 +14400,7 @@ return `
       body.sidebar-collapsed .nav{ gap:4px; }
       body.sidebar-collapsed .nav-group{ overflow:visible; }
       body.sidebar-collapsed .nav-title-btn{ width:56px; height:48px; justify-content:center; padding:0; border-radius:6px !important; }
-      body.sidebar-collapsed .nav-title-btn .nav-title-icon{ width:auto; margin:0; font-size:19px; }
+      body.sidebar-collapsed .nav-title-btn .nav-title-icon{ width:21px; height:21px; margin:0; }
       body.sidebar-collapsed .nav-title-btn::after{ display:none; }
       body.sidebar-collapsed .sb-divider{ margin:8px 4px; }
       body.sidebar-collapsed .sb-bottom{ display:flex; justify-content:center; padding:0; }
@@ -14666,7 +14666,7 @@ return `
         <nav class="nav">
           ${(hasDeveloperAccess || isOrganizerUser) ? `
           <div class="nav-group nav-collapsible ${showDashboard || showUpdatesLog ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin")}" aria-current="${showDashboard ? "page" : "false"}"><i class="fa-regular fa-chart-bar nav-title-icon" aria-hidden="true"></i><span>Dashboard</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin")}" aria-current="${showDashboard ? "page" : "false"}"><i class="nav-title-icon" data-lucide="layout-dashboard" aria-hidden="true"></i><span>Dashboard</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showDashboard ? "active" : ""}" href="${buildScopedAdminHref("/admin")}">Overview</a>
               <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates-log")}">Release Notes</a>
@@ -14676,7 +14676,7 @@ return `
           ` : ``}
 
           ${canManageEvents ? `<div class="nav-group nav-collapsible ${eventsMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/existing-events")}" aria-current="${eventsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-calendar nav-title-icon" aria-hidden="true"></i><span>Events</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/existing-events")}" aria-current="${eventsMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="calendar" aria-hidden="true"></i><span>Events</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/existing-events")}">${isOrganizerUser ? "My Events" : "All Events"}</a>
               <a class="subnav-link ${showCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/create-events")}">Create Events</a>
@@ -14696,7 +14696,7 @@ return `
           <div class="sb-divider"></div>` : ``}
 
           ${canManageNewsletter ? `<div class="nav-group nav-collapsible ${newsletterMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${buildNewsletterHref("/admin/newsletter")}" aria-current="${newsletterMenuOpen ? "page" : "false"}"><i class="fa-regular fa-envelope nav-title-icon" aria-hidden="true"></i><span>Newsletter</span></a>
+            <a class="nav-title-btn" href="${buildNewsletterHref("/admin/newsletter")}" aria-current="${newsletterMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="mail" aria-hidden="true"></i><span>Newsletter</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showNewsletter ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter")}">Settings</a>
               <a class="subnav-link ${showNewsletterPreview ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter/preview")}">Preview</a>
@@ -14706,7 +14706,7 @@ return `
           <div class="sb-divider"></div>` : ``}
 
           ${canManageVenues ? `<div class="nav-group nav-collapsible ${venuesMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/venues")}" aria-current="${venuesMenuOpen ? "page" : "false"}"><i class="fa-regular fa-building nav-title-icon" aria-hidden="true"></i><span>Venues</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/venues")}" aria-current="${venuesMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="building-2" aria-hidden="true"></i><span>Venues</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showVenueExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/venues")}">All Venues</a>
               <a class="subnav-link ${showVenueCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/venues/create")}">Create Venues</a>
@@ -14715,7 +14715,7 @@ return `
           <div class="sb-divider"></div>` : ``}
 
           ${canManageJobs ? `<div class="nav-group nav-collapsible ${jobsMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/jobs")}" aria-current="${jobsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-clipboard nav-title-icon" aria-hidden="true"></i><span>Jobs</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/jobs")}" aria-current="${jobsMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="briefcase-business" aria-hidden="true"></i><span>Jobs</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showJobsExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/jobs")}">All Jobs</a>
               <a class="subnav-link ${showJobsCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/jobs/create")}">Create Jobs</a>
@@ -14725,7 +14725,7 @@ return `
           <div class="sb-divider"></div>` : ``}
 
           ${canManageAds ? `<div class="nav-group nav-collapsible ${adsMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/ads")}" aria-current="${adsMenuOpen ? "page" : "false"}"><i class="fa-regular fa-image nav-title-icon" aria-hidden="true"></i><span>Ads</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/ads")}" aria-current="${adsMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="image" aria-hidden="true"></i><span>Ads</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showAdsExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/ads")}">All Ads</a>
               <a class="subnav-link ${showAdsCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/ads/create")}">Create Ads</a>
@@ -14734,13 +14734,13 @@ return `
           ` : ``}
 
           ${canManageUpdates ? `<div class="sb-divider"></div><div class="nav-group nav-collapsible ${showUpdates || showUpdatesCreate || showUpdatesAnalytics ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/updates")}" aria-current="${showUpdates || showUpdatesCreate || showUpdatesAnalytics ? "page" : "false"}"><i class="fa-regular fa-newspaper nav-title-icon" aria-hidden="true"></i><span>Updates</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/updates")}" aria-current="${showUpdates || showUpdatesCreate || showUpdatesAnalytics ? "page" : "false"}"><i class="nav-title-icon" data-lucide="newspaper" aria-hidden="true"></i><span>Updates</span></a>
             <div class="nav-sub"><a class="subnav-link ${showUpdates ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates")}">All Updates</a><a class="subnav-link ${showUpdatesCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates/create")}">Create Update</a><a class="subnav-link ${showUpdatesAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates/analytics")}">Analytics</a></div>
           </div>` : ``}
 
           ${(canSeeAnyAnalytics ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${analyticsMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/events-analytics")}" aria-current="${analyticsMenuOpen ? "page" : "false"}"><i class="fa-solid fa-chart-column nav-title-icon" aria-hidden="true"></i><span>Analytics</span></a>
+            <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/events-analytics")}" aria-current="${analyticsMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="chart-no-axes-combined" aria-hidden="true"></i><span>Analytics</span></a>
             <div class="nav-sub" data-nav-sub>
               ${canSeeEventsAnalytics ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/events-analytics")}">Events</a>` : ``}
               ${canSeeOrganizerAnalytics ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="${buildScopedAdminHref("/admin/events-organizers")}">${isOrganizerUser ? "Organizer" : "Organizers"}</a>` : ``}
@@ -14753,7 +14753,7 @@ return `
 
           ${(hasDeveloperAccess || isOrganizerUser) ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${adminMenuOpen ? "is-open" : ""}" data-nav-group>
-            <a class="nav-title-btn" href="${hasDeveloperAccess ? buildScopedAdminHref("/admin/users") : buildScopedAdminHref("/admin/preferences")}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="fa-regular fa-user nav-title-icon" aria-hidden="true"></i><span>Admin</span></a>
+            <a class="nav-title-btn" href="${hasDeveloperAccess ? buildScopedAdminHref("/admin/users") : buildScopedAdminHref("/admin/preferences")}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="user-round" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="${buildScopedAdminHref("/admin/preferences")}">Preferences</a>
               ${hasAdminAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="${buildScopedAdminHref("/admin/users")}">Users</a>` : ``}
@@ -18649,12 +18649,12 @@ return `
       })();
 
       (function(){
-        function renderLucideQuickLinks(){
+        function renderLucideIcons(){
           if (!window.lucide || typeof window.lucide.createIcons !== "function") return;
           window.lucide.createIcons({ attrs: { "stroke-width": 1.8 } });
         }
-        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", renderLucideQuickLinks, { once:true });
-        else renderLucideQuickLinks();
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", renderLucideIcons, { once:true });
+        else renderLucideIcons();
       })();
 
       // ---- helpers ----
