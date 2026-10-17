@@ -5,6 +5,7 @@ const router = express.Router();
 const eventsRouter = require("./events");
 const { all, get, run } = require("../db");
 const { safeParseJson } = require("../lib/json");
+const { matchesVenueLocation, venueLocationIdentifiers, venueLocationLabels } = require("../lib/venue-matching");
 const {
   buildSeoDescriptor,
   buildVenueStructuredData,
@@ -644,19 +645,13 @@ function nextOccurrenceFromEventRow(r, nowTs) {
 async function getUpcomingEventsForVenue(venue, limit) {
   const lim = Math.max(1, Math.min(50, parseInt(String(limit || 12), 10) || 12));
   const city = String(venue.city || "").trim();
-  const name = String(venue.name || "").trim();
-  const address = String(venue.address || "").trim();
-  const needles = [name, address].map((s) => s.toLowerCase()).filter(Boolean);
-  if (!city || !needles.length) return [];
+  const locationLabels = venueLocationLabels(venue);
+  const locationIdentifiers = venueLocationIdentifiers(venue);
+  if (!city || !locationLabels.length) return [];
 
   const eventCols = await getEventColumns();
   const hasCol = (name) => eventCols.has(name);
-  const locationPredicates = needles.map(() => `(
-        LOWER(TRIM(COALESCE(location, ''))) = ?
-        OR LOWER(COALESCE(location, '')) LIKE ?
-        OR ? LIKE LOWER(TRIM(COALESCE(location, '')))
-      )`);
-  const locationParams = needles.flatMap((needle) => [needle, `%${needle}%`, needle]);
+  const locationPredicates = locationLabels.map(() => "LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))");
 
   const rows = await all(
     `SELECT id, slug, title, startDateTime, endDateTime, location, imageUrl, categories,
@@ -671,16 +666,13 @@ async function getUpcomingEventsForVenue(venue, limit) {
         AND COALESCE(${hasCol("archived") ? "archived" : "0"}, 0) = 0
         AND (${locationPredicates.join(" OR ")})
       ORDER BY datetime(startDateTime) ASC`,
-    [city, ...locationParams]
+    [city, ...locationLabels]
   );
 
   const nowTs = Date.now() - 5 * 60 * 1000;
   const out = [];
   for (const r of rows || []) {
-    const loc = String(r.location || "").trim().toLowerCase();
-    if (!loc) continue;
-    const match = needles.some((n) => loc === n || loc.includes(n) || n.includes(loc));
-    if (!match) continue;
+    if (!matchesVenueLocation(r.location, locationIdentifiers)) continue;
 
     const st = Date.parse(String(r.startDateTime || ""));
     const en = Date.parse(String(r.endDateTime || ""));
@@ -937,6 +929,14 @@ router.get("/:idOrSlug/events", async (req, res) => {
         venue: String(venue.name || ""),
         status: "upcoming",
       },
+      enumerable: true,
+    });
+    Object.defineProperty(eventReq, "venueLocationLabels", {
+      value: venueLocationLabels(venue),
+      enumerable: true,
+    });
+    Object.defineProperty(eventReq, "venueLocationIdentifiers", {
+      value: venueLocationIdentifiers(venue),
       enumerable: true,
     });
     return eventsRouter.listEventsHandler(eventReq, res);

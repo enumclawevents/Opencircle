@@ -72,38 +72,43 @@ test("public venue detail is city scoped, preserves legacy access, and delegates
   await execSql(dbPath, `
     INSERT INTO venues (id, city, slug, name, address, website, description, imageUrl, viewCount, phoneClickCount)
     VALUES
-      (1, 'Enumclaw', 'central-hall', 'Central Hall', '1 Main St', 'https://central.example', 'Enumclaw venue', 'https://example.test/enumclaw.jpg', 8, 3),
-      (2, 'Buckley', 'central-hall', 'Central Hall', '2 Main St', 'https://buckley.example', 'Buckley venue', 'https://example.test/buckley.jpg', 9, 4);
+      (1, 'Enumclaw', 'roaring-underground', 'Roaring Underground', '1528 Cole Street', 'https://roaring.example', 'Enumclaw venue', 'https://example.test/enumclaw.jpg', 8, 3),
+      (2, 'Buckley', 'roaring-underground', 'Roaring Underground', '2 Main St', 'https://buckley.example', 'Buckley venue', 'https://example.test/buckley.jpg', 9, 4);
     INSERT INTO events (city, slug, title, location, organizer, startDateTime, endDateTime)
-    VALUES ('Enumclaw', 'central-one', 'Central one', 'Central Hall', 'OpenCircle', '${startOne}', '${endOne}');
+    VALUES ('Enumclaw', 'central-one', 'Central one', '1528 Cole Street', 'Roaring Underground', '${startOne}', '${endOne}');
     INSERT INTO events (city, slug, title, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule)
-    VALUES ('Enumclaw', 'central-recurring', 'Central recurring', 'Central Hall', 'OpenCircle', '${startOne}', '${endOne}', 1, '${recurringRule}');
+    VALUES ('Enumclaw', 'central-recurring', 'Central recurring', '1528 Cole Street', 'Roaring Underground', '${startOne}', '${endOne}', 1, '${recurringRule}');
     INSERT INTO events (city, slug, title, location, organizer, startDateTime, endDateTime)
-    VALUES ('Buckley', 'other-community-event', 'Other community event', 'Central Hall', 'OpenCircle', '${startOne}', '${endOne}');
+    VALUES
+      ('Buckley', 'other-community-event', 'Other community event', '1528 Cole Street', 'OpenCircle', '${startOne}', '${endOne}'),
+      ('Enumclaw', 'similar-venue', 'Similar venue', '1528 Cole Street Suite B', 'OpenCircle', '${startOne}', '${endOne}'),
+      ('Enumclaw', 'similar-venue-name', 'Similar venue name', 'Roaring Underground Annex', 'OpenCircle', '${startOne}', '${endOne}');
     INSERT INTO users (id, email, username, role, city)
     VALUES (1, 'developer@example.test', 'developer', 'developer', 'Enumclaw');
     INSERT INTO auth_sessions (tokenHash, user, role, city, exp)
     VALUES ('${tokenHash}', 'developer', 'developer', 'Enumclaw', ${Date.now() + 3600000});
   `);
 
-  const enumclaw = await fetch(`${baseUrl}/venues/slug/central-hall?city=Enumclaw`);
+  const enumclaw = await fetch(`${baseUrl}/venues/slug/roaring-underground?city=Enumclaw`);
   assert.equal(enumclaw.status, 200);
   const enumclawPayload = await enumclaw.json();
   assert.equal(enumclawPayload.data.id, 1);
   assert.equal(enumclawPayload.data.city, "Enumclaw");
   assert.equal(enumclawPayload.data.description, "Enumclaw venue");
-  assert.equal(enumclawPayload.data.website, "https://central.example/");
+  assert.equal(enumclawPayload.data.website, "https://roaring.example/");
   assert.equal("viewCount" in enumclawPayload.data, false);
   assert.equal("phoneClickCount" in enumclawPayload.data, false);
   assert.equal("createdByUserId" in enumclawPayload.data, false);
 
-  const buckley = await fetch(`${baseUrl}/venues/central-hall?city=Buckley`);
+  assert.ok(enumclawPayload.data.upcomingEvents.some((event) => event.location === "1528 Cole Street"));
+
+  const buckley = await fetch(`${baseUrl}/venues/roaring-underground?city=Buckley`);
   assert.equal(buckley.status, 200);
   assert.equal((await buckley.json()).data.id, 2);
-  assert.equal((await fetch(`${baseUrl}/venues/slug/central-hall?city=Wilkeson`)).status, 404);
+  assert.equal((await fetch(`${baseUrl}/venues/slug/roaring-underground?city=Wilkeson`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/venues/slug/not-a-venue?city=Enumclaw`)).status, 404);
   // Existing unscoped detail URLs remain valid for old integrations.
-  assert.equal((await fetch(`${baseUrl}/venues/slug/central-hall`)).status, 200);
+  assert.equal((await fetch(`${baseUrl}/venues/slug/roaring-underground`)).status, 200);
 
   const firstPage = await fetch(`${baseUrl}/venues/1/events?city=Enumclaw&limit=1&windowDays=30`);
   assert.equal(firstPage.status, 200);
@@ -112,12 +117,19 @@ test("public venue detail is city scoped, preserves legacy access, and delegates
   assert.equal(firstPagePayload.data.length, 1);
   assert.equal(firstPagePayload.meta.hasMore, true);
   assert.equal(firstPagePayload.data[0].city, "Enumclaw");
-  const secondPage = await fetch(`${baseUrl}/venues/central-hall/events?city=Enumclaw&limit=2&offset=1&windowDays=30`);
+  assert.ok(firstPagePayload.data.every((event) => event.location === "1528 Cole Street"));
+  const secondPage = await fetch(`${baseUrl}/venues/roaring-underground/events?city=Enumclaw&limit=2&offset=1&windowDays=30`);
   assert.equal(secondPage.status, 200);
   const secondPagePayload = await secondPage.json();
   assert.equal(secondPagePayload.meta.total, 3);
   assert.equal(secondPagePayload.data.length, 2);
   assert.ok(secondPagePayload.data.some((event) => event.isOccurrence));
+  const pagedItems = [...firstPagePayload.data, ...secondPagePayload.data];
+  assert.equal(new Set(pagedItems.map((event) => `${event.id}:${event.startDateTime}`)).size, 3);
+  assert.deepEqual(
+    pagedItems.map((event) => event.startDateTime),
+    pagedItems.map((event) => event.startDateTime).slice().sort()
+  );
   assert.equal((await fetch(`${baseUrl}/venues/1/events?city=Buckley`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/venues/1/events`)).status, 400);
 
@@ -125,7 +137,7 @@ test("public venue detail is city scoped, preserves legacy access, and delegates
   const form = new URLSearchParams({
     id: "1",
     city: "Enumclaw",
-    name: "Renamed Central Hall",
+    name: "Renamed Roaring Underground",
     venueCategory1: "Community & Civic Spaces",
     description: "Updated description",
   });
@@ -139,7 +151,7 @@ test("public venue detail is city scoped, preserves legacy access, and delegates
     redirect: "manual",
   });
   assert.equal(update.status, 302);
-  const renamed = await fetch(`${baseUrl}/venues/slug/central-hall?city=Enumclaw`);
+  const renamed = await fetch(`${baseUrl}/venues/slug/roaring-underground?city=Enumclaw`);
   assert.equal(renamed.status, 200);
-  assert.equal((await renamed.json()).data.name, "Renamed Central Hall");
+  assert.equal((await renamed.json()).data.name, "Renamed Roaring Underground");
 });

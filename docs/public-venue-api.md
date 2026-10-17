@@ -48,11 +48,16 @@ logic. It does not create occurrence records.
 
 ## Current matching limitation
 
-Events do not yet have a `venueId`. Venue event lookup therefore matches the
-venue's current name against `events.location`, within the requested city.
-This can be ambiguous when two venues share an address or overlapping location
-labels. A future Phase 4A.2 `events.venueId` relationship should replace this
-text matching; it is intentionally not introduced in this phase.
+Events do not yet have a `venueId`. Venue event lookup therefore compares
+`events.location` against the venue's current name and address, within the
+requested city. Matching is normalized exact comparison (case, punctuation,
+spacing, and diacritics are normalized); it does not use event organizers or
+unrestricted substring matching.
+
+Address abbreviations that are materially different (for example, `St` versus
+`Street`) are not inferred in this phase. A future Phase 4A.2 `events.venueId`
+relationship should replace this text matching; it is intentionally not
+introduced here.
 
 ## Slug policy
 

@@ -5,6 +5,7 @@ const router = express.Router();
 const { all, get, run } = require("../db");
 const crypto = require("crypto");
 const { safeParseJson } = require("../lib/json");
+const { matchesVenueLocation, normalizeVenueIdentifier } = require("../lib/venue-matching");
 const { normalizeEventReportChanges } = require("../lib/event-report-changes");
 const { notifyAreaApprovers } = require("../lib/admin-notification-email");
 const { esc } = require("../lib/html");
@@ -1599,6 +1600,19 @@ async function listEventsHandler(req, res) {
     }
     const organizer = organizerParam.value;
     const venue = venueParam.value;
+    // Internal venue pages may supply a small, exact set of the venue's known
+    // location labels (currently name and address). Keep public `venue=`
+    // behavior unchanged for compatibility.
+    const venueLocationIdentifiers = Array.isArray(req.venueLocationIdentifiers)
+      ? [...new Set(req.venueLocationIdentifiers.map(normalizeVenueIdentifier).filter(Boolean))]
+      : [];
+    const venueLocationLabels = Array.isArray(req.venueLocationLabels)
+      ? [...new Set(req.venueLocationLabels.map((value) => String(value || "").trim()).filter(Boolean))]
+      : [];
+    const hasInternalVenueFilter = venueLocationIdentifiers.length > 0 && venueLocationLabels.length > 0;
+    const matchesVenue = (item) => hasInternalVenueFilter
+      ? matchesVenueLocation(item?.location, venueLocationIdentifiers)
+      : (!venue || String(item?.location || "").toLowerCase().includes(venue.toLowerCase()));
     const featuredParam = readEnumQueryValue(req.query, "featured", { defaultValue: "0", allowed: ["0", "1"] });
     if (featuredParam.error) {
       return res.status(400).json({ data: [], meta: { total: 0, limit: 0, offset: 0, hasMore: false, nextOffset: null }, error: featuredParam.error });
@@ -1653,7 +1667,7 @@ async function listEventsHandler(req, res) {
     // All other variants are public and can be reused for a very short window.
     const eventListCacheKey = status === "archived" ? "" : JSON.stringify([
       city.toLowerCase(), expand, status, sort, q.toLowerCase(), category ? category.slug : "",
-      organizer.toLowerCase(), venue.toLowerCase(), featuredOnly, limit, offset,
+      organizer.toLowerCase(), venue.toLowerCase(), venueLocationIdentifiers, featuredOnly, limit, offset,
       fromISO, toISO, windowDays,
     ]);
     if (eventListCacheKey) {
@@ -1675,7 +1689,10 @@ async function listEventsHandler(req, res) {
       rowWhere.push("LOWER(TRIM(COALESCE(organizer, ''))) = LOWER(TRIM(?))");
       rowParams.push(organizer);
     }
-    if (venue) {
+    if (hasInternalVenueFilter) {
+      rowWhere.push(`(${venueLocationLabels.map(() => "LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))").join(" OR ")})`);
+      rowParams.push(...venueLocationLabels);
+    } else if (venue) {
       rowWhere.push("LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))");
       rowParams.push(venue);
     }
@@ -1714,7 +1731,7 @@ async function listEventsHandler(req, res) {
           if (!matchesQuery(it, q)) return false;
           if (!matchesCategory(it, category)) return false;
           if (organizer && !String(it.organizer || "").toLowerCase().includes(organizer.toLowerCase())) return false;
-          if (venue && !String(it.location || "").toLowerCase().includes(venue.toLowerCase())) return false;
+          if (!matchesVenue(it)) return false;
           if (!inIsoRange(it, fromISO, toISO)) return false;
           return true;
         });
@@ -1789,7 +1806,7 @@ async function listEventsHandler(req, res) {
       if (!matchesQuery(it, q)) return false;
       if (!matchesCategory(it, category)) return false;
       if (organizer && !String(it.organizer || "").toLowerCase().includes(organizer.toLowerCase())) return false;
-      if (venue && !String(it.location || "").toLowerCase().includes(venue.toLowerCase())) return false;
+      if (!matchesVenue(it)) return false;
       if (!inIsoRange(it, fromISO, toISO)) return false;
       return true;
     });
