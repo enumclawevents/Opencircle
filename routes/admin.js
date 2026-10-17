@@ -18518,7 +18518,7 @@ return `
               var showEvents = activitySeriesMode !== 'views', showViews = activitySeriesMode !== 'events';
               var width = Math.max(1, Math.round(chart.clientWidth || 1000));
               var height = Math.max(1, Math.round(chart.clientHeight || 250));
-              var padL = 48, padR = showViews && showEvents ? 48 : 14, padT = 30, padB = 28;
+              var padL = 48, padR = showViews && showEvents ? 48 : 14, padT = 30, padB = 42;
               var plotW = width - padL - padR, plotH = height - padT - padB;
               var events = series.map(function(item){ return Number(item.eventOccurrences || 0); });
               var views = series.map(function(item){ return Number(item.eventViews || 0); });
@@ -18553,7 +18553,7 @@ return `
               var labels = series.map(function(item, index){
                 if (index !== series.length - 1 && index % labelStep !== 0) return '';
                 var anchor = index === series.length - 1 ? 'end' : (index === 0 ? 'start' : 'middle');
-                return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 30).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + dateLabel(seriesDate(index)) + '</text>';
+                return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 24).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + dateLabel(seriesDate(index)) + '</text>';
               }).join('');
               var axisTitles = (showEvents ? '<text x="' + padL + '" y="14" fill="rgba(16,185,129,.90)" font-size="12" font-weight="650">Events</text>' : '<text x="' + padL + '" y="14" fill="rgba(37,99,235,.82)" font-size="12" font-weight="650">Views</text>') + (showViews && showEvents ? '<text x="' + (padL + plotW) + '" y="14" text-anchor="end" fill="rgba(37,99,235,.82)" font-size="12" font-weight="650">Views</text>' : '');
               chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + axisTitles + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + (showViews ? '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + (showEvents ? '<path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + labels + '</g></svg>';
