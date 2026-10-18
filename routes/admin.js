@@ -12409,6 +12409,14 @@ return `
         outline: none;
         height: var(--ctrl-h);
       }
+      select:not([multiple]){
+        appearance:none;
+        padding-right:44px;
+        background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23506680' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+        background-repeat:no-repeat;
+        background-position:right 16px center;
+        background-size:16px 16px;
+      }
       .rec-box{ margin-top:16px; }
       .rec-grid{ margin-top:16px; }
       .actions{ margin-top:18px; }
@@ -13356,10 +13364,12 @@ return `
       .rec-box.recurrence{ background:transparent; border-color:var(--line); padding:0; border-width:0; }
       .rec-box.recurrence .event-type-managed-rec-toggle:first-child{ padding-top:4px; }
       .recurrence-choice{ min-height:38px; padding:0 12px; font-size:13px; }
+      .recurrence-choice input[type="radio"]{ margin-right:8px; }
       .recurrence #repeatControls{ margin-top:14px !important; padding-top:14px; border-top:1px solid var(--line); }
       .event-image-upload{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
       .event-image-upload input[type="file"]{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; }
       .event-image-upload-label{ margin:0 !important; cursor:pointer; }
+      .event-image-upload-label svg{ margin-right:8px; flex:0 0 auto; }
       .event-image-upload-name{ color:var(--muted); font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .event-form-media > label{ margin-top:16px; }
       .event-form-media .event-image-upload + .note{ margin-top:6px; }
@@ -14293,7 +14303,7 @@ return `
 
       /* Dark theme tweaks */
       input, textarea, select{
-        background: var(--panel2);
+        background-color: var(--panel2);
         color: var(--text);
         border: 1px solid var(--line);
       }
@@ -14564,7 +14574,7 @@ return `
       body.theme-dark input,
       body.theme-dark textarea,
       body.theme-dark select,
-      body.theme-dark .users-search input{ background:var(--panel2) !important; color:var(--text) !important; border-color:var(--line) !important; }
+      body.theme-dark .users-search input{ background-color:var(--panel2) !important; color:var(--text) !important; border-color:var(--line) !important; }
       body.theme-dark input::placeholder,
       body.theme-dark textarea::placeholder{ color:#90a1ba; }
       body.theme-dark .message-bubble.mine{ background:rgba(0,192,139,.14); }
