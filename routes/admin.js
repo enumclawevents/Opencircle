@@ -13316,6 +13316,27 @@ return `
         border-color:rgba(16,185,129,.48);
         background:rgba(16,185,129,.10);
       }
+      .event-form-section{
+        padding:24px 0;
+        border-top:1px solid var(--line);
+      }
+      .event-form-section:first-child{ border-top:0; padding-top:8px; }
+      .event-form-section-heading{ margin-bottom:16px; }
+      .event-form-section-heading h3{ margin:0; color:var(--text); font-size:17px; line-height:1.25; }
+      .event-form-section-heading p{ margin:5px 0 0; color:var(--muted); font-size:13px; line-height:1.45; }
+      .event-form-section .formGrid{ margin-top:0; }
+      .event-form-basics .ctrl[name="title"]{ font-size:18px; font-weight:650; }
+      .event-form-basics textarea[name="description"]{ min-height:130px; }
+      .event-form-categories{ margin:16px 0; }
+      .event-form-categories .rec-box{ margin-top:0; background:transparent; padding:0; border:0; }
+      .event-form-advanced{ margin-top:0; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel2); }
+      .event-form-advanced > summary{ cursor:pointer; padding:14px; color:var(--text); font-size:14px; font-weight:700; }
+      .event-form-advanced > summary::marker{ color:var(--muted); }
+      .event-form-advanced-body{ padding:0 14px 14px; }
+      .event-form-advanced .rec-box{ margin-top:12px; background:var(--panel); }
+      .event-form-savebar{ position:sticky; bottom:12px; z-index:4; display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:24px; padding:12px; border:1px solid var(--line); border-radius:var(--radius-mid); background:color-mix(in srgb, var(--panel) 94%, transparent); box-shadow:var(--shadow); }
+      .event-form-savebar .actions{ margin:0; }
+      @media (max-width: 700px){ .event-form-section{ padding:20px 0; } .event-form-savebar{ bottom:8px; } }
       .event-type-shell{ display:none; }
       .event-type-shell.is-visible{ display:block; }
       .event-type-note{
@@ -16741,67 +16762,37 @@ return `
               </div>
 
               <div class="event-type-shell is-visible" id="eventTypeShell">
-
-              ${canFeatureEvents ? `
-              <div class="rec-box">
-                <div class="checkbox">
-                  <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
-                  <label for="featured" style="margin:0;font-size:12px;font-weight:650;">Featured event</label>
-                </div>
-                <div class="note">Featured events show a badge on the event card and event page.</div>
-                ${canCurateEventPromotions ? `
-                <div class="checkbox" style="margin-top:10px;">
-                  <input type="checkbox" id="eddiesPick" name="eddiesPick" value="1" ${isEddiesPick ? "checked" : ""} />
-                  <label for="eddiesPick" style="margin:0;font-size:12px;font-weight:650;">Eddie's Pick</label>
-                </div>
-                <div class="note">Shows this event as Eddie's Pick in weekend emails.</div>
-                ` : ``}
-              </div>
-              ` : ""}
-
-              <div class="rec-box">
-                <div style="font-weight:650; margin-bottom:6px;">Categories (pick up to 3)</div>
-                <div class="cat-grid">
-                  <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 1</div>${categorySelect(0)}</div>
-                  <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 2</div>${categorySelect(1)}</div>
-                  <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 3</div>${categorySelect(2)}</div>
-                </div>
-                <div class="note">Max 3. Only your allow-list categories are accepted.</div>
-              </div>
-
+              <section class="event-form-section event-form-basics">
+                <div class="event-form-section-heading"><h3>Event basics</h3><p>Start with the information visitors need to understand your event.</p></div>
               <label>Title</label>
               <input class="ctrl" name="title" value="${esc(editEvent?.title || "")}" required />
 
               <label>Description</label>
               <textarea class="ctrl" name="description" required>${esc(editEvent?.description || "")}</textarea>
 
+              <div class="event-form-categories">
+                <div class="rec-box">
+                  <div style="font-weight:650; margin-bottom:6px;">Categories <span class="muted" style="font-weight:500;">(up to 3)</span></div>
+                  <div class="cat-grid">
+                    <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 1</div>${categorySelect(0)}</div>
+                    <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 2</div>${categorySelect(1)}</div>
+                    <div><div class="muted" style="font-size:12px; margin-bottom:6px;">Category 3</div>${categorySelect(2)}</div>
+                  </div>
+                  <div class="note">Choose from the approved categories for this community.</div>
+                </div>
+              </div>
+
               <label>Event Details</label>
               <textarea class="ctrl" name="eventDetails">${esc(editEvent?.eventDetails || "")}</textarea>
+              <div class="note">Add practical details such as age guidance, parking, or what to bring.</div>
 
               <label>Good to Know</label>
               <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
+              <div class="note">Share a final helpful note for attendees.</div>
+              </section>
 
-              ${isOrganizerUser ? `
-              <div class="note" style="margin-top:12px;">SEO is generated automatically from your event title, description, location, and organizer details.</div>
-              ` : `
-              <div class="rec-box">
-                <div style="font-weight:650; margin-bottom:6px;">SEO</div>
-                <label>SEO Title</label>
-                <input class="ctrl" name="seoTitle" value="${esc(editEvent?.seoTitle || "")}" />
-                <div class="note">Recommended ~50–60 characters.</div>
-
-                <label style="margin-top:10px;">Meta Description</label>
-                <textarea class="ctrl" name="metaDescription" rows="3">${esc(editEvent?.metaDescription || "")}</textarea>
-                <div class="note">Recommended ~140–160 characters.</div>
-
-                <label style="margin-top:10px;">Focus Keyphrase</label>
-                <input class="ctrl" name="focusKeyphrase" value="${esc(editEvent?.focusKeyphrase || "")}" />
-
-                <label style="margin-top:10px;">Image Alt Text</label>
-                <input class="ctrl" name="imageAlt" value="${esc(editEvent?.imageAlt || "")}" />
-              </div>
-              `}
-
+              <section class="event-form-section event-form-schedule">
+                <div class="event-form-section-heading"><h3>Date &amp; time</h3><p>Set the first occurrence, then choose whether the event repeats.</p></div>
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
                   <label style="margin-top:0;">First occurrence starts</label>
@@ -16814,7 +16805,7 @@ return `
                     value="${esc(displayEventEndLocalValue)}" required />
                 </div>
               </div>
-              <div class="note" style="margin-top:6px;">For repeats, these times define the duration of each occurrence. Overnight events are supported.</div>
+              <div class="note" style="margin-top:6px;">These times apply to each occurrence. Overnight events are supported.</div>
 
               <div class="rec-box multi-day-shell ${inferredEventType === "multi-day" ? "is-visible" : ""}" id="multiDayScheduleShell" style="margin-top:14px;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px; flex-wrap:wrap;">
@@ -17205,6 +17196,25 @@ return `
                   window.ocSyncRecurrenceUI();
                 })();
               </script>
+              </section>
+
+              <section class="event-form-section event-form-location">
+                <div class="event-form-section-heading"><h3>Location &amp; organizer</h3><p>Use the same venue and organizer names visitors will recognize.</p></div>
+                <div class="rec-grid">
+                  <div>
+                    <label style="margin-top:0;">Location</label>
+                    <input class="ctrl" name="location" value="${esc(editEvent?.location || "")}" required />
+                  </div>
+                  <div>
+                    <label style="margin-top:0;">Organizer</label>
+                    <input class="ctrl" name="organizer" value="${esc(organizerFormValue)}" ${isOrganizerUser ? "readonly" : ""} required />
+                    ${isOrganizerUser ? `<div class="note">Your organizer identity is applied automatically.</div>` : ``}
+                  </div>
+                </div>
+              </section>
+
+              <section class="event-form-section event-form-media">
+                <div class="event-form-section-heading"><h3>Media &amp; ticketing</h3><p>Add the event image and an optional link for tickets or reservations.</p></div>
               <label>Flyer Image (Upload)</label>
               <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
               <div class="note">${isOrganizerUser ? "Images are automatically formatted after upload." : "Uploading replaces the Image URL below."}</div>
@@ -17241,24 +17251,52 @@ return `
                 </div>
               </div>
 
-              <label>Location</label>
-              <input class="ctrl" name="location" value="${esc(editEvent?.location || "")}" required />
+              </section>
 
-              <label>Organizer</label>
-              <input class="ctrl" name="organizer" value="${esc(organizerFormValue)}" ${isOrganizerUser ? "readonly" : ""} required />
-              ${isOrganizerUser ? `<div class="note">Organizer accounts save events under your organizer identity automatically.</div>` : ``}
+              <section class="event-form-section">
+                <details class="event-form-advanced">
+                  <summary>Advanced settings</summary>
+                  <div class="event-form-advanced-body">
+                  ${isOrganizerUser ? `
+                    <div class="note">SEO is generated automatically from your event details.</div>
+                  ` : `
+                    <div class="rec-box">
+                      <div style="font-weight:650; margin-bottom:6px;">SEO</div>
+                      <label>SEO Title</label>
+                      <input class="ctrl" name="seoTitle" value="${esc(editEvent?.seoTitle || "")}" />
+                      <label style="margin-top:10px;">Meta Description</label>
+                      <textarea class="ctrl" name="metaDescription" rows="3">${esc(editEvent?.metaDescription || "")}</textarea>
+                      <label style="margin-top:10px;">Focus Keyphrase</label>
+                      <input class="ctrl" name="focusKeyphrase" value="${esc(editEvent?.focusKeyphrase || "")}" />
+                      <label style="margin-top:10px;">Image Alt Text</label>
+                      <input class="ctrl" name="imageAlt" value="${esc(editEvent?.imageAlt || "")}" />
+                    </div>
+                  `}
+                  ${canFeatureEvents ? `
+                    <div class="rec-box">
+                      <div class="checkbox">
+                        <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
+                        <label for="featured" style="margin:0;font-size:12px;font-weight:650;">Featured event</label>
+                      </div>
+                      ${canCurateEventPromotions ? `<div class="checkbox" style="margin-top:10px;"><input type="checkbox" id="eddiesPick" name="eddiesPick" value="1" ${isEddiesPick ? "checked" : ""} /><label for="eddiesPick" style="margin:0;font-size:12px;font-weight:650;">Eddie's Pick</label></div>` : ``}
+                    </div>
+                  ` : ``}
+                    <div class="rec-box">
+                      <div class="checkbox">
+                        <input type="checkbox" id="forceDuplicateSave" name="forceDuplicateSave" value="1" />
+                        <label for="forceDuplicateSave" style="margin:0;font-size:12px;font-weight:650;">Save anyway if a possible duplicate is found</label>
+                      </div>
+                      <div class="note">Use only when you are sure this is a separate event.</div>
+                    </div>
+                  </div>
+                </details>
+              </section>
 
-              <div class="rec-box" style="margin-top:14px;">
-                <div class="checkbox">
-                  <input type="checkbox" id="forceDuplicateSave" name="forceDuplicateSave" value="1" />
-                  <label for="forceDuplicateSave" style="margin:0;font-size:12px;font-weight:650;">Save anyway if a possible duplicate is found</label>
-                </div>
-                <div class="note">Use this only when you are sure it is a separate event and not an accidental duplicate.</div>
-              </div>
-
-              <div class="actions">
+              <div class="event-form-savebar">
+                <div class="actions">
                 <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
               ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
+                </div>
                 <span class="note">Dates are saved in Pacific time automatically.</span>
               </div>
               </div>
