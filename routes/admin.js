@@ -13305,7 +13305,17 @@ return `
         line-height:1.5;
         color:var(--muted);
       }
-      .event-type-managed-rec-toggle{ display:none; }
+      /*
+       * The event-type picker was retired, but the recurrence selector is
+       * still the entry point for this panel.  Hiding it left the recurrence
+       * container visible with no accessible controls.
+       */
+      .event-type-managed-rec-toggle{ display:block; }
+      .recurrence-choice{ margin:0; cursor:pointer; }
+      .recurrence-choice:has(input:checked){
+        border-color:rgba(16,185,129,.48);
+        background:rgba(16,185,129,.10);
+      }
       .event-type-shell{ display:none; }
       .event-type-shell.is-visible{ display:block; }
       .event-type-note{
@@ -16827,8 +16837,8 @@ return `
                   <div class="rec-label" style="margin-bottom:8px;">Does this event repeat?</div>
                   <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} tabindex="-1" aria-hidden="true" style="position:absolute;opacity:0;pointer-events:none;" />
                   <div role="radiogroup" aria-label="Does this event repeat?" style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <label class="btn" style="margin:0;cursor:pointer;${hasRecurrence ? "" : "border-color:rgba(16,185,129,.48);background:rgba(16,185,129,.10);"}"><input type="radio" name="recurrenceChoice" value="no" ${hasRecurrence ? "" : "checked"} onchange="window.ocSetRecurrenceChoice && window.ocSetRecurrenceChoice(false)" /> No, this is a one-time event</label>
-                    <label class="btn" style="margin:0;cursor:pointer;${hasRecurrence ? "border-color:rgba(16,185,129,.48);background:rgba(16,185,129,.10);" : ""}"><input type="radio" name="recurrenceChoice" value="yes" ${hasRecurrence ? "checked" : ""} onchange="window.ocSetRecurrenceChoice && window.ocSetRecurrenceChoice(true)" /> Yes, this event repeats</label>
+                    <label class="btn recurrence-choice"><input type="radio" name="recurrenceChoice" value="no" ${hasRecurrence ? "" : "checked"} onchange="window.ocSetRecurrenceChoice && window.ocSetRecurrenceChoice(false)" /> No, this is a one-time event</label>
+                    <label class="btn recurrence-choice"><input type="radio" name="recurrenceChoice" value="yes" ${hasRecurrence ? "checked" : ""} onchange="window.ocSetRecurrenceChoice && window.ocSetRecurrenceChoice(true)" /> Yes, this event repeats</label>
                   </div>
                 </div>
                 <div class="note event-type-managed-rec-toggle">Choose a pattern below. Your first occurrence remains the event schedule above.</div>
