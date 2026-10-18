@@ -20,6 +20,14 @@ const { eventReportChangeLabel, eventReportChangeValue, parseEventReportChanges 
 const { notifyMessageRecipient } = require("../lib/admin-notification-email");
 const { ALLOWED_CATEGORIES, ALLOWED_VENUE_CATEGORIES, DEFAULT_TZ } = require("../lib/admin-constants");
 const {
+  addHoursIso: sharedAddHoursIso,
+  hasValidEventDateRange,
+  normalizeEventDateTimes,
+  normalizeMultiDaySchedule: sharedNormalizeMultiDaySchedule,
+  requiredEventFields,
+  toLocalISOWithOffset: sharedToLocalISOWithOffset,
+} = require("../lib/event-input");
+const {
   JOB_APPLICATION_FIELDS,
   JOB_EMPLOYMENT_TYPE_OPTIONS,
   formatEmploymentTypeDisplay,
@@ -31,6 +39,14 @@ const {
 const { bulkImportUpload, persistImportedImage, persistUploadedAdImage, persistUploadedImage, upload } = require("../lib/uploads");
 const { UPDATE_STATUSES, categoriesForCity, ensureUniqueUpdateSlug, ensureUpdatesSchema, normalizeTags, parseScheduleLocal, sanitizeUpdateHtml } = require("../lib/updates");
 const { generateOccurrences } = require("./events");
+const {
+  canTransitionLifecycle,
+  createEventWithChange,
+  deleteEventWithChange,
+  effectiveLifecycleState,
+  normalizeLifecycleState,
+  updateEventWithChange,
+} = require("../lib/event-lifecycle");
 
 function normalizeCategories(input) {
   let arr = [];
@@ -1028,20 +1044,7 @@ async function fetchQuickAddEventData(sourceUrl) {
 }
 
 function normalizeMultiDaySchedule(input) {
-  const items = safeParseJson(input, []);
-  if (!Array.isArray(items)) return [];
-  return items
-    .map((item) => {
-      const date = String(item?.date || "").trim();
-      const startTime = String(item?.startTime || "").trim();
-      const endTime = String(item?.endTime || "").trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-      if (!/^\d{2}:\d{2}$/.test(startTime)) return null;
-      if (!/^\d{2}:\d{2}$/.test(endTime)) return null;
-      return { date, startTime, endTime };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.date.localeCompare(b.date));
+  return sharedNormalizeMultiDaySchedule(input, { sort: true });
 }
 
 function normalizeAdPlacements(input, fallbackPlacement = "") {
@@ -1760,25 +1763,7 @@ function enumerateDateRangeYmd(startIso, endIso) {
 
 // Convert datetime-local (no timezone) into ISO with local timezone offset
 function toLocalISOWithOffset(dtLocal) {
-  const raw = String(dtLocal || "").trim();
-  if (!raw) return null;
-
-  const zonedLocal = DateTime.fromFormat(raw, "yyyy-MM-dd'T'HH:mm", { zone: DEFAULT_TZ });
-  if (zonedLocal.isValid) {
-    return zonedLocal.toISO({ suppressMilliseconds: true, includeOffset: true });
-  }
-
-  const zonedWithSeconds = DateTime.fromFormat(raw, "yyyy-MM-dd'T'HH:mm:ss", { zone: DEFAULT_TZ });
-  if (zonedWithSeconds.isValid) {
-    return zonedWithSeconds.toISO({ suppressMilliseconds: true, includeOffset: true });
-  }
-
-  const parsed = DateTime.fromISO(raw, { setZone: true });
-  if (parsed.isValid) {
-    return parsed.toISO({ suppressMilliseconds: true, includeOffset: true });
-  }
-
-  return null;
+  return sharedToLocalISOWithOffset(dtLocal, DEFAULT_TZ);
 }
 
 function toDateTimeLocalValue(isoWithOffset) {
@@ -1792,17 +1777,10 @@ function toDateValue(isoWithOffset) {
 }
 
 function addHoursIso(iso, hours) {
-  try {
-    const d = new Date(String(iso));
-    if (Number.isNaN(d.getTime())) return iso;
-    d.setHours(d.getHours() + hours);
-    return d.toISOString();
-  } catch {
-    return iso;
-  }
+  return sharedAddHoursIso(iso, hours);
 }
 
-async function insertEventFromPending(p) {
+async function insertEventFromPending(p, actorUserId = null) {
   if (!p) return null;
   const cols = await getEventsColumns();
 
@@ -1871,24 +1849,8 @@ async function insertEventFromPending(p) {
     ["submittedAt", String(p.createdAt || "") || null],
   ];
 
-  const insertCols = [];
-  const placeholders = [];
-  const insertVals = [];
-
-  for (const [k, v] of fields) {
-    if (!cols.size || cols.has(k)) {
-      insertCols.push(k);
-      placeholders.push("?");
-      insertVals.push(v);
-    }
-  }
-
-  const ins = await run(
-    `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
-    insertVals
-  );
-
-  return ins?.lastID || null;
+  const created = await createEventWithChange({ fields, actorUserId, changeType: "created" });
+  return created?.event?.id || null;
 }
 
 function buildHiddenAdminFormInputs(payload) {
@@ -5671,6 +5633,9 @@ try {
     const organizerFormValue = isOrganizerUser
       ? (organizerPrimaryName || String(editEvent?.organizer || ""))
       : String(editEvent?.organizer || "");
+    const currentEventLifecycleState = editEvent && !fromPending
+      ? effectiveLifecycleState(editEvent)
+      : "scheduled";
 
     // ✅ recurrence values for UI (these existed in your file, UI block was missing)
     const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
@@ -5790,6 +5755,131 @@ try {
       ? ADMIN_SIDEBAR_GROUPS["Plateau Regional"][0]
       : (editEventCity || selectedAdminPrimaryCity);
     const cityOptions = buildAreaOptionsMarkup(formCity);
+    const lifecycleLabel = {
+      scheduled: "Scheduled",
+      cancelled: "Cancelled",
+      postponed: "Postponed",
+      rescheduled: "Rescheduled",
+      archived: "Archived",
+    };
+    const lifecycleDescription = {
+      scheduled: "This event is currently scheduled.",
+      cancelled: "This event is marked cancelled. Visitors can see the cancellation notice.",
+      postponed: "This event is postponed and awaiting a new date.",
+      rescheduled: "This event has updated date or time details.",
+      archived: "This event is archived and cannot be changed here.",
+    };
+    const canManageCurrentEventLifecycle = !!editEvent && !fromPending &&
+      (hasDeveloperAccess || isOrganizerUser || sectionPermissions.events) &&
+      (!isOrganizerUser || organizerOwnsEvent(editEvent, organizerAccessValues));
+    const lifecycleActionButton = (state, label, tone = "") => (
+      canTransitionLifecycle(currentEventLifecycleState, state) && currentEventLifecycleState !== state
+        ? `<button type="button" class="btn ${tone}" data-lifecycle-action="${state}">${esc(label)}</button>`
+        : ""
+    );
+    const lifecycleControlsMarkup = !canManageCurrentEventLifecycle
+      ? ""
+      : `
+        <section class="event-form-section event-form-lifecycle" id="eventLifecycleSection">
+          <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg><div class="event-form-section-heading-copy"><h3>Event status</h3><p>Update what attendees should know without changing the event’s identity.</p></div></div>
+          <div class="event-lifecycle-panel" data-current-state="${esc(currentEventLifecycleState)}">
+            <div class="event-lifecycle-summary"><span class="event-lifecycle-state state-${esc(currentEventLifecycleState)}">${esc(lifecycleLabel[currentEventLifecycleState] || "Scheduled")}</span><p>${esc(lifecycleDescription[currentEventLifecycleState] || lifecycleDescription.scheduled)}</p></div>
+            ${hasRecurrence ? `<p class="note event-lifecycle-series-note">This action affects the entire recurring event series, not an individual occurrence.</p>` : ``}
+            ${currentEventLifecycleState === "archived" ? `<p class="note">Restore this event from the existing-events list before changing its status.</p>` : `
+              <label for="eventLifecycleReason" class="event-lifecycle-reason-label">Optional attendee message</label>
+              <textarea class="ctrl" id="eventLifecycleReason" maxlength="1000" rows="2" placeholder="Example: Cancelled due to weather.">${esc(editEvent?.lifecycleReason || "")}</textarea>
+              <div class="event-lifecycle-actions" aria-label="Event status actions">
+                ${lifecycleActionButton("cancelled", "Cancel event", "btn-danger")}
+                ${lifecycleActionButton("postponed", "Postpone event")}
+                ${lifecycleActionButton("rescheduled", "Reschedule event", "btn-primary")}
+                ${lifecycleActionButton("scheduled", "Restore to scheduled")}
+              </div>
+              <p class="note" id="eventLifecycleHelp">Cancellation and postponement require confirmation. Rescheduling first takes you to the date and time fields, then saves the date change and status together.</p>
+              <div class="event-lifecycle-feedback" id="eventLifecycleFeedback" role="status" aria-live="polite"></div>
+            `}
+          </div>
+        </section>
+        <input type="hidden" name="lifecycleAction" id="lifecycleAction" value="" />
+        <input type="hidden" name="lifecycleReason" id="lifecycleReason" value="" />
+        <input type="hidden" name="confirmRecurringLifecycle" id="confirmRecurringLifecycle" value="" />
+        <script>
+          (function(){
+            var panel = document.getElementById("eventLifecycleSection");
+            var form = panel && panel.closest("form");
+            var feedback = document.getElementById("eventLifecycleFeedback");
+            var reason = document.getElementById("eventLifecycleReason");
+            var actionInput = document.getElementById("lifecycleAction");
+            var reasonInput = document.getElementById("lifecycleReason");
+            var recurringConfirm = document.getElementById("confirmRecurringLifecycle");
+            var saveButton = form && form.querySelector('button[type="submit"]');
+            if (!panel || !form) return;
+            function message(text, isError){
+              if (!feedback) return;
+              feedback.textContent = String(text || "");
+              feedback.classList.toggle("is-error", !!isError);
+            }
+            function hasRecurrence(){ return !!document.getElementById("hasRecurrence")?.checked; }
+            function reasonValue(){ return String(reason && reason.value || "").trim(); }
+            function resetReschedule(){
+              if (actionInput) actionInput.value = "";
+              if (reasonInput) reasonInput.value = "";
+              if (recurringConfirm) recurringConfirm.value = "";
+              if (saveButton) saveButton.textContent = "Update Event";
+            }
+            function startReschedule(){
+              var series = hasRecurrence();
+              var prompt = series
+                ? "This updates the entire recurring series, not one occurrence. Continue to change the first occurrence date and time?"
+                : "Update the event date and time, then save it as rescheduled. Continue?";
+              if (!window.confirm(prompt)) return;
+              if (actionInput) actionInput.value = "rescheduled";
+              if (reasonInput) reasonInput.value = reasonValue();
+              if (recurringConfirm) recurringConfirm.value = series ? "1" : "";
+              if (saveButton) saveButton.textContent = "Save rescheduled event";
+              message("Update the date and time fields, then save. The rescheduled status will be recorded with your edit.", false);
+              var schedule = document.querySelector(".event-form-schedule");
+              if (schedule && schedule.scrollIntoView) schedule.scrollIntoView({ behavior: "smooth", block: "start" });
+              var start = document.getElementById("startDateTime");
+              if (start) window.setTimeout(function(){ start.focus(); }, 250);
+            }
+            async function transition(state){
+              if (state === "rescheduled") return startReschedule();
+              var label = state === "cancelled" ? "cancel this event" : state === "postponed" ? "postpone this event" : "restore this event to scheduled";
+              var series = hasRecurrence();
+              if (!window.confirm("Are you sure you want to " + label + (series ? "? This affects the entire recurring series." : "?") )) return;
+              var button = panel.querySelector('[data-lifecycle-action="' + state + '"]');
+              if (button) button.disabled = true;
+              message("Saving status…", false);
+              try {
+                var response = await fetch("/admin/events/${Number(editEvent.id)}/lifecycle", {
+                  method: "POST", credentials: "same-origin",
+                  headers: { "content-type": "application/json", accept: "application/json" },
+                  body: JSON.stringify({ state: state, reason: reasonValue() }),
+                });
+                var payload = await response.json().catch(function(){ return {}; });
+                if (!response.ok) throw new Error(String(payload.error || "Could not update event status."));
+                message("Status saved. Refreshing the event editor…", false);
+                window.location.reload();
+              } catch (error) {
+                message(error && error.message ? error.message : "Could not update event status.", true);
+                if (button) button.disabled = false;
+              }
+            }
+            var buttons = panel.querySelectorAll("[data-lifecycle-action]");
+            for (var i = 0; i < buttons.length; i += 1) {
+              buttons[i].addEventListener("click", function(){ transition(this.getAttribute("data-lifecycle-action")); });
+            }
+            form.addEventListener("submit", function(){
+              if (actionInput && actionInput.value === "rescheduled") {
+                if (reasonInput) reasonInput.value = reasonValue();
+                if (hasRecurrence() && recurringConfirm) recurringConfirm.value = "1";
+              } else {
+                resetReschedule();
+              }
+            });
+          })();
+        </script>
+      `;
     const buildCitySwitchHref = (cityValue) => {
       const sp = new URLSearchParams(req.query || {});
       sp.set("city", cityValue);
@@ -13374,6 +13464,21 @@ return `
       .event-form-media > label{ margin-top:16px; }
       .event-form-media .event-image-upload + .note{ margin-top:6px; }
       .event-form-media .rec-grid{ margin-top:16px !important; }
+      .event-lifecycle-panel{ border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel2); padding:14px; }
+      .event-lifecycle-summary{ display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; }
+      .event-lifecycle-summary p{ flex:1 1 240px; margin:2px 0 0; color:var(--muted); font-size:13px; line-height:1.45; }
+      .event-lifecycle-state{ display:inline-flex; align-items:center; min-height:28px; padding:4px 9px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--text); font-size:12px; font-weight:700; }
+      .event-lifecycle-state.state-scheduled{ color:#065f46; border-color:rgba(0,192,139,.30); background:rgba(0,192,139,.10); }
+      .event-lifecycle-state.state-cancelled{ color:#991b1b; border-color:rgba(239,68,68,.28); background:rgba(239,68,68,.10); }
+      .event-lifecycle-state.state-postponed,.event-lifecycle-state.state-rescheduled{ color:#854d0e; border-color:rgba(245,158,11,.30); background:rgba(245,158,11,.10); }
+      .event-lifecycle-state.state-archived{ color:var(--muted); background:#f8fafc; }
+      .event-lifecycle-reason-label{ margin-top:14px !important; }
+      .event-lifecycle-panel textarea{ min-height:70px; }
+      .event-lifecycle-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+      .event-lifecycle-actions .btn{ min-height:38px; }
+      .event-lifecycle-series-note{ margin:12px 0 0 !important; color:#854d0e !important; }
+      .event-lifecycle-feedback{ min-height:18px; margin-top:10px; color:#065f46; font-size:13px; line-height:1.4; }
+      .event-lifecycle-feedback.is-error{ color:#b91c1c; }
       @media (max-width: 700px){ .event-form-section{ padding:20px 0; } .event-form-section:first-child{ padding-top:20px; } .event-form-savebar{ align-items:stretch; } .event-form-savebar .actions{ width:100%; } .event-form-savebar .actions .btn-primary{ flex:1; } form[action="/admin/events"] .quick-add-box .quick-add-grid{ grid-template-columns:1fr; } }
       .event-type-shell{ display:none; }
       .event-type-shell.is-visible{ display:block; }
@@ -17297,6 +17402,8 @@ return `
               </div>
 
               </section>
+
+              ${lifecycleControlsMarkup}
 
               <section class="event-form-section">
                 <details class="event-form-advanced">
@@ -22091,7 +22198,7 @@ function isOrganizerAllowedAdminPath(pathname) {
     "/events",
     "/events/quick-add",
   ].includes(path)) return true;
-  if (/^\/events\/\d+\/(delete|archive|unarchive)$/.test(path)) return true;
+  if (/^\/events\/\d+\/(delete|archive|unarchive|lifecycle)$/.test(path)) return true;
   return /^\/event-reports\/\d+\/status$/.test(path);
 }
 
@@ -23706,6 +23813,9 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       metaDescription,
       focusKeyphrase,
       imageAlt,
+      lifecycleAction,
+      lifecycleReason,
+      confirmRecurringLifecycle,
 
       hasRecurrence,
       recurrenceType,
@@ -23753,27 +23863,24 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       imageUrl = await persistUploadedImage(req.file, req);
     }
 
-    // Prefer browser-generated ISO with offset (prevents UTC shift)
+    // Prefer browser-generated ISO with offset (prevents UTC shift), then
+    // normalize through the shared event-input baseline used by public intake.
     const startISO = (req.body.startDateTimeISO || "").trim();
     const endISO = (req.body.endDateTimeISO || "").trim();
-
-    if (startISO) startDateTime = startISO;
-    if (endISO) endDateTime = endISO;
-    if (!startISO) startDateTime = toLocalISOWithOffset(startDateTime);
-    if (!endISO) endDateTime = toLocalISOWithOffset(endDateTime);
-
-    if (!endDateTime && startDateTime) {
-      endDateTime = addHoursIso(startDateTime, 1);
-    }
+    const suppliedStartDateTime = startISO || startDateTime;
+    const suppliedEndDateTime = endISO || endDateTime;
+    ({ startDateTime, endDateTime } = normalizeEventDateTimes({
+      startDateTime: suppliedStartDateTime,
+      endDateTime: suppliedEndDateTime,
+      defaultEndHours: 1,
+    }));
+    // Keep established error semantics for a malformed supplied ISO value:
+    // validation below reports an invalid date instead of treating it as absent.
+    if (suppliedStartDateTime && !startDateTime) startDateTime = suppliedStartDateTime;
+    if (suppliedEndDateTime && !endDateTime) endDateTime = suppliedEndDateTime;
 
     // Validate required fields
-    const missing = [];
-    if (!title) missing.push("title");
-    if (!description) missing.push("description");
-    if (!startDateTime) missing.push("startDateTime");
-    if (!endDateTime) missing.push("endDateTime");
-    if (!location) missing.push("location");
-    if (!organizer) missing.push("organizer");
+    const missing = requiredEventFields({ title, description, startDateTime, endDateTime, location, organizer });
     if (missing.length) {
       return res.status(400).send("Missing required fields: " + missing.join(", "));
     }
@@ -23797,12 +23904,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ? buildBasicEventSeoFields({ title, description, location, organizer })
       : null;
 
-    const startMs = Date.parse(startDateTime);
-    const endMs = Date.parse(endDateTime);
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+    if (!Number.isFinite(Date.parse(startDateTime)) || !Number.isFinite(Date.parse(endDateTime))) {
       return res.status(400).send("Invalid date/time.");
     }
-    if (endMs <= startMs) {
+    if (!hasValidEventDateRange(startDateTime, endDateTime)) {
       return res.status(400).send("End time must be after start time.");
     }
 
@@ -23810,6 +23915,42 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     const canCurateEventPromotions = hasDeveloperAccessRole(role);
     const featuredFlag = canFeatureEvents ? (String(featured || "") === "1" ? 1 : 0) : 0;
     const eddiesPickFlag = canCurateEventPromotions ? (String(eddiesPick || "") === "1" ? 1 : 0) : 0;
+
+    // The editor uses this only for a guided reschedule: date/time validation
+    // above still owns the schedule, while the existing lifecycle service
+    // records the state transition in the same event revision.
+    const requestedLifecycleAction = String(lifecycleAction || "").trim().toLowerCase();
+    let lifecycleActionFields = [];
+    if (requestedLifecycleAction) {
+      if (requestedLifecycleAction !== "rescheduled" || !Number.isInteger(eventId) || eventId < 1) {
+        return res.status(400).send("Lifecycle changes must be made from an existing event.");
+      }
+      const lifecycleEvent = await get(
+        "SELECT id, organizer, hasRecurrence, lifecycleState, archived, startDateTime, endDateTime FROM events WHERE id = ? LIMIT 1",
+        [eventId]
+      );
+      if (!lifecycleEvent) return res.status(404).send("Event not found.");
+      if (role === "organizer" && !organizerOwnsEvent(lifecycleEvent, organizerAccessValues)) {
+        return res.status(403).send("Forbidden");
+      }
+      if (!canTransitionLifecycle(effectiveLifecycleState(lifecycleEvent), "rescheduled")) {
+        return res.status(409).send("This event cannot be marked rescheduled from its current status.");
+      }
+      if (Number(lifecycleEvent.hasRecurrence || 0) === 1 && String(confirmRecurringLifecycle || "") !== "1") {
+        return res.status(400).send("Confirm that this reschedules the entire recurring event series.");
+      }
+      if (String(lifecycleEvent.startDateTime || "") === String(startDateTime || "") && String(lifecycleEvent.endDateTime || "") === String(endDateTime || "")) {
+        return res.status(400).send("Update the event date or time before marking it rescheduled.");
+      }
+      const publicReason = String(lifecycleReason || "").trim();
+      if (publicReason.length > 1000) return res.status(400).send("Lifecycle reason must be 1000 characters or fewer.");
+      lifecycleActionFields = [
+        ["lifecycleState", "rescheduled"],
+        ["lifecycleReason", publicReason || null],
+        ["replacementEventId", null],
+        ["lifecycleUpdatedAt", new Date().toISOString()],
+      ];
+    }
 
     // Slug
     const rawSlug = String(req.body.slug || "").trim();
@@ -24106,7 +24247,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["recurrenceUntilDate", recurrenceUntilDateClean],
     ];
 
-    const fields = [...baseFields];
+    const fields = [...baseFields, ...lifecycleActionFields];
 
     // Only include recurrence columns if they exist in DB
     const hasRecCols =
@@ -24129,7 +24270,12 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       }
       vals.push(Number(id));
 
-await run(`UPDATE events SET ${sets.join(", ")} WHERE id=?`, vals);
+await updateEventWithChange({
+  eventId: Number(id),
+  fields,
+  actorUserId: sessionUser?.id || null,
+  changeType: requestedLifecycleAction ? "lifecycle" : "updated",
+});
 if (cols.has("createdByUserId")) {
   await run("UPDATE events SET createdByUserId = COALESCE(createdByUserId, ?) WHERE id = ?", [sessionUser?.id || null, Number(id)]);
 }
@@ -24158,22 +24304,11 @@ if (to) sp.set("to", to);
 return res.redirect(`/admin/create-events?${sp.toString()}`);
 
     } else {
-      const insertCols = [];
-      const placeholders = [];
-      const insertVals = [];
-
-      for (const [k, v] of fields) {
-        if (!cols.size || cols.has(k)) {
-          insertCols.push(k);
-          placeholders.push("?");
-          insertVals.push(v);
-        }
-      }
-
-await run(
-  `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
-  insertVals
-);
+await createEventWithChange({
+  fields,
+  actorUserId: sessionUser?.id || null,
+  changeType: "created",
+});
 
 // If this event came from a pending submission, remove it from the queue
 if (pendingId) {
@@ -24315,21 +24450,21 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
           }
         }
 
-        const startDateTime = toLocalISOWithOffset(startRaw);
-        let endDateTime = endRaw ? toLocalISOWithOffset(endRaw) : "";
+        let { startDateTime, endDateTime } = normalizeEventDateTimes({
+          startDateTime: startRaw,
+          endDateTime: endRaw,
+          defaultEndHours: 1,
+        });
         if (!startDateTime) {
           errors.push(`Row ${rowNumber}: invalid startDateTime.`);
           continue;
         }
-        if (!endDateTime) endDateTime = addHoursIso(startDateTime, 1);
         if (!endDateTime) {
           errors.push(`Row ${rowNumber}: invalid endDateTime.`);
           continue;
         }
 
-        const startMs = Date.parse(startDateTime);
-        const endMs = Date.parse(endDateTime);
-        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        if (!hasValidEventDateRange(startDateTime, endDateTime)) {
           errors.push(`Row ${rowNumber}: end time must be after start time.`);
           continue;
         }
@@ -24464,11 +24599,12 @@ router.post("/events/bulk-import", bulkImportUpload.fields([{ name: "eventsCsv",
           }
         }
 
-        const insertResult = await run(
-          `INSERT INTO events (${insertCols.join(", ")}) VALUES (${placeholders.join(", ")})`,
-          insertVals
-        );
-        imported.push({ id: Number(insertResult?.lastID || 0), title });
+        const created = await createEventWithChange({
+          fields,
+          actorUserId: sessionUser?.id || null,
+          changeType: "created",
+        });
+        imported.push({ id: Number(created?.event?.id || 0), title });
       }
     } finally {
       if (zipAssets?.cleanup) zipAssets.cleanup();
@@ -24598,6 +24734,7 @@ router.post("/approve-events/:id/approve", async (req, res) => {
   try {
     const role = normalizeRoleValue(req.user?.role || "organizer");
     if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
+    const sessionUser = await resolveSessionUser(req);
     await ensurePickSchema();
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
@@ -24608,7 +24745,7 @@ router.post("/approve-events/:id/approve", async (req, res) => {
       return res.redirect(`/admin/create-events?pending=${encodeURIComponent(id)}&workspace=Plateau%20Regional`);
     }
 
-    const newId = await insertEventFromPending(pending);
+    const newId = await insertEventFromPending(pending, sessionUser?.id || null);
     await run("DELETE FROM pending_events WHERE id = ?", [id]);
 
     if (newId) return res.redirect(`/admin/create-events?edit=${newId}`);
@@ -24652,7 +24789,7 @@ router.post("/events/:id/delete", async (req, res) => {
       }
     }
 
-    await run("DELETE FROM events WHERE id = ?", [id]);
+    await deleteEventWithChange({ eventId: id, actorUserId: sessionUser?.id || null });
 
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";
@@ -24673,6 +24810,64 @@ router.post("/events/:id/delete", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).send("Server error.");
+  }
+});
+
+// Lifecycle transitions are intentionally separate from ordinary event edits.
+// Public reports remain review input and never invoke this route automatically.
+router.post("/events/:id/lifecycle", express.json({ limit: "32kb" }), async (req, res) => {
+  try {
+    const role = normalizeRoleValue(req.user?.role || "organizer");
+    const sessionUser = await resolveSessionUser(req);
+    const sectionPermissions = getUserSectionPermissions(sessionUser || { role });
+    if (!(hasDeveloperAccessRole(role) || role === "organizer" || sectionPermissions.events)) return res.status(403).json({ error: "Lifecycle actions are not permitted for this account." });
+
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: "Invalid ID." });
+    const event = await get("SELECT id, city, organizer, archived, lifecycleState FROM events WHERE id = ? LIMIT 1", [id]);
+    if (!event) return res.status(404).json({ error: "Event not found." });
+    if (role === "organizer" && !organizerOwnsEvent(event, getOrganizerAccessValues(sessionUser, req))) {
+      return res.status(403).json({ error: "You can only change the lifecycle of events you organize." });
+    }
+
+    const target = String(req.body?.state || "").trim().toLowerCase();
+    const state = normalizeLifecycleState(target, "");
+    if (!state || state === "archived") {
+      return res.status(400).json({ error: "Use the archive action for archived events, or choose scheduled, cancelled, postponed, or rescheduled." });
+    }
+    const current = effectiveLifecycleState(event);
+    if (!canTransitionLifecycle(current, state)) {
+      return res.status(409).json({ error: `Cannot transition ${current} to ${state}.` });
+    }
+    const reason = String(req.body?.reason || "").trim();
+    if (reason.length > 1000) return res.status(400).json({ error: "Lifecycle reason must be 1000 characters or fewer." });
+    const replacementRaw = req.body?.replacementEventId;
+    const replacementEventId = replacementRaw === undefined || replacementRaw === null || String(replacementRaw).trim() === ""
+      ? null
+      : Number.parseInt(String(replacementRaw), 10);
+    if (replacementEventId !== null) {
+      if (!Number.isSafeInteger(replacementEventId) || replacementEventId < 1 || replacementEventId === id) {
+        return res.status(400).json({ error: "Replacement event must be another valid event." });
+      }
+      const replacement = await get("SELECT id FROM events WHERE id = ? AND city COLLATE NOCASE = ? COLLATE NOCASE LIMIT 1", [replacementEventId, event.city]);
+      if (!replacement) return res.status(400).json({ error: "Replacement event must belong to the same community." });
+    }
+
+    const result = await updateEventWithChange({
+      eventId: id,
+      fields: [
+        ["lifecycleState", state],
+        ["lifecycleReason", reason || null],
+        ["replacementEventId", replacementEventId],
+        ["lifecycleUpdatedAt", new Date().toISOString()],
+      ],
+      actorUserId: sessionUser?.id || null,
+      changeType: "lifecycle",
+    });
+    return res.json({ ok: true, changed: result.changed, eventId: id, revision: Number(result.event?.revision || 1), state });
+  } catch (error) {
+    console.error("[admin event lifecycle]", error);
+    return res.status(500).json({ error: "Server error." });
   }
 });
 
@@ -24713,7 +24908,18 @@ router.post("/events/:id/archive", async (req, res) => {
 
     if (sets.length === 0) return res.status(400).send("Archive not supported by schema.");
 
-    await run(`UPDATE events SET ${sets.join(", ")} WHERE id = ?`, [...params, id]);
+    const lifecycleFields = [];
+    if (colArchived) lifecycleFields.push([colArchived, 1]);
+    if (colArchivedAt) lifecycleFields.push([colArchivedAt, new Date().toISOString()]);
+    if (colReason) lifecycleFields.push([colReason, "manual"]);
+    if (cols.has("lifecycleState")) lifecycleFields.push(["lifecycleState", "archived"]);
+    if (cols.has("lifecycleUpdatedAt")) lifecycleFields.push(["lifecycleUpdatedAt", new Date().toISOString()]);
+    await updateEventWithChange({
+      eventId: id,
+      fields: lifecycleFields,
+      actorUserId: sessionUser?.id || null,
+      changeType: "archived",
+    });
 
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";
@@ -24770,7 +24976,18 @@ router.post("/events/:id/unarchive", async (req, res) => {
 
     if (sets.length === 0) return res.status(400).send("Unarchive not supported by schema.");
 
-    await run(`UPDATE events SET ${sets.join(", ")} WHERE id = ?`, [id]);
+    const lifecycleFields = [];
+    if (colArchived) lifecycleFields.push([colArchived, 0]);
+    if (colArchivedAt) lifecycleFields.push([colArchivedAt, null]);
+    if (colReason) lifecycleFields.push([colReason, null]);
+    if (cols.has("lifecycleState")) lifecycleFields.push(["lifecycleState", "scheduled"]);
+    if (cols.has("lifecycleUpdatedAt")) lifecycleFields.push(["lifecycleUpdatedAt", new Date().toISOString()]);
+    await updateEventWithChange({
+      eventId: id,
+      fields: lifecycleFields,
+      actorUserId: sessionUser?.id || null,
+      changeType: "restored",
+    });
 
     const pg = req.query.pg ? String(req.query.pg) : "1";
     const limit = req.query.limit ? String(req.query.limit) : "20";

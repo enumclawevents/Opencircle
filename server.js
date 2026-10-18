@@ -139,8 +139,21 @@ app.use(express.urlencoded({ extended: true }));
 // --------------------
 // Login (session cookie)
 // --------------------
-const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASS = process.env.ADMIN_PASS || "opencircle";
+const RUNTIME_ENV = String(process.env.NODE_ENV || "development").trim().toLowerCase();
+const IS_DEVELOPMENT_RUNTIME = RUNTIME_ENV === "development" || RUNTIME_ENV === "test";
+const configuredAdminUser = String(process.env.ADMIN_USER || "").trim();
+const configuredAdminPass = String(process.env.ADMIN_PASS || "");
+
+// The legacy bootstrap credential remains available only for local development
+// and test runs. Every deployed runtime must declare both values explicitly;
+// silently accepting a known password would otherwise expose a privileged
+// developer session.
+if (!IS_DEVELOPMENT_RUNTIME && (!configuredAdminUser || !configuredAdminPass)) {
+  throw new Error("Non-development runtimes require ADMIN_USER and ADMIN_PASS for the bootstrap administrator.");
+}
+
+const ADMIN_USER = configuredAdminUser || "admin";
+const ADMIN_PASS = configuredAdminPass || "opencircle";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const sessions = new Map();
 let lastSessionPruneAt = 0;
@@ -478,7 +491,7 @@ app.post("/login", async (req, res) => {
       res.cookie("oc_auth", token, {
         httpOnly: true,
         sameSite: "lax",
-        secure: String(process.env.NODE_ENV || "").toLowerCase() === "production",
+        secure: !IS_DEVELOPMENT_RUNTIME,
         maxAge: SESSION_TTL_MS,
         path: "/",
       });
@@ -491,7 +504,7 @@ app.post("/login", async (req, res) => {
     res.cookie("oc_auth", token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: String(process.env.NODE_ENV || "").toLowerCase() === "production",
+      secure: !IS_DEVELOPMENT_RUNTIME,
       maxAge: SESSION_TTL_MS,
       path: "/",
     });

@@ -12,6 +12,15 @@ const { notifyAreaApprovers } = require("../lib/admin-notification-email");
 const { esc } = require("../lib/html");
 const { findEventCategory } = require("../lib/admin-constants");
 const {
+  hasValidEventDateRange,
+  normalizeCategoryInput,
+  normalizeEventDateTimes,
+  normalizeMultiDaySchedule,
+  requiredEventFields,
+} = require("../lib/event-input");
+const { clientIp, createRateLimiter } = require("../lib/public-rate-limit");
+const { publicLifecycle, updateEventWithChange } = require("../lib/event-lifecycle");
+const {
   buildEventStructuredData,
   buildSeoDescriptor,
   deriveEventSeoFields,
@@ -27,7 +36,18 @@ const EVENT_REPORT_SOURCES = new Set(["event_page"]);
 const EVENT_REPORT_RATE_WINDOW_MS = 15 * 60 * 1000;
 const EVENT_REPORT_MAX_PER_IP = 12;
 const EVENT_REPORT_MAX_PER_IP_EVENT = 3;
-const eventReportRateBuckets = new Map();
+const eventReportRateLimiter = createRateLimiter({
+  windowMs: EVENT_REPORT_RATE_WINDOW_MS,
+  max: EVENT_REPORT_MAX_PER_IP,
+});
+const eventReportPerEventRateLimiter = createRateLimiter({
+  windowMs: EVENT_REPORT_RATE_WINDOW_MS,
+  max: EVENT_REPORT_MAX_PER_IP_EVENT,
+});
+const eventSubmissionRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 8 });
+const eventViewRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 240 });
+const eventTicketClickRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 30 });
+const eventEngagementRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60 });
 const ADMIN_APP_URL = String(process.env.ADMIN_APP_URL || "https://api.opencircleapi.com").replace(/\/$/, "");
 
 function readCachedPayload(cache, key, nowTs) {
@@ -75,25 +95,6 @@ function eventReportError(res, status, error, message) {
   return res.status(status).json({ ok: false, error, message });
 }
 
-function getEventReportClientIp(req) {
-  return String(req.ip || req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown")
-    .split(",")[0]
-    .trim()
-    .slice(0, 128) || "unknown";
-}
-
-function consumeEventReportRateLimit(key, max) {
-  const now = Date.now();
-  const entries = (eventReportRateBuckets.get(key) || []).filter((timestamp) => now - timestamp < EVENT_REPORT_RATE_WINDOW_MS);
-  if (entries.length >= max) {
-    eventReportRateBuckets.set(key, entries);
-    return false;
-  }
-  entries.push(now);
-  eventReportRateBuckets.set(key, entries);
-  return true;
-}
-
 function normalizeReportedEventUrl(value) {
   if (value === undefined || value === null || value === "") return { value: null };
   if (typeof value !== "string") return { error: "Event URL must be a string." };
@@ -105,74 +106,6 @@ function normalizeReportedEventUrl(value) {
     return { value: parsed.toString() };
   } catch (_) {
     return { error: "Event URL must be a valid HTTP or HTTPS URL." };
-  }
-}
-
-function toLocalISOWithOffset(dtLocal) {
-  const raw = String(dtLocal || "").trim();
-  if (!raw) return null;
-
-  const zonedLocal = DateTime.fromFormat(raw, "yyyy-MM-dd'T'HH:mm", { zone: DEFAULT_TZ });
-  if (zonedLocal.isValid) {
-    return zonedLocal.toISO({ suppressMilliseconds: true, includeOffset: true });
-  }
-
-  const zonedWithSeconds = DateTime.fromFormat(raw, "yyyy-MM-dd'T'HH:mm:ss", { zone: DEFAULT_TZ });
-  if (zonedWithSeconds.isValid) {
-    return zonedWithSeconds.toISO({ suppressMilliseconds: true, includeOffset: true });
-  }
-
-  const parsed = DateTime.fromISO(raw, { setZone: true });
-  if (parsed.isValid) {
-    return parsed.toISO({ suppressMilliseconds: true, includeOffset: true });
-  }
-
-  return null;
-}
-
-function normalizeCategoriesInput(val) {
-  if (Array.isArray(val)) {
-    return val.map((x) => String(x || "").trim()).filter(Boolean);
-  }
-  if (!val) return [];
-  return String(val)
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
-
-function normalizeMultiDaySchedule(val) {
-  if (!val) return [];
-  let parsed = val;
-  if (typeof val === "string") {
-    try {
-      parsed = JSON.parse(val);
-    } catch {
-      parsed = [];
-    }
-  }
-  if (!Array.isArray(parsed)) return [];
-  return parsed
-    .map((item) => {
-      const date = String(item?.date || "").trim();
-      const startTime = String(item?.startTime || "").trim();
-      const endTime = String(item?.endTime || "").trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-      if (!/^\d{2}:\d{2}$/.test(startTime)) return null;
-      if (!/^\d{2}:\d{2}$/.test(endTime)) return null;
-      return { date, startTime, endTime };
-    })
-    .filter(Boolean);
-}
-
-function addHoursIso(iso, hours) {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    d.setHours(d.getHours() + hours);
-    return d.toISOString();
-  } catch {
-    return iso;
   }
 }
 
@@ -236,6 +169,11 @@ function normalizeRecurringItems(raw, fallbackStartIso, fallbackEndIso) {
 // Public submission endpoint (frontend form -> pending approvals)
 router.post("/submit", async (req, res) => {
   try {
+    const submitIp = clientIp(req);
+    if (!eventSubmissionRateLimiter.consume(`submit:${submitIp}`)) {
+      res.set("Retry-After", String(eventSubmissionRateLimiter.retryAfterSeconds));
+      return res.status(429).json({ ok: false, error: "Too many event submissions. Please try again later." });
+    }
     let body = req.body;
     if (typeof body === "string" && body.trim()) {
       try { body = JSON.parse(body); } catch { body = {}; }
@@ -254,28 +192,24 @@ router.post("/submit", async (req, res) => {
     let startDateTime = String(body.startDateTime || "").trim();
     let endDateTime = String(body.endDateTime || "").trim();
 
-    if (!title || !description || !location || !startDateTime) {
+    const missingSubmissionFields = requiredEventFields(
+      { title, description, location, startDateTime },
+      ["title", "description", "location", "startDateTime"]
+    );
+    if (missingSubmissionFields.length) {
       return res.status(400).json({ ok: false, error: "Missing required fields." });
     }
 
-    // Accept datetime-local and convert to ISO with offset
-    if (/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(startDateTime)) {
-      const iso = toLocalISOWithOffset(startDateTime);
-      if (iso) startDateTime = iso;
-    }
-    if (endDateTime && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(endDateTime)) {
-      const iso = toLocalISOWithOffset(endDateTime);
-      if (iso) endDateTime = iso;
-    }
-
-    // If no end time, default to +1 hour (can be edited in approvals)
-    if (!endDateTime) {
-      endDateTime = addHoursIso(startDateTime, 1);
+    // Shared normalization keeps anonymous submissions aligned with editor
+    // saves while retaining this route's existing one-hour default.
+    ({ startDateTime, endDateTime } = normalizeEventDateTimes({ startDateTime, endDateTime, defaultEndHours: 1 }));
+    if (!hasValidEventDateRange(startDateTime, endDateTime)) {
+      return res.status(400).json({ ok: false, error: "Invalid date/time." });
     }
 
     const ticketUrl = String(body.ticketUrl || "").trim() || null;
     const eventLink = String(body.eventLink || "").trim() || null;
-    const cats = normalizeCategoriesInput(body.categories);
+    const cats = normalizeCategoryInput(body.categories);
     const categories = JSON.stringify(cats);
 
     const imageUrl = String(body.imageUrl || "").trim() || null;
@@ -425,12 +359,16 @@ router.post("/feature", async (req, res) => {
     );
     if (evt) {
       const featuredUntil = String(evt.endDateTime || evt.startDateTime || "").trim();
-      await run(
-        `UPDATE events
-         SET featured = 1, featuredOrderId = ?, featuredPurchasedAt = datetime('now'), featuredUntil = ?
-         WHERE id = ?`,
-        [orderId, featuredUntil, evt.id]
-      );
+      await updateEventWithChange({
+        eventId: evt.id,
+        fields: [
+          ["featured", 1],
+          ["featuredOrderId", orderId],
+          ["featuredPurchasedAt", new Date().toISOString()],
+          ["featuredUntil", featuredUntil],
+        ],
+        changeType: "updated",
+      });
       return res.json({ ok: true, target: "event", eventId: evt.id, featuredUntil });
     }
 
@@ -1419,7 +1357,11 @@ function enrichEventDetailForSeo(req, detailData) {
       imageUrl: detailData.imageUrl,
       locationName: detailData.location,
       organizerName: detailData.organizer,
-      isScheduled: detailData.status === "upcoming",
+      eventStatus: detailData.lifecycle?.state === "cancelled"
+        ? "https://schema.org/EventCancelled"
+        : detailData.lifecycle?.state === "postponed"
+          ? "https://schema.org/EventPostponed"
+          : detailData.status === "upcoming" ? "https://schema.org/EventScheduled" : "",
     }),
   };
 }
@@ -1473,10 +1415,24 @@ function buildLifecycleSummary(base, occurrences, nowTs) {
     ? "archived"
     : (nextUpcomingOccurrence || (isRecurring && pickRecurringDisplayOccurrence(list, nowTs)) ? "upcoming" : lifecycleStatus(base, nowTs));
 
+  const explicitLifecycle = publicLifecycle(base);
+  const lifecycleNotice = {
+    cancelled: "This event has been cancelled.",
+    postponed: "This event has been postponed. A new date will be shared when available.",
+    rescheduled: "This event has been rescheduled. Please review the updated date and time.",
+    archived: "This event is archived.",
+  }[explicitLifecycle.state] || null;
   return {
     stableId: Number(base.id) || null,
     slug: String(base.slug || "") || null,
     status: state,
+    state: explicitLifecycle.state,
+    revision: explicitLifecycle.revision,
+    updatedAt: explicitLifecycle.updatedAt,
+    reason: explicitLifecycle.reason,
+    replacementEventId: explicitLifecycle.replacementEventId,
+    label: explicitLifecycle.state.charAt(0).toUpperCase() + explicitLifecycle.state.slice(1),
+    notice: lifecycleNotice || explicitLifecycle.reason || null,
     isRecurring,
     recurrenceType: isRecurring ? String(base.recurrenceRule?.type || "") || null : null,
     originalStartDateTime: String(base.startDateTime || "") || null,
@@ -2442,11 +2398,11 @@ router.post("/:eventId/reports", async (req, res) => {
     const changesResult = normalizeEventReportChanges(req.body?.changes);
     if (changesResult.error) return eventReportError(res, 400, "validation_error", changesResult.error);
 
-    const clientIp = getEventReportClientIp(req);
-    const ipKey = `ip:${clientIp}`;
-    const eventKey = `event:${eventId}:ip:${clientIp}`;
-    if (!consumeEventReportRateLimit(ipKey, EVENT_REPORT_MAX_PER_IP) || !consumeEventReportRateLimit(eventKey, EVENT_REPORT_MAX_PER_IP_EVENT)) {
-      res.set("Retry-After", String(Math.ceil(EVENT_REPORT_RATE_WINDOW_MS / 1000)));
+    const reportIp = clientIp(req);
+    const ipKey = `ip:${reportIp}`;
+    const eventKey = `event:${eventId}:ip:${reportIp}`;
+    if (!eventReportRateLimiter.consume(ipKey) || !eventReportPerEventRateLimiter.consume(eventKey)) {
+      res.set("Retry-After", String(eventReportRateLimiter.retryAfterSeconds));
       return eventReportError(res, 429, "rate_limited", "Too many reports were submitted. Please try again later.");
     }
 
@@ -2468,6 +2424,60 @@ router.post("/:eventId/reports", async (req, res) => {
   } catch (err) {
     console.error("[/events/:eventId/reports] error:", err);
     return eventReportError(res, 500, "server_error", "Unable to submit the event report.");
+  }
+});
+
+// Incremental, public-safe synchronization feed. Consumers must bootstrap
+// from the normal city-scoped event feed, then retain `nextCursor` and poll
+// this endpoint for changed IDs. It intentionally contains no event content,
+// ownership, moderation notes, or analytics.
+router.get("/changes", async (req, res) => {
+  try {
+    const city = String(req.query?.city || "").trim();
+    const afterRaw = String(req.query?.after || "0").trim();
+    const limitRaw = String(req.query?.limit || "50").trim();
+    const after = Number.parseInt(afterRaw, 10);
+    const limit = Number.parseInt(limitRaw, 10);
+    if (!city) return res.status(400).json({ data: [], meta: { cursor: 0, nextCursor: null, hasMore: false }, error: "Missing city" });
+    if (!/^\d+$/.test(afterRaw) || !Number.isSafeInteger(after) || after < 0) {
+      return res.status(400).json({ data: [], meta: { cursor: 0, nextCursor: null, hasMore: false }, error: "Invalid after cursor" });
+    }
+    if (!/^\d+$/.test(limitRaw) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      return res.status(400).json({ data: [], meta: { cursor: after, nextCursor: null, hasMore: false }, error: "Invalid limit" });
+    }
+
+    const rows = await all(
+      `SELECT c.id, c.eventId, c.city, c.revision, c.changeType, c.occurredAt,
+              e.slug, e.archived, e.lifecycleState
+         FROM event_changes c
+         LEFT JOIN events e ON e.id = c.eventId
+        WHERE c.city COLLATE NOCASE = ? COLLATE NOCASE
+          AND c.id > ?
+        ORDER BY c.id ASC
+        LIMIT ?`,
+      [city, after, limit + 1]
+    );
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    const data = page.map((row) => {
+      const deleted = row.changeType === "deleted" || !row.slug;
+      const state = deleted ? "deleted" : (Number(row.archived || 0) === 1 ? "archived" : String(row.lifecycleState || "scheduled"));
+      return {
+        cursor: Number(row.id),
+        eventId: Number(row.eventId),
+        slug: deleted ? null : String(row.slug),
+        revision: Number(row.revision),
+        changeType: String(row.changeType),
+        occurredAt: row.occurredAt,
+        lifecycleState: state,
+        availability: deleted ? "deleted" : (state === "archived" ? "archived" : "available"),
+      };
+    });
+    const cursor = data.length ? data[data.length - 1].cursor : after;
+    return res.json({ data, meta: { city, cursor, nextCursor: hasMore ? cursor : null, hasMore } });
+  } catch (error) {
+    console.error("[/events/changes] error:", error);
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
@@ -2569,6 +2579,12 @@ function sha256(s) {
 // POST /events/:idOrSlug/view
 router.post("/:idOrSlug/view", async (req, res) => {
   try {
+    const viewIp = clientIp(req);
+    const rateKey = `view:${req.params.idOrSlug}:${viewIp}`;
+    if (!eventViewRateLimiter.consume(rateKey)) {
+      res.set("Retry-After", String(eventViewRateLimiter.retryAfterSeconds));
+      return res.status(429).json({ error: "Too many event views were recorded. Please try again later." });
+    }
     const raw = String(req.params.idOrSlug || "").trim();
     if (!raw) return res.status(400).json({ error: "Missing id/slug" });
 
@@ -2664,6 +2680,12 @@ router.post("/:idOrSlug/view", async (req, res) => {
 // POST /events/:idOrSlug/ticket-click
 router.post("/:idOrSlug/ticket-click", async (req, res) => {
   try {
+    const ticketIp = clientIp(req);
+    const rateKey = `ticket-click:${req.params.idOrSlug}:${ticketIp}`;
+    if (!eventTicketClickRateLimiter.consume(rateKey)) {
+      res.set("Retry-After", String(eventTicketClickRateLimiter.retryAfterSeconds));
+      return res.status(429).json({ error: "Too many ticket clicks were recorded. Please try again later." });
+    }
     const raw = String(req.params.idOrSlug || "").trim();
     if (!raw) return res.status(400).json({ error: "Missing id/slug" });
 
@@ -2700,6 +2722,12 @@ router.post("/:idOrSlug/ticket-click", async (req, res) => {
 // GET /events/:idOrSlug/tickets
 router.get("/:idOrSlug/tickets", async (req, res) => {
   try {
+    const ticketIp = clientIp(req);
+    const rateKey = `ticket-redirect:${req.params.idOrSlug}:${ticketIp}`;
+    if (!eventTicketClickRateLimiter.consume(rateKey)) {
+      res.set("Retry-After", String(eventTicketClickRateLimiter.retryAfterSeconds));
+      return res.status(429).send("Too many ticket clicks. Please try again later.");
+    }
     const raw = String(req.params.idOrSlug || "").trim();
     if (!raw) return res.status(400).send("Missing id/slug");
 
@@ -2738,6 +2766,12 @@ router.get("/:idOrSlug/tickets", async (req, res) => {
 //   OR absolute set: { going: 12, interested: 5 }
 router.post("/:idOrSlug/engagement", async (req, res) => {
   try {
+    const engagementIp = clientIp(req);
+    const rateKey = `engagement:${req.params.idOrSlug}:${engagementIp}`;
+    if (!eventEngagementRateLimiter.consume(rateKey)) {
+      res.set("Retry-After", String(eventEngagementRateLimiter.retryAfterSeconds));
+      return res.status(429).json({ error: "Too many engagement updates. Please try again later." });
+    }
     const raw = String(req.params.idOrSlug || "").trim();
     if (!raw) return res.status(400).json({ error: "Missing id/slug" });
 

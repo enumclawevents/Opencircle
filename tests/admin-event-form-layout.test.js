@@ -35,3 +35,13 @@ test("event form groups the existing controls without changing their bindings", 
   assert.match(source, /event-form-savebar\{ position:static/);
   assert.match(source, /event-form-advanced\[open\] > summary svg/);
 });
+
+test("event editor keeps lifecycle actions in a separate, accessible status section", () => {
+  for (const label of ["Event status", "Cancel event", "Postpone event", "Reschedule event", "Restore to scheduled"]) {
+    assert.match(source, new RegExp(label));
+  }
+  assert.match(source, /id="eventLifecycleFeedback" role="status" aria-live="polite"/);
+  assert.match(source, /name="lifecycleAction"/);
+  assert.match(source, /confirmRecurringLifecycle/);
+  assert.match(source, /This action affects the entire recurring event series/);
+});

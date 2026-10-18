@@ -45,6 +45,27 @@ function all(sql, params = []) {
   });
 }
 
+// Lifecycle writes need the event row and its append-only change record to
+// commit together. Serialize these short transactions on the single SQLite
+// connection so independently awaited statements cannot interleave.
+let transactionTail = Promise.resolve();
+function transaction(work) {
+  const execute = async () => {
+    await run("BEGIN IMMEDIATE");
+    try {
+      const result = await work({ run, get, all });
+      await run("COMMIT");
+      return result;
+    } catch (error) {
+      try { await run("ROLLBACK"); } catch (_) {}
+      throw error;
+    }
+  };
+  const current = transactionTail.then(execute, execute);
+  transactionTail = current.catch(() => {});
+  return current;
+}
+
 // Basic slugify
 function slugify(str) {
   return String(str || "")
@@ -164,6 +185,13 @@ async function initDB() {
       archived INTEGER NOT NULL DEFAULT 0,
       archived_at TEXT,
       archived_reason TEXT,
+
+      lifecycleState TEXT NOT NULL DEFAULT 'scheduled',
+      lifecycleReason TEXT,
+      replacementEventId INTEGER,
+      revision INTEGER NOT NULL DEFAULT 1,
+      publishedAt TEXT,
+      lifecycleUpdatedAt TEXT,
 
       createdByUserId INTEGER,
       submittedAt TEXT,
@@ -486,6 +514,25 @@ async function initDB() {
   await addCol("archived", `ALTER TABLE events ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`);
   await addCol("archived_at", `ALTER TABLE events ADD COLUMN archived_at TEXT;`);
   await addCol("archived_reason", `ALTER TABLE events ADD COLUMN archived_reason TEXT;`);
+  await addCol("lifecycleState", `ALTER TABLE events ADD COLUMN lifecycleState TEXT NOT NULL DEFAULT 'scheduled';`);
+  await addCol("lifecycleReason", `ALTER TABLE events ADD COLUMN lifecycleReason TEXT;`);
+  await addCol("replacementEventId", `ALTER TABLE events ADD COLUMN replacementEventId INTEGER;`);
+  await addCol("revision", `ALTER TABLE events ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;`);
+  await addCol("publishedAt", `ALTER TABLE events ADD COLUMN publishedAt TEXT;`);
+  await addCol("lifecycleUpdatedAt", `ALTER TABLE events ADD COLUMN lifecycleUpdatedAt TEXT;`);
+
+  await tryExec(`
+    CREATE TABLE IF NOT EXISTS event_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      eventId INTEGER NOT NULL,
+      city TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      changeType TEXT NOT NULL,
+      occurredAt TEXT NOT NULL DEFAULT (datetime('now')),
+      actorUserId INTEGER,
+      publicPayloadVersion INTEGER NOT NULL DEFAULT 1
+    );
+  `);
 
   await addCol("createdByUserId", `ALTER TABLE events ADD COLUMN createdByUserId INTEGER;`);
   // Submission time is intentionally nullable: approved public submissions
@@ -538,6 +585,9 @@ async function initDB() {
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_slug ON events(slug);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_archived ON events(archived);`);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_city_archived_startDateTime ON events(city, archived, startDateTime);`);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_events_lifecycle_state ON events(lifecycleState);`);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_event_changes_city_id ON event_changes(city COLLATE NOCASE, id);`);
+  await tryExec(`CREATE INDEX IF NOT EXISTS idx_event_changes_event_revision ON event_changes(eventId, revision);`);
 
   // event_views is created by the analytics deployment path in some existing
   // installations. These no-op safely where it is absent and speed up the
@@ -571,6 +621,9 @@ async function archiveExpiredEvents() {
   const hasArchivedAt = cols.some((c) => c.name === "archived_at");
   const hasReason = cols.some((c) => c.name === "archived_reason");
   const hasFeatured = cols.some((c) => c.name === "featured");
+  const hasLifecycleState = cols.some((c) => c.name === "lifecycleState");
+  const hasLifecycleUpdatedAt = cols.some((c) => c.name === "lifecycleUpdatedAt");
+  const hasRevision = cols.some((c) => c.name === "revision");
 
   let where = "";
   if (hasExpireDate) {
@@ -588,15 +641,36 @@ async function archiveExpiredEvents() {
   const setArchivedAt = hasArchivedAt ? ", archived_at = datetime('now')" : "";
   const setReason = hasReason ? ", archived_reason = 'expired'" : "";
   const setFeaturedOff = hasFeatured ? ", featured = 0" : "";
+  const setLifecycle = hasLifecycleState ? ", lifecycleState = 'archived'" : "";
+  const setLifecycleUpdatedAt = hasLifecycleUpdatedAt ? ", lifecycleUpdatedAt = datetime('now')" : "";
+  const setRevision = hasRevision ? ", revision = COALESCE(revision, 1) + 1" : "";
 
-  const r = await run(
-    `UPDATE events
-     SET archived = 1${setArchivedAt}${setReason}${setFeaturedOff}
-     WHERE archived = 0
-       AND ${where}`
-  );
-
-  return { archived: r.changes || 0 };
+  return transaction(async (tx) => {
+    const rows = await tx.all(
+      `SELECT id, city, ${hasRevision ? "revision" : "1 AS revision"}
+         FROM events
+        WHERE archived = 0
+          AND ${where}`
+    );
+    let archived = 0;
+    for (const row of rows) {
+      const result = await tx.run(
+        `UPDATE events
+         SET archived = 1${setArchivedAt}${setReason}${setFeaturedOff}${setLifecycle}${setLifecycleUpdatedAt}${setRevision}
+         WHERE id = ? AND archived = 0`,
+        [row.id]
+      );
+      if (!result.changes) continue;
+      const revision = hasRevision ? Number(row.revision || 1) + 1 : 1;
+      await tx.run(
+        `INSERT INTO event_changes (eventId, city, revision, changeType, occurredAt, actorUserId, publicPayloadVersion)
+         VALUES (?, ?, ?, 'archived', datetime('now'), NULL, 1)`,
+        [row.id, row.city, revision]
+      );
+      archived += 1;
+    }
+    return { archived };
+  });
 }
 
 module.exports = {
@@ -605,6 +679,7 @@ module.exports = {
   run,
   get,
   all,
+  transaction,
   slugify,
   ensureUniqueSlug,
   archiveExpiredEvents,

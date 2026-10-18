@@ -67,18 +67,41 @@ The summary looks back at most ten years and ahead at most 370 days. WordPress
 can use it to render dates and make its own indexing/canonical decisions; the
 API does not prescribe those decisions.
 
+`data.lifecycle` also includes an additive human-readable `label` and public
+`notice`. Cancelled, postponed, and rescheduled events therefore remain
+available to existing consumers while providing a clear attendee-facing state.
+Event JSON-LD now emits `EventCancelled` or `EventPostponed` when applicable;
+rescheduled events retain `EventScheduled` with their updated date/time.
+
 ## Cancellations, postponements, rescheduling, and duplicates
 
-The current event schema has no published cancellation, postponement, or
-reschedule state. Public `cancelled` reports are stored separately in
-`event_reports` for moderator review and intentionally do not alter an event
-automatically. Consequently WordPress must not infer a cancellation from a
-report, and no cancellation or postponement flag is currently exposed in the
-public event contract.
+The event schema has additive lifecycle support. Every event has a
+`lifecycleState` (`scheduled`, `cancelled`, `postponed`, `rescheduled`, or
+`archived`), a monotonically increasing `revision`, and lifecycle update
+metadata. Public detail responses expose these values through
+`data.lifecycle`; the date-derived `status` remains unchanged for backwards
+compatibility. Public reports still require moderator review and do not change
+an event automatically.
+
+Lifecycle changes are explicit editorial actions. A replacement event may be
+recorded for rescheduling through `replacementEventId`; a public consumer
+should fetch that replacement separately and must not infer it from title or
+date similarity. Incremental consumers can use the community-scoped
+[`event change feed`](./event-changes-api.md) to observe lifecycle changes,
+archives, restorations, and deletion tombstones.
+
+## Admin lifecycle workflow
+
+When an authorized user edits an event, the **Event status** section offers
+only transitions allowed from its current state. Cancellation and postponement
+ask for confirmation. Rescheduling sends the user to the existing date/time
+fields, validates the updated range through the normal event save path, and
+records the rescheduled state in the same lifecycle revision. For recurring
+events the editor explicitly confirms that the action applies to the entire
+series; individual-occurrence lifecycle overrides are not supported.
 
 Likewise, the API prevents slug collisions with `ensureUniqueSlug` but does
 not merge or automatically flag similar event records. That is deliberate:
-title/date/location similarity is not reliable enough for safe SEO identity
-changes. No migration is required for this phase. A future editorial lifecycle
-workflow should introduce explicit, reviewed status and replacement fields
-before WordPress renders cancellation, postponement, or rescheduling states.
+title/date/location similarity is not reliable enough for safe identity
+changes. Lifecycle data is additive and requires no migration of existing
+event records; legacy rows read as `scheduled` until explicitly changed.
