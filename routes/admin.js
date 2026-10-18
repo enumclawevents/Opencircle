@@ -30,6 +30,7 @@ const {
 } = require("../lib/job-utils");
 const { bulkImportUpload, persistImportedImage, persistUploadedAdImage, persistUploadedImage, upload } = require("../lib/uploads");
 const { UPDATE_STATUSES, categoriesForCity, ensureUniqueUpdateSlug, ensureUpdatesSchema, normalizeTags, parseScheduleLocal, sanitizeUpdateHtml } = require("../lib/updates");
+const { generateOccurrences } = require("./events");
 
 function normalizeCategories(input) {
   let arr = [];
@@ -5675,6 +5676,7 @@ try {
     const hasRecurrence = Number(editEvent?.hasRecurrence || 0) === 1;
     const rule = parseStoredRule(editEvent?.recurrenceRule) || { type: "none", interval: 1 };
     const ruleType = String(rule.type || (hasRecurrence ? "weekly" : "none")).toLowerCase();
+    const recurrenceRuleNeedsFallback = hasRecurrence && !["weekly", "monthly", "custom"].includes(ruleType);
     const eventStartLocalValue = toDateTimeLocalValue(editEvent?.startDateTime);
     const eventEndLocalValue = toDateTimeLocalValue(editEvent?.endDateTime);
     const inferredEventType = (function(){
@@ -5693,7 +5695,10 @@ try {
       const items = Array.isArray(rule?.items) ? rule.items : [];
       if (items.length) {
         return items
-          .map((it) => ({
+          .map((it, originalIndex) => ({
+            item: it,
+            originalIndex,
+            date: String(it?.date || it?.start || "").slice(0, 10),
             start: String(it?.start || "").trim(),
             end: String(it?.end || "").trim(),
           }))
@@ -5708,29 +5713,36 @@ try {
           if (d && typeof d === "object") {
             const s = String(d.start || "").trim();
             const e = String(d.end || "").trim();
-            if (s && e) return { start: s, end: e };
+            if (s && e) return { start: s, end: e, date: s.slice(0, 10), item: d, originalIndex: -1 };
           }
 
           const date = String(d || "").trim();
           if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
 
           if (baseStart.length >= 16 && baseEnd.length >= 16) {
-            return { start: date + baseStart.slice(10), end: date + baseEnd.slice(10) };
+            return { start: date + baseStart.slice(10), end: date + baseEnd.slice(10), date, item: null, originalIndex: -1 };
           }
 
-          return { start: date + "T00:00:00+00:00", end: date + "T00:00:00+00:00" };
+          return { start: date + "T00:00:00+00:00", end: date + "T00:00:00+00:00", date, item: null, originalIndex: -1 };
         })
         .filter(Boolean);
     })();
+    const originalCustomItemsJson = ruleType === "custom" && Array.isArray(rule?.items)
+      ? JSON.stringify(rule.items)
+      : "[]";
     const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
     const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
-    const displayEventStartLocalValue = eventStartLocalValue;
-    const displayEventEndLocalValue = (function(){
-      if (inferredEventType !== "recurring") return eventEndLocalValue;
-      if (!recurrenceUntilDateVal) return eventEndLocalValue;
-      const endTimePart = String(eventEndLocalValue || "").length >= 16 ? String(eventEndLocalValue).slice(10) : "T23:59";
-      return `${recurrenceUntilDateVal}${endTimePart}`;
+    const recurrenceDurationAmbiguous = (function(){
+      if (!hasRecurrence || recurrenceUntilDateVal) return false;
+      const start = Date.parse(String(editEvent?.startDateTime || ""));
+      const end = Date.parse(String(editEvent?.endDateTime || ""));
+      return Number.isFinite(start) && Number.isFinite(end) && end - start > 14 * 86400 * 1000;
     })();
+    // A recurrence stores the first occurrence's start/end separately from
+    // its optional schedule cutoff.  Never substitute recurrenceUntilDate
+    // into the occurrence end field when an existing event is edited.
+    const displayEventStartLocalValue = eventStartLocalValue;
+    const displayEventEndLocalValue = eventEndLocalValue;
     const multiDaySchedule = normalizeMultiDaySchedule(editEvent?.multiDaySchedule);
 
     const weeklyByDay = Array.isArray(rule.byDay) ? rule.byDay : [];
@@ -16506,6 +16518,8 @@ return `
 
               <input type="hidden" name="startDateTimeISO" id="startDateTimeISO" value="" />
               <input type="hidden" name="endDateTimeISO" id="endDateTimeISO" value="" />
+              <input type="hidden" id="originalStartDateTimeISO" value="${esc(editEvent?.startDateTime || "")}" />
+              <input type="hidden" id="originalEndDateTimeISO" value="${esc(editEvent?.endDateTime || "")}" />
 
               <div class="rec-box quick-add-box">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
@@ -16579,6 +16593,7 @@ return `
                           chip.innerHTML =
                             '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="' + (date || "") + '" />' +
                             '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="' + (start ? start.slice(11,16) : "") + '" />' +
+                            '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customEndDate" aria-label="Occurrence end date" value="' + (end ? end.slice(0,10) : date || "") + '" />' +
                             '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="' + (end ? end.slice(11,16) : "") + '" />' +
                             '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
                           var removeBtn = chip.querySelector('[data-remove-date]');
@@ -16779,16 +16794,17 @@ return `
 
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
-                  <label style="margin-top:0;">Start</label>
+                  <label style="margin-top:0;">First occurrence starts</label>
                   <input id="startDateTime" class="ctrl" type="datetime-local" name="startDateTime"
                     value="${esc(displayEventStartLocalValue)}" required />
                 </div>
                 <div>
-                  <label style="margin-top:0;">End</label>
+                  <label style="margin-top:0;">First occurrence ends</label>
                   <input id="endDateTime" class="ctrl" type="datetime-local" name="endDateTime"
                     value="${esc(displayEventEndLocalValue)}" required />
                 </div>
               </div>
+              <div class="note" style="margin-top:6px;">For repeats, these times define the duration of each occurrence. Overnight events are supported.</div>
 
               <div class="rec-box multi-day-shell ${inferredEventType === "multi-day" ? "is-visible" : ""}" id="multiDayScheduleShell" style="margin-top:14px;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px; flex-wrap:wrap;">
@@ -16807,36 +16823,51 @@ return `
 
               <!-- Recurring Events -->
               <div class="rec-box recurrence" id="recurrenceSettings">
-                <div class="checkbox event-type-managed-rec-toggle">
-                  <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} onchange="window.ocSyncRecurrenceUI && window.ocSyncRecurrenceUI()" />
-                  <label for="hasRecurrence" style="margin:0;font-size:12px;font-weight:650;">Recurring event</label>
+                <div class="event-type-managed-rec-toggle">
+                  <div class="rec-label" style="margin-bottom:8px;">Does this event repeat?</div>
+                  <input type="checkbox" id="hasRecurrence" name="hasRecurrence" value="1" ${hasRecurrence ? "checked" : ""} tabindex="-1" aria-hidden="true" style="position:absolute;opacity:0;pointer-events:none;" />
+                  <div role="radiogroup" aria-label="Does this event repeat?" style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <label class="btn" style="margin:0;cursor:pointer;${hasRecurrence ? "" : "border-color:rgba(16,185,129,.48);background:rgba(16,185,129,.10);"}"><input type="radio" name="recurrenceChoice" value="no" ${hasRecurrence ? "" : "checked"} onchange="window.ocSetRecurrenceChoice && window.ocSetRecurrenceChoice(false)" /> No, this is a one-time event</label>
+                    <label class="btn" style="margin:0;cursor:pointer;${hasRecurrence ? "border-color:rgba(16,185,129,.48);background:rgba(16,185,129,.10);" : ""}"><input type="radio" name="recurrenceChoice" value="yes" ${hasRecurrence ? "checked" : ""} onchange="window.ocSetRecurrenceChoice && window.ocSetRecurrenceChoice(true)" /> Yes, this event repeats</label>
+                  </div>
                 </div>
-                <div class="note event-type-managed-rec-toggle">Weekly/monthly rule or custom dates list.</div>
+                <div class="note event-type-managed-rec-toggle">Choose a pattern below. Your first occurrence remains the event schedule above.</div>
+                ${recurrenceDurationAmbiguous ? `<div class="note" style="margin-top:10px;color:#9a6700;">This legacy event does not have a confirmed per-occurrence end time. Its stored schedule is preserved unless you explicitly set a new end time.</div>` : ``}
 
                 <input type="hidden" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
-                <input type="hidden" name="recurrenceUntilDate" value="${esc(recurrenceUntilDateVal)}" />
-                <div class="note" style="margin-top:12px;">For recurring events, the start date above becomes the first occurrence date and the end date above becomes the repeat-until date. The start and end times repeat for each occurrence.</div>
+                ${recurrenceRuleNeedsFallback ? `<input type="hidden" name="preserveRecurrenceRule" value="1" /><input type="hidden" name="originalRecurrenceRule" value="${esc(String(editEvent?.recurrenceRule || ""))}" /><input type="hidden" name="originalRecurrenceDates" value="${esc(String(editEvent?.recurrenceDates || ""))}" />` : ``}
+                ${hasRecurrence ? `<input type="hidden" name="originalRecurrenceType" id="originalRecurrenceType" value="${esc(ruleType)}" /><input type="hidden" name="recurrenceRuleChanged" id="recurrenceRuleChanged" value="0" />` : ``}
+                <div id="repeatControls" style="margin-top:12px;${hasRecurrence ? "" : "display:none;"}">
+                <div class="note" style="margin:0 0 12px;">The event end time and repeat-until date are separate. Leave repeat until empty to keep the schedule open-ended.</div>
+                ${recurrenceRuleNeedsFallback ? `<div class="note" style="margin:0 0 12px;color:#9a6700;">This existing ${esc(ruleType)} schedule is not editable in this form yet. Saving without changing it preserves the stored recurrence rule.</div>` : ``}
 
                 <div class="rec-grid" style="margin-top:12px;">
                   <div>
-                    <div class="rec-label">Recurrence Type</div>
+                    <div class="rec-label">Repeat pattern</div>
                     <select id="recurrenceType" name="recurrenceType" class="ctrl" onchange="window.ocSyncRecurrenceUI && window.ocSyncRecurrenceUI()">
                       <option value="none" ${ruleType === "none" ? "selected" : ""}>None</option>
                       <option value="weekly" ${ruleType === "weekly" ? "selected" : ""}>Weekly</option>
                       <option value="monthly" ${ruleType === "monthly" ? "selected" : ""}>Monthly</option>
-                      <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Custom Dates</option>
+                      <option value="custom" ${ruleType === "custom" ? "selected" : ""}>Specific dates</option>
+                      ${recurrenceRuleNeedsFallback ? `<option value="${esc(ruleType)}" selected>${esc(ruleType[0].toUpperCase() + ruleType.slice(1))} (existing schedule)</option>` : ``}
                     </select>
                   </div>
 
                   <div id="intervalRow" style="${showRecurringOptions ? "" : "display:none;"}">
-                    <div class="rec-label">Interval</div>
+                    <div class="rec-label">Repeat every</div>
                     <input class="ctrl" type="number" min="1" name="recurrenceInterval" value="${esc(recurrenceInterval)}" />
-                    <div class="rec-help">Example: every 1 week, every 2 weeks, every 1 month, etc.</div>
+                    <div class="rec-help">Use 1 for every week or month, 2 for every other week or month.</div>
                   </div>
                 </div>
 
+                <div id="repeatUntilRow" style="margin-top:12px;">
+                  <div class="rec-label">Repeat until <span class="muted" style="font-weight:500;">(optional)</span></div>
+                  <input id="recurrenceUntilDate" class="ctrl" type="date" name="recurrenceUntilDate" min="${esc(String(displayEventStartLocalValue || "").slice(0, 10))}" value="${esc(recurrenceUntilDateVal)}" />
+                  <div class="rec-help">The final calendar date on which an occurrence may start.</div>
+                </div>
+
                 <div id="weeklyBox" style="margin-top:14px;${showWeeklyOptions ? "" : "display:none;"}">
-                  <div class="rec-label">Days of Week</div>
+                  <div class="rec-label">Repeat on</div>
                   <div class="dow">
                     <label class="dow-pill"><input type="checkbox" name="weeklyByDay" value="SU" ${isChecked(weeklyByDay, "SU")} />Sun</label>
                     <label class="dow-pill"><input type="checkbox" name="weeklyByDay" value="MO" ${isChecked(weeklyByDay, "MO")} />Mon</label>
@@ -16852,24 +16883,25 @@ return `
                 <div id="monthlyBox" style="margin-top:14px;${showMonthlyOptions ? "" : "display:none;"}">
                   <div class="rec-grid">
                     <div>
-                      <div class="rec-label">Monthly Mode</div>
+                      <div class="rec-label">Repeat on</div>
                       <select id="monthlyMode" name="monthlyMode" class="ctrl" onchange="window.ocSyncRecurrenceUI && window.ocSyncRecurrenceUI()">
-                        <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>On day of month</option>
-                        <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>On nth weekday</option>
+                        <option value="monthday" ${monthlyMode === "monthday" ? "selected" : ""}>A specific day of the month</option>
+                        <option value="nthweekday" ${monthlyMode === "nthweekday" ? "selected" : ""}>A particular weekday</option>
                       </select>
                     </div>
                     <div></div>
                   </div>
 
                   <div id="monthdayBox" style="margin-top:12px;${showMonthdayOptions ? "" : "display:none;"}">
-                    <div class="rec-label">Day of Month (1–31)</div>
+                    <div class="rec-label">Day of month (1–31)</div>
                     <input class="ctrl" type="number" min="1" max="31" name="byMonthday" value="${esc(byMonthday)}" />
+                    <div class="rec-help">Dates beyond a shorter month occur on that month’s final day.</div>
                   </div>
 
                   <div id="nthweekdayBox" style="margin-top:12px;${showNthWeekdayOptions ? "" : "display:none;"}">
                     <div class="rec-grid">
                       <div>
-                        <div class="rec-label">Which Week</div>
+                        <div class="rec-label">Which one</div>
                         <select name="setPos" class="ctrl">
                           <option value="1" ${setPos === "1" ? "selected" : ""}>1st</option>
                           <option value="2" ${setPos === "2" ? "selected" : ""}>2nd</option>
@@ -16879,7 +16911,7 @@ return `
                         </select>
                       </div>
                       <div>
-                        <div class="rec-label">Weekdays</div>
+                        <div class="rec-label">Day(s)</div>
                         <div class="dow">
                           <label class="dow-pill"><input type="checkbox" name="monthlyByDay" value="SU" ${isChecked(monthlyByDay, "SU")} />Sun</label>
                           <label class="dow-pill"><input type="checkbox" name="monthlyByDay" value="MO" ${isChecked(monthlyByDay, "MO")} />Mon</label>
@@ -16896,24 +16928,26 @@ return `
                 </div>
 
                 <div id="customBox" style="margin-top:14px;${showCustomOptions ? "" : "display:none;"}">
-                  <div class="rec-label">Custom Dates</div>
+                  <div class="rec-label">Specific dates</div>
                   <div class="rec-help">Add specific dates and set start/end time for each date.</div>
 
                   <div id="customDatesWrap" class="chips" style="margin-top:10px;">
                     ${
                       (customDates || [])
-                        .map((row) => {
+                        .map((row, index) => {
                           const startIso = String(row?.start || "").trim();
                           const endIso   = String(row?.end || "").trim();
 
-                          const dateVal  = startIso ? startIso.slice(0, 10) : "";
+                          const dateVal  = String(row?.date || (startIso ? startIso.slice(0, 10) : "")).slice(0, 10);
                           const startVal = startIso ? startIso.slice(11, 16) : "";
+                          const endDateVal = endIso ? endIso.slice(0, 10) : dateVal;
                           const endVal   = endIso ? endIso.slice(11, 16) : "";
 
                           return `
-                            <span class="chip">
+                            <span class="chip" data-original-index="${Number.isInteger(row?.originalIndex) ? row.originalIndex : index}">
                               <input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="${esc(dateVal)}" />
                               <input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="${esc(startVal)}" />
+                              <input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customEndDate" aria-label="Occurrence end date" value="${esc(endDateVal)}" />
                               <input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="${esc(endVal)}" />
                               <button type="button" data-remove-date="1" aria-label="Remove">×</button>
                             </span>
@@ -16924,12 +16958,19 @@ return `
                   </div>
 
                   <input type="hidden" name="recurrenceDatesJson" id="recurrenceDatesJson" value="" />
+                  <input type="hidden" id="originalCustomItemsJson" value="${esc(originalCustomItemsJson)}" />
 
                   <div class="actions" style="margin-top:10px;">
                     <button id="addCustomDate" type="button" class="btn">+ Add Date</button>
                     <button id="prunePastDates" type="button" class="btn">Remove past dates</button>
                   </div>
                   <div class="note">Use “Remove past dates” to drop occurrences that have already passed.</div>
+                </div>
+                <div id="recurrencePreview" class="mini" style="margin-top:14px; display:none;">
+                  <div style="font-weight:650;">Upcoming occurrences</div>
+                  <div class="note" data-preview-summary style="margin-top:4px;"></div>
+                  <ul data-preview-list style="margin:8px 0 0; padding-left:20px;"></ul>
+                </div>
                 </div>
               </div>
               <script>
@@ -16946,6 +16987,13 @@ return `
                   var addBtn = document.getElementById("addCustomDate");
                   var pruneBtn = document.getElementById("prunePastDates");
                   var wrap = document.getElementById("customDatesWrap");
+                  var repeatControls = document.getElementById("repeatControls");
+                  var preview = document.getElementById("recurrencePreview");
+                  var previewSummary = preview && preview.querySelector("[data-preview-summary]");
+                  var previewList = preview && preview.querySelector("[data-preview-list]");
+                  var previewTimer = null;
+                  var previewController = null;
+                  var previewRequestId = 0;
                   function show(el, on){
                     if (!el) return;
                     el.style.display = on ? "" : "none";
@@ -16953,14 +17001,21 @@ return `
                   window.ocSyncRecurrenceUI = function(){
                     var enabled = !!(hasRecEl && hasRecEl.checked);
                     var t = typeEl ? String(typeEl.value || "none") : "none";
+                    var supportedPattern = t === "weekly" || t === "monthly" || t === "custom";
+                    var choice = document.querySelector('input[name="recurrenceChoice"][value="' + (enabled ? "yes" : "no") + '"]');
+                    if (choice) choice.checked = true;
                     if (!enabled) {
+                      show(repeatControls, false);
                       show(intervalRow, false);
                       show(weeklyBox, false);
                       show(monthlyBox, false);
                       show(customBox, false);
+                      show(preview, false);
                       return;
                     }
-                    show(intervalRow, t !== "none" && t !== "custom");
+                    show(repeatControls, true);
+                    show(document.getElementById("repeatUntilRow"), t !== "custom");
+                    show(intervalRow, t === "weekly" || t === "monthly");
                     show(weeklyBox, t === "weekly");
                     show(monthlyBox, t === "monthly");
                     show(customBox, t === "custom");
@@ -16972,7 +17027,95 @@ return `
                       show(monthdayBox, false);
                       show(nthweekdayBox, false);
                     }
+                    if (supportedPattern) schedulePreview();
+                    else show(preview, false);
                   };
+                  window.ocSetRecurrenceChoice = function(enabled){
+                    if (!hasRecEl) return;
+                    hasRecEl.checked = !!enabled;
+                    hasRecEl.dispatchEvent(new Event("change", { bubbles: true }));
+                    window.ocSyncRecurrenceUI();
+                  };
+                  function selectedValues(name){
+                    var els = document.querySelectorAll('input[name="' + name + '"]:checked');
+                    return Array.prototype.map.call(els, function(el){ return el.value; });
+                  }
+                  function customItems(){
+                    if (!wrap) return [];
+                    return Array.prototype.map.call(wrap.querySelectorAll(".chip"), function(chip){
+                      var date = (chip.querySelector('input[name="customDate"]') || {}).value || "";
+                      var start = (chip.querySelector('input[name="customStart"]') || {}).value || "";
+                      var endDate = (chip.querySelector('input[name="customEndDate"]') || {}).value || date;
+                      var end = (chip.querySelector('input[name="customEnd"]') || {}).value || "";
+                      return { date: date, start: date && start ? date + "T" + start : "", end: endDate && end ? endDate + "T" + end : "" };
+                    });
+                  }
+                  function schedulePreview(){
+                    if (previewTimer) window.clearTimeout(previewTimer);
+                    if (!hasRecEl || !hasRecEl.checked || !typeEl || typeEl.value === "none") return;
+                    var startDate = String((document.getElementById("startDateTime") || {}).value || "").slice(0, 10);
+                    var untilEl = document.getElementById("recurrenceUntilDate");
+                    if (untilEl && startDate) untilEl.min = startDate;
+                    previewTimer = window.setTimeout(loadPreview, 180);
+                  }
+                  function recurrenceSummary(payload){
+                    if (payload.type === "custom") return "Shows the specific dates entered below; no additional dates are generated.";
+                    var unit = payload.type === "monthly" ? "month" : "week";
+                    var every = Number(payload.interval || 1) === 1 ? "every " + unit : "every " + payload.interval + " " + unit + "s";
+                    var weekdayNames = { SU: "Sunday", MO: "Monday", TU: "Tuesday", WE: "Wednesday", TH: "Thursday", FR: "Friday", SA: "Saturday" };
+                    if (payload.type === "weekly" && payload.weeklyByDay.length) every += " on " + payload.weeklyByDay.map(function(day){ return weekdayNames[day] || day; }).join(", ");
+                    if (payload.type === "monthly" && payload.monthlyMode === "monthday") every += " on day " + payload.byMonthday;
+                    if (payload.type === "monthly" && payload.monthlyMode === "nthweekday") every += " on the selected weekday";
+                    return "Repeats " + every + (payload.recurrenceUntilDate ? " until " + payload.recurrenceUntilDate + "." : ".");
+                  }
+                  function loadPreview(){
+                    var start = (document.getElementById("startDateTime") || {}).value || "";
+                    var end = (document.getElementById("endDateTime") || {}).value || "";
+                    if (!start || !end || !preview) return;
+                    var payload = {
+                      startDateTime: start,
+                      endDateTime: end,
+                      type: typeEl.value,
+                      interval: (document.querySelector('input[name="recurrenceInterval"]') || {}).value || "1",
+                      weeklyByDay: selectedValues("weeklyByDay"),
+                      monthlyMode: (monthlyModeEl || {}).value || "monthday",
+                      byMonthday: (document.querySelector('input[name="byMonthday"]') || {}).value || "",
+                      setPos: (document.querySelector('select[name="setPos"]') || {}).value || "1",
+                      monthlyByDay: selectedValues("monthlyByDay"),
+                      recurrenceUntilDate: (document.getElementById("recurrenceUntilDate") || {}).value || "",
+                      customItems: customItems(),
+                    };
+                    if (previewController) previewController.abort();
+                    previewController = typeof AbortController !== "undefined" ? new AbortController() : null;
+                    var requestId = ++previewRequestId;
+                    if (previewSummary) previewSummary.textContent = "Updating preview…";
+                    fetch("/admin/events/preview-recurrence", {
+                      method: "POST", credentials: "same-origin",
+                      headers: { "content-type": "application/json", accept: "application/json" },
+                      body: JSON.stringify(payload),
+                      signal: previewController ? previewController.signal : undefined,
+                    }).then(function(res){ return res.json().then(function(json){ return { ok: res.ok, json: json }; }); })
+                      .then(function(result){
+                        if (!preview || requestId !== previewRequestId) return;
+                        show(preview, true);
+                        if (!result.ok) {
+                          if (previewSummary) previewSummary.textContent = String((result.json && result.json.error) || "Complete the schedule to preview occurrences.");
+                          if (previewList) previewList.innerHTML = "";
+                          return;
+                        }
+                        var occurrences = Array.isArray(result.json.occurrences) ? result.json.occurrences : [];
+                        if (previewSummary) previewSummary.textContent = occurrences.length ? recurrenceSummary(payload) : "No upcoming occurrences match these settings.";
+                        if (previewList) previewList.innerHTML = occurrences.map(function(item){
+                          var startTime = String(item.startDateTime || "").slice(11,16);
+                          var endTime = String(item.endDateTime || "").slice(11,16);
+                          return "<li>" + String(item.label || item.occurrenceDate || "Occurrence") + (startTime ? " · " + startTime + (endTime ? "–" + endTime : "") : "") + "</li>";
+                        }).join("");
+                      }).catch(function(error){
+                        if (error && error.name === "AbortError") return;
+                        if (requestId !== previewRequestId) return;
+                        if (previewSummary) previewSummary.textContent = "Preview is temporarily unavailable. Your schedule has not been changed.";
+                      });
+                  }
                   function attachRemove(){
                     if (!wrap) return;
                     var btns = wrap.querySelectorAll("button[data-remove-date]");
@@ -16980,6 +17123,7 @@ return `
                       btns[i].onclick = function(){
                         var chip = this.closest ? this.closest(".chip") : null;
                         if (chip) chip.remove();
+                        schedulePreview();
                       };
                     }
                   }
@@ -16995,14 +17139,19 @@ return `
                       chip.innerHTML =
                         '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="" />' +
                         '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="" />' +
+                        '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customEndDate" aria-label="Occurrence end date" value="" />' +
                         '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="" />' +
                         '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
                       wrap.appendChild(chip);
                       var st = chip.querySelector('input[name="customStart"]');
+                      var ed = chip.querySelector('input[name="customEndDate"]');
                       var en = chip.querySelector('input[name="customEnd"]');
                       if (st && startTime) st.value = startTime;
+                      var startDate = startLocal && startLocal.length >= 10 ? startLocal.slice(0,10) : "";
+                      if (ed && startDate) ed.value = startDate;
                       if (en && endTime) en.value = endTime;
                       attachRemove();
+                      schedulePreview();
                     });
                   }
                   if (pruneBtn && wrap) {
@@ -17015,6 +17164,32 @@ return `
                         var date = (chip.querySelector('input[name="customDate"]') || {}).value || "";
                         if (date && date < todayStr) chip.remove();
                       }
+                      schedulePreview();
+                    });
+                  }
+                  [hasRecEl, typeEl, monthlyModeEl, document.getElementById("startDateTime"), document.getElementById("endDateTime"), document.getElementById("recurrenceUntilDate")].forEach(function(el){
+                    if (el) el.addEventListener("change", schedulePreview);
+                  });
+                  if (hasRecEl) hasRecEl.addEventListener("change", window.ocSyncRecurrenceUI);
+                  document.addEventListener("change", function(event){
+                    if (event.target && (/^(weeklyByDay|monthlyByDay|byMonthday|setPos|recurrenceInterval|customDate|customStart|customEnd)$/).test(event.target.name || "")) schedulePreview();
+                  });
+                  var originalTypeEl = document.getElementById("originalRecurrenceType");
+                  var recurrenceRuleChangedEl = document.getElementById("recurrenceRuleChanged");
+                  var lastConfirmedType = typeEl ? String(typeEl.value || "") : "";
+                  if (typeEl && originalTypeEl) {
+                    typeEl.addEventListener("change", function(){
+                      var nextType = String(typeEl.value || "");
+                      if (nextType !== lastConfirmedType) {
+                        var approved = window.confirm("Changing the repeat pattern will replace the existing schedule when you save. Continue?");
+                        if (!approved) {
+                          typeEl.value = lastConfirmedType;
+                          window.ocSyncRecurrenceUI();
+                          return;
+                        }
+                        lastConfirmedType = nextType;
+                      }
+                      if (recurrenceRuleChangedEl) recurrenceRuleChangedEl.value = nextType === String(originalTypeEl.value || "") ? "0" : "1";
                     });
                   }
                   window.ocSyncRecurrenceUI();
@@ -18938,8 +19113,15 @@ return `
           var startLocal = (document.getElementById("startDateTime") || {}).value || "";
           var endLocal   = (document.getElementById("endDateTime") || {}).value || "";
 
-          var startISO = toISOWithOffsetFromLocalInput(startLocal);
-          var endISO   = toISOWithOffsetFromLocalInput(endLocal);
+          function originalIsoIfUnchanged(inputValue, originalId){
+            var original = String(((document.getElementById(originalId) || {}).value) || "").trim();
+            return original && original.slice(0,16) === inputValue ? original : "";
+          }
+          // Unchanged records retain their original offsets exactly.  Changed
+          // datetime-local values are intentionally left offset-free so the
+          // server converts them in the community timezone.
+          var startISO = originalIsoIfUnchanged(startLocal, "originalStartDateTimeISO");
+          var endISO   = originalIsoIfUnchanged(endLocal, "originalEndDateTimeISO");
 
           var startHidden = document.getElementById("startDateTimeISO");
           var endHidden   = document.getElementById("endDateTimeISO");
@@ -18970,6 +19152,8 @@ return `
             if (hasRec && recType === "custom") {
               var wrap = document.getElementById("customDatesWrap");
               var chips = wrap ? wrap.querySelectorAll(".chip") : [];
+              var originalItems = [];
+              try { originalItems = JSON.parse(String(((document.getElementById("originalCustomItemsJson") || {}).value) || "[]")); } catch (_) { originalItems = []; }
               var fallbackStart = (startLocal && startLocal.length >= 16) ? startLocal.slice(11,16) : "00:00";
               var fallbackEnd = (endLocal && endLocal.length >= 16) ? endLocal.slice(11,16) : fallbackStart;
 
@@ -18979,11 +19163,19 @@ return `
                 var date = (chip.querySelector('input[name="customDate"]') || {}).value || "";
                 if (!date) continue;
                 var st = (chip.querySelector('input[name="customStart"]') || {}).value || "";
+                var endDate = (chip.querySelector('input[name="customEndDate"]') || {}).value || date;
                 var en = (chip.querySelector('input[name="customEnd"]') || {}).value || "";
-                var sIso = toISOWithOffsetFromLocalInput(date + "T" + (st || fallbackStart));
-                var eIso = toISOWithOffsetFromLocalInput(date + "T" + (en || fallbackEnd));
-                if (!sIso || !eIso) continue;
-                items.push({ date: date, start: sIso, end: eIso });
+                var originalIndex = Number(chip.getAttribute("data-original-index"));
+                var original = Number.isInteger(originalIndex) && originalIndex >= 0 ? originalItems[originalIndex] : null;
+                var startLocalValue = date + "T" + (st || fallbackStart);
+                var endLocalValue = endDate + "T" + (en || fallbackEnd);
+                var originalStartLocal = String(original && original.start || "").slice(0,16);
+                var originalEndLocal = String(original && original.end || "").slice(0,16);
+                if (original && originalStartLocal === startLocalValue && originalEndLocal === endLocalValue) {
+                  items.push(original);
+                } else {
+                  items.push(Object.assign({}, original || {}, { date: date, start: startLocalValue, end: endLocalValue }));
+                }
               }
               recHidden.value = JSON.stringify(items);
             } else {
@@ -19135,6 +19327,7 @@ return `
             chip.innerHTML =
               '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="' + (date || "") + '" />' +
               '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="' + (start ? start.slice(11,16) : "") + '" />' +
+              '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customEndDate" aria-label="Occurrence end date" value="' + (end ? end.slice(0,10) : date || "") + '" />' +
               '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="' + (end ? end.slice(11,16) : "") + '" />' +
               '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
             var removeBtn = chip.querySelector('[data-remove-date]');
@@ -19873,14 +20066,17 @@ return `
             chip.innerHTML =
               '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="" />' +
               '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="" />' +
+              '<input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customEndDate" aria-label="Occurrence end date" value="" />' +
               '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="" />' +
               '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
 
             wrap.appendChild(chip);
 
             var st = chip.querySelector('input[name="customStart"]');
+            var ed = chip.querySelector('input[name="customEndDate"]');
             var en = chip.querySelector('input[name="customEnd"]');
             if(st && startTime) st.value = startTime;
+            if(ed && startLocal.length >= 10) ed.value = startLocal.slice(0,10);
             if(en && endTime) en.value = endTime;
 
             attachRemove();
@@ -23296,6 +23492,85 @@ router.post("/events/quick-add", express.json({ limit: "256kb" }), async (req, r
   }
 });
 
+// Preview uses the public recurrence engine with an in-memory template.  It
+// intentionally persists nothing, and is limited to authorized event editors.
+router.post("/events/preview-recurrence", express.json({ limit: "128kb" }), async (req, res) => {
+  try {
+    const role = normalizeRoleValue(req.user?.role || "organizer");
+    const sessionUser = await resolveSessionUser(req);
+    const sectionPermissions = getUserSectionPermissions(sessionUser || { role });
+    if (!(hasDeveloperAccessRole(role) || sectionPermissions.events)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const body = req.body || {};
+    const startDateTime = toLocalISOWithOffset(body.startDateTime);
+    const endDateTime = toLocalISOWithOffset(body.endDateTime);
+    if (!startDateTime || !endDateTime || Date.parse(endDateTime) <= Date.parse(startDateTime)) {
+      return res.status(400).json({ error: "Enter a valid first occurrence start and end time." });
+    }
+
+    const type = String(body.type || "").trim().toLowerCase();
+    const interval = Math.max(1, Math.min(365, Number.parseInt(body.interval, 10) || 1));
+    let rule = null;
+    if (type === "weekly") {
+      const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
+      const byDay = (Array.isArray(body.weeklyByDay) ? body.weeklyByDay : [])
+        .map((day) => String(day || "").trim().toUpperCase())
+        .filter((day, index, arr) => allowed.has(day) && arr.indexOf(day) === index);
+      rule = { type, interval, byDay };
+    } else if (type === "monthly") {
+      const mode = String(body.monthlyMode || "monthday") === "nthweekday" ? "nthweekday" : "monthday";
+      if (mode === "nthweekday") {
+        const allowed = new Set(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]);
+        const byDay = (Array.isArray(body.monthlyByDay) ? body.monthlyByDay : [])
+          .map((day) => String(day || "").trim().toUpperCase())
+          .filter((day, index, arr) => allowed.has(day) && arr.indexOf(day) === index);
+        rule = { type, interval, mode, setPos: Number.parseInt(body.setPos, 10) || 1, byDay };
+      } else {
+        rule = { type, interval, mode, byMonthday: Math.max(1, Math.min(31, Number.parseInt(body.byMonthday, 10) || 1)) };
+      }
+    } else if (type === "custom") {
+      const items = (Array.isArray(body.customItems) ? body.customItems : [])
+        .map((item) => ({
+          date: String(item?.date || "").trim(),
+          start: toLocalISOWithOffset(item?.start),
+          end: toLocalISOWithOffset(item?.end),
+        }))
+        .filter((item) => item.start && item.end && Date.parse(item.end) > Date.parse(item.start));
+      rule = { type, items };
+    }
+    if (!rule) return res.status(400).json({ error: "Choose a supported repeat pattern." });
+
+    const until = String(body.recurrenceUntilDate || "").trim();
+    const recurrenceUntilDate = /^\d{4}-\d{2}-\d{2}$/.test(until) ? until : null;
+    const now = DateTime.now().setZone(DEFAULT_TZ).startOf("day");
+    const windowEnd = now.plus({ years: 2 }).endOf("day");
+    const template = {
+      startDateTime,
+      endDateTime,
+      hasRecurrence: 1,
+      recurrenceRule: JSON.stringify(rule),
+      recurrenceDates: JSON.stringify(rule.type === "custom" ? rule.items.map((item) => item.date).filter(Boolean) : []),
+      recurrenceStartDate: String(startDateTime).slice(0, 10),
+      recurrenceUntilDate,
+    };
+    const occurrences = generateOccurrences(template, now.toMillis(), windowEnd.toMillis()).slice(0, 10);
+    return res.json({
+      ok: true,
+      occurrences: occurrences.map((occurrence) => ({
+        occurrenceDate: occurrence.occurrenceDate,
+        label: occurrence.label,
+        startDateTime: occurrence.startDateTime,
+        endDateTime: occurrence.endDateTime || null,
+      })),
+    });
+  } catch (err) {
+    console.error("[recurrence preview]", err);
+    return res.status(500).json({ error: "Could not preview this recurrence." });
+  }
+});
+
 router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
     const role = normalizeRoleValue(req.user?.role || "organizer");
@@ -23459,7 +23734,16 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
     const t = String(recurrenceType || "none").toLowerCase();
     const submittedRecurringStartDate = toDateValue(startDateTime);
-    const submittedRecurringEndDate = toDateValue(endDateTime);
+    const submittedRecurrenceUntilDate = String(recurrenceUntilDate || "").trim();
+    if (
+      hasRec &&
+      t !== "none" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(submittedRecurrenceUntilDate) &&
+      submittedRecurringStartDate &&
+      submittedRecurrenceUntilDate < submittedRecurringStartDate
+    ) {
+      return res.status(400).send("Repeat-until date cannot be before the first occurrence.");
+    }
 
     const forceDuplicateSave = String(req.body?.forceDuplicateSave || "") === "1";
     if (!forceDuplicateSave) {
@@ -23526,42 +23810,13 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     let recurrenceDatesJson = null;
 
     if (hasRec && t !== "none") {
+      // The template end is the duration of one occurrence.  A schedule can
+      // end only through the explicit recurrenceUntilDate field.  Older
+      // versions of this form overloaded endDateTime as a repeat-until date;
+      // doing so here would both corrupt the duration and silently alter
+      // legacy schedules that do not have an explicit cutoff.
       recurrenceStartDate = submittedRecurringStartDate || recurrenceStartDate;
-      recurrenceUntilDate = submittedRecurringEndDate || recurrenceUntilDate;
-
-      const recurringStartParts = parseIsoParts(startDateTime);
-      const recurringEndParts = parseIsoParts(endDateTime);
-      const recurringStartUtc = Date.parse(startDateTime);
-      if (recurringStartParts && recurringEndParts && Number.isFinite(recurringStartUtc)) {
-        let occurrenceEndParts = {
-          year: recurringStartParts.year,
-          month: recurringStartParts.month,
-          day: recurringStartParts.day,
-          hour: recurringEndParts.hour,
-          minute: recurringEndParts.minute,
-          second: recurringEndParts.second,
-          offset: recurringStartParts.offset,
-        };
-        let occurrenceEndUtc = partsToUtcMs(occurrenceEndParts);
-        if (occurrenceEndUtc <= recurringStartUtc) {
-          const rollover = new Date(Date.UTC(
-            occurrenceEndParts.year,
-            occurrenceEndParts.month - 1,
-            occurrenceEndParts.day,
-            occurrenceEndParts.hour,
-            occurrenceEndParts.minute,
-            occurrenceEndParts.second || 0
-          ));
-          rollover.setUTCDate(rollover.getUTCDate() + 1);
-          occurrenceEndParts = {
-            ...occurrenceEndParts,
-            year: rollover.getUTCFullYear(),
-            month: rollover.getUTCMonth() + 1,
-            day: rollover.getUTCDate(),
-          };
-        }
-        endDateTime = partsToIso(occurrenceEndParts);
-      }
+      recurrenceUntilDate = String(recurrenceUntilDate || "").trim();
 
       if (t === "custom") {
         // Prefer the hidden JSON emitted by the admin UI (keeps per-date start/end)
@@ -23622,14 +23877,16 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 
           // Object with start/end
           if (it && typeof it === "object") {
-            const s = String(it.start || "").trim();
-            const e = String(it.end || "").trim();
+            const rawStart = String(it.start || "").trim();
+            const rawEnd = String(it.end || "").trim();
+            const s = toLocalISOWithOffset(rawStart) || rawStart;
+            const e = toLocalISOWithOffset(rawEnd) || rawEnd;
             let date = String(it.date || "").trim();
             if (!date && s.length >= 10) date = s.slice(0,10);
             if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
 
             if (!uniqDates.includes(date)) uniqDates.push(date);
-            if (s && e) items.push({ date, start: s, end: e });
+            if (s && e) items.push({ ...it, date, start: s, end: e });
           }
         }
 
@@ -23682,7 +23939,17 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       }
     }
 
-    const recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
+    let recurrenceRuleJson = recurrenceRule ? JSON.stringify(recurrenceRule) : null;
+    const preserveRecurrenceRule = String(req.body?.preserveRecurrenceRule || "") === "1";
+    const recurrenceRuleChanged = String(req.body?.recurrenceRuleChanged || "") === "1";
+    if (hasRec && preserveRecurrenceRule && !recurrenceRuleChanged && id) {
+      const originalRule = safeParseJson(req.body?.originalRecurrenceRule, null);
+      if (originalRule && typeof originalRule === "object" && !Array.isArray(originalRule)) {
+        recurrenceRuleJson = JSON.stringify(originalRule);
+        const originalDates = safeParseJson(req.body?.originalRecurrenceDates, null);
+        recurrenceDatesJson = Array.isArray(originalDates) ? JSON.stringify(originalDates) : recurrenceDatesJson;
+      }
+    }
 
     const cols = await getEventsColumns();
 

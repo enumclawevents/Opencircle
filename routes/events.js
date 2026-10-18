@@ -1047,6 +1047,10 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
   if (type === "weekly") {
     const byDay = Array.isArray(rule.byDay) ? rule.byDay : [];
     const byDaySet = new Set(byDay);
+    // Iterating UTC days crosses the fall DST transition twice for one local
+    // calendar date.  A weekly rule must emit at most one occurrence per
+    // local date, while retaining that date's correct wall-clock offset.
+    const seenOccurrenceDates = new Set();
 
     const dayMs = 86400 * 1000;
     for (let t = boundedStart; t <= boundedEnd; t += dayMs) {
@@ -1068,9 +1072,12 @@ function generateOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs) {
 
       if (occurrenceEnd.endUtc < boundedStart || occStartUtc > boundedEnd) continue;
       if (occStartUtc < startUtc) continue;
+      const occurrenceDate = toYmd(occLocalParts);
+      if (seenOccurrenceDates.has(occurrenceDate)) continue;
+      seenOccurrenceDates.add(occurrenceDate);
 
       out.push({
-        occurrenceDate: toYmd(occLocalParts),
+        occurrenceDate,
         startDateTime: partsToIso(occLocalParts),
         endDateTime: occurrenceEnd.endDateTime,
         label: formatLabelLocal(occLocalParts),
@@ -2794,3 +2801,7 @@ router.post("/:idOrSlug/engagement", async (req, res) => {
 
 module.exports = router;
 module.exports.listEventsHandler = listEventsHandler;
+// Reused by the authenticated event-authoring preview.  Keeping preview
+// expansion on this function prevents the editor from drifting from the
+// public recurrence, timezone, duration, and cutoff behavior.
+module.exports.generateOccurrences = generateOccurrences;
