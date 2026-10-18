@@ -26,6 +26,12 @@ test("event form groups the existing controls without changing their bindings", 
   }
 
   assert.match(source, /id="recurrencePreview"/);
+  assert.match(source, /id="recurrenceIntro"/);
   assert.match(source, /id="quickAddUrl"/);
   assert.match(source, /id="quickAddFetch"/);
+  assert.match(source, /id="imageFileInput"/);
+  assert.match(source, /id="imageFileName"/);
+  assert.ok(source.includes('form[action="/admin/events"]{ padding-bottom:calc(88px'));
+  assert.match(source, /event-form-savebar\{ position:sticky/);
+  assert.match(source, /event-form-advanced\[open\] > summary svg/);
 });

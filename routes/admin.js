@@ -13316,27 +13316,53 @@ return `
         border-color:rgba(16,185,129,.48);
         background:rgba(16,185,129,.10);
       }
+      form[action="/admin/events"]{ padding-bottom:calc(88px + env(safe-area-inset-bottom, 0px)); }
       .event-form-section{
-        padding:24px 0;
+        padding:20px 0;
         border-top:1px solid var(--line);
       }
       .event-form-section:first-child{ border-top:0; padding-top:8px; }
-      .event-form-section-heading{ margin-bottom:16px; }
-      .event-form-section-heading h3{ margin:0; color:var(--text); font-size:17px; line-height:1.25; }
+      .event-form-section-heading{ display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+      .event-form-section-heading-icon{ width:18px; height:18px; color:var(--accent); flex:0 0 auto; stroke-width:1.8; }
+      .event-form-section-heading-copy{ min-width:0; }
+      .event-form-section-heading h3{ margin:0; color:var(--text); font-size:16px; line-height:1.25; }
       .event-form-section-heading p{ margin:5px 0 0; color:var(--muted); font-size:13px; line-height:1.45; }
       .event-form-section .formGrid{ margin-top:0; }
       .event-form-basics .ctrl[name="title"]{ font-size:18px; font-weight:650; }
-      .event-form-basics textarea[name="description"]{ min-height:130px; }
+      .event-form-basics textarea[name="description"],
+      form[action="/admin/events"] textarea[name="eventDetails"]{ min-height:84px; }
+      form[action="/admin/events"] textarea[name="goodToKnow"],
+      form[action="/admin/events"] textarea[name="metaDescription"]{ min-height:70px; }
       .event-form-categories{ margin:16px 0; }
       .event-form-categories .rec-box{ margin-top:0; background:transparent; padding:0; border:0; }
-      .event-form-advanced{ margin-top:0; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel2); }
-      .event-form-advanced > summary{ cursor:pointer; padding:14px; color:var(--text); font-size:14px; font-weight:700; }
-      .event-form-advanced > summary::marker{ color:var(--muted); }
+      .event-form-advanced{ margin-top:0; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel); }
+      .event-form-advanced > summary{ display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; padding:14px; color:var(--text); font-size:14px; font-weight:700; list-style:none; }
+      .event-form-advanced > summary::-webkit-details-marker{ display:none; }
+      .event-form-advanced > summary svg{ width:18px; height:18px; color:var(--muted); transition:transform .16s ease; }
+      .event-form-advanced[open] > summary svg{ transform:rotate(90deg); }
       .event-form-advanced-body{ padding:0 14px 14px; }
-      .event-form-advanced .rec-box{ margin-top:12px; background:var(--panel); }
-      .event-form-savebar{ position:sticky; bottom:12px; z-index:4; display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:24px; padding:12px; border:1px solid var(--line); border-radius:var(--radius-mid); background:color-mix(in srgb, var(--panel) 94%, transparent); box-shadow:var(--shadow); }
-      .event-form-savebar .actions{ margin:0; }
-      @media (max-width: 700px){ .event-form-section{ padding:20px 0; } .event-form-savebar{ bottom:8px; } }
+      .event-form-advanced-group{ padding:14px 0; border-top:1px solid var(--line); }
+      .event-form-advanced-group:first-child{ border-top:0; padding-top:2px; }
+      .event-form-advanced-group h4{ margin:0 0 10px; font-size:13px; color:var(--text); }
+      .event-form-savebar{ position:sticky; bottom:max(0px, env(safe-area-inset-bottom, 0px)); z-index:4; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:24px; padding:10px 0 calc(10px + env(safe-area-inset-bottom, 0px)); border-top:1px solid var(--line); background:var(--panel); box-shadow:0 -8px 18px rgba(15,23,42,.08); }
+      .event-form-savebar .actions{ margin:0; order:2; }
+      .event-form-savebar .note{ margin:0; order:1; }
+      .event-form-area{ margin-top:0 !important; padding:0 0 16px !important; border:0 !important; background:transparent !important; box-shadow:none !important; }
+      .event-form-area .event-form-area-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }
+      .event-form-area .ctrl{ font-size:16px !important; font-weight:650; border-width:1px !important; }
+      form[action="/admin/events"] .quick-add-box{ padding:14px !important; background:transparent !important; border-color:var(--line) !important; }
+      form[action="/admin/events"] .quick-add-box .pill{ display:none; }
+      form[action="/admin/events"] .quick-add-box .quick-add-grid{ grid-template-columns:minmax(0,1fr) auto; gap:10px; }
+      form[action="/admin/events"] .quick-add-box .quick-add-status{ margin-top:6px; }
+      .rec-box.recurrence{ background:transparent; border-color:var(--line); padding:0; border-width:0; }
+      .rec-box.recurrence .event-type-managed-rec-toggle:first-child{ padding-top:4px; }
+      .recurrence-choice{ min-height:38px; padding:0 12px; font-size:13px; }
+      .recurrence #repeatControls{ margin-top:14px !important; padding-top:14px; border-top:1px solid var(--line); }
+      .event-image-upload{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+      .event-image-upload input[type="file"]{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; }
+      .event-image-upload-label{ margin:0 !important; cursor:pointer; }
+      .event-image-upload-name{ color:var(--muted); font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      @media (max-width: 700px){ .event-form-section{ padding:18px 0; } .event-form-savebar{ align-items:stretch; } .event-form-savebar .actions{ width:100%; } .event-form-savebar .actions .btn-primary{ flex:1; } form[action="/admin/events"] .quick-add-box .quick-add-grid{ grid-template-columns:1fr; } }
       .event-type-shell{ display:none; }
       .event-type-shell.is-visible{ display:block; }
       .event-type-note{
@@ -16526,7 +16552,7 @@ return `
                   <h2 style="margin:0;">${editEvent ? "Edit event" : "Create event"}</h2>
                   <span class="pill">${esc(selectedAdminLabel)}</span>
                 </div>
-                <p class="sub">This saves to SQLite and powers your API</p>
+                <p class="sub">${editEvent ? "Update the details for this event." : `Add a new event to ${esc(selectedAdminLabel)}.`}</p>
               </div>
             </div>
 
@@ -16534,13 +16560,12 @@ return `
               ${editEvent && !fromPending ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
               ${fromPending ? `<input type="hidden" name="pendingId" value="${esc(pendingEvent.id)}" />` : ""}
 
-              <div class="rec-box" style="margin-top:0; border-color:rgba(16,185,129,.35); background:linear-gradient(180deg, rgba(16,185,129,.10), rgba(16,185,129,.04)); box-shadow:0 0 0 1px rgba(16,185,129,.08) inset;">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
-                  <label for="cityHidden" style="margin:0; font-size:18px; font-weight:800; letter-spacing:-0.01em;">Area</label>
-                  <span class="pill" style="background:rgba(16,185,129,.14); border-color:rgba(16,185,129,.24); color:#166534;">Choose where this event will publish</span>
+              <div class="rec-box event-form-area">
+                <div class="event-form-area-head">
+                  <label for="cityHidden" style="margin:0;">Area</label>
                 </div>
-                <div class="note" style="margin:0 0 10px 0; color:#42526b;">This controls which area site the event is added to.</div>
-                <select class="ctrl" name="city" id="cityHidden" required style="font-size:18px; font-weight:700; border-width:2px; border-color:rgba(16,185,129,.28); background:#fff;">
+                <div class="note" style="margin:0 0 8px;">Choose where this event appears.</div>
+                <select class="ctrl" name="city" id="cityHidden" required>
                   ${cityOptions}
                 </select>
               </div>
@@ -16553,10 +16578,10 @@ return `
               <input type="hidden" id="originalEndDateTimeISO" value="${esc(editEvent?.endDateTime || "")}" />
 
               <div class="rec-box quick-add-box">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:6px;">
                   <div>
-                    <div style="font-size:18px; font-weight:800; letter-spacing:-0.01em; color:var(--text);">Quick Add from Event Link</div>
-                    <div class="note" style="margin:6px 0 0 0;">Paste the public event URL and the API will try to fill the form for you automatically. You can also click the button.</div>
+                    <div style="font-size:15px; font-weight:750; letter-spacing:-0.01em; color:var(--text);">Quick add from link</div>
+                    <div class="note" style="margin:3px 0 0;">Paste an event URL to fill in the details automatically.</div>
                   </div>
                   <span class="pill">Best for Facebook, Eventbrite, and public event pages</span>
                 </div>
@@ -16763,12 +16788,12 @@ return `
 
               <div class="event-type-shell is-visible" id="eventTypeShell">
               <section class="event-form-section event-form-basics">
-                <div class="event-form-section-heading"><h3>Event basics</h3><p>Start with the information visitors need to understand your event.</p></div>
+                <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/></svg><div class="event-form-section-heading-copy"><h3>Event basics</h3><p>Start with the information visitors need to understand your event.</p></div></div>
               <label>Title</label>
               <input class="ctrl" name="title" value="${esc(editEvent?.title || "")}" required />
 
               <label>Description</label>
-              <textarea class="ctrl" name="description" required>${esc(editEvent?.description || "")}</textarea>
+              <textarea class="ctrl" name="description" rows="3" required>${esc(editEvent?.description || "")}</textarea>
 
               <div class="event-form-categories">
                 <div class="rec-box">
@@ -16783,16 +16808,16 @@ return `
               </div>
 
               <label>Event Details</label>
-              <textarea class="ctrl" name="eventDetails">${esc(editEvent?.eventDetails || "")}</textarea>
+              <textarea class="ctrl" name="eventDetails" rows="3">${esc(editEvent?.eventDetails || "")}</textarea>
               <div class="note">Add practical details such as age guidance, parking, or what to bring.</div>
 
               <label>Good to Know</label>
-              <textarea class="ctrl" name="goodToKnow">${esc(editEvent?.goodToKnow || "")}</textarea>
+              <textarea class="ctrl" name="goodToKnow" rows="2">${esc(editEvent?.goodToKnow || "")}</textarea>
               <div class="note">Share a final helpful note for attendees.</div>
               </section>
 
               <section class="event-form-section event-form-schedule">
-                <div class="event-form-section-heading"><h3>Date &amp; time</h3><p>Set the first occurrence, then choose whether the event repeats.</p></div>
+                <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 2v4M16 2v4M3 10h18"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg><div class="event-form-section-heading-copy"><h3>Date &amp; time</h3><p>Set the first occurrence, then choose whether the event repeats.</p></div></div>
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
                   <label style="margin-top:0;">First occurrence starts</label>
@@ -16806,6 +16831,7 @@ return `
                 </div>
               </div>
               <div class="note" style="margin-top:6px;">These times apply to each occurrence. Overnight events are supported.</div>
+              <div class="note">Dates are saved in Pacific time automatically.</div>
 
               <div class="rec-box multi-day-shell ${inferredEventType === "multi-day" ? "is-visible" : ""}" id="multiDayScheduleShell" style="margin-top:14px;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px; flex-wrap:wrap;">
@@ -16832,7 +16858,7 @@ return `
                     <label class="btn recurrence-choice"><input type="radio" name="recurrenceChoice" value="yes" ${hasRecurrence ? "checked" : ""} onchange="window.ocSetRecurrenceChoice && window.ocSetRecurrenceChoice(true)" /> Yes, this event repeats</label>
                   </div>
                 </div>
-                <div class="note event-type-managed-rec-toggle">Choose a pattern below. Your first occurrence remains the event schedule above.</div>
+                <div class="note event-type-managed-rec-toggle" id="recurrenceIntro">Choose a pattern below. Your first occurrence remains the event schedule above.</div>
                 ${recurrenceDurationAmbiguous ? `<div class="note" style="margin-top:10px;color:#9a6700;">This legacy event does not have a confirmed per-occurrence end time. Its stored schedule is preserved unless you explicitly set a new end time.</div>` : ``}
 
                 <input type="hidden" name="recurrenceStartDate" value="${esc(recurrenceStartDateVal)}" />
@@ -16989,6 +17015,7 @@ return `
                   var pruneBtn = document.getElementById("prunePastDates");
                   var wrap = document.getElementById("customDatesWrap");
                   var repeatControls = document.getElementById("repeatControls");
+                  var recurrenceIntro = document.getElementById("recurrenceIntro");
                   var preview = document.getElementById("recurrencePreview");
                   var previewSummary = preview && preview.querySelector("[data-preview-summary]");
                   var previewList = preview && preview.querySelector("[data-preview-list]");
@@ -17006,6 +17033,7 @@ return `
                     var choice = document.querySelector('input[name="recurrenceChoice"][value="' + (enabled ? "yes" : "no") + '"]');
                     if (choice) choice.checked = true;
                     if (!enabled) {
+                      show(recurrenceIntro, false);
                       show(repeatControls, false);
                       show(intervalRow, false);
                       show(weeklyBox, false);
@@ -17014,6 +17042,7 @@ return `
                       show(preview, false);
                       return;
                     }
+                    show(recurrenceIntro, true);
                     show(repeatControls, true);
                     show(document.getElementById("repeatUntilRow"), t !== "custom");
                     show(intervalRow, t === "weekly" || t === "monthly");
@@ -17199,7 +17228,7 @@ return `
               </section>
 
               <section class="event-form-section event-form-location">
-                <div class="event-form-section-heading"><h3>Location &amp; organizer</h3><p>Use the same venue and organizer names visitors will recognize.</p></div>
+                <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg><div class="event-form-section-heading-copy"><h3>Location &amp; organizer</h3><p>Use the same venue and organizer names visitors will recognize.</p></div></div>
                 <div class="rec-grid">
                   <div>
                     <label style="margin-top:0;">Location</label>
@@ -17214,10 +17243,14 @@ return `
               </section>
 
               <section class="event-form-section event-form-media">
-                <div class="event-form-section-heading"><h3>Media &amp; ticketing</h3><p>Add the event image and an optional link for tickets or reservations.</p></div>
-              <label>Flyer Image (Upload)</label>
-              <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
-              <div class="note">${isOrganizerUser ? "Images are automatically formatted after upload." : "Uploading replaces the Image URL below."}</div>
+                <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><div class="event-form-section-heading-copy"><h3>Media &amp; ticketing</h3><p>Add the event image and an optional link for tickets or reservations.</p></div></div>
+              <label>Flyer image</label>
+              <div class="event-image-upload">
+                <input id="imageFileInput" class="ctrl" type="file" name="imageFile" accept="image/*" />
+                <label class="btn event-image-upload-label" for="imageFileInput"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 21h14a2 2 0 0 0 2-2v-4M3 15v4a2 2 0 0 0 2 2"/></svg>Choose image</label>
+                <span class="event-image-upload-name" id="imageFileName">No image selected</span>
+              </div>
+              <div class="note">${isOrganizerUser ? "Images are formatted after upload." : "A new upload replaces the image URL below."}</div>
 
               <img id="uploadPreview" style="margin-top:10px; width:160px; height:160px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); display:none;" alt="Flyer upload preview" />
 
@@ -17255,13 +17288,13 @@ return `
 
               <section class="event-form-section">
                 <details class="event-form-advanced">
-                  <summary>Advanced settings</summary>
+                  <summary><span style="display:inline-flex;align-items:center;gap:8px;"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.73l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>Advanced settings</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m9 18 6-6-6-6"/></svg></summary>
                   <div class="event-form-advanced-body">
                   ${isOrganizerUser ? `
-                    <div class="note">SEO is generated automatically from your event details.</div>
+                    <div class="event-form-advanced-group"><div class="note">SEO is generated automatically from your event details.</div></div>
                   ` : `
-                    <div class="rec-box">
-                      <div style="font-weight:650; margin-bottom:6px;">SEO</div>
+                    <div class="event-form-advanced-group">
+                      <h4>SEO</h4>
                       <label>SEO Title</label>
                       <input class="ctrl" name="seoTitle" value="${esc(editEvent?.seoTitle || "")}" />
                       <label style="margin-top:10px;">Meta Description</label>
@@ -17273,7 +17306,8 @@ return `
                     </div>
                   `}
                   ${canFeatureEvents ? `
-                    <div class="rec-box">
+                    <div class="event-form-advanced-group">
+                      <h4>Editorial</h4>
                       <div class="checkbox">
                         <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
                         <label for="featured" style="margin:0;font-size:12px;font-weight:650;">Featured event</label>
@@ -17281,7 +17315,8 @@ return `
                       ${canCurateEventPromotions ? `<div class="checkbox" style="margin-top:10px;"><input type="checkbox" id="eddiesPick" name="eddiesPick" value="1" ${isEddiesPick ? "checked" : ""} /><label for="eddiesPick" style="margin:0;font-size:12px;font-weight:650;">Eddie's Pick</label></div>` : ``}
                     </div>
                   ` : ``}
-                    <div class="rec-box">
+                    <div class="event-form-advanced-group">
+                      <h4>Submission options</h4>
                       <div class="checkbox">
                         <input type="checkbox" id="forceDuplicateSave" name="forceDuplicateSave" value="1" />
                         <label for="forceDuplicateSave" style="margin:0;font-size:12px;font-weight:650;">Save anyway if a possible duplicate is found</label>
@@ -17297,7 +17332,6 @@ return `
                 <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
               ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
                 </div>
-                <span class="note">Dates are saved in Pacific time automatically.</span>
               </div>
               </div>
             </form>
@@ -19687,6 +19721,7 @@ return `
       (function () {
         var fileInput = document.getElementById("imageFileInput");
         var preview = document.getElementById("uploadPreview");
+        var filename = document.getElementById("imageFileName");
         if (!fileInput || !preview) return;
 
         fileInput.addEventListener("change", function () {
@@ -19694,8 +19729,10 @@ return `
           if (!f) {
             preview.style.display = "none";
             preview.src = "";
+            if (filename) filename.textContent = "No image selected";
             return;
           }
+          if (filename) filename.textContent = f.name || "Image selected";
           preview.src = URL.createObjectURL(f);
           preview.style.display = "block";
         });
