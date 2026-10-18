@@ -13316,12 +13316,11 @@ return `
         border-color:rgba(16,185,129,.48);
         background:rgba(16,185,129,.10);
       }
-      form[action="/admin/events"]{ padding-bottom:calc(88px + env(safe-area-inset-bottom, 0px)); }
       .event-form-section{
-        padding:20px 0;
+        padding:24px 0;
         border-top:1px solid var(--line);
       }
-      .event-form-section:first-child{ border-top:0; padding-top:8px; }
+      .event-form-section:first-child{ border-top:0; padding-top:24px; }
       .event-form-section-heading{ display:flex; align-items:center; gap:8px; margin-bottom:14px; }
       .event-form-section-heading-icon{ width:18px; height:18px; color:var(--accent); flex:0 0 auto; stroke-width:1.8; }
       .event-form-section-heading-copy{ min-width:0; }
@@ -13344,13 +13343,13 @@ return `
       .event-form-advanced-group{ padding:14px 0; border-top:1px solid var(--line); }
       .event-form-advanced-group:first-child{ border-top:0; padding-top:2px; }
       .event-form-advanced-group h4{ margin:0 0 10px; font-size:13px; color:var(--text); }
-      .event-form-savebar{ position:sticky; bottom:max(0px, env(safe-area-inset-bottom, 0px)); z-index:4; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:24px; padding:10px 0 calc(10px + env(safe-area-inset-bottom, 0px)); border-top:1px solid var(--line); background:var(--panel); box-shadow:0 -8px 18px rgba(15,23,42,.08); }
+      .event-form-savebar{ position:static; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:0; padding:18px 0 0; border-top:1px solid var(--line); background:var(--panel); box-shadow:none; }
       .event-form-savebar .actions{ margin:0; order:2; }
       .event-form-savebar .note{ margin:0; order:1; }
       .event-form-area{ margin-top:0 !important; padding:0 0 16px !important; border:0 !important; background:transparent !important; box-shadow:none !important; }
       .event-form-area .event-form-area-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }
       .event-form-area .ctrl{ font-size:16px !important; font-weight:650; border-width:1px !important; }
-      form[action="/admin/events"] .quick-add-box{ padding:14px !important; background:transparent !important; border-color:var(--line) !important; }
+      form[action="/admin/events"] .quick-add-box{ margin-top:24px !important; padding:14px !important; background:transparent !important; border-color:var(--line) !important; }
       form[action="/admin/events"] .quick-add-box .pill{ display:none; }
       form[action="/admin/events"] .quick-add-box .quick-add-grid{ grid-template-columns:minmax(0,1fr) auto; gap:10px; }
       form[action="/admin/events"] .quick-add-box .quick-add-status{ margin-top:6px; }
@@ -13362,7 +13361,10 @@ return `
       .event-image-upload input[type="file"]{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; }
       .event-image-upload-label{ margin:0 !important; cursor:pointer; }
       .event-image-upload-name{ color:var(--muted); font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      @media (max-width: 700px){ .event-form-section{ padding:18px 0; } .event-form-savebar{ align-items:stretch; } .event-form-savebar .actions{ width:100%; } .event-form-savebar .actions .btn-primary{ flex:1; } form[action="/admin/events"] .quick-add-box .quick-add-grid{ grid-template-columns:1fr; } }
+      .event-form-media > label{ margin-top:16px; }
+      .event-form-media .event-image-upload + .note{ margin-top:6px; }
+      .event-form-media .rec-grid{ margin-top:16px !important; }
+      @media (max-width: 700px){ .event-form-section{ padding:20px 0; } .event-form-section:first-child{ padding-top:20px; } .event-form-savebar{ align-items:stretch; } .event-form-savebar .actions{ width:100%; } .event-form-savebar .actions .btn-primary{ flex:1; } form[action="/admin/events"] .quick-add-box .quick-add-grid{ grid-template-columns:1fr; } }
       .event-type-shell{ display:none; }
       .event-type-shell.is-visible{ display:block; }
       .event-type-note{

@@ -31,7 +31,7 @@ test("event form groups the existing controls without changing their bindings", 
   assert.match(source, /id="quickAddFetch"/);
   assert.match(source, /id="imageFileInput"/);
   assert.match(source, /id="imageFileName"/);
-  assert.ok(source.includes('form[action="/admin/events"]{ padding-bottom:calc(88px'));
-  assert.match(source, /event-form-savebar\{ position:sticky/);
+  assert.ok(!source.includes('form[action="/admin/events"]{ padding-bottom:calc(88px'));
+  assert.match(source, /event-form-savebar\{ position:static/);
   assert.match(source, /event-form-advanced\[open\] > summary svg/);
 });
