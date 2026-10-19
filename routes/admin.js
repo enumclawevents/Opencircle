@@ -7186,11 +7186,12 @@ return `
     `, dashParams);
 
     const topOrganizersHtml = orgRows
-      .map((r) => {
+      .map((r, index) => {
         const organizerHref = `/admin/events-organizers?organizer=${encodeURIComponent(String(r.organizer || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
-        const label = `<a href="${esc(organizerHref)}">${esc(r.organizer)}</a>`;
+        const organizerName = String(r.organizer || "(unknown)");
+        const label = `<a href="${esc(organizerHref)}" title="${esc(organizerName)}">${esc(organizerName)}</a>`;
         const count = Number(r.totalViews || 0);
-        return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
+        return `<div class="kv organizer-ranking-row"><div class="top-event-rank" aria-hidden="true">${index + 1}</div><div class="k">${label}</div><div class="v">${count.toLocaleString("en-US")}</div></div>`;
       })
       .join("");
 
@@ -7252,7 +7253,7 @@ return `
             ? `/admin/events-organizers?organizer=${encodeURIComponent(leader.organizer)}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`
             : "";
           const organizerLabel = leader
-            ? (organizerHref ? `<a href="${esc(organizerHref)}">${esc(leader.organizer)}</a>` : esc(leader.organizer))
+            ? (organizerHref ? `<a href="${esc(organizerHref)}" title="${esc(leader.organizer)}">${esc(leader.organizer)}</a>` : esc(leader.organizer))
             : "—";
           return `
             <tr>
@@ -7271,7 +7272,7 @@ return `
             ? `/admin/events-analytics?event=${encodeURIComponent(String(leader.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`
             : "";
           const eventLabel = leader
-            ? (eventHref ? `<a href="${esc(eventHref)}">${esc(leader.title)}</a>` : esc(leader.title))
+            ? (eventHref ? `<a href="${esc(eventHref)}" title="${esc(leader.title)}">${esc(leader.title)}</a>` : esc(leader.title))
             : "—";
           return `
             <tr>
@@ -7705,10 +7706,12 @@ return `
           const p1 = points[i];
           const p2 = points[i + 1];
           const p3 = points[i + 2] || p2;
+          const segmentMinY = Math.min(p1.y, p2.y);
+          const segmentMaxY = Math.max(p1.y, p2.y);
           const cp1x = p1.x + (p2.x - p0.x) / 6;
-          const cp1y = Math.max(padT, Math.min(padT + plotH, p1.y + (p2.y - p0.y) / 6));
+          const cp1y = Math.max(segmentMinY, Math.min(segmentMaxY, p1.y + (p2.y - p0.y) / 6));
           const cp2x = p2.x - (p3.x - p1.x) / 6;
-          const cp2y = Math.max(padT, Math.min(padT + plotH, p2.y - (p3.y - p1.y) / 6));
+          const cp2y = Math.max(segmentMinY, Math.min(segmentMaxY, p2.y - (p3.y - p1.y) / 6));
           path += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
         }
         return path;
@@ -12077,6 +12080,13 @@ return `
         gap:var(--gap);
         margin-bottom:var(--gap);
       }
+      .analytics-engagement-metrics{
+        grid-template-columns:repeat(5, minmax(0, 1fr));
+      }
+      .analytics-engagement-metrics .metric{
+        min-width:0;
+        padding:14px;
+      }
       .metric{
         display:flex; align-items:flex-end; justify-content:space-between; gap:10px;
         padding:16px;
@@ -12438,6 +12448,7 @@ return `
 
       @media (max-width: 1100px){
         .metrics{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .analytics-engagement-metrics{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .grid2{ grid-template-columns: 1fr; }
         .grid4{ grid-template-columns: 1fr; }
         .venue-analytics-grid2{ grid-template-columns: 1fr; }
@@ -12486,6 +12497,7 @@ return `
         }
       }
       @media (max-width: 700px){
+        .analytics-engagement-metrics{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .newsletter-audience-summary{
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -12760,7 +12772,7 @@ return `
         padding: 4px 0;
       }
       .mini-list .kv{
-        margin: 14px 0;
+        margin: 10px 0;
         padding: 4px 0;
       }
       .top-events-card{
@@ -12770,11 +12782,12 @@ return `
         align-items:center;
         margin-bottom:14px;
       }
-      .top-event-row{
+      .mini-list .top-event-row,
+      .mini-list .organizer-ranking-row{
         gap:10px;
         margin:0;
-        min-height:38px;
-        padding:8px 0;
+        min-height:40px;
+        padding:7px 0;
         border-bottom:1px solid var(--line);
       }
       .top-event-row:last-child{ border-bottom:0; }
@@ -12793,20 +12806,39 @@ return `
         color:var(--text);
         font-variant-numeric:tabular-nums;
       }
+      .organizer-ranking-row .v{
+        min-width:42px;
+        text-align:right;
+        color:var(--text);
+        font-variant-numeric:tabular-nums;
+      }
+      .top-events-column-head{
+        display:flex;
+        justify-content:space-between;
+        gap:10px;
+        padding:0 0 6px 30px;
+        border-bottom:1px solid var(--line);
+        color:var(--muted);
+        font-size:11px;
+        font-weight:700;
+        letter-spacing:.03em;
+        text-transform:uppercase;
+      }
       .analytics-table{
         width:100%;
         border-collapse:collapse;
       }
       .analytics-table th,
       .analytics-table td{
-        padding:10px 8px;
+        padding:9px 8px;
         border-bottom:1px solid var(--line);
         text-align:left;
         font-size:13px;
       }
       .analytics-table th{
-        color:var(--muted);
+        color:#475569;
         font-weight:700;
+        font-size:12px;
       }
       .analytics-table td:last-child,
       .analytics-table th:last-child{
@@ -12819,6 +12851,12 @@ return `
       }
       .analytics-table tbody tr:last-child td{
         border-bottom:0;
+      }
+      .category-analytics-grid .analytics-table td:nth-child(2){
+        max-width:180px;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
       }
       .grid4 > .card .mini-spaced{
         height: 100%;
@@ -13707,7 +13745,7 @@ return `
       .sectionTitle--chart .left{
         display:flex;
         flex-direction:column;
-        gap:6px;
+        gap:8px;
         min-width:0;
       }
       .chartTopRow{
@@ -13719,14 +13757,14 @@ return `
       }
       .chartTopRow .sub{
         margin:0;
-        white-space:nowrap;
+        white-space:normal;
       }
       .sectionTitle--chart h2,
       .sectionTitle--chart .chartTitle,
       #chartRangeLabel,
       #venueChartRangeLabel,
       #adChartRangeLabel{
-        white-space:nowrap;
+        white-space:normal;
       }
       .metricToggle{
         display:inline-flex;
@@ -13761,7 +13799,7 @@ return `
       }
       .chartLegend{
         display:flex;
-        gap:22px;
+        gap:18px;
         flex-wrap:wrap;
         align-items:center;
         margin-top:0;
@@ -15351,7 +15389,7 @@ return `
 
         <!-- Metrics -->
         ${showAnalytics ? `
-        <section class="metrics" id="analytics">
+        <section class="metrics ${selectedEventAnalytics ? "analytics-engagement-metrics" : ""}" id="analytics">
           ${selectedEventAnalytics ? `
           <div class="metric">
             <div>
@@ -15412,6 +15450,8 @@ return `
               <div class="v">${esc(stats.featured)}</div>
             </div>
           </div>
+        </section>
+        <section class="metrics analytics-engagement-metrics" aria-label="Event view sources">
           <div class="metric">
             <div>
               <div class="k">${analyticsMetricLabel("All views", analyticsMetricHelp.allViews)}</div>
@@ -15456,9 +15496,9 @@ return `
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
-                <div class="chartTopRow">
-                    <div class="chartTitle">${selectedEventAnalytics ? "Event views over time" : "Event activity over time"}</div>
-                    <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
+                <div class="chartTitle">${selectedEventAnalytics ? "Event views over time" : "Event activity over time"}</div>
+                <p class="sub" id="chartRangeLabel">${esc(chartRangeLabelByMode[chartViewMode] || chartRangeLabelByMode.daily)} · Events use scheduled start dates; views use recorded dates.</p>
+                <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
                       ${!selectedEventAnalytics ? `
                       <div class="chartLegendItem is-events" data-legend-metric="events">
                         <span class="chartLegendLine"></span>
@@ -15470,9 +15510,7 @@ return `
                       <span>Views</span>
                     </div>
                   </div>
-                  <p class="sub" id="chartRangeLabel">${esc(chartRangeLabelByMode[chartViewMode] || chartRangeLabelByMode.daily)} · Events use scheduled start dates; views use the time they were recorded.</p>
                 </div>
-              </div>
               <div class="right">
                 <div class="seg" id="chartViewSeg" aria-label="Chart view">
                   <a href="${buildAnalyticsChartHref("daily")}" data-view="daily" class="${chartViewMode === "daily" ? "on" : ""}">Daily</a>
@@ -15630,7 +15668,7 @@ return `
             </div>
             <div class="mini">
               <table class="analytics-table">
-                <thead><tr><th>#</th><th>Category</th><th>Events</th><th>Views</th><th>Views / event</th></tr></thead>
+                <thead><tr><th>#</th><th>Category</th><th>Events</th><th>Views</th><th>Avg. views <span class="metricInfo" tabindex="0" role="img" aria-label="Average views: category views divided by categorized event records" data-tip="Category views divided by categorized event records. An event assigned to multiple categories contributes to each category.">i</span></th></tr></thead>
                 <tbody>${categoryPopularityHtml}</tbody>
               </table>
             </div>
@@ -15677,10 +15715,10 @@ return `
                 <button type="button" data-top-events-period="year" aria-pressed="false">This year</button>
               </div>
             </div>
-            <div class="mini mini-list" data-top-events-panel="today">${topTodayHtml}</div>
-            <div class="mini mini-list" data-top-events-panel="week" hidden>${topWeekHtml}</div>
-            <div class="mini mini-list" data-top-events-panel="month" hidden>${topMonthHtml}</div>
-            <div class="mini mini-list" data-top-events-panel="year" hidden>${topYearHtml}</div>
+            <div class="mini mini-list" data-top-events-panel="today"><div class="top-events-column-head"><span>Event</span><span>Views</span></div>${topTodayHtml}</div>
+            <div class="mini mini-list" data-top-events-panel="week" hidden><div class="top-events-column-head"><span>Event</span><span>Views</span></div>${topWeekHtml}</div>
+            <div class="mini mini-list" data-top-events-panel="month" hidden><div class="top-events-column-head"><span>Event</span><span>Views</span></div>${topMonthHtml}</div>
+            <div class="mini mini-list" data-top-events-panel="year" hidden><div class="top-events-column-head"><span>Event</span><span>Views</span></div>${topYearHtml}</div>
         </section>
         ` : ``}
 
@@ -20459,7 +20497,7 @@ return `
     }));
   }
 
-  function drawSmoothLine(ctx, points){
+  function drawSmoothLine(ctx, points, boundToSegments = false){
     if (!points.length) return;
     const yMin = Math.min.apply(null, points.map((p) => (typeof p.chartMinY !== "undefined" ? p.chartMinY : p.y)));
     const yMax = Math.max.apply(null, points.map((p) => (typeof p.chartMaxY !== "undefined" ? p.chartMaxY : p.y)));
@@ -20473,10 +20511,12 @@ return `
         const p1 = points[i];
         const p2 = points[i + 1];
         const p3 = points[i + 2] || p2;
+        const segmentMinY = boundToSegments ? Math.min(p1.y, p2.y) : yMin;
+        const segmentMaxY = boundToSegments ? Math.max(p1.y, p2.y) : yMax;
         const cp1x = p1.x + (p2.x - p0.x) / 6;
-        const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, yMin, yMax);
+        const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, segmentMinY, segmentMaxY);
         const cp2x = p2.x - (p3.x - p1.x) / 6;
-        const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, yMin, yMax);
+        const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, segmentMinY, segmentMaxY);
         ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
       }
     }
@@ -20976,7 +21016,7 @@ return `
       monthly:"Last 12 months (by start date)",
       yearly: "Last 5 years (by start date)",
     };
-    $range.textContent = (map[mode] || map.daily) + " · Events use scheduled start dates; views use the time they were recorded.";
+    $range.textContent = (map[mode] || map.daily) + " · Events use scheduled start dates; views use recorded dates.";
   }
 
   function getPeriodLabel(rawLabel){
@@ -21120,10 +21160,12 @@ return `
           const p1 = primaryPoints[i];
           const p2 = primaryPoints[i + 1];
           const p3 = primaryPoints[i + 2] || p2;
+          const segmentMinY = Math.min(p1.y, p2.y);
+          const segmentMaxY = Math.max(p1.y, p2.y);
           const cp1x = p1.x + (p2.x - p0.x) / 6;
-          const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, frame.padT, frame.padT + frame.gh);
+          const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, segmentMinY, segmentMaxY);
           const cp2x = p2.x - (p3.x - p1.x) / 6;
-          const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, frame.padT, frame.padT + frame.gh);
+          const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, segmentMinY, segmentMaxY);
           ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
         }
       }
@@ -21142,7 +21184,7 @@ return `
       ctx.setLineDash(chartTheme.secondaryDash);
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      drawSmoothLine(ctx, secondaryPoints);
+      drawSmoothLine(ctx, secondaryPoints, true);
       ctx.restore();
     }
 
@@ -21151,7 +21193,7 @@ return `
     ctx.lineWidth = chartTheme.primaryStrokeWidth;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    drawSmoothLine(ctx, primaryPoints);
+    drawSmoothLine(ctx, primaryPoints, true);
     ctx.restore();
 
   }
