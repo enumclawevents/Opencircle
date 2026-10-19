@@ -4876,14 +4876,15 @@ const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "").trim())
   : "";
 const analyticsMetricHelp = {
   organizers: "The number of organizers being counted here.",
-  totalEvents: "The total number of event dates being counted here.",
-  uniqueEvents: "The number of different events, without counting repeats over and over.",
+  totalEvents: "All scheduled occurrences in this workspace, including recurring dates.",
+  uniqueEvents: "Different event records in this workspace; recurring dates are counted once per event.",
   upcoming: "Events or event dates that have not ended yet.",
   featured: "Events that are marked as featured.",
-  allViews: "All views added together.",
+  allViews: "All tracked event-page views in this workspace. This does not measure attendance.",
   directViews: "Views from people who came straight to this page.",
   referralViews: "Views from people who came from another website or link.",
   internalViews: "Views from people who first browsed a public website page, then opened this event.",
+  otherViews: "Tracked views from campaign links or sources that could not be classified as direct, referral, or website discovery.",
   totalEmailsSent: "How many newsletter emails have been sent.",
   openedEmails: "How many newsletter emails have been opened at least once.",
   reopens: "How many extra opens happened after the first open.",
@@ -6428,6 +6429,10 @@ return `
       if (!sourceTracked) return "0%";
       return Math.round((Number(n || 0) / sourceTracked) * 100) + "%";
     };
+    // These tracked source types are mutually exclusive. Keep campaign and
+    // legacy/unrecognised refs visible as one remainder instead of implying
+    // that the three named sources account for every view.
+    const sourceOther = sourceCampaign + sourceUnknown;
 
     const stats = {
       uniqueTotal: fmt(total),
@@ -6444,11 +6449,13 @@ return `
       sourceInternal: fmt(sourceInternal),
       sourceCampaign: fmt(sourceCampaign),
       sourceUnknown: fmt(sourceUnknown),
+      sourceOther: fmt(sourceOther),
       sourceDirectPct: sourcePct(sourceDirect),
       sourceReferralPct: sourcePct(sourceReferral),
       sourceInternalPct: sourcePct(sourceInternal),
       sourceCampaignPct: sourcePct(sourceCampaign),
       sourceUnknownPct: sourcePct(sourceUnknown),
+      sourceOtherPct: sourcePct(sourceOther),
       serverTime: new Date().toISOString().replace("T", " ").slice(0, 19) + "Z",
       diskFree,
       diskTotal,
@@ -7104,10 +7111,11 @@ return `
     function renderTopEventsByViewRows(rows, emptyMessage) {
       if (!rows || rows.length === 0) return `<div class="muted">${emptyMessage}</div>`;
       return rows
-        .map((r) => {
-          const label = `<a href="${esc(buildEventAnalyticsHref(r.id))}">${esc(String(r.title || ""))}</a>`;
+        .map((r, index) => {
+          const title = String(r.title || "Untitled event");
+          const label = `<a href="${esc(buildEventAnalyticsHref(r.id))}" title="${esc(title)}">${esc(title)}</a>`;
           const count = Number(r.periodViews || r.todayViews || 0);
-          return `<div class="kv"><div class="k">${label}</div><div class="v">${count}</div></div>`;
+          return `<div class="kv top-event-row"><div class="top-event-rank" aria-hidden="true">${index + 1}</div><div class="k">${label}</div><div class="v">${count.toLocaleString("en-US")}</div></div>`;
         })
         .join("");
     }
@@ -7233,9 +7241,10 @@ return `
             <td>${esc(row.category)}</td>
             <td>${row.events.toLocaleString("en-US")}</td>
             <td>${row.views.toLocaleString("en-US")}</td>
+            <td>${row.events ? (row.views / row.events).toFixed(1) : "0.0"}</td>
           </tr>
         `).join("")
-      : `<tr><td colspan="4" class="muted">No categorized events in this workspace yet.</td></tr>`;
+      : `<tr><td colspan="5" class="muted">No categorized events in this workspace yet.</td></tr>`;
     const categoryLeadersHtml = categoryAnalyticsRows.length
       ? categoryAnalyticsRows.slice(0, 10).map((row) => {
           const leader = row.leader;
@@ -7612,7 +7621,10 @@ return `
       // Give the detail chart a little more natural vertical room. Its SVG
       // keeps a matching viewBox ratio, so labels are never stretched.
       const chartHeight = isIndividualEventChart ? 300 : height;
-      const plotW = width - padL - padR;
+      // Views and scheduled occurrences differ by orders of magnitude. Give
+      // each series its own scale so event activity remains readable.
+      const rightAxisPad = isIndividualEventChart ? padR : 58;
+      const plotW = width - padL - rightAxisPad;
       const plotH = chartHeight - padT - padB;
       const textColor = analyticsChartStyle.textColor;
       const lineColor = analyticsChartStyle.greenStroke;
@@ -7627,21 +7639,25 @@ return `
         `;
       }
 
-      const maxValue = Math.max(1, ...allValues);
-      const tickCount = Math.min(4, maxValue);
-      const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
-      const yMax = tickStep * tickCount;
+      const makeScale = (values) => {
+        const maxValue = Math.max(1, ...values.filter((value) => Number.isFinite(value)));
+        const tickCount = Math.min(4, maxValue);
+        const tickStep = Math.max(1, Math.ceil(maxValue / tickCount));
+        return { tickCount, tickStep, yMax: tickStep * tickCount };
+      };
+      const eventScale = makeScale(eventValues);
+      const viewScale = makeScale(viewValues);
       const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
       const eventPoints = labels.map((label, index) => {
         const value = Number(eventValues[index] || 0);
         const x = padL + stepX * index;
-        const y = padT + plotH - ((value / yMax) * plotH);
+        const y = padT + plotH - ((value / eventScale.yMax) * plotH);
         return { x, y, value };
       });
       const viewPoints = labels.map((label, index) => {
         const value = Number(viewValues[index] || 0);
         const x = padL + stepX * index;
-        const y = padT + plotH - ((value / yMax) * plotH);
+        const y = padT + plotH - ((value / viewScale.yMax) * plotH);
         return { x, y, value };
       });
       const markerBucket =
@@ -7730,14 +7746,20 @@ return `
       return `
         <svg viewBox="0 0 ${width} ${chartHeight}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Events chart">
           <rect x="0" y="0" width="${width}" height="${chartHeight}" fill="transparent"></rect>
-          ${Array.from({ length: tickCount + 1 }).map((_, i) => {
-            const value = i * tickStep;
-            const y = padT + plotH - ((value / yMax) * plotH);
+          ${Array.from({ length: eventScale.tickCount + 1 }).map((_, i) => {
+            const value = i * eventScale.tickStep;
+            const y = padT + plotH - ((value / eventScale.yMax) * plotH);
             return `
               <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
-              <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
+              <text x="${(padL - 10).toFixed(2)}" y="${(y + 4).toFixed(2)}" text-anchor="end" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
+          ${!isIndividualEventChart ? Array.from({ length: viewScale.tickCount + 1 }).map((_, i) => {
+            const value = i * viewScale.tickStep;
+            const y = padT + plotH - ((value / viewScale.yMax) * plotH);
+            return `<text x="${(padL + plotW + 10).toFixed(2)}" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>`;
+          }).join("") : ""}
+          ${!isIndividualEventChart ? `<text x="${padL}" y="11" fill="${lineColor}" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Events</text><text x="${(padL + plotW).toFixed(2)}" y="11" text-anchor="end" fill="${dashedColor}" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Views</text>` : ""}
           ${!isIndividualEventChart && fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
           ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${!isIndividualEventChart && eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
@@ -7922,6 +7944,7 @@ return `
           directViews: 0,
           referralViews: 0,
           internalViews: 0,
+          otherViews: 0,
         };
         if (hasSourceTrackingTable) {
           try {
@@ -7930,7 +7953,9 @@ return `
                  COUNT(*) AS tracked,
                  COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:direct%' OR COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 1 ELSE 0 END), 0) AS directCount,
                  COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:referral%' THEN 1 ELSE 0 END), 0) AS referralCount,
-                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount
+                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount,
+                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:campaign%' THEN 1 ELSE 0 END), 0) AS campaignCount,
+                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:%' THEN 0 WHEN COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 0 ELSE 1 END), 0) AS unknownCount
                FROM event_views
                WHERE eventId = ?`,
               [requestedEventId]
@@ -7940,6 +7965,7 @@ return `
               directViews: Number(sourceRow?.directCount || 0),
               referralViews: Number(sourceRow?.referralCount || 0),
               internalViews: Number(sourceRow?.internalCount || 0),
+              otherViews: Number(sourceRow?.campaignCount || 0) + Number(sourceRow?.unknownCount || 0),
             };
           } catch (_) {}
         }
@@ -12737,6 +12763,36 @@ return `
         margin: 14px 0;
         padding: 4px 0;
       }
+      .top-events-card{
+        margin-bottom:var(--gap);
+      }
+      .top-events-card .sectionTitle{
+        align-items:center;
+        margin-bottom:14px;
+      }
+      .top-event-row{
+        gap:10px;
+        margin:0;
+        min-height:38px;
+        padding:8px 0;
+        border-bottom:1px solid var(--line);
+      }
+      .top-event-row:last-child{ border-bottom:0; }
+      .top-event-rank{
+        width:20px;
+        color:var(--muted);
+        font-size:12px;
+        font-weight:700;
+        text-align:right;
+        flex:0 0 20px;
+      }
+      .top-event-row .k{ padding-right:0; }
+      .top-event-row .v{
+        min-width:42px;
+        text-align:right;
+        color:var(--text);
+        font-variant-numeric:tabular-nums;
+      }
       .analytics-table{
         width:100%;
         border-collapse:collapse;
@@ -12759,6 +12815,7 @@ return `
       .analytics-table td:nth-child(n+3),
       .analytics-table th:nth-child(n+3){
         text-align:right;
+        font-variant-numeric:tabular-nums;
       }
       .analytics-table tbody tr:last-child td{
         border-bottom:0;
@@ -15323,6 +15380,13 @@ return `
             </div>
             <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.internalViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
           </div>
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Other / unattributed", analyticsMetricHelp.otherViews)}</div>
+              <div class="v">${esc(selectedEventAnalytics.otherViews.toLocaleString("en-US"))}</div>
+            </div>
+            <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.otherViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
+          </div>
           ` : `
           <div class="metric">
             <div>
@@ -15375,6 +15439,13 @@ return `
             </div>
             <div class="tag">${esc(stats.sourceInternalPct)}</div>
           </div>
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Other / unattributed", analyticsMetricHelp.otherViews)}</div>
+              <div class="v">${esc(stats.sourceOther)}</div>
+            </div>
+            <div class="tag">${esc(stats.sourceOtherPct)}</div>
+          </div>
           `}
         </section>
         ` : ``}
@@ -15386,6 +15457,7 @@ return `
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
                 <div class="chartTopRow">
+                    <div class="chartTitle">${selectedEventAnalytics ? "Event views over time" : "Event activity over time"}</div>
                     <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
                       ${!selectedEventAnalytics ? `
                       <div class="chartLegendItem is-events" data-legend-metric="events">
@@ -15398,7 +15470,7 @@ return `
                       <span>Views</span>
                     </div>
                   </div>
-                  <p class="sub" id="chartRangeLabel">${esc(chartRangeLabelByMode[chartViewMode] || chartRangeLabelByMode.daily)}</p>
+                  <p class="sub" id="chartRangeLabel">${esc(chartRangeLabelByMode[chartViewMode] || chartRangeLabelByMode.daily)} · Events use scheduled start dates; views use the time they were recorded.</p>
                 </div>
               </div>
               <div class="right">
@@ -15553,12 +15625,12 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Most popular categories</h2>
-                <p class="sub">Ranked by lifetime event views in this workspace</p>
+                <p class="sub">Lifetime views by category. Events with multiple categories contribute to each assigned category.</p>
               </div>
             </div>
             <div class="mini">
               <table class="analytics-table">
-                <thead><tr><th>#</th><th>Category</th><th>Events</th><th>Views</th></tr></thead>
+                <thead><tr><th>#</th><th>Category</th><th>Events</th><th>Views</th><th>Views / event</th></tr></thead>
                 <tbody>${categoryPopularityHtml}</tbody>
               </table>
             </div>
@@ -15592,43 +15664,23 @@ return `
 
         <!-- Top events (views) -->
         ${showAnalytics ? `
-        <section class="grid4">
-          <div class="card">
+        <section class="card top-events-card">
             <div class="sectionTitle">
               <div>
-                <h2>Top events today</h2>
-                <p class="sub">Top 5 by views</p>
+                <h2>Top performing events</h2>
+                <p class="sub">Top 5 ranked by tracked views in the selected period.</p>
+              </div>
+              <div class="seg" data-top-events-toggle aria-label="Top event period">
+                <button type="button" class="on" data-top-events-period="today" aria-pressed="true">Today</button>
+                <button type="button" data-top-events-period="week" aria-pressed="false">This week</button>
+                <button type="button" data-top-events-period="month" aria-pressed="false">This month</button>
+                <button type="button" data-top-events-period="year" aria-pressed="false">This year</button>
               </div>
             </div>
-            <div class="mini mini-list">${topTodayHtml}</div>
-          </div>
-          <div class="card">
-            <div class="sectionTitle">
-              <div>
-                <h2>Top events this week</h2>
-                <p class="sub">Top 5 by views</p>
-              </div>
-            </div>
-            <div class="mini mini-list">${topWeekHtml}</div>
-          </div>
-          <div class="card">
-            <div class="sectionTitle">
-              <div>
-                <h2>Top events this month</h2>
-                <p class="sub">Top 5 by views</p>
-              </div>
-            </div>
-            <div class="mini mini-list">${topMonthHtml}</div>
-          </div>
-          <div class="card">
-            <div class="sectionTitle">
-              <div>
-                <h2>Top events this year</h2>
-                <p class="sub">Top 5 by views</p>
-              </div>
-            </div>
-            <div class="mini mini-list">${topYearHtml}</div>
-          </div>
+            <div class="mini mini-list" data-top-events-panel="today">${topTodayHtml}</div>
+            <div class="mini mini-list" data-top-events-panel="week" hidden>${topWeekHtml}</div>
+            <div class="mini mini-list" data-top-events-panel="month" hidden>${topMonthHtml}</div>
+            <div class="mini mini-list" data-top-events-panel="year" hidden>${topYearHtml}</div>
         </section>
         ` : ``}
 
@@ -20924,7 +20976,7 @@ return `
       monthly:"Last 12 months (by start date)",
       yearly: "Last 5 years (by start date)",
     };
-    $range.textContent = map[mode] || map.daily;
+    $range.textContent = (map[mode] || map.daily) + " · Events use scheduled start dates; views use the time they were recorded.";
   }
 
   function getPeriodLabel(rawLabel){
@@ -20987,10 +21039,16 @@ return `
     }
 
       const frame = getChartFrame(w, h);
-      const scale = getYScale(combinedValues);
+      const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
+      if (!isIndividualEventChart) {
+        frame.padR = 58;
+        frame.gw = w - frame.padL - frame.padR;
+      }
+      const primaryScale = getYScale(primaryValues);
+      const secondaryScale = getYScale(secondaryValues);
       const primaryPoints = labels.map((label, index) => ({
         x: frame.padL + (labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1)) * index),
-        y: clamp(frame.padT + frame.gh - ((Number(primaryValues[index] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
+        y: clamp(frame.padT + frame.gh - ((Number(primaryValues[index] || 0) / primaryScale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
         value: Number(primaryValues[index] || 0),
         index,
         chartMinY: frame.padT,
@@ -20998,7 +21056,7 @@ return `
       }));
       const secondaryPoints = labels.length === secondaryValues.length ? labels.map((label, index) => ({
             x: frame.padL + (labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1)) * index),
-            y: clamp(frame.padT + frame.gh - ((Number(secondaryValues[index] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
+            y: clamp(frame.padT + frame.gh - ((Number(secondaryValues[index] || 0) / secondaryScale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
             value: Number(secondaryValues[index] || 0),
             index,
             chartMinY: frame.padT,
@@ -21010,14 +21068,30 @@ return `
     ctx.strokeStyle = chartTheme.gridColor;
     ctx.fillStyle = chartTheme.textColorMuted;
     ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-    for (let i = 0; i <= scale.yTicks; i++) {
-      const v = i * scale.tickStep;
-      const y = frame.padT + frame.gh - (v / scale.yMax) * frame.gh;
+    ctx.textAlign = "right";
+    for (let i = 0; i <= primaryScale.yTicks; i++) {
+      const v = i * primaryScale.tickStep;
+      const y = frame.padT + frame.gh - (v / primaryScale.yMax) * frame.gh;
       ctx.beginPath();
       ctx.moveTo(frame.padL, y);
       ctx.lineTo(frame.padL + frame.gw, y);
       ctx.stroke();
-      ctx.fillText(String(v), 18, y + 4);
+      ctx.fillText(String(v), frame.padL - 10, y + 4);
+    }
+    if (!isIndividualEventChart) {
+      ctx.textAlign = "left";
+      for (let i = 0; i <= secondaryScale.yTicks; i++) {
+        const v = i * secondaryScale.tickStep;
+        const y = frame.padT + frame.gh - (v / secondaryScale.yMax) * frame.gh;
+        ctx.fillText(String(v), frame.padL + frame.gw + 10, y + 4);
+      }
+      ctx.font = "700 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.fillStyle = chartTheme.greenStroke;
+      ctx.textAlign = "left";
+      ctx.fillText("Events", frame.padL, 11);
+      ctx.fillStyle = chartTheme.blueStroke;
+      ctx.textAlign = "right";
+      ctx.fillText("Views", frame.padL + frame.gw, 11);
     }
     if (primaryPoints.length > 1) {
       const labelStep = primaryPoints.length <= 4 ? 1 : Math.ceil(primaryPoints.length / 4);
@@ -21091,6 +21165,10 @@ return `
     const mx = ev.clientX - rect.left;
     const my = ev.clientY - rect.top;
     const frame = getChartFrame(rect.width, rect.height);
+    if (!($legend && !$legend.querySelector('[data-legend-metric="events"]'))) {
+      frame.padR = 58;
+      frame.gw = rect.width - frame.padL - frame.padR;
+    }
     const points = getLinePoints(frame, values);
     return getNearestPointIndex(points, mx, my, frame);
   }
@@ -21114,11 +21192,16 @@ return `
     const periodLabel = getPeriodLabel(labels[idx] || "");
     const frame = getChartFrame(rect.width, rect.height);
     const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
-    const scale = getYScale(isIndividualEventChart ? viewValues : eventValues.concat(viewValues));
+    if (!isIndividualEventChart) {
+      frame.padR = 58;
+      frame.gw = rect.width - frame.padL - frame.padR;
+    }
+    const primaryScale = getYScale(eventValues);
+    const secondaryScale = getYScale(viewValues);
     const stepX = labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1));
     const pointX = frame.padL + stepX * idx;
-    const primaryY = clamp(frame.padT + frame.gh - ((eventValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
-    const secondaryY = clamp(frame.padT + frame.gh - ((viewValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+    const primaryY = clamp(frame.padT + frame.gh - ((eventValue / primaryScale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
+    const secondaryY = clamp(frame.padT + frame.gh - ((viewValue / secondaryScale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
     const palette = getChartPalette(isIndividualEventChart ? "clicks" : "events");
     showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: isIndividualEventChart ? secondaryY : primaryY }, isIndividualEventChart ? null : { x: pointX, y: secondaryY }, palette);
     showChartTipCard($tip, $wrap, pointX, isIndividualEventChart ? secondaryY : Math.min(primaryY, secondaryY), renderChartTipHtml(
@@ -22135,6 +22218,25 @@ return `
       if (subtitle) subtitle.textContent = mode === 'event'
         ? 'Highest-viewed event in each category'
         : 'Organizer with the most views in each category';
+    });
+  })();
+
+  (function initTopEventsToggle(){
+    var toggle = document.querySelector('[data-top-events-toggle]');
+    if (!toggle) return;
+    var panels = document.querySelectorAll('[data-top-events-panel]');
+    toggle.addEventListener('click', function(event){
+      var button = event.target.closest('[data-top-events-period]');
+      if (!button) return;
+      var period = String(button.getAttribute('data-top-events-period') || 'today');
+      toggle.querySelectorAll('[data-top-events-period]').forEach(function(item){
+        var active = item.getAttribute('data-top-events-period') === period;
+        item.classList.toggle('on', active);
+        item.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      panels.forEach(function(panel){
+        panel.hidden = panel.getAttribute('data-top-events-panel') !== period;
+      });
     });
   })();
 
