@@ -12858,6 +12858,11 @@ return `
         text-overflow:ellipsis;
         white-space:nowrap;
       }
+      /* Mutually exclusive mini-panels are alternatives, not stacked content. */
+      [data-category-leader-panel].mini,
+      [data-top-events-panel].mini{
+        margin-top:0;
+      }
       .grid4 > .card .mini-spaced{
         height: 100%;
         display:flex;
