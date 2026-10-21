@@ -12859,7 +12859,7 @@ return `
         white-space:nowrap;
       }
       /* Mutually exclusive mini-panels are alternatives, not stacked content. */
-      [data-category-leader-panel].mini,
+      .grid2 > .card:last-child [data-category-leader-panel].mini + [data-category-leader-panel].mini,
       [data-top-events-panel].mini{
         margin-top:0;
       }
