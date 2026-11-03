@@ -97,6 +97,7 @@ app.use("/assets", express.static(path.join(__dirname, "public"), {
 const allowedOrigins = [
   "https://enumclawevents.org",
   "https://www.enumclawevents.org",
+  "https://plateauevents.org",
   "https://api.opencircleapi.com",
 ].filter(Boolean);
 
@@ -125,11 +126,15 @@ app.use(
       if (allowedOrigins.includes(origin)) return cb(null, true);
       if (envAllow.includes(origin)) return cb(null, true);
 
-      return cb(new Error("Not allowed by CORS"));
+      // A rejected Origin must not become an application error. Returning
+      // false omits CORS headers, so browsers safely block cross-origin
+      // access while the API retains its normal response behavior.
+      return cb(null, false);
     },
     credentials: true,
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "Accept"],
+    optionsSuccessStatus: 204,
     maxAge: 86400,
   })
 );
