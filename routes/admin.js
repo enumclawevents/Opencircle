@@ -17370,7 +17370,11 @@ return `
                     }
                   }
                   attachRemove();
-                  if (addBtn && wrap) {
+                  // This form is also initialized by the page-level recurrence
+                  // helper below. Keep the add action idempotent so one click
+                  // always creates exactly one custom occurrence row.
+                  if (addBtn && wrap && !addBtn.dataset.customDateAddBound) {
+                    addBtn.dataset.customDateAddBound = "true";
                     addBtn.addEventListener("click", function(){
                       var chip = document.createElement("span");
                       chip.className = "chip";
@@ -20352,7 +20356,10 @@ return `
         }
         attachRemove();
 
-        if(addBtn && wrap){
+        // Some admin views include the form-level recurrence initializer above.
+        // Bind only when it has not already claimed this shared control.
+        if(addBtn && wrap && !addBtn.dataset.customDateAddBound){
+          addBtn.dataset.customDateAddBound = "true";
           addBtn.addEventListener("click", function(){
             var chip = document.createElement("span");
             chip.className = "chip";

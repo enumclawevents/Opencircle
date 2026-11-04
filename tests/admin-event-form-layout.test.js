@@ -45,3 +45,14 @@ test("event editor keeps lifecycle actions in a separate, accessible status sect
   assert.match(source, /confirmRecurringLifecycle/);
   assert.match(source, /This action affects the entire recurring event series/);
 });
+
+test("custom occurrence add control is bound at most once", () => {
+  // The page has both a form-level recurrence controller and a page-level
+  // fallback controller. They share #addCustomDate, so each must honor the
+  // same binding flag instead of registering duplicate click handlers.
+  const guardedBindings = source.match(/!addBtn\.dataset\.customDateAddBound/g) || [];
+  const claimedBindings = source.match(/addBtn\.dataset\.customDateAddBound = "true"/g) || [];
+
+  assert.equal(guardedBindings.length, 2);
+  assert.equal(claimedBindings.length, 2);
+});
