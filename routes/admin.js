@@ -2,6 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
+const CHART_SERIES_STROKE_WIDTH = 2;
 const { run, all, get, slugify, ensureUniqueSlug, DB_PATH } = require("../db");
 const path = require("path");
 const os = require("os");
@@ -6972,8 +6973,7 @@ return `
       blueStroke: "rgba(37,99,235,.72)",
       greenFill: "rgba(16,185,129,.10)",
       blueFill: "rgba(37,99,235,.08)",
-      primaryStrokeWidth: 3,
-      secondaryStrokeWidth: 2,
+      seriesStrokeWidth: CHART_SERIES_STROKE_WIDTH,
       secondaryDash: "6 6",
     };
     function buildVenueChartSvg(metric = "views") {
@@ -7056,13 +7056,13 @@ return `
             const value = i * tickStep;
             const y = padT + plotH - ((value / yMax) * plotH);
             return `
-              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
-              <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+              <text x="0" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
           ${fillPath ? `<path d="${fillPath}" fill="${primaryFill}"></path>` : ""}
-          ${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-          ${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
             const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
@@ -7761,19 +7761,19 @@ return `
             const value = i * eventScale.tickStep;
             const y = padT + plotH - ((value / eventScale.yMax) * plotH);
             return `
-              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
-              <text x="${(padL - 10).toFixed(2)}" y="${(y + 4).toFixed(2)}" text-anchor="end" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+              <text x="0" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
           ${!isIndividualEventChart ? Array.from({ length: viewScale.tickCount + 1 }).map((_, i) => {
             const value = i * viewScale.tickStep;
             const y = padT + plotH - ((value / viewScale.yMax) * plotH);
-            return `<text x="${(padL + plotW + 10).toFixed(2)}" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>`;
+            return `<text x="${width}" y="${(y + 4).toFixed(2)}" text-anchor="end" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>`;
           }).join("") : ""}
-          ${!isIndividualEventChart ? `<text x="${padL}" y="11" fill="${lineColor}" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Events</text><text x="${(padL + plotW).toFixed(2)}" y="11" text-anchor="end" fill="${dashedColor}" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Views</text>` : ""}
+          ${!isIndividualEventChart ? `<text x="0" y="11" fill="${lineColor}" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Events</text><text x="${width}" y="11" text-anchor="end" fill="${dashedColor}" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Views</text>` : ""}
           ${!isIndividualEventChart && fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
-          ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-          ${!isIndividualEventChart && eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${!isIndividualEventChart && eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${chartMarkers}
           ${hoverRects}
           ${labels.map((label, index) => {
@@ -8858,13 +8858,13 @@ return `
               const value = i * tickStep;
               const y = padT + plotH - ((value / yMax) * plotH);
               return `
-                <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
-                <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
+                <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+                <text x="0" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
               `;
             }).join("")}
             ${fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
-            ${openPath ? `<path d="${openPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-            ${sentPath ? `<path d="${sentPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+            ${openPath ? `<path d="${openPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+            ${sentPath ? `<path d="${sentPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
             ${labels.map((label, index) => {
               if (index !== labels.length - 1 && index % labelStep !== 0) return "";
               const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
@@ -10527,13 +10527,13 @@ return `
             const value = i * tickStep;
             const y = padT + plotH - ((value / yMax) * plotH);
             return `
-              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
-              <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+              <text x="0" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
           ${fillPath ? `<path d="${fillPath}" fill="${primaryFill}"></path>` : ""}
-          ${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-          ${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
             const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
@@ -10653,13 +10653,13 @@ return `
             const value = i * tickStep;
             const y = padT + plotH - ((value / yMax) * plotH);
             return `
-              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1"></line>
-              <text x="18" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
+              <line x1="${padL}" y1="${y.toFixed(2)}" x2="${(padL + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${analyticsChartStyle.gridColor}" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+              <text x="0" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
           ${fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
-          ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${viewsColor}" stroke-width="${analyticsChartStyle.secondaryStrokeWidth}" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-          ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${eventsColor}" stroke-width="${analyticsChartStyle.primaryStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${viewsColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${eventPath ? `<path d="${eventPath}" fill="none" stroke="${eventsColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
             const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
@@ -12630,7 +12630,7 @@ return `
       .ctrl:focus, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus, textarea:focus, select:focus{
         box-shadow: 0 0 0 4px rgba(0,192,139,.12);
         border-color: rgba(0,192,139,.35);
-        background: var(--panel);
+        background-color: var(--panel);
       }
 
 
@@ -12892,7 +12892,7 @@ return `
       }
 
       /* Chart */
-      .chart-wrap{ position:relative; flex:1; min-height:0; }
+      .chart-wrap{ position:relative; flex:1; min-width:0; min-height:0; }
       .chart-wrap canvas{ width:100%; height:100%; display:block; }
 
       .seg{
@@ -13828,13 +13828,12 @@ return `
       .chartLegendLine{
         width:40px;
         height:0;
-        border-top:3px solid currentColor;
+        border-top:${CHART_SERIES_STROKE_WIDTH}px solid currentColor;
         border-radius:999px;
         flex:0 0 auto;
       }
       .chartLegendLine.is-dashed{
         border-top-style:dashed;
-        border-top-width:2px;
       }
       .chartLegendItem.is-events{
         color:rgba(16,185,129,.9);
@@ -14804,6 +14803,7 @@ return `
       .dashboard-community-scope{ display:grid; gap:5px; }
       .dashboard-period-row{ display:flex; gap:8px; align-items:center; justify-content:flex-end; }
       .dashboard-period-row .ctrl{ min-width:142px; margin:0; padding:8px 10px; font-size:14px; }
+      .dashboard-period-row select.ctrl{ padding-right:44px; }
       .dashboard-create-event{ white-space:nowrap; }
       .dashboard-custom-range{ display:flex; gap:6px; align-items:center; }
       .dashboard-custom-range[hidden]{ display:none !important; }
@@ -14834,8 +14834,7 @@ return `
       .dashboard-activity-copy{ min-width:0; }
       .dashboard-command-activity .chartLegend{ gap:14px; margin-top:8px; }
       .dashboard-command-activity .chartLegendItem{ gap:7px; font-size:13px; font-weight:500; }
-      .dashboard-command-activity .chartLegendLine{ width:22px; border-top-width:2px; }
-      .dashboard-command-activity .chartLegendLine.is-dashed{ border-top-width:2px; }
+      .dashboard-command-activity .chartLegendLine{ width:22px; }
       .dashboard-series-controls{ display:inline-flex; align-items:center; gap:4px; padding:3px; border:1px solid var(--line); border-radius:999px; background:var(--panel2); }
       .dashboard-series-control{ min-height:28px; padding:0 10px; border:0; border-radius:999px; background:transparent; color:var(--muted); font-size:12px; font-weight:650; cursor:pointer; }
       .dashboard-series-control:hover,.dashboard-series-control[aria-pressed="true"]{ color:var(--text); background:rgba(0,192,139,.12); }
@@ -19030,7 +19029,7 @@ return `
               }).join('');
               // Align axis text with the heading and series controls at the card edges.
               var axisTitles = (showEvents ? '<text x="0" y="14" fill="rgba(16,185,129,.90)" font-size="12" font-weight="650">Events</text>' : '<text x="0" y="14" fill="rgba(37,99,235,.82)" font-size="12" font-weight="650">Views</text>') + (showViews && showEvents ? '<text x="' + width + '" y="14" text-anchor="end" fill="rgba(37,99,235,.82)" font-size="12" font-weight="650">Views</text>' : '');
-              chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + axisTitles + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + (showViews ? '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="2" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + (showEvents ? '<path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + labels + '</g></svg>';
+              chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + axisTitles + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + (showViews ? '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="${CHART_SERIES_STROKE_WIDTH}" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + (showEvents ? '<path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="${CHART_SERIES_STROKE_WIDTH}" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + labels + '</g></svg>';
               var svg = chart.querySelector('svg');
               var svgNode = 'http://www.w3.org/2000/svg';
               var highlight = document.createElementNS(svgNode, 'g');
@@ -20467,8 +20466,7 @@ return `
     blueFill: "rgba(37,99,235,.08)",
     greenGlow: "rgba(16,185,129,.12)",
     blueGlow: "rgba(37,99,235,.10)",
-    primaryStrokeWidth: 3,
-    secondaryStrokeWidth: 2,
+    seriesStrokeWidth: ${CHART_SERIES_STROKE_WIDTH},
     secondaryDash: [6, 6],
   };
 
@@ -20585,8 +20583,8 @@ return `
       root.style.zIndex = "3";
       root.innerHTML =
         '<div data-hover-line style="position:absolute; display:none; width:1px; background:rgba(148,163,184,.45); border-radius:999px;"></div>' +
-        '<div data-hover-point="secondary" style="position:absolute; display:none; width:14px; height:14px; margin-left:-7px; margin-top:-7px; border-radius:999px; background:#fff; border:' + chartTheme.secondaryStrokeWidth + 'px solid ' + chartTheme.blueStroke + '; box-shadow:0 0 0 6px ' + chartTheme.blueGlow + ';"></div>' +
-        '<div data-hover-point="primary" style="position:absolute; display:none; width:16px; height:16px; margin-left:-8px; margin-top:-8px; border-radius:999px; background:#fff; border:' + chartTheme.primaryStrokeWidth + 'px solid ' + chartTheme.greenStroke + '; box-shadow:0 0 0 6px ' + chartTheme.greenGlow + ';"></div>';
+        '<div data-hover-point="secondary" style="position:absolute; display:none; width:14px; height:14px; margin-left:-7px; margin-top:-7px; border-radius:999px; background:#fff; border:' + chartTheme.seriesStrokeWidth + 'px solid ' + chartTheme.blueStroke + '; box-shadow:0 0 0 6px ' + chartTheme.blueGlow + ';"></div>' +
+        '<div data-hover-point="primary" style="position:absolute; display:none; width:16px; height:16px; margin-left:-8px; margin-top:-8px; border-radius:999px; background:#fff; border:' + chartTheme.seriesStrokeWidth + 'px solid ' + chartTheme.greenStroke + '; box-shadow:0 0 0 6px ' + chartTheme.greenGlow + ';"></div>';
       $wrap.appendChild(root);
     }
     return {
@@ -20731,7 +20729,7 @@ return `
       ctx.moveTo(frame.padL, y);
       ctx.lineTo(frame.padL + frame.gw, y);
       ctx.stroke();
-      ctx.fillText(String(v), 18, y + 4);
+      ctx.fillText(String(v), 0, y + 4);
     }
 
     if (points.length > 1) {
@@ -20756,7 +20754,7 @@ return `
       ctx.restore();
 
       ctx.strokeStyle = lineColor;
-      ctx.lineWidth = chartTheme.primaryStrokeWidth;
+      ctx.lineWidth = chartTheme.seriesStrokeWidth;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       drawSmoothLine(ctx, points);
@@ -20790,9 +20788,9 @@ return `
     const sent = Array.isArray(primary.values) ? primary.values.map(Number) : [];
     const opened = Array.isArray(secondary.values) ? secondary.values.map(Number) : [];
     const overlay = ensureChartHoverOverlay(wrap, "newsletter"); let hover = -1;
-    function size(){ const dpr = Math.max(1, window.devicePixelRatio || 1), w = Math.max(280, Math.round(wrap.clientWidth || 280)), h = Math.max(220, Math.round(wrap.clientHeight || 260)); canvas.style.width=w+"px"; canvas.style.height=h+"px"; canvas.width=Math.floor(w*dpr); canvas.height=Math.floor(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); return {w,h}; }
+    function size(){ const dpr = Math.max(1, window.devicePixelRatio || 1), w = Math.round(wrap.clientWidth || 280), h = Math.max(220, Math.round(wrap.clientHeight || 260)); canvas.style.width=w+"px"; canvas.style.height=h+"px"; canvas.width=Math.floor(w*dpr); canvas.height=Math.floor(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); return {w,h}; }
     function points(frame, values){ return labels.map((_, i) => ({ x:frame.padL+(labels.length <= 1 ? frame.gw/2 : (frame.gw/(labels.length-1))*i), y:clamp(frame.padT+frame.gh-((Number(values[i]||0)/getYScale(sent.concat(opened)).yMax)*frame.gh),frame.padT,frame.padT+frame.gh) })); }
-    function draw(){ const {w,h}=size(); ctx.clearRect(0,0,w,h); if(!labels.length || !sent.concat(opened).some((v)=>Number(v||0)>0)){ctx.fillStyle=chartTheme.emptyTextColor;ctx.font="600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";ctx.fillText("No newsletter send activity yet",18,90);return;} const frame=getChartFrame(w,h), scale=getYScale(sent.concat(opened)), p1=points(frame,sent), p2=points(frame,opened);ctx.strokeStyle=chartTheme.gridColor;ctx.fillStyle=chartTheme.textColorMuted;ctx.font="500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";for(let i=0;i<=scale.yTicks;i++){const v=i*scale.tickStep,y=frame.padT+frame.gh-(v/scale.yMax)*frame.gh;ctx.beginPath();ctx.moveTo(frame.padL,y);ctx.lineTo(frame.padL+frame.gw,y);ctx.stroke();ctx.fillText(String(v),18,y+4);}const step=labels.length<=4?1:Math.ceil(labels.length/4);labels.forEach((label,i)=>{if(i!==labels.length-1&&i%step)return;ctx.textAlign=i===labels.length-1?"right":i===0?"left":"center";ctx.fillStyle=chartTheme.textColor;ctx.fillText(String(label||""),p1[i].x,frame.padT+frame.gh+30);});ctx.save();ctx.fillStyle=chartTheme.greenFill;drawSmoothAreaFill(ctx,p1,frame.padT+frame.gh);ctx.restore();ctx.save();ctx.strokeStyle=chartTheme.blueStroke;ctx.lineWidth=chartTheme.secondaryStrokeWidth;ctx.setLineDash(chartTheme.secondaryDash);ctx.lineCap="round";drawSmoothLine(ctx,p2);ctx.restore();ctx.save();ctx.strokeStyle=chartTheme.greenStroke;ctx.lineWidth=chartTheme.primaryStrokeWidth;ctx.lineCap="round";drawSmoothLine(ctx,p1);ctx.restore();if(hover>=0&&p1[hover])showChartHoverOverlay(overlay,frame,p1[hover],p2[hover],getChartPalette("events"));}
+    function draw(){ const {w,h}=size(); ctx.clearRect(0,0,w,h); if(!labels.length || !sent.concat(opened).some((v)=>Number(v||0)>0)){ctx.fillStyle=chartTheme.emptyTextColor;ctx.font="600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";ctx.fillText("No newsletter send activity yet",18,90);return;} const frame=getChartFrame(w,h), scale=getYScale(sent.concat(opened)), p1=points(frame,sent), p2=points(frame,opened);ctx.strokeStyle=chartTheme.gridColor;ctx.fillStyle=chartTheme.textColorMuted;ctx.font="500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";for(let i=0;i<=scale.yTicks;i++){const v=i*scale.tickStep,y=frame.padT+frame.gh-(v/scale.yMax)*frame.gh;ctx.beginPath();ctx.moveTo(frame.padL,y);ctx.lineTo(frame.padL+frame.gw,y);ctx.stroke();ctx.fillText(String(v),0,y+4);}const step=labels.length<=4?1:Math.ceil(labels.length/4);labels.forEach((label,i)=>{if(i!==labels.length-1&&i%step)return;ctx.textAlign=i===labels.length-1?"right":i===0?"left":"center";ctx.fillStyle=chartTheme.textColor;ctx.fillText(String(label||""),p1[i].x,frame.padT+frame.gh+30);});ctx.save();ctx.fillStyle=chartTheme.greenFill;drawSmoothAreaFill(ctx,p1,frame.padT+frame.gh);ctx.restore();ctx.save();ctx.strokeStyle=chartTheme.blueStroke;ctx.lineWidth=chartTheme.seriesStrokeWidth;ctx.setLineDash(chartTheme.secondaryDash);ctx.lineCap="round";drawSmoothLine(ctx,p2);ctx.restore();ctx.save();ctx.strokeStyle=chartTheme.greenStroke;ctx.lineWidth=chartTheme.seriesStrokeWidth;ctx.lineCap="round";drawSmoothLine(ctx,p1);ctx.restore();if(hover>=0&&p1[hover])showChartHoverOverlay(overlay,frame,p1[hover],p2[hover],getChartPalette("events"));}
     function hide(){hover=-1;if(tip)tip.style.display="none";hideChartHoverOverlay(overlay);draw();}
     canvas.addEventListener("mousemove",(event)=>{const rect=canvas.getBoundingClientRect(),frame=getChartFrame(rect.width,rect.height), index=getNearestPointIndex(labels.map((_,i)=>({x:frame.padL+(labels.length<=1?frame.gw/2:(frame.gw/(labels.length-1))*i)})),event.clientX-rect.left,event.clientY-rect.top,frame);if(index<0)return hide();hover=index;draw();const y=frame.padT+frame.gh-((Math.max(Number(sent[index]||0),Number(opened[index]||0))/getYScale(sent.concat(opened)).yMax)*frame.gh);showChartTipCard(tip,wrap,frame.padL+(labels.length<=1?frame.gw/2:(frame.gw/(labels.length-1))*index),y,renderChartTipHtml("Period: "+String(labels[index]||""),[{label:"Emails sent",value:Number(sent[index]||0).toLocaleString("en-US"),color:"#0f172a"},{label:"Opens",value:Number(opened[index]||0).toLocaleString("en-US"),color:"#0f172a"}]));});
     canvas.addEventListener("mouseleave",hide); if(host)host.style.display="none";canvas.style.display="block";draw();window.addEventListener("resize",()=>window.requestAnimationFrame(draw));observeChartResize(wrap,draw);
@@ -21067,7 +21065,7 @@ return `
       const dpr = Math.max(1, window.devicePixelRatio || 1);
       let w = $wrap.clientWidth || Math.floor($wrap.getBoundingClientRect().width || 0);
       if (!w || w < 10) w = Math.floor(($canvas.parentElement ? $canvas.parentElement.getBoundingClientRect().width : 0) || 0);
-      w = Math.max(320, w || 320);
+      w = w || 320;
       let h = $wrap.clientHeight || Math.floor($wrap.getBoundingClientRect().height || 0);
       h = Math.max(220, h || 260);
       $canvas.style.width  = w + "px";
@@ -21129,7 +21127,7 @@ return `
     ctx.strokeStyle = chartTheme.gridColor;
     ctx.fillStyle = chartTheme.textColorMuted;
     ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-    ctx.textAlign = "right";
+    ctx.textAlign = "left";
     for (let i = 0; i <= primaryScale.yTicks; i++) {
       const v = i * primaryScale.tickStep;
       const y = frame.padT + frame.gh - (v / primaryScale.yMax) * frame.gh;
@@ -21137,22 +21135,22 @@ return `
       ctx.moveTo(frame.padL, y);
       ctx.lineTo(frame.padL + frame.gw, y);
       ctx.stroke();
-      ctx.fillText(String(v), frame.padL - 10, y + 4);
+      ctx.fillText(String(v), 0, y + 4);
     }
     if (!isIndividualEventChart) {
-      ctx.textAlign = "left";
+      ctx.textAlign = "right";
       for (let i = 0; i <= secondaryScale.yTicks; i++) {
         const v = i * secondaryScale.tickStep;
         const y = frame.padT + frame.gh - (v / secondaryScale.yMax) * frame.gh;
-        ctx.fillText(String(v), frame.padL + frame.gw + 10, y + 4);
+        ctx.fillText(String(v), w, y + 4);
       }
       ctx.font = "700 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
       ctx.fillStyle = chartTheme.greenStroke;
       ctx.textAlign = "left";
-      ctx.fillText("Events", frame.padL, 11);
+      ctx.fillText("Events", 0, 11);
       ctx.fillStyle = chartTheme.blueStroke;
       ctx.textAlign = "right";
-      ctx.fillText("Views", frame.padL + frame.gw, 11);
+      ctx.fillText("Views", w, 11);
     }
     if (primaryPoints.length > 1) {
       const labelStep = primaryPoints.length <= 4 ? 1 : Math.ceil(primaryPoints.length / 4);
@@ -21201,7 +21199,7 @@ return `
     if (secondaryPoints.length) {
       ctx.save();
       ctx.strokeStyle = secondaryColor;
-      ctx.lineWidth = chartTheme.secondaryStrokeWidth;
+      ctx.lineWidth = chartTheme.seriesStrokeWidth;
       ctx.setLineDash(chartTheme.secondaryDash);
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -21211,7 +21209,7 @@ return `
 
     ctx.save();
     ctx.strokeStyle = primaryColor;
-    ctx.lineWidth = chartTheme.primaryStrokeWidth;
+    ctx.lineWidth = chartTheme.seriesStrokeWidth;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     drawSmoothLine(ctx, primaryPoints, true);
@@ -21443,7 +21441,7 @@ return `
     function sizeCanvas(){
       const dpr = Math.max(1, window.devicePixelRatio || 1);
       let w = $wrap.clientWidth || Math.floor($wrap.getBoundingClientRect().width || 0);
-      w = Math.max(320, w || 320);
+      w = w || 320;
       let h = $wrap.clientHeight || Math.floor($wrap.getBoundingClientRect().height || 0);
       h = Math.max(260, h || 320);
       $canvas.style.width = w + "px";
@@ -21499,7 +21497,7 @@ return `
         ctx.moveTo(frame.padL, y);
         ctx.lineTo(frame.padL + frame.gw, y);
         ctx.stroke();
-        ctx.fillText(String(v), 18, y + 4);
+        ctx.fillText(String(v), 0, y + 4);
       }
       if (primaryPoints.length > 1) {
         const labelStep = primaryPoints.length <= 4 ? 1 : Math.ceil(primaryPoints.length / 4);
@@ -21541,7 +21539,7 @@ return `
       if (secondaryPoints.length) {
         ctx.save();
         ctx.strokeStyle = secondaryColor;
-        ctx.lineWidth = chartTheme.secondaryStrokeWidth;
+        ctx.lineWidth = chartTheme.seriesStrokeWidth;
         ctx.setLineDash(chartTheme.secondaryDash);
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
@@ -21550,7 +21548,7 @@ return `
       }
       ctx.save();
       ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = chartTheme.primaryStrokeWidth;
+      ctx.lineWidth = chartTheme.seriesStrokeWidth;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       drawSmoothLine(ctx, primaryPoints);
@@ -21699,7 +21697,7 @@ return `
       const dpr = Math.max(1, window.devicePixelRatio || 1);
       let w = $wrap.clientWidth;
       if (!w || w < 10) w = Math.floor($wrap.getBoundingClientRect().width || 0);
-      w = Math.max(320, w);
+      w = w || 320;
       let h = $wrap.clientHeight;
       if (!h || h < 10) h = Math.floor($wrap.getBoundingClientRect().height || 0);
       h = Math.max(260, h || 320);
@@ -21761,7 +21759,7 @@ return `
         ctx.moveTo(frame.padL, y);
         ctx.lineTo(frame.padL + frame.gw, y);
         ctx.stroke();
-        ctx.fillText(String(v), 18, y + 4);
+        ctx.fillText(String(v), 0, y + 4);
       }
       if (primaryPoints.length > 1) {
         const labelStep = primaryPoints.length <= 4 ? 1 : Math.ceil(primaryPoints.length / 4);
@@ -21786,7 +21784,7 @@ return `
       if (secondaryPoints.length) {
         ctx.save();
         ctx.strokeStyle = secondaryColor;
-        ctx.lineWidth = chartTheme.secondaryStrokeWidth;
+        ctx.lineWidth = chartTheme.seriesStrokeWidth;
         ctx.setLineDash(chartTheme.secondaryDash);
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
@@ -21796,7 +21794,7 @@ return `
 
       ctx.save();
       ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = chartTheme.primaryStrokeWidth;
+      ctx.lineWidth = chartTheme.seriesStrokeWidth;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       drawSmoothLine(ctx, primaryPoints);
@@ -22019,7 +22017,7 @@ return `
       const dpr = Math.max(1, window.devicePixelRatio || 1);
       let w = $wrap.clientWidth;
       if (!w || w < 10) w = Math.floor($wrap.getBoundingClientRect().width || 0);
-      w = Math.max(320, w);
+      w = w || 320;
       let h = $wrap.clientHeight;
       if (!h || h < 10) h = Math.floor($wrap.getBoundingClientRect().height || 0);
       h = Math.max(260, h || 320);
@@ -22083,7 +22081,7 @@ return `
         ctx.moveTo(frame.padL, y);
         ctx.lineTo(frame.padL + frame.gw, y);
         ctx.stroke();
-        ctx.fillText(String(v), 18, y + 4);
+        ctx.fillText(String(v), 0, y + 4);
       }
       if (primaryPoints.length > 1) {
         const labelStep = primaryPoints.length <= 4 ? 1 : Math.ceil(primaryPoints.length / 4);
@@ -22108,7 +22106,7 @@ return `
       if (secondaryPoints.length) {
         ctx.save();
         ctx.strokeStyle = secondaryColor;
-        ctx.lineWidth = chartTheme.secondaryStrokeWidth;
+        ctx.lineWidth = chartTheme.seriesStrokeWidth;
         ctx.setLineDash(chartTheme.secondaryDash);
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
@@ -22118,7 +22116,7 @@ return `
 
       ctx.save();
       ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = chartTheme.primaryStrokeWidth;
+      ctx.lineWidth = chartTheme.seriesStrokeWidth;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       drawSmoothLine(ctx, primaryPoints);
