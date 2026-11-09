@@ -5010,7 +5010,7 @@ async function renderAdmin(req, res, view) {
     if (showBilling && !canSeeBilling) return res.status(403).send("Forbidden");
     const billing = showBilling ? await renderPlateauBilling(sessionUser) : null;
     const productionBillingStatus = showBilling
-      ? await checkProductionBilling({ verify: req.query.checkProduction === "1" })
+      ? await (req.query.checkProduction === "1" ? runProductionBillingCheck() : checkProductionBilling())
       : "";
     await ensureJobSchema();
     await ensureAdSchema();
@@ -21286,6 +21286,13 @@ function canManagePlateauSandboxBilling(req, user) {
   return [user.email, user.username].some((value) => value && String(value).toLowerCase() === sessionIdentity);
 }
 
+async function runProductionBillingCheck() {
+  console.info("[square production] Connection check started");
+  const status = await checkProductionBilling({ verify: true });
+  console.info("[square production]", status);
+  return status;
+}
+
 async function renderPlateauBilling(user) {
   const config = billingConfig();
   if (!config) {
@@ -21391,7 +21398,7 @@ router.get("/billing/production-connection", async (req, res) => {
   res.set("Cache-Control", "private, no-store");
   const user = await resolveSessionUser(req);
   if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
-  const status = await checkProductionBilling({ verify: true });
+  const status = await runProductionBillingCheck();
   return res.json({ status });
 });
 
