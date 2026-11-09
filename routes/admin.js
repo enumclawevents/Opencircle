@@ -3,6 +3,8 @@
 const express = require("express");
 const router = express.Router();
 const CHART_SERIES_STROKE_WIDTH = 2;
+const CHART_AXIS_TITLE_BASELINE = 14;
+const CHART_TITLED_AXIS_TOP = 30;
 const { run, all, get, slugify, ensureUniqueSlug, DB_PATH } = require("../db");
 const path = require("path");
 const os = require("os");
@@ -2586,6 +2588,7 @@ async function ensureNewsletterSchema() {
       lastClickedAt TEXT,
       sentAt TEXT,
       errorText TEXT,
+      dashboardReviewedAt TEXT,
       createdAt TEXT DEFAULT (datetime('now')),
       updatedAt TEXT DEFAULT (datetime('now'))
     )
@@ -2609,6 +2612,7 @@ async function ensureNewsletterSchema() {
   } catch (_) {}
   try {
     const recipientCols = new Set((await all("PRAGMA table_info(newsletter_recipients)")).map((row) => String(row.name || "")));
+    if (!recipientCols.has("dashboardReviewedAt")) await run("ALTER TABLE newsletter_recipients ADD COLUMN dashboardReviewedAt TEXT");
     if (!recipientCols.has("clickCount")) await run("ALTER TABLE newsletter_recipients ADD COLUMN clickCount INTEGER NOT NULL DEFAULT 0");
     if (!recipientCols.has("firstClickedAt")) await run("ALTER TABLE newsletter_recipients ADD COLUMN firstClickedAt TEXT");
     if (!recipientCols.has("lastClickedAt")) await run("ALTER TABLE newsletter_recipients ADD COLUMN lastClickedAt TEXT");
@@ -3802,18 +3806,37 @@ function normalizeDashboardPreferences(preferences) {
   return { visible, order };
 }
 
-async function buildDashboardSummaryAnalytics(user, req, period) {
+function getDashboardCities(user, requestedDashboardScope) {
   const role = normalizeRoleValue(user?.role);
   const allowedCities = getUserAllowedCities(user, user?.city || "Enumclaw");
   // Developers can intentionally filter the command center to one of their
   // already-authorized community workspaces; all remains the safe default.
-  const requestedDashboardScope = String(req?.query?.dashboardScope || "all").trim();
   const developerScopeOptions = role === "developer"
     ? getAdminSidebarAreaOptions(user, user?.city || "Enumclaw")
     : [];
-  const cities = role === "developer" && requestedDashboardScope !== "all" && developerScopeOptions.includes(requestedDashboardScope)
+  return role === "developer" && requestedDashboardScope !== "all" && developerScopeOptions.includes(requestedDashboardScope)
     ? getAdminSidebarAreaCities(requestedDashboardScope, user, user?.city || "Enumclaw")
-    : allowedCities.slice();
+    : allowedCities;
+}
+
+function getDashboardNewsletterFailureScope(cities) {
+  const newsletterCities = cities.slice();
+  for (const [scope, members] of Object.entries(NEWSLETTER_SCOPE_GROUPS)) {
+    if (members.every((city) => cities.includes(city))) newsletterCities.push(scope);
+  }
+  return {
+    sql: `city IN (${newsletterCities.map(() => "?").join(",")})
+      AND dashboardReviewedAt IS NULL
+      AND lower(deliveryStatus) IN ('failed', 'bounced')
+      AND campaignId IN (SELECT id FROM newsletter_campaigns WHERE mode <> 'test')`,
+    params: newsletterCities,
+  };
+}
+
+async function buildDashboardSummaryAnalytics(user, req, period) {
+  const role = normalizeRoleValue(user?.role);
+  const requestedDashboardScope = String(req?.query?.dashboardScope || "all").trim();
+  const cities = getDashboardCities(user, requestedDashboardScope);
   const cityPlaceholders = cities.map(() => "?").join(",");
   const periodStartMs = period.start.toMillis();
   const periodEndMs = period.end.toMillis();
@@ -3827,6 +3850,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
   const emptyCity = (city) => ({
     city,
     publishedEvents: 0,
+    eventOccurrences: 0,
     eventsAdded: 0,
     previousEventsAdded: 0,
     views: null,
@@ -3879,21 +3903,22 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
   // Keep the dashboard trend aligned with Events Analytics: one series for
   // scheduled event occurrences and one for measured event-page views.
   const dailyEventOccurrences = new Map();
-  const addDailyOccurrence = (dateTime) => {
+  const addDailyOccurrence = (city, dateTime) => {
     const date = DateTime.fromISO(String(dateTime || ""), { setZone: true }).setZone(DEFAULT_TZ).toISODate();
     if (!date) return;
     dailyEventOccurrences.set(date, Number(dailyEventOccurrences.get(date) || 0) + 1);
+    citySummary(city).eventOccurrences += 1;
   };
   for (const event of scopedEvents) {
     const recurring = Number(event?.hasRecurrence || 0) === 1 || hasRecurringData(event);
     if (recurring && hasRecurringData(event)) {
-      for (const occurrence of generateAdminOccurrences(event, periodStartMs, periodEndMs)) {
-        addDailyOccurrence(occurrence?.startDateTime);
+      for (const occurrence of generateAdminOccurrences(event, periodStartMs, periodEndMs - 1)) {
+        addDailyOccurrence(event.city, occurrence?.startDateTime);
       }
     } else {
       const startsAt = Date.parse(String(event?.startDateTime || ""));
       if (Number.isFinite(startsAt) && startsAt >= periodStartMs && startsAt < periodEndMs) {
-        addDailyOccurrence(event.startDateTime);
+        addDailyOccurrence(event.city, event.startDateTime);
       }
     }
   }
@@ -3977,7 +4002,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
     if (!categories.length) continue;
     const recurring = Number(event?.hasRecurrence || 0) === 1 || hasRecurringData(event);
     const occurrenceCount = recurring && hasRecurringData(event)
-      ? generateAdminOccurrences(event, periodStartMs, periodEndMs).length
+      ? generateAdminOccurrences(event, periodStartMs, periodEndMs - 1).length
       : (dashboardIsoInRange(event?.startDateTime, periodStartMs, periodEndMs) ? 1 : 0);
     if (!occurrenceCount) continue;
     categories.forEach((category) => categoryTotals.set(category, Number(categoryTotals.get(category) || 0) + occurrenceCount));
@@ -4028,12 +4053,16 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
       attention.pendingInvitations = Number((await get("SELECT COUNT(*) AS count FROM invites WHERE usedAt IS NULL AND datetime(expiresAt) >= datetime('now')"))?.count || 0);
     } catch (_) { attention.pendingInvitations = null; }
   }
-  if (role !== "organizer") {
+  if (hasDeveloperAccessRole(role)) {
     try {
-      attention.failedNewsletterDeliveries = Number((await get(
-        `SELECT COUNT(*) AS count FROM newsletter_recipients WHERE city IN (${cityPlaceholders}) AND lower(deliveryStatus) IN ('failed', 'bounced')`,
-        cities
-      ))?.count || 0);
+      await ensureNewsletterSchema();
+      const failures = getDashboardNewsletterFailureScope(cities);
+      const row = await get(
+        `SELECT COUNT(*) AS count, MAX(id) AS latestId FROM newsletter_recipients WHERE ${failures.sql}`,
+        failures.params
+      );
+      attention.failedNewsletterDeliveries = Number(row?.count || 0);
+      attention.latestFailedNewsletterDeliveryId = Number(row?.latestId || 0);
     } catch (_) { attention.failedNewsletterDeliveries = null; }
   }
 
@@ -4070,6 +4099,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
     const plateauSummary = plateauCities.reduce((acc, city) => {
       const summary = citySummaries.get(city);
       acc.publishedEvents += Number(summary?.publishedEvents || 0);
+      acc.eventOccurrences += summary.eventOccurrences;
       acc.eventsAdded += Number(summary?.eventsAdded || 0);
       acc.previousEventsAdded += Number(summary?.previousEventsAdded || 0);
       acc.pendingActions += Number(summary?.pendingActions || 0);
@@ -4082,6 +4112,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
     }, {
       city: "Plateau Regional",
       publishedEvents: 0,
+      eventOccurrences: 0,
       eventsAdded: 0,
       previousEventsAdded: 0,
       views: engagementAvailable ? 0 : null,
@@ -7626,7 +7657,8 @@ return `
       const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values.map((v) => Number(v || 0)) : [];
       const allValues = (isIndividualEventChart ? viewValues : eventValues.concat(viewValues))
         .filter((v) => Number.isFinite(v));
-      const { width, height, padL, padR, padT, padB } = analyticsChartStyle;
+      const { width, height, padL, padR, padB } = analyticsChartStyle;
+      const padT = isIndividualEventChart ? analyticsChartStyle.padT : CHART_TITLED_AXIS_TOP;
       // Give the detail chart a little more natural vertical room. Its SVG
       // keeps a matching viewBox ratio, so labels are never stretched.
       const chartHeight = isIndividualEventChart ? 300 : height;
@@ -7770,7 +7802,7 @@ return `
             const y = padT + plotH - ((value / viewScale.yMax) * plotH);
             return `<text x="${width}" y="${(y + 4).toFixed(2)}" text-anchor="end" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>`;
           }).join("") : ""}
-          ${!isIndividualEventChart ? `<text x="0" y="11" fill="${lineColor}" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Events</text><text x="${width}" y="11" text-anchor="end" fill="${dashedColor}" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Views</text>` : ""}
+          ${!isIndividualEventChart ? `<text x="0" y="${CHART_AXIS_TITLE_BASELINE}" fill="${lineColor}" font-size="12" font-weight="650" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Events</text><text x="${width}" y="${CHART_AXIS_TITLE_BASELINE}" text-anchor="end" fill="${dashedColor}" font-size="12" font-weight="650" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Views</text>` : ""}
           ${!isIndividualEventChart && fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
           ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${!isIndividualEventChart && eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
@@ -14850,6 +14882,8 @@ return `
       .dashboard-attention-item,.dashboard-highlight,.dashboard-community-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel2); }
       .dashboard-attention-item{ color:var(--text); text-decoration:none; }
       .dashboard-attention-item:hover{ border-color:rgba(15,23,42,.18); background:#f8fafc; }
+      .dashboard-attention-actions{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+      .dashboard-attention-actions .dashboard-attention-item{ flex:1 1 auto; }
       .dashboard-attention-copy{ display:flex; gap:9px; align-items:flex-start; min-width:0; }
       .dashboard-attention-copy i{ color:var(--accent); margin-top:2px; }
       .dashboard-attention-copy span{ font-size:var(--dashboard-body); line-height:1.5; }
@@ -15302,7 +15336,7 @@ return `
               <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
             </section>` : ``}
             ${dashboardPreferences.visible.performance ? `<section class="card dashboard-command-card dashboard-command-performance" data-dashboard-card="performance" style="order:${dashboardPreferences.order.indexOf("performance") + 1}" aria-labelledby="dashboardCommunityTitle">
-              <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">${isOrganizerUser ? "My event performance" : hasAdminAccess ? "Community comparison" : "Community performance"}</h2><p class="sub">${isOrganizerUser ? "Performance across your events." : hasAdminAccess ? "All OpenCircle communities." : "Only communities within your assigned access."}</p></div></div>
+              <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">${isOrganizerUser ? "My event performance" : hasAdminAccess ? "Community comparison" : "Community performance"}</h2><p class="sub">${isOrganizerUser ? "Scheduled occurrences and measured views for your events during the selected period." : hasAdminAccess ? "Scheduled occurrences and measured views across communities during the selected period." : "Scheduled occurrences and measured views for your assigned communities during the selected period."}</p></div></div>
               <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
             </section>` : ``}
             </div>
@@ -18848,6 +18882,42 @@ return `
           var value = document.createElement('strong'); value.className = 'dashboard-attention-count'; value.textContent = count ? number(count) : 'Open';
           link.appendChild(copy); link.appendChild(value); host.appendChild(link);
         };
+        var appendNewsletterAttention = function(host, attention, scope){
+          if (!attention.failedNewsletterDeliveries) return;
+          var row = document.createElement('div');
+          row.className = 'dashboard-attention-actions';
+          var reviewUrl = new URL(adminHref('/admin/newsletter/analytics'), window.location.origin);
+          if (scope && scope !== 'all') reviewUrl.searchParams.set('newsletterScope', scope);
+          appendAttention(row, attention.failedNewsletterDeliveries, 'fa-solid fa-triangle-exclamation', 'Review failed newsletter deliveries', reviewUrl.toString());
+
+          var button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'btn';
+          button.textContent = 'Clear alert';
+          button.setAttribute('aria-label', 'Clear failed newsletter deliveries alert');
+          var error = document.createElement('div');
+          error.setAttribute('role', 'alert');
+          button.addEventListener('click', async function(){
+            button.disabled = true;
+            error.textContent = '';
+            try {
+              var response = await fetch('/admin/dashboard/newsletter-failures/clear', {
+                method:'POST',
+                credentials:'same-origin',
+                headers:{ 'Content-Type':'application/json' },
+                body:JSON.stringify({ dashboardScope:scope, throughId:attention.latestFailedNewsletterDeliveryId })
+              });
+              if (!response.ok) throw new Error('Could not clear the alert');
+              load();
+            } catch (_) {
+              error.textContent = 'Could not clear the alert. Please try again.';
+              button.disabled = false;
+            }
+          });
+          row.appendChild(button);
+          host.appendChild(row);
+          host.appendChild(error);
+        };
         var createInsightTooltip = function(host){
           var tooltip = document.createElement('div'); tooltip.className = 'dashboard-chart-tooltip'; tooltip.hidden = true;
           var title = document.createElement('div'); title.className = 'dashboard-chart-tooltip-title';
@@ -18946,7 +19016,7 @@ return `
               appendAttention(attentionHost, attention.pendingApprovals, 'fa-regular fa-calendar', 'Review pending events', adminHref('/admin/approve-events'));
               appendAttention(attentionHost, attention.openReports, 'fa-regular fa-flag', 'Review open event reports', adminHref('/admin/event-reports'));
               appendAttention(attentionHost, attention.unreadMessages, 'fa-regular fa-envelope', 'Respond to unread messages', adminHref('/admin/messages'));
-              appendAttention(attentionHost, attention.failedNewsletterDeliveries, 'fa-solid fa-triangle-exclamation', 'Review failed newsletter deliveries', adminHref('/admin/newsletter/analytics'));
+              appendNewsletterAttention(attentionHost, attention, summary.scope && summary.scope.dashboardScope);
               appendAttention(attentionHost, attention.pendingInvitations, 'fa-regular fa-user', 'Review pending invitations', adminHref('/admin/invites'));
             }
             if (!attentionHost.childElementCount) { var empty = document.createElement('div'); empty.className = 'dashboard-positive-empty'; empty.textContent = "You’re all caught up. Nothing needs your attention right now."; attentionHost.appendChild(empty); }
@@ -18990,7 +19060,7 @@ return `
               var showEvents = activitySeriesMode !== 'views', showViews = activitySeriesMode !== 'events';
               var width = Math.max(1, Math.round(chart.clientWidth || 1000));
               var height = Math.max(1, Math.round(chart.clientHeight || 250));
-              var padL = 48, padR = showViews && showEvents ? 48 : 14, padT = 30, padB = 42;
+              var padL = 48, padR = showViews && showEvents ? 48 : 14, padT = ${CHART_TITLED_AXIS_TOP}, padB = 42;
               var plotW = width - padL - padR, plotH = height - padT - padB;
               var events = series.map(function(item){ return Number(item.eventOccurrences || 0); });
               var views = series.map(function(item){ return Number(item.eventViews || 0); });
@@ -19028,7 +19098,7 @@ return `
                 return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 24).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + dateLabel(seriesDate(index)) + '</text>';
               }).join('');
               // Align axis text with the heading and series controls at the card edges.
-              var axisTitles = (showEvents ? '<text x="0" y="14" fill="rgba(16,185,129,.90)" font-size="12" font-weight="650">Events</text>' : '<text x="0" y="14" fill="rgba(37,99,235,.82)" font-size="12" font-weight="650">Views</text>') + (showViews && showEvents ? '<text x="' + width + '" y="14" text-anchor="end" fill="rgba(37,99,235,.82)" font-size="12" font-weight="650">Views</text>' : '');
+              var axisTitles = (showEvents ? '<text x="0" y="${CHART_AXIS_TITLE_BASELINE}" fill="rgba(16,185,129,.90)" font-size="12" font-weight="650">Events</text>' : '<text x="0" y="${CHART_AXIS_TITLE_BASELINE}" fill="rgba(37,99,235,.82)" font-size="12" font-weight="650">Views</text>') + (showViews && showEvents ? '<text x="' + width + '" y="${CHART_AXIS_TITLE_BASELINE}" text-anchor="end" fill="rgba(37,99,235,.82)" font-size="12" font-weight="650">Views</text>' : '');
               chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + axisTitles + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + (showViews ? '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="${CHART_SERIES_STROKE_WIDTH}" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + (showEvents ? '<path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="${CHART_SERIES_STROKE_WIDTH}" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + labels + '</g></svg>';
               var svg = chart.querySelector('svg');
               var svgNode = 'http://www.w3.org/2000/svg';
@@ -19113,8 +19183,8 @@ return `
           var communities = document.getElementById('dashboardCommunityList');
           if (communities) {
             communities.replaceChildren();
-            (summary.communities || []).forEach(function(item){ var row = document.createElement('div'); row.className = 'dashboard-community-row'; var name = document.createElement('strong'); name.textContent = item.city; var metrics = document.createElement('div'); metrics.className = 'dashboard-community-metrics'; var events = document.createElement('span'); events.innerHTML = '<b>' + number(item.publishedEvents) + '</b> events'; var views = document.createElement('span'); views.innerHTML = availability.engagement ? '<b>' + number(item.views) + '</b> views' : 'Views unavailable'; metrics.appendChild(events); metrics.appendChild(views); row.appendChild(name); row.appendChild(metrics); communities.appendChild(row); });
-            if (!communities.childElementCount) { var emptyCommunity = document.createElement('div'); emptyCommunity.className = 'dashboard-positive-empty'; emptyCommunity.textContent = 'No published event activity is available for this scope yet.'; communities.appendChild(emptyCommunity); }
+            (summary.communities || []).forEach(function(item){ var row = document.createElement('div'); row.className = 'dashboard-community-row'; var name = document.createElement('strong'); name.textContent = item.city; var metrics = document.createElement('div'); metrics.className = 'dashboard-community-metrics'; var events = document.createElement('span'); events.innerHTML = '<b>' + number(item.eventOccurrences) + '</b> ' + (item.eventOccurrences === 1 ? 'occurrence' : 'occurrences'); var views = document.createElement('span'); views.innerHTML = availability.engagement ? '<b>' + number(item.views) + '</b> views' : 'Views unavailable'; metrics.appendChild(events); metrics.appendChild(views); row.appendChild(name); row.appendChild(metrics); communities.appendChild(row); });
+            if (!communities.childElementCount) { var emptyCommunity = document.createElement('div'); emptyCommunity.className = 'dashboard-positive-empty'; emptyCommunity.textContent = 'No communities are available for this scope.'; communities.appendChild(emptyCommunity); }
           }
           var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false');
         }
@@ -20481,8 +20551,9 @@ return `
     };
   }
 
-  function getChartFrame(width, height){
-    const padL = 56, padR = 18, padT = 18, padB = 34;
+  function getChartFrame(width, height, hasAxisTitles = false){
+    const padL = 56, padR = 18, padB = 34;
+    const padT = hasAxisTitles ? ${CHART_TITLED_AXIS_TOP} : 18;
     return {
       padL, padR, padT, padB,
       gw: width - padL - padR,
@@ -20856,9 +20927,10 @@ return `
         const svgEl = $svgHost ? $svgHost.querySelector("svg") : null;
         const svgRect = svgEl ? svgEl.getBoundingClientRect() : null;
         const viewBoxHeight = Number(svgEl?.viewBox?.baseVal?.height || 260);
+        const topInset = isIndividualEventChart ? 18 : ${CHART_TITLED_AXIS_TOP};
         const plotFrame = svgRect ? {
-          padT: svgRect.height * (18 / viewBoxHeight),
-          gh: svgRect.height - (svgRect.height * (18 / viewBoxHeight)) - (svgRect.height * (32 / viewBoxHeight)),
+          padT: svgRect.height * (topInset / viewBoxHeight),
+          gh: svgRect.height - (svgRect.height * ((topInset + 32) / viewBoxHeight)),
         } : null;
         const pointX = svgRect && labels.length > 1
           ? (svgRect.width * (56 / 1200)) + ((svgRect.width - (svgRect.width * (56 / 1200)) - (svgRect.width * (18 / 1200))) / (labels.length - 1)) * safeIndex
@@ -20909,7 +20981,7 @@ return `
         const my = ev.clientY - rect.top;
         const padL = rect.width * (56 / 1200);
         const padR = rect.width * (18 / 1200);
-        const padT = rect.height * (18 / viewBoxHeight);
+        const padT = rect.height * ((isIndividualEventChart ? 18 : ${CHART_TITLED_AXIS_TOP}) / viewBoxHeight);
         const padB = rect.height * (32 / viewBoxHeight);
         const plotW = rect.width - padL - padR;
         const plotH = rect.height - padT - padB;
@@ -21097,8 +21169,8 @@ return `
       return;
     }
 
-      const frame = getChartFrame(w, h);
       const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
+      const frame = getChartFrame(w, h, !isIndividualEventChart);
       if (!isIndividualEventChart) {
         frame.padR = 58;
         frame.gw = w - frame.padL - frame.padR;
@@ -21144,13 +21216,13 @@ return `
         const y = frame.padT + frame.gh - (v / secondaryScale.yMax) * frame.gh;
         ctx.fillText(String(v), w, y + 4);
       }
-      ctx.font = "700 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.font = "650 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
       ctx.fillStyle = chartTheme.greenStroke;
       ctx.textAlign = "left";
-      ctx.fillText("Events", 0, 11);
+      ctx.fillText("Events", 0, ${CHART_AXIS_TITLE_BASELINE});
       ctx.fillStyle = chartTheme.blueStroke;
       ctx.textAlign = "right";
-      ctx.fillText("Views", w, 11);
+      ctx.fillText("Views", w, ${CHART_AXIS_TITLE_BASELINE});
     }
     if (primaryPoints.length > 1) {
       const labelStep = primaryPoints.length <= 4 ? 1 : Math.ceil(primaryPoints.length / 4);
@@ -21225,8 +21297,9 @@ return `
     const rect = $canvas.getBoundingClientRect();
     const mx = ev.clientX - rect.left;
     const my = ev.clientY - rect.top;
-    const frame = getChartFrame(rect.width, rect.height);
-    if (!($legend && !$legend.querySelector('[data-legend-metric="events"]'))) {
+    const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
+    const frame = getChartFrame(rect.width, rect.height, !isIndividualEventChart);
+    if (!isIndividualEventChart) {
       frame.padR = 58;
       frame.gw = rect.width - frame.padL - frame.padR;
     }
@@ -21251,8 +21324,8 @@ return `
     const viewValue = Number(typeof viewValues[idx] !== "undefined" ? viewValues[idx] : 0);
     const cityEventValue = Number(typeof cityEventValues[idx] !== "undefined" ? cityEventValues[idx] : 0);
     const periodLabel = getPeriodLabel(labels[idx] || "");
-    const frame = getChartFrame(rect.width, rect.height);
     const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
+    const frame = getChartFrame(rect.width, rect.height, !isIndividualEventChart);
     if (!isIndividualEventChart) {
       frame.padR = 58;
       frame.gw = rect.width - frame.padL - frame.padR;
@@ -22391,6 +22464,28 @@ router.get("/dashboard-summary", async (req, res) => {
   } catch (error) {
     console.error("[/admin/dashboard-summary] error:", error && error.stack ? error.stack : error);
     return res.status(500).json({ error: "Dashboard summary unavailable" });
+  }
+});
+router.post("/dashboard/newsletter-failures/clear", async (req, res) => {
+  try {
+    const user = await resolveSessionUser(req);
+    if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+    if (!hasDeveloperAccessRole(user.role)) return res.status(403).json({ error: "Forbidden" });
+    const throughId = req.body?.throughId;
+    if (!req.is("application/json") || !Number.isSafeInteger(throughId) || throughId < 1) {
+      return res.status(400).json({ error: "Invalid newsletter alert" });
+    }
+    const scope = String(req.body?.dashboardScope || "all").trim();
+    const failures = getDashboardNewsletterFailureScope(getDashboardCities(user, scope));
+    await ensureNewsletterSchema();
+    await run(
+      `UPDATE newsletter_recipients SET dashboardReviewedAt = datetime('now') WHERE id <= ? AND ${failures.sql}`,
+      [throughId, ...failures.params]
+    );
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("[/admin/dashboard/newsletter-failures/clear] error:", error);
+    return res.status(500).json({ error: "Could not clear the newsletter alert" });
   }
 });
 router.get("/events-analytics", async (req, res) => renderAdmin(req, res, "events-analytics"));
