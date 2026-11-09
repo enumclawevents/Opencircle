@@ -15963,8 +15963,8 @@ return `
             <h2>Production setup</h2>
             <p><strong>$100 per month</strong>, billed on the 8th.</p>
             <p>Customer enrollment is disabled.</p>
-            <p role="status">${esc(productionBillingStatus)}</p>
-            <form method="get" action="/admin/billing">
+            <p id="productionBillingStatus" role="status">${esc(productionBillingStatus)}</p>
+            <form id="productionBillingCheck" method="get" action="/admin/billing">
               <button class="btn" type="submit" name="checkProduction" value="1">Check Square connection</button>
             </form>
           </div>
@@ -21267,6 +21267,7 @@ return `
 })();</script>
     ${showDashboard || analyticsPeriodHtml ? `<script src="/assets/report-download.js" defer></script>` : ""}
     ${billing?.scripts || ""}
+    ${showBilling ? '<script defer src="/assets/production-billing-check.js"></script>' : ""}
   </body>
 </html>`);
   } catch (err) {
@@ -21384,6 +21385,14 @@ router.post("/report-download", async (req, res) => {
 router.get("/billing", async (req, res) => {
   res.set("Cache-Control", "private, no-store");
   return renderAdmin(req, res, "billing");
+});
+
+router.get("/billing/production-connection", async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+  const user = await resolveSessionUser(req);
+  if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
+  const status = await checkProductionBilling({ verify: true });
+  return res.json({ status });
 });
 
 router.post("/billing/enroll", async (req, res) => {
