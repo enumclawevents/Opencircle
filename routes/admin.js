@@ -4890,6 +4890,13 @@ function buildCreatedByOwnerClause(userId) {
 // GET /admin
 async function renderAdmin(req, res, view) {
   try {
+    const analyticsPeriodParams = Object.fromEntries(
+      ["range", "start", "end"]
+        .filter((key) => typeof req.query[key] === "string" && req.query[key])
+        .map((key) => [key, req.query[key]])
+    );
+    const analyticsPeriodFields = Object.entries(analyticsPeriodParams)
+      .map(([key, value]) => `<input type="hidden" name="${key}" value="${esc(value)}" />`).join("");
     await ensurePickSchema();
     await ensureVenueSchema();
     await ensureNewsletterSchema();
@@ -5049,6 +5056,7 @@ let whereParams = [];
         extraParams: {
           workspace: selectedAdminWorkspace,
           newsletterScopeExplicit: selectedNewsletterScope === defaultNewsletterScope ? "" : "1",
+          ...(pathname === "/admin/newsletter/analytics" ? analyticsPeriodParams : {}),
           ...extraParams,
         },
       });
@@ -7132,11 +7140,9 @@ return `
     const requestedNewsletterAudienceQuery = String(req.query.audienceQ || "").trim();
     const requestedNewsletterAudienceEmail = normalizeNewsletterEmailAddress(req.query.audienceEmail || "");
     const buildEventAnalyticsHref = (id) =>
-      `/admin/events-analytics?event=${encodeURIComponent(String(id || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+      buildScopedAdminHref("/admin/events-analytics", { ...analyticsPeriodParams, event: id });
     const buildAnalyticsChartHref = (mode) =>
-      `/admin/events-analytics?chartView=${encodeURIComponent(String(mode || "daily"))}` +
-      `${requestedEventId ? `&event=${encodeURIComponent(String(requestedEventId))}` : ""}` +
-      `${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+      buildScopedAdminHref("/admin/events-analytics", { ...analyticsPeriodParams, chartView: mode, event: requestedEventId });
     const chartRangeLabelByMode = {
       daily: "Last 14 days (by start date)",
       weekly: "Last 12 weeks (by start date)",
@@ -8324,7 +8330,7 @@ return `
       <form method="GET" action="${newsletterScopeSwitcherAction}" class="newsletter-scope-switch" style="display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin-bottom:16px;">
         ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
         <input type="hidden" name="newsletterScopeExplicit" value="1" />
-        ${showNewsletterAnalytics ? `<input type="hidden" name="chartView" value="${esc(chartViewMode)}" />` : ``}
+        ${showNewsletterAnalytics ? `${analyticsPeriodFields}<input type="hidden" name="chartView" value="${esc(chartViewMode)}" />` : ``}
         <div style="min-width:280px; max-width:420px; flex:1 1 320px;">
           <label for="newsletterScopeSelect">Newsletter list</label>
           <select class="ctrl" id="newsletterScopeSelect" name="newsletterScope" onchange="this.form.submit()">
@@ -10732,7 +10738,7 @@ return `
       );
       organizerEventRows = (organizerEventRows || []).map((row) => normalizeRowTimes(row));
       const buildOrganizerInsightsHref = (name) =>
-        `/admin/events-organizers?organizer=${encodeURIComponent(String(name || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+        buildScopedAdminHref("/admin/events-organizers", { ...analyticsPeriodParams, organizer: name });
 
       const organizerMap = new Map();
       const nowMs = Date.now();
@@ -11041,6 +11047,131 @@ return `
       organizerChartEventValues,
       organizerChartViewValues
     );
+    let analyticsPeriodHtml = "";
+    if (showAnalytics || showOrganizers || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showUpdatesAnalytics) {
+      const periodQuery = req.query.range ? req.query : { range: "30d" };
+      const period = parseDashboardReportingPeriod(periodQuery);
+      const range = period.key || (periodQuery.range === "custom" ? "custom" : "30d");
+      const periodParams = period.error ? [] : [period.start.toUTC().toISO(), period.end.toUTC().toISO()];
+      const inPeriod = (column) => `datetime(${column}) >= datetime(?) AND datetime(${column}) < datetime(?)`;
+      const metrics = [];
+      const addMetric = (label, value) => metrics.push({ label, value });
+      const count = async (sql, params) => Number((await get(sql, params))?.count || 0);
+      let periodError = period.error || "";
+      if (!periodError) {
+        try {
+          if (showAnalytics || showOrganizers) {
+            const conditions = [...dashParts];
+            const params = [...dashParams];
+            if (selectedEventAnalytics) {
+              conditions.push("id = ?");
+              params.push(selectedEventAnalytics.id);
+            }
+            if (showOrganizers && selectedOrganizer) {
+              conditions.push("COALESCE(NULLIF(TRIM(organizer), ''), '(unknown)') = ?");
+              params.push(selectedOrganizer);
+            }
+            const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+            const startMs = period.start.toMillis();
+            const endMs = period.end.toMillis();
+            const events = await all(
+              `SELECT startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates,
+                      recurrenceStartDate, recurrenceUntilDate FROM events ${where}`,
+              params
+            );
+            const occurrences = events.reduce((total, event) => total + (hasRecurringData(event)
+              ? generateAdminOccurrences(event, startMs, endMs - 1).length
+              : Number(dashboardIsoInRange(event.startDateTime, startMs, endMs))), 0);
+            addMetric("Scheduled occurrences", occurrences);
+            addMetric("Measured event views", hasSourceTrackingTable ? await count(
+              `SELECT COUNT(*) AS count FROM event_views
+               WHERE eventId IN (SELECT id FROM events ${where}) AND ${inPeriod("viewedAt")}`,
+              [...params, ...periodParams]
+            ) : null);
+          } else if (showVenueAnalytics || showAdsAnalytics) {
+            const venue = showVenueAnalytics;
+            const item = venue ? selectedVenue : selectedAd;
+            const tracking = !venue || hasVenueMetricHistory;
+            const row = item && tracking ? await get(
+              `SELECT SUM(metric = 'view') AS views, SUM(metric ${venue ? "IN ('phone_click', 'website_click', 'social_click')" : "= 'click'"}) AS clicks
+                 FROM ${venue ? "venue_metric_events" : "ad_metric_events"}
+                WHERE ${venue ? "venueId" : "adId"} = ? AND ${inPeriod("createdAt")}`,
+              [item.id, ...periodParams]
+            ) : null;
+            const label = item ? ` for ${item.name}` : "";
+            addMetric(`Measured views${label}`, tracking ? Number(row?.views || 0) : null);
+            addMetric(`Measured clicks${label}`, tracking ? Number(row?.clicks || 0) : null);
+          } else if (showJobsAnalytics) {
+            const scope = buildCityScopeSql("city", selectedAdminCities);
+            addMetric("Jobs posted", await count(
+              `SELECT COUNT(*) AS count FROM jobs WHERE ${inPeriod("createdAt")}${scope.sql ? ` AND ${scope.sql}` : ""}`,
+              [...periodParams, ...scope.params]
+            ));
+            addMetric("Applications received", await count(
+              `SELECT COUNT(*) AS count FROM job_applicants WHERE ${inPeriod("createdAt")}
+                 AND jobId IN (SELECT id FROM jobs ${scope.sql ? `WHERE ${scope.sql}` : ""})`,
+              [...periodParams, ...scope.params]
+            ));
+          } else if (showNewsletterAnalytics) {
+            const row = await get(
+              `SELECT COUNT(*) AS campaigns, COALESCE(SUM(sentCount), 0) AS delivered,
+                      COALESCE(SUM(failedCount), 0) AS failed
+                 FROM newsletter_campaigns
+                WHERE city = ? AND mode <> 'test' AND ${inPeriod("sentAt")}${requestedNewsletterCampaignId ? " AND id = ?" : ""}`,
+              [newsletterContextCity, ...periodParams, ...(requestedNewsletterCampaignId ? [requestedNewsletterCampaignId] : [])]
+            );
+            addMetric("Campaigns sent", Number(row?.campaigns || 0));
+            addMetric("Successful deliveries", Number(row?.delivered || 0));
+            addMetric("Failed deliveries", Number(row?.failed || 0));
+          } else {
+            const city = pickAccessibleCity(req.query.city, accessUser, { fallbackCity: selectedCity });
+            const updateId = Number(req.query.update || 0);
+            addMetric(editUpdate ? `Measured views for ${editUpdate.title}` : "Measured update views", await count(
+              `SELECT COUNT(*) AS count FROM update_metric_events WHERE ${inPeriod("occurredAt")}
+                 AND updateId IN (SELECT id FROM updates WHERE city = ?${updateId ? " AND id = ?" : ""})`,
+              [...periodParams, city, ...(updateId ? [updateId] : [])]
+            ));
+          }
+        } catch (error) {
+          console.error("[admin analytics reporting period]", error);
+          periodError = "Reporting period data is temporarily unavailable.";
+        }
+      }
+      const query = { ...req.query, city: selectedAdminPrimaryCity, workspace: selectedAdminWorkspace };
+      if (showNewsletterAnalytics) {
+        query.newsletterScope = selectedNewsletterScope;
+        query.newsletterScopeExplicit = "1";
+      }
+      const hiddenFields = Object.entries(query)
+        .filter(([key, value]) => !["range", "start", "end"].includes(key) && typeof value === "string" && value)
+        .map(([key, value]) => `<input type="hidden" name="${esc(key)}" value="${esc(value)}" />`).join("");
+      const options = [["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["custom", "Custom range"]];
+      const dateValue = (key) => /^\d{4}-\d{2}-\d{2}$/.test(String(req.query[key] || "")) ? String(req.query[key]) : "";
+      const summary = periodError
+        ? `<p class="sub" role="alert">${esc(periodError)}</p>`
+        : `<div class="kpis">${metrics.map(({ label, value }) => `<div class="kpi"><div class="label">${esc(label)}</div><div class="value">${value === null ? "Unavailable" : value.toLocaleString("en-US")}</div></div>`).join("")}</div>`;
+      analyticsPeriodHtml = `
+        <section class="card analytics-period-card" aria-labelledby="analyticsPeriodTitle">
+          <div class="sectionTitle">
+            <div><h2 id="analyticsPeriodTitle">Period summary</h2><p class="sub">The selected dates apply to this summary. Detailed reports below show their own time ranges.</p></div>
+            <form class="dashboard-period-controls" method="GET" id="analyticsPeriodForm">
+              ${hiddenFields}
+              <label for="analyticsPeriodRange">Reporting period</label>
+              <div class="dashboard-period-row">
+                <select class="ctrl" name="range" id="analyticsPeriodRange">
+                  ${options.map(([value, label]) => `<option value="${value}"${value === range ? " selected" : ""}>${label}</option>`).join("")}
+                </select>
+                <div class="dashboard-custom-range" id="analyticsPeriodDates">
+                  <input class="ctrl" type="date" name="start" value="${dateValue("start")}" aria-label="Reporting start date" />
+                  <input class="ctrl" type="date" name="end" value="${dateValue("end")}" aria-label="Reporting end date" />
+                </div>
+                <button class="btn" type="submit">Apply</button>
+              </div>
+            </form>
+          </div>
+          ${summary}
+        </section>`;
+    }
     const dashboardPrimaryInsightTarget = canSeeEventsAnalytics
       ? "events"
       : canSeeVenueAnalytics
@@ -14846,6 +14977,9 @@ return `
       .dashboard-command-head h1{ margin:0 0 4px; font-size:28px; font-weight:700; letter-spacing:-.01em; line-height:1.2; }
       .dashboard-command-head .sub{ margin:0; }
       .eyebrow{ font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:var(--accent); }
+      .analytics-period-card{ margin-bottom:var(--gap); }
+      .analytics-period-card .sectionTitle{ flex-wrap:wrap; }
+      .analytics-period-card .dashboard-period-row{ flex-wrap:wrap; justify-content:flex-start; }
       .dashboard-period-controls{ min-width:220px; display:grid; gap:5px; }
       .dashboard-period-controls label{ margin:0; font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
       .dashboard-community-scope{ display:grid; gap:5px; }
@@ -15283,6 +15417,29 @@ return `
           ${canManageEvents ? `<a class="btn btn-primary" href="/admin/create-events?edit=${encodeURIComponent(String(selectedEventAnalytics.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit Event</a>` : ``}
         </section>
         ` : ``}
+
+        ${analyticsPeriodHtml}
+        <script>
+          (function(){
+            var form = document.getElementById('analyticsPeriodForm');
+            if (!form) return;
+            var range = document.getElementById('analyticsPeriodRange');
+            var dates = document.getElementById('analyticsPeriodDates');
+            function syncDates(){
+              var custom = range.value === 'custom';
+              dates.hidden = !custom;
+              Array.prototype.forEach.call(dates.querySelectorAll('input'), function(input){
+                input.disabled = !custom;
+                input.required = custom;
+              });
+            }
+            range.addEventListener('change', function(){
+              syncDates();
+              if (range.value !== 'custom') form.requestSubmit();
+            });
+            syncDates();
+          })();
+        </script>
 
         <!-- Dashboard Overview -->
         ${showDashboard ? `
@@ -16807,7 +16964,7 @@ return `
             <form method="POST" action="/admin/updates" enctype="multipart/form-data"><input type="hidden" name="id" value="${esc(editUpdate?.id || "")}" /><div class="formGrid"><label>Title<input class="ctrl" name="title" required maxlength="180" value="${esc(editUpdate?.title || "")}" /></label>${editUpdate ? `<label>URL slug <input class="ctrl" name="slug" maxlength="180" value="${esc(editUpdate.slug || "")}" /><span class="note">Leave unchanged to keep the published URL stable.</span></label>` : ``}<label>Community<select class="ctrl" name="city">${cityOptions}</select></label><label>Category<select class="ctrl" name="categoryId"><option value="">Uncategorized</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(editUpdate?.categoryId || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></label><label>Status<select class="ctrl" name="status">${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(editUpdate?.status || "draft") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select></label><label>Publication date/time<input class="ctrl" type="datetime-local" name="scheduledFor" value="${esc(String(editUpdate?.scheduledFor || "").replace(/Z$/, "").slice(0,16))}" /></label><label>Tags<input class="ctrl" name="tags" maxlength="900" value="${esc((safeParseJson(editUpdate?.tagsJson, []) || []).join(", "))}" placeholder="Comma-separated" /></label></div><label>Summary<textarea class="ctrl" name="summary" maxlength="600" rows="3">${esc(editUpdate?.summary || "")}</textarea></label><label>Main content<textarea class="ctrl" name="bodyHtml" required rows="14" maxlength="100000" placeholder="Use paragraphs, headings, lists, bold, italic, and safe links.">${esc(editUpdate?.bodyHtml || "")}</textarea></label><div class="formGrid"><label>Featured image<input class="ctrl" type="file" name="updateImageFile" accept="image/*" /></label><label>Image alt text<input class="ctrl" name="imageAlt" maxlength="220" value="${esc(editUpdate?.imageAlt || "")}" /></label><label>Related event IDs<input class="ctrl" name="relatedEventIds" value="" placeholder="Example: 12, 34" /></label><label>Related venue IDs<input class="ctrl" name="relatedVenueIds" value="" placeholder="Example: 8, 19" /></label></div>${editUpdate?.featuredImageUrl ? `<label class="checkbox"><input type="checkbox" name="removeImage" value="1" /> Remove current image</label>` : ``}<div class="actions"><button class="btn btn-primary" type="submit">${editUpdate ? "Save update" : "Create update"}</button><a class="btn" href="${buildScopedAdminHref("/admin/updates")}">Cancel</a></div></form>
             <form method="POST" action="/admin/updates/categories?city=${encodeURIComponent(selectedCity)}" class="mini" style="margin-top:22px;"><strong>Add a category for ${esc(selectedCity)}</strong><div class="actions" style="margin-top:8px;"><input class="ctrl" name="name" maxlength="80" required placeholder="Category name" /><button class="btn" type="submit">Add category</button></div></form>
           </div>` : ``}
-          ${showUpdatesAnalytics ? `<div class="card"><div class="sectionTitle"><div><h2>Update Analytics</h2><p class="sub">Select an update to view its public page views.</p></div></div><form method="GET" action="/admin/updates/analytics" class="filters"><input type="hidden" name="city" value="${esc(selectedCity)}" /><select class="ctrl" name="update">${updateRows.map((row) => `<option value="${row.id}" ${Number(req.query.update || 0) === row.id ? "selected" : ""}>${esc(row.title)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">View analytics</button></form>${editUpdate ? `<div class="mini" style="margin-top:16px;"><h3>${esc(editUpdate.title)}</h3><div class="stats"><div class="stat"><div class="k">Total views</div><div class="v">${updateViewTotal.toLocaleString("en-US")}</div></div><div class="stat"><div class="k">Published</div><div class="v">${esc(editUpdate.publishedAt || "Not published")}</div></div></div></div>` : ``}</div>` : ``}
+          ${showUpdatesAnalytics ? `<div class="card"><div class="sectionTitle"><div><h2>Update Analytics</h2><p class="sub">Select an update to view its public page views.</p></div></div><form method="GET" action="/admin/updates/analytics" class="filters">${analyticsPeriodFields}<input type="hidden" name="city" value="${esc(selectedCity)}" /><select class="ctrl" name="update">${updateRows.map((row) => `<option value="${row.id}" ${Number(req.query.update || 0) === row.id ? "selected" : ""}>${esc(row.title)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">View analytics</button></form>${editUpdate ? `<div class="mini" style="margin-top:16px;"><h3>${esc(editUpdate.title)}</h3><div class="stats"><div class="stat"><div class="k">Total views</div><div class="v">${updateViewTotal.toLocaleString("en-US")}</div></div><div class="stat"><div class="k">Published</div><div class="v">${esc(editUpdate.publishedAt || "Not published")}</div></div></div></div>` : ``}</div>` : ``}
         </section>` : ``}
 
         <!-- Manage -->
@@ -18092,7 +18249,7 @@ return `
 	                  <p class="sub">Choose one venue to review monthly views and click activity</p>
 	                </div>
 	              </div>
-	              <form class="analytics-toolbar" method="GET" action="/admin/venues/analytics">
+	              <form class="analytics-toolbar" method="GET" action="/admin/venues/analytics">${analyticsPeriodFields}
 	                ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
 	                <div style="min-width:0; flex:1 1 360px;">
 	                  <label for="venueAnalyticsSelect" style="margin-top:0;">Venue</label>
@@ -18769,7 +18926,7 @@ return `
                   <p class="sub">Choose one ad to review monthly views and clicks</p>
                 </div>
               </div>
-              <form class="analytics-toolbar" method="GET" action="/admin/ads/analytics">
+              <form class="analytics-toolbar" method="GET" action="/admin/ads/analytics">${analyticsPeriodFields}
                 ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
                 <div style="min-width:0; flex:1 1 260px;">
                   <label for="adAnalyticsSelect" style="margin-top:0;">Ad</label>
