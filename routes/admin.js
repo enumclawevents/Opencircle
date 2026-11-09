@@ -7,7 +7,7 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 const { execSync, execFileSync } = require("child_process");
-const { sendEmail, PASSWORD_RESET_FROM, PASSWORD_RESET_REPLY_TO } = require("../mailer");
+const { sendEmail, PASSWORD_RESET_FROM, PASSWORD_RESET_FROM_ADDRESS, PASSWORD_RESET_REPLY_TO } = require("../mailer");
 const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const crypto = require("crypto");
 const packageMeta = require("../package.json");
@@ -2988,6 +2988,10 @@ function selectNewsletterEvents(events, settings) {
   return { featuredEvent, editorialPickEvent, showcaseEvents };
 }
 
+function getNewsletterAreaName(city) {
+  return city === "Plateau Regional" ? "Plateau" : city;
+}
+
 function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEvent, showcaseEvents, req }) {
   const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
   const previewText = normalizeNewsletterPreviewText(settings?.previewText, normalizedCity);
@@ -3140,7 +3144,7 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
           </div>
           ` : ``}
           <div style="padding:0 0 20px;">
-            <div style="font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#00c08b; margin-bottom:8px;">OpenCircle Newsletter</div>
+            <div style="font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#00c08b; margin-bottom:8px;">${esc(getNewsletterAreaName(normalizedCity))} Newsletter</div>
             <div class="oc-title" style="font-size:34px; line-height:1.1; font-weight:900; color:#0f172a; margin-bottom:10px;">${esc(subject)}</div>
             <div class="oc-preview" style="font-size:16px; line-height:1.6; color:#526377; margin-bottom:8px;">${esc(previewText)}</div>
           </div>
@@ -3390,6 +3394,10 @@ async function updateNewsletterCampaignDeliveryCounts(campaignId, sentCount, fai
 async function sendTrackedNewsletterCampaign({ city, recipients, reqLike, createdByUserId, mode, baseDateTime = null }) {
   await ensureNewsletterSchema();
   const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
+  const from = {
+    name: getNewsletterAreaName(normalizedCity),
+    address: PASSWORD_RESET_FROM_ADDRESS,
+  };
   const recipientList = Array.from(new Set(
     (Array.isArray(recipients) ? recipients : [])
       .map((email) => normalizeNewsletterEmailAddress(email))
@@ -3429,7 +3437,7 @@ async function sendTrackedNewsletterCampaign({ city, recipients, reqLike, create
         subject: campaign.message.subject,
         html: trackedHtml,
         text: campaign.message.text,
-        from: PASSWORD_RESET_FROM,
+        from,
         replyTo: PASSWORD_RESET_REPLY_TO,
       });
       const delivery = classifyNewsletterDeliveryResult(sent, email);

@@ -47,6 +47,7 @@ async function sendEmail({ to, subject, html, text, from, replyTo }) {
 
 module.exports = {
   PASSWORD_RESET_FROM,
+  PASSWORD_RESET_FROM_ADDRESS,
   PASSWORD_RESET_REPLY_TO,
   sendEmail,
 };
