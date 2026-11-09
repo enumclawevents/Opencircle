@@ -15,29 +15,29 @@
 .premium-billing__section > :not(.sectionTitle) + *,
 .premium-billing__diagnostics > * + * { margin-top: 12px; }
 
-.premium-billing__overview {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  align-items: center;
-  gap: var(--gap);
+.premium-billing__grid-title {
+  margin-bottom: var(--gap);
+  font-size: var(--dashboard-heading);
 }
 
-.premium-billing__overview p { margin: 0; }
-.premium-billing__plan { font-size: var(--dashboard-body); font-weight: 700; }
-.premium-billing__price { font-size: 28px; font-weight: 700; }
-.premium-billing__price span { font-size: var(--dashboard-body); font-weight: 500; color: var(--muted); }
+.premium-billing .premium-billing__metric {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  min-width: 0;
+}
 
-.premium-billing__facts {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--gap);
+.premium-billing__metric h3,
+.premium-billing__metric p { margin: 0; }
+.premium-billing__metric > .btn { align-self: flex-start; max-width: 100%; white-space: normal; }
+.premium-billing__metric > .premium-billing__value { overflow-wrap: anywhere; }
+.premium-billing__metric strong:not(.premium-billing__value) {
+  display: inline;
   margin: 0;
-}
-.premium-billing__facts dd {
-  margin: 4px 0 0;
-  font-size: var(--dashboard-body);
-  font-weight: 700;
-  overflow-wrap: anywhere;
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
 }
 
 .premium-billing__saved {
@@ -72,10 +72,10 @@
 .premium-billing__diagnostics form { display: flex; flex-wrap: wrap; gap: 8px; }
 .premium-billing :focus-visible { outline: 2px solid var(--brand2); outline-offset: 3px; }
 
-@media (max-width: 1050px) {
-  .premium-billing__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 1051px) {
+  .premium-billing__payment-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 650px) {
-  .premium-billing__overview { grid-template-columns: minmax(0, 1fr); }
+  .premium-billing .dashboard-kpi-grid { grid-template-columns: minmax(0, 1fr); }
 }
