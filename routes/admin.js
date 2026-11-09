@@ -1,7 +1,7 @@
 "use strict";
 
 const express = require("express");
-const { billingConfig, BillingError, enrollBilling, nextBillingDate, readBilling, refreshBilling } = require("../lib/plateau-billing");
+const { billingAdminEmail, billingConfig, BillingError, enrollBilling, nextBillingDate, readBilling, refreshBilling } = require("../lib/plateau-billing");
 const { buildReportDownload } = require("../lib/report-download");
 const router = express.Router();
 const CHART_SERIES_STROKE_WIDTH = 2;
@@ -14389,7 +14389,7 @@ return `
             <a class="nav-title-btn" href="${hasDeveloperAccess ? buildScopedAdminHref("/admin/users") : buildScopedAdminHref("/admin/preferences")}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="user-round" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="${buildScopedAdminHref("/admin/preferences")}">Preferences</a>
-              ${canManagePlateauSandboxBilling(req, sessionUser, billingConfig()) ? '<a class="subnav-link" href="/admin/billing">Billing</a>' : ""}
+              ${canManagePlateauSandboxBilling(req, sessionUser) ? '<a class="subnav-link" href="/admin/billing">Billing</a>' : ""}
               ${hasAdminAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="${buildScopedAdminHref("/admin/users")}">Users</a>` : ``}
               ${hasAdminAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="${buildScopedAdminHref("/admin/invites")}">Invites</a>` : ``}
             </div>
@@ -21228,8 +21228,9 @@ return `
 
 // Keep organizer access enforced for direct URLs and form posts as well as in
 // the sidebar. Developers and admins retain their existing route access.
-function canManagePlateauSandboxBilling(req, user, config) {
-  if (!config || !user?.id || !isAdminRole(user.role) || String(user.email || "").toLowerCase() !== config.ownerEmail) return false;
+function canManagePlateauSandboxBilling(req, user) {
+  const ownerEmail = billingAdminEmail();
+  if (!ownerEmail || !user?.id || !isAdminRole(user.role) || String(user.email || "").trim().toLowerCase() !== ownerEmail) return false;
   const sessionIdentity = String(req.user?.user || "").trim().toLowerCase();
   return [user.email, user.username].some((value) => value && String(value).toLowerCase() === sessionIdentity);
 }
@@ -21292,11 +21293,20 @@ router.post("/report-download", async (req, res) => {
   }
 });
 router.get("/billing", async (req, res) => {
-  const config = billingConfig();
-  if (!config) return res.status(404).send("Sandbox billing is unavailable.");
+  res.set("Cache-Control", "private, no-store");
   try {
     const user = await resolveSessionUser(req);
-    if (!canManagePlateauSandboxBilling(req, user, config)) return res.status(403).send("Forbidden");
+    if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).send("Forbidden");
+    const config = billingConfig();
+    if (!config) {
+      return res.send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>OpenCircle | Plateau Regional Billing</title></head><body><main>
+        <a href="/admin">Back to OpenCircle</a>
+        <h1>Plateau Regional Billing</h1>
+        <p>Square Sandbox setup is incomplete. Add the Sandbox credentials and enable billing in your server settings to test autopay.</p>
+        </main></body></html>`);
+    }
     let row = await readBilling(config, user.id);
     let statusUnavailable = false;
     if (row?.subscriptionId) {
@@ -21307,7 +21317,6 @@ router.get("/billing", async (req, res) => {
     const startLabel = DateTime.fromISO(start, { zone: DEFAULT_TZ }).toFormat("MMMM d, yyyy");
     const needsCard = !row?.cardId;
     const canEnroll = !row?.subscriptionId && start >= nextBillingDate();
-    res.set("Cache-Control", "private, no-store");
     res.set("Content-Security-Policy", [
       "default-src 'self'", "script-src 'self' https://sandbox.web.squarecdn.com",
       "frame-src https://sandbox.web.squarecdn.com",
@@ -21356,11 +21365,11 @@ router.get("/billing", async (req, res) => {
 
 router.post("/billing/enroll", async (req, res) => {
   res.set("Cache-Control", "private, no-store");
-  const config = billingConfig();
-  if (!config) return res.status(404).json({ error: "Sandbox billing is unavailable." });
   try {
     const user = await resolveSessionUser(req);
-    if (!canManagePlateauSandboxBilling(req, user, config)) return res.status(403).json({ error: "Forbidden" });
+    if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
+    const config = billingConfig();
+    if (!config) return res.status(503).json({ error: "Sandbox billing setup is incomplete." });
     if (!req.is("application/json") || req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
       return res.status(403).json({ error: "Submit this request from the OpenCircle Billing page." });
     }

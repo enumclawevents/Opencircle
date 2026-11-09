@@ -26,12 +26,26 @@
       if (card && !sourceId) {
         const result = await card.tokenize({
           intent: "STORE",
-          currencyCode: "USD",
           customerInitiated: true,
           sellerKeyedIn: false,
-          billingContact: { countryCode: "US" },
+          billingContact: {
+            givenName: "Sandbox",
+            familyName: "Tester",
+            email: "plateau-billing@example.test",
+            phone: "2065550100",
+            addressLines: ["123 Main Street"],
+            city: "Enumclaw",
+            state: "WA",
+            postalCode: "98022",
+            countryCode: "US",
+          },
         });
-        if (result.status !== "OK") throw new Error("Check the test card details and try again.");
+        if (result.status !== "OK" || !result.token) {
+          const codes = (result.errors || []).map((error) => error.code)
+            .filter((code) => typeof code === "string" && /^[A-Za-z0-9_-]{1,60}$/.test(code));
+          const detail = codes.length ? ` Square code: ${[...new Set(codes)].slice(0, 3).join(", ")}.` : "";
+          throw new Error("Square could not verify the Sandbox card. Try test Visa 4800 0000 0000 0004 with CVV 111, a future expiration, and ZIP 98022." + detail);
+        }
         sourceId = result.token;
       }
       const response = await fetch("/admin/billing/enroll", {

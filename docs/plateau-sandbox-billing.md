@@ -15,9 +15,14 @@ In a local or test deployment, set these server environment variables:
 | `SQUARE_SANDBOX_ACCESS_TOKEN` | Sandbox access token, stored as a server secret |
 | `SQUARE_SANDBOX_BILLING_ADMIN_EMAIL` | Sign-in email of the Admin testing billing |
 
+Setting `SQUARE_SANDBOX_BILLING_ADMIN_EMAIL` shows **Admin → Billing** only
+for that Admin. The page shows a setup notice until the other settings are
+configured. Other accounts cannot open the page or enroll.
+
 Use an isolated test database with an Admin account. Open
-`/admin/billing` over HTTPS or localhost while signed into the designated Admin account. Other accounts cannot open the page or enroll.
-Use a [Square Sandbox test card](https://developer.squareup.com/docs/devtools/sandbox/payments).
+`/admin/billing` over HTTPS or localhost while signed into the designated Admin account.
+Use Square's [no-challenge test Visa](https://developer.squareup.com/docs/devtools/sandbox/payments#sca-testing-in-the-web-payments-sdk)
+`4800 0000 0000 0004`, CVV `111`, a future expiration, and ZIP `98022`.
 On enrollment, the app creates a test catalog plan and monthly variation in
 the configured location, then schedules the subscription for the next 8th.
 The billing screen reads the subscription status from Square when reopened.
