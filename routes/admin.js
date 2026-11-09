@@ -1,6 +1,7 @@
 "use strict";
 
 const express = require("express");
+const { billingConfig, BillingError, enrollBilling, nextBillingDate, readBilling, refreshBilling } = require("../lib/plateau-billing");
 const { buildReportDownload } = require("../lib/report-download");
 const router = express.Router();
 const CHART_SERIES_STROKE_WIDTH = 2;
@@ -14388,6 +14389,7 @@ return `
             <a class="nav-title-btn" href="${hasDeveloperAccess ? buildScopedAdminHref("/admin/users") : buildScopedAdminHref("/admin/preferences")}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="user-round" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="${buildScopedAdminHref("/admin/preferences")}">Preferences</a>
+              ${canManagePlateauSandboxBilling(req, sessionUser, billingConfig()) ? '<a class="subnav-link" href="/admin/billing">Billing</a>' : ""}
               ${hasAdminAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="${buildScopedAdminHref("/admin/users")}">Users</a>` : ``}
               ${hasAdminAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="${buildScopedAdminHref("/admin/invites")}">Invites</a>` : ``}
             </div>
@@ -21226,6 +21228,12 @@ return `
 
 // Keep organizer access enforced for direct URLs and form posts as well as in
 // the sidebar. Developers and admins retain their existing route access.
+function canManagePlateauSandboxBilling(req, user, config) {
+  if (!config || !user?.id || !isAdminRole(user.role) || String(user.email || "").toLowerCase() !== config.ownerEmail) return false;
+  const sessionIdentity = String(req.user?.user || "").trim().toLowerCase();
+  return [user.email, user.username].some((value) => value && String(value).toLowerCase() === sessionIdentity);
+}
+
 function isOrganizerAllowedAdminPath(pathname) {
   const path = String(pathname || "");
   if ([
@@ -21283,6 +21291,89 @@ router.post("/report-download", async (req, res) => {
     return res.status(500).json({ error: "Could not prepare the report" });
   }
 });
+router.get("/billing", async (req, res) => {
+  const config = billingConfig();
+  if (!config) return res.status(404).send("Sandbox billing is unavailable.");
+  try {
+    const user = await resolveSessionUser(req);
+    if (!canManagePlateauSandboxBilling(req, user, config)) return res.status(403).send("Forbidden");
+    let row = await readBilling(config, user.id);
+    let statusUnavailable = false;
+    if (row?.subscriptionId) {
+      try { row = await refreshBilling(config, row); }
+      catch (_) { statusUnavailable = true; }
+    }
+    const start = row?.startDate || nextBillingDate();
+    const startLabel = DateTime.fromISO(start, { zone: DEFAULT_TZ }).toFormat("MMMM d, yyyy");
+    const needsCard = !row?.cardId;
+    const canEnroll = !row?.subscriptionId && start >= nextBillingDate();
+    res.set("Cache-Control", "private, no-store");
+    res.set("Content-Security-Policy", [
+      "default-src 'self'", "script-src 'self' https://sandbox.web.squarecdn.com",
+      "frame-src https://sandbox.web.squarecdn.com",
+      "connect-src 'self' https://sandbox.web.squarecdn.com https://pci-connect.squareupsandbox.com https://o160250.ingest.sentry.io",
+      "style-src 'self' 'unsafe-inline' https://sandbox.web.squarecdn.com",
+      "font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net",
+      "img-src 'self' data: https://sandbox.web.squarecdn.com",
+      "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'",
+    ].join("; "));
+    return res.send(`<!doctype html>
+      <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+      <title>OpenCircle | Plateau Regional Billing</title>
+      <style>
+        body{font:16px system-ui,sans-serif;margin:0;padding:24px;background:#eef3f8;color:#152438}
+        main{max-width:620px;margin:32px auto;background:#fff;border:1px solid #dae3eb;border-radius:16px;padding:24px}
+        h1{font-size:26px} a{color:#087663} .badge{display:inline-block;padding:5px 10px;border-radius:6px;background:#e3f5ef}
+        #squareCard{margin:20px 0} label{display:flex;align-items:flex-start;gap:8px;margin:18px 0}
+        button{font:inherit;padding:9px 14px;border:0;border-radius:8px;background:#087663;color:white;cursor:pointer}
+        button:disabled{opacity:.5;cursor:default}
+      </style>
+      </head><body><main>
+        <a href="/admin">Back to OpenCircle</a>
+        <h1>Plateau Regional Billing</h1>
+        <span class="badge">Square Sandbox · Test cards only</span>
+        <p><strong>$100 per month</strong> for all of Plateau Regional, billed on the 8th.</p>
+        <p>First scheduled test charge: <strong>${esc(startLabel)}</strong> (Pacific time).</p>
+        ${row?.subscriptionId ? `<p>Subscription status: <strong>${esc(statusUnavailable ? "Could not refresh" : (row.status || "Unknown"))}</strong></p>
+          ${row.cardLast4 ? `<p>Test card ending in ${esc(row.cardLast4)}.</p>` : ""}` :
+          canEnroll ? `<form id="plateauBillingForm" data-needs-card="${needsCard ? "1" : "0"}"
+            data-start-date="${esc(start)}" data-application-id="${esc(config.appId)}" data-location-id="${esc(config.locationId)}">
+            ${needsCard ? '<div id="squareCard"></div>' : "<p>A test card is already saved. You can finish setting up the subscription.</p>"}
+            <label><input type="checkbox" name="authorized" required> I authorize Square Sandbox to save this test card and simulate a $100 charge on the 8th of each month starting ${esc(startLabel)}.</label>
+            <button type="submit" disabled>Set up test autopay</button>
+            <p id="billingStatus" role="status"></p>
+          </form>` : "<p>This setup needs review in Square Sandbox because its original start date has passed.</p>"}
+      </main>
+      ${canEnroll && needsCard ? '<script defer src="https://sandbox.web.squarecdn.com/v1/square.js"></script>' : ""}
+      ${canEnroll ? '<script defer src="/assets/plateau-billing.js"></script>' : ""}
+      </body></html>`);
+  } catch (error) {
+    if (error instanceof BillingError) return res.status(error.status).send(error.message);
+    console.error("[plateau sandbox billing page]", error.name);
+    return res.status(500).send("Could not open Sandbox billing.");
+  }
+});
+
+router.post("/billing/enroll", async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+  const config = billingConfig();
+  if (!config) return res.status(404).json({ error: "Sandbox billing is unavailable." });
+  try {
+    const user = await resolveSessionUser(req);
+    if (!canManagePlateauSandboxBilling(req, user, config)) return res.status(403).json({ error: "Forbidden" });
+    if (!req.is("application/json") || req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
+      return res.status(403).json({ error: "Submit this request from the OpenCircle Billing page." });
+    }
+    if (req.body?.authorized !== true) return res.status(400).json({ error: "Confirm the monthly billing terms first." });
+    await enrollBilling(config, user.id, req.body);
+    return res.json({ ok: true });
+  } catch (error) {
+    if (error instanceof BillingError) return res.status(error.status).json({ error: error.message });
+    console.error("[plateau sandbox billing enrollment]", error.name);
+    return res.status(502).json({ error: "Could not finish test autopay. Reload Billing and try again." });
+  }
+});
+
 router.get("/dashboard-summary", async (req, res) => {
   try {
     const user = await resolveSessionUser(req);
