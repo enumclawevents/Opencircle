@@ -3189,7 +3189,7 @@ async function getNewsletterAudienceForCity(city) {
   return Array.isArray(rows) ? rows : [];
 }
 
-async function getNewsletterAudienceAnalyticsForCity(city) {
+async function getNewsletterAudienceAnalyticsForCity(city, bounds = []) {
   await ensureNewsletterSchema();
   const normalizedCity = String(city || "Enumclaw").trim() || "Enumclaw";
   const rows = await all(
@@ -3209,9 +3209,10 @@ async function getNewsletterAudienceAnalyticsForCity(city) {
         ON c.id = r.campaignId
      WHERE r.city = ?
        AND COALESCE(c.mode, 'scheduled') <> 'test'
+       ${bounds.length ? "AND julianday(COALESCE(c.sentAt, c.createdAt, r.sentAt, r.createdAt)) >= julianday(?) AND julianday(COALESCE(c.sentAt, c.createdAt, r.sentAt, r.createdAt)) < julianday(?)" : ""}
      GROUP BY lower(r.email)
      ORDER BY lower(r.email) ASC`,
-    [normalizedCity]
+    [normalizedCity, ...bounds]
   );
   return Array.isArray(rows) ? rows : [];
 }
@@ -4912,6 +4913,36 @@ async function renderAdmin(req, res, view) {
         .filter((key) => typeof req.query[key] === "string" && req.query[key])
         .map((key) => [key, req.query[key]])
     );
+    const requestedAnalyticsPeriod = parseDashboardReportingPeriod(req.query);
+    const analyticsPeriod = requestedAnalyticsPeriod.error ? parseDashboardReportingPeriod({}) : requestedAnalyticsPeriod;
+    const periodBounds = [analyticsPeriod.start.toUTC().toISO(), analyticsPeriod.end.toUTC().toISO()];
+    const inAnalyticsPeriod = (column) => `julianday(${column}) >= julianday(?) AND julianday(${column}) < julianday(?)`;
+    const analyticsDays = [];
+    for (let date = analyticsPeriod.start.startOf("day"); date < analyticsPeriod.end; date = date.plus({ days: 1 })) {
+      analyticsDays.push(date.toISODate());
+    }
+    const periodLabel = (day) => day.slice(5);
+    const metricDay = (value) => DateTime.fromSQL(value, { zone: "utc" }).setZone(DEFAULT_TZ).toISODate();
+    async function loadPeriodMetricEvents(table, foreignKey, scopedItemsSql, params) {
+      const rows = await all(
+        `SELECT ${foreignKey} AS itemId, metric, datetime(createdAt) AS utcTime, COUNT(*) AS count
+           FROM ${table}
+          WHERE ${foreignKey} IN (${scopedItemsSql}) AND ${inAnalyticsPeriod("createdAt")}
+          GROUP BY itemId, metric, utcTime`,
+        [...params, ...periodBounds]
+      );
+      const items = new Map();
+      for (const row of rows) {
+        if (!items.has(row.itemId)) items.set(row.itemId, { totals: new Map(), days: new Map() });
+        const item = items.get(row.itemId);
+        const day = metricDay(row.utcTime);
+        if (!item.days.has(day)) item.days.set(day, new Map());
+        const metrics = item.days.get(day);
+        metrics.set(row.metric, (metrics.get(row.metric) || 0) + row.count);
+        item.totals.set(row.metric, (item.totals.get(row.metric) || 0) + row.count);
+      }
+      return items;
+    }
     const analyticsPeriodFields = Object.entries(analyticsPeriodParams)
       .map(([key, value]) => `<input type="hidden" name="${key}" value="${esc(value)}" />`).join("");
     await ensurePickSchema();
@@ -6117,12 +6148,6 @@ return `
     const dashWhere = dashParts.length ? `WHERE ${dashParts.join(" AND ")}` : "";
     const dashWhereSql = dashWhere ? (dashWhere + " ") : "";
     const dashAnd = dashWhere ? (dashWhere + " AND ") : "WHERE ";
-    const cityDashParts = dashParts.filter((part) => part !== organizerOwnerClause?.sql);
-    const cityDashParams = organizerOwnerClause ? dashParams.slice(0, dashParams.length - organizerOwnerClause.params.length) : [...dashParams];
-    const cityDashWhere = cityDashParts.length ? `WHERE ${cityDashParts.join(" AND ")}` : "";
-    const cityDashWhereSql = cityDashWhere ? (cityDashWhere + " ") : "";
-
-
     // Counts
     const pastRow = await get(
       `SELECT COUNT(*) AS n FROM events ${dashAnd}datetime(startDateTime) < datetime('now')`,
@@ -6132,6 +6157,7 @@ return `
 
     let upcoming = 0;
     let dashboardEventRows = [];
+    let scheduledEventRows = [];
     const past = Number(pastRow?.n || 0);
     const featuredCount = Number(featuredRow?.n || 0);
 
@@ -6139,12 +6165,13 @@ return `
     let totalOccurrences = 0;
     try {
       const occRows = await all(
-        `SELECT id, title, slug, location, organizer, categories, viewCount, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
+        `SELECT id, title, slug, location, organizer, categories, featured, viewCount, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
          FROM events
          ${dashWhereSql}`,
         dashParams
       );
-      dashboardEventRows = (occRows || []).map((row) => normalizeRowTimes(row));
+      scheduledEventRows = occRows || [];
+      dashboardEventRows = scheduledEventRows.map((row) => normalizeRowTimes(row));
       const nowMs = Date.now();
       const upcomingWindowEndMs = nowMs + 90 * 86400 * 1000;
       const currentYearEndMs = new Date(new Date().getFullYear(), 11, 31, 23, 59, 59, 999).getTime();
@@ -6176,12 +6203,13 @@ return `
       totalOccurrences = total;
       try {
         const fallbackRows = await all(
-          `SELECT id, title, slug, location, organizer, categories, viewCount, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
+          `SELECT id, title, slug, location, organizer, categories, featured, viewCount, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
            FROM events
            ${dashWhereSql}`,
           dashParams
         );
-        dashboardEventRows = (fallbackRows || []).map((row) => normalizeRowTimes(row));
+        scheduledEventRows = fallbackRows || [];
+        dashboardEventRows = scheduledEventRows.map((row) => normalizeRowTimes(row));
       } catch (_) {}
       const upcomingRow = await get(
         `SELECT COUNT(*) AS n FROM events ${dashAnd}datetime(startDateTime) >= datetime('now')`,
@@ -6272,17 +6300,66 @@ return `
     const hasJobsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'"));
     const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
-    const trackedEventWhereParts = [];
-    const trackedEventWhereParams = [];
-    if (selectedCity) {
-      trackedEventWhereParts.push("city = ?");
-      trackedEventWhereParams.push(selectedCity);
+    const isEventsAnalyticsView = view === "events-analytics" || view === "analytics";
+    const eventsPeriod = isEventsAnalyticsView || view === "events-organizers" ? analyticsPeriod : null;
+    const periodDays = new Map();
+    const eventPeriodActivity = new Map();
+    const periodSources = { tracked: 0, direct: 0, referral: 0, internal: 0, other: 0 };
+    const emptyActivity = () => ({ dates: [], viewsByDay: new Map(), tracked: 0, direct: 0, referral: 0, internal: 0, other: 0 });
+    if (eventsPeriod) {
+      const startMs = eventsPeriod.start.toMillis();
+      const endMs = eventsPeriod.end.toMillis();
+      for (let day = eventsPeriod.start.startOf("day"); day < eventsPeriod.end; day = day.plus({ days: 1 })) {
+        periodDays.set(day.toISODate(), { events: 0, views: 0 });
+      }
+      for (const event of scheduledEventRows) {
+        const activity = emptyActivity();
+        const dates = hasRecurringData(event)
+          ? generateAdminOccurrences(event, startMs, endMs - 1).map((occurrence) => occurrence.startDateTime)
+          : [event.startDateTime];
+        activity.dates = dates.filter((date) => dashboardIsoInRange(date, startMs, endMs));
+        eventPeriodActivity.set(event.id, activity);
+        for (const date of activity.dates) {
+          const day = periodDays.get(DateTime.fromMillis(Date.parse(date), { zone: DEFAULT_TZ }).toISODate());
+          if (day) day.events += 1;
+        }
+      }
+      if (hasSourceTrackingTable) {
+        const viewColumns = await all("PRAGMA table_info(event_views)");
+        const ref = viewColumns.some((column) => column.name === "ref") ? "COALESCE(ref, '')" : "NULL";
+        const views = await all(
+          `SELECT eventId, datetime(viewedAt) AS utcTime, COUNT(*) AS count,
+                  CASE WHEN ${ref} LIKE '[src:direct%' OR ${ref} = '__direct__' OR trim(${ref}) = '' THEN 'direct'
+                       WHEN ${ref} LIKE '[src:referral%' THEN 'referral'
+                       WHEN ${ref} LIKE '[src:internal%' THEN 'internal'
+                       ELSE 'other' END AS source
+             FROM event_views
+            WHERE eventId IN (SELECT id FROM events ${dashWhereSql})
+              AND julianday(viewedAt) >= julianday(?) AND julianday(viewedAt) < julianday(?)
+            GROUP BY eventId, utcTime, source`,
+          [...dashParams, eventsPeriod.start.toUTC().toISO(), eventsPeriod.end.toUTC().toISO()]
+        );
+        for (const row of views) {
+          const activity = eventPeriodActivity.get(row.eventId);
+          if (!activity) continue;
+          const key = metricDay(row.utcTime);
+          const count = Number(row.count);
+          activity.tracked += count;
+          activity[row.source] += count;
+          activity.viewsByDay.set(key, (activity.viewsByDay.get(key) || 0) + count);
+          periodSources.tracked += count;
+          periodSources[row.source] += count;
+          const day = periodDays.get(key);
+          if (day) day.views += count;
+        }
+      }
+      sourceTracked = periodSources.tracked;
+      sourceDirect = periodSources.direct;
+      sourceReferral = periodSources.referral;
+      sourceInternal = periodSources.internal;
+      sourceCampaign = 0;
+      sourceUnknown = periodSources.other;
     }
-    if (organizerOwnerClause) {
-      trackedEventWhereParts.push(organizerOwnerClause.sql);
-      trackedEventWhereParams.push(...organizerOwnerClause.params);
-    }
-    const trackedEventWhereSql = trackedEventWhereParts.length ? `WHERE ${trackedEventWhereParts.join(" AND ")}` : "";
     const releaseLogItems = [];
     releaseLogItems.push({ date: "2026-05-05", text: "Events analytics charts now pull view-series activity from tracked event view data again and show a clear empty state when there is no recent activity" });
     releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now submit as a real GET form so sort options like Newest ID first reliably reach the server" });
@@ -6499,12 +6576,18 @@ return `
     // that the three named sources account for every view.
     const sourceOther = sourceCampaign + sourceUnknown;
 
+    const periodScheduledEvents = eventsPeriod
+      ? dashboardEventRows.filter((event) => eventPeriodActivity.get(event.id)?.dates.length)
+      : [];
+    const periodNowMs = Date.now();
     const stats = {
-      uniqueTotal: fmt(total),
-      total: fmt(totalOccurrences || total),
-      upcoming: fmt(upcoming),
+      uniqueTotal: fmt(eventsPeriod ? periodScheduledEvents.length : total),
+      total: fmt(eventsPeriod ? [...periodDays.values()].reduce((sum, day) => sum + day.events, 0) : (totalOccurrences || total)),
+      upcoming: fmt(eventsPeriod
+        ? periodScheduledEvents.reduce((sum, event) => sum + eventPeriodActivity.get(event.id).dates.filter((date) => Date.parse(date) >= periodNowMs).length, 0)
+        : upcoming),
       past: fmt(past),
-      featured: fmt(featuredCount),
+      featured: fmt(eventsPeriod ? periodScheduledEvents.filter((event) => Number(event.featured) === 1).length : featuredCount),
       views: fmt(viewsSum),
       upcomingViews: fmt(upcomingViews),
       pastViews: fmt(pastViews),
@@ -6948,71 +7031,33 @@ return `
       null;
     const selectedVenueActualId = selectedVenue ? Number(selectedVenue.id || 0) : null;
 
-    let venueMonthlyHistory = [];
-    let hasVenueMetricHistory = false;
-    try {
-      const metricTableRow = await get(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='venue_metric_events' LIMIT 1"
-      );
-      hasVenueMetricHistory = !!metricTableRow;
-      if (selectedVenueActualId && hasVenueMetricHistory) {
-        const monthlyRows = await all(
-          `SELECT strftime('%Y-%m', createdAt) AS ym,
-                  COALESCE(SUM(CASE WHEN metric = 'view' THEN 1 ELSE 0 END), 0) AS views,
-                  COALESCE(SUM(CASE WHEN metric = 'phone_click' THEN 1 ELSE 0 END), 0) AS phoneClicks,
-                  COALESCE(SUM(CASE WHEN metric = 'website_click' THEN 1 ELSE 0 END), 0) AS websiteClicks,
-                  COALESCE(SUM(CASE WHEN metric = 'social_click' THEN 1 ELSE 0 END), 0) AS socialClicks
-           FROM venue_metric_events
-           WHERE venueId = ?
-             AND date(createdAt) >= date('now', 'start of month', '-11 month')
-           GROUP BY ym
-           ORDER BY ym ASC`,
-          [selectedVenueActualId]
-        );
-        const monthlyMap = new Map(
-          (monthlyRows || []).map((row) => [
-            String(row.ym || ""),
-            {
-              views: Number(row.views || 0),
-              phoneClicks: Number(row.phoneClicks || 0),
-              websiteClicks: Number(row.websiteClicks || 0),
-              socialClicks: Number(row.socialClicks || 0),
-            },
-          ])
-        );
-        const monthCursor = new Date();
-        monthCursor.setDate(1);
-        venueMonthlyHistory = [];
-        for (let i = 11; i >= 0; i--) {
-          const dt = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - i, 1);
-          const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
-          const base = monthlyMap.get(ym) || {
-            views: 0,
-            phoneClicks: 0,
-            websiteClicks: 0,
-            socialClicks: 0,
-          };
-          const totalClicks = base.phoneClicks + base.websiteClicks + base.socialClicks;
-          venueMonthlyHistory.push({
-            ym,
-            label: dt.toLocaleString("en-US", { month: "short", year: "numeric" }),
-            views: base.views,
-            phoneClicks: base.phoneClicks,
-            websiteClicks: base.websiteClicks,
-            socialClicks: base.socialClicks,
-            totalClicks,
-          });
+    const venuePeriodHistory = [];
+    if (view === "venues-analytics") {
+      const metricRows = await loadPeriodMetricEvents("venue_metric_events", "venueId",
+        `SELECT id FROM venues ${venueDashWhereSql}`, venueDashParams);
+      venueStats.topByViews = venueAnalyticsOptions
+        .map((venue) => ({ ...venue, views: metricRows.get(venue.id)?.totals.get("view") || 0 }))
+        .filter((venue) => venue.views > 0).sort((a, b) => b.views - a.views || b.id - a.id).slice(0, 5);
+      const clickMetrics = ["phone_click", "website_click", "social_click"];
+      const sumClicks = (counts) => clickMetrics.reduce((sum, key) => sum + (counts?.get(key) || 0), 0);
+      venueStats.topByClicks = venueAnalyticsOptions
+        .map((venue) => ({ ...venue, clicks: sumClicks(metricRows.get(venue.id)?.totals) }))
+        .filter((venue) => venue.clicks > 0).sort((a, b) => b.clicks - a.clicks || b.id - a.id).slice(0, 5);
+      if (selectedVenueActualId) {
+        const days = metricRows.get(selectedVenueActualId)?.days;
+        for (const day of analyticsDays) {
+          venuePeriodHistory.push({ label: periodLabel(day), views: days?.get(day)?.get("view") || 0, totalClicks: sumClicks(days?.get(day)) });
         }
       }
-    } catch (_) {}
+    }
     const venueChartDataJson = JSON.stringify({
       views: {
-        labels: venueMonthlyHistory.map((row) => row.label),
-        values: venueMonthlyHistory.map((row) => Number(row.views || 0)),
+        labels: venuePeriodHistory.map((row) => row.label),
+        values: venuePeriodHistory.map((row) => Number(row.views || 0)),
       },
       clicks: {
-        labels: venueMonthlyHistory.map((row) => row.label),
-        values: venueMonthlyHistory.map((row) => Number(row.totalClicks || 0)),
+        labels: venuePeriodHistory.map((row) => row.label),
+        values: venuePeriodHistory.map((row) => Number(row.totalClicks || 0)),
       },
     });
     const analyticsChartStyle = {
@@ -7033,11 +7078,11 @@ return `
       secondaryDash: "6 6",
     };
     function buildVenueChartSvg(metric = "views") {
-      const labels = venueMonthlyHistory.map((row) => String(row.label || ""));
-      const primaryValues = venueMonthlyHistory.map((row) =>
+      const labels = venuePeriodHistory.map((row) => String(row.label || ""));
+      const primaryValues = venuePeriodHistory.map((row) =>
         Number(metric === "clicks" ? row.totalClicks || 0 : row.views || 0)
       );
-      const secondaryValues = venueMonthlyHistory.map((row) =>
+      const secondaryValues = venuePeriodHistory.map((row) =>
         Number(metric === "clicks" ? row.views || 0 : row.totalClicks || 0)
       );
       const allValues = primaryValues.concat(secondaryValues).filter((v) => Number.isFinite(v));
@@ -7055,7 +7100,7 @@ return `
         return `
           <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Venue chart">
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
-            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No monthly venue history yet</text>
+            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No venue activity in this reporting period</text>
           </svg>
         `;
       }
@@ -7134,10 +7179,6 @@ return `
     const requestedEventId = Number.isInteger(selectedEventIdRaw) && selectedEventIdRaw > 0
       ? selectedEventIdRaw
       : null;
-    const requestedChartView = String(req.query.chartView || "").trim().toLowerCase();
-    const chartViewMode = ["daily", "weekly", "monthly", "yearly"].includes(requestedChartView)
-      ? requestedChartView
-      : "daily";
     const requestedNewsletterCampaignIdRaw = parseInt(String(req.query.campaignId || ""), 10);
     const requestedNewsletterCampaignId = Number.isInteger(requestedNewsletterCampaignIdRaw) && requestedNewsletterCampaignIdRaw > 0
       ? requestedNewsletterCampaignIdRaw
@@ -7158,17 +7199,7 @@ return `
     const requestedNewsletterAudienceEmail = normalizeNewsletterEmailAddress(req.query.audienceEmail || "");
     const buildEventAnalyticsHref = (id) =>
       buildScopedAdminHref("/admin/events-analytics", { ...analyticsPeriodParams, event: id });
-    const buildAnalyticsChartHref = (mode) =>
-      buildScopedAdminHref("/admin/events-analytics", { ...analyticsPeriodParams, chartView: mode, event: requestedEventId });
-    const chartRangeLabelByMode = {
-      daily: "Last 14 days (by start date)",
-      weekly: "Last 12 weeks (by start date)",
-      monthly: "Last 12 months (by start date)",
-      yearly: "Last 5 years (by start date)",
-    };
-
     // Top events by views (today / week / month / year)
-    const hasViews = cols.has("viewCount");
     const topEventsFallback = `<div class="muted">Views not tracked.</div>`;
     function renderTopEventsByViewRows(rows, emptyMessage) {
       if (!rows || rows.length === 0) return `<div class="muted">${emptyMessage}</div>`;
@@ -7182,90 +7213,42 @@ return `
         .join("");
     }
 
-    async function topEventsByViewWindowHtml(windowStartIso, windowEndIso, emptyMessage) {
-      if (!hasSourceTrackingTable) return topEventsFallback;
-      const periodWhere = [];
-      const periodParams = [];
-      if (selectedCity) {
-        periodWhere.push("LOWER(e.city) = LOWER(?)");
-        periodParams.push(selectedCity);
-      }
-      if (organizerOwnerClause) {
-        periodWhere.push(organizerOwnerClause.sql.replace(/organizer/g, "e.organizer"));
-        periodParams.push(...organizerOwnerClause.params);
-      }
-      const periodWhereSql = periodWhere.length ? ` AND ${periodWhere.join(" AND ")}` : "";
-      const rows = await all(
-        `SELECT e.id, e.title, COUNT(*) AS periodViews
-         FROM event_views ev
-         JOIN events e ON e.id = ev.eventId
-         WHERE datetime(ev.viewedAt) >= datetime(?)
-           AND datetime(ev.viewedAt) < datetime(?)${periodWhereSql}
-         GROUP BY e.id, e.title
-         ORDER BY periodViews DESC, e.id DESC
-         LIMIT 5`,
-        [windowStartIso, windowEndIso, ...periodParams]
-      );
-      return renderTopEventsByViewRows(rows, emptyMessage);
+    const rankedEvents = dashboardEventRows
+      .map((event) => ({ ...event, periodViews: eventPeriodActivity.get(event.id)?.tracked || 0 }))
+      .filter((event) => event.periodViews > 0)
+      .sort((a, b) => b.periodViews - a.periodViews || b.id - a.id);
+    const topPeriodEventsHtml = hasSourceTrackingTable
+      ? renderTopEventsByViewRows(rankedEvents.slice(0, 5), "No views in this reporting period.")
+      : topEventsFallback;
+    const organizerPeriodViews = new Map();
+    for (const event of rankedEvents) {
+      const organizer = String(event.organizer || "").trim() || "(unknown)";
+      organizerPeriodViews.set(organizer, (organizerPeriodViews.get(organizer) || 0) + event.periodViews);
     }
-
-    const pacificToday = getZonedDateParts(new Date(), DEFAULT_TZ);
-    const pacificTomorrowYmd = addDaysToYmd(pacificToday?.ymd || "", 1);
-    const pacificWeekStartYmd = addDaysToYmd(pacificToday?.ymd || "", -6);
-    const pacificMonthStartYmd = pacificToday ? `${pacificToday.year}-${pad2(pacificToday.month)}-01` : "";
-    const pacificYearStartYmd = pacificToday ? `${pacificToday.year}-01-01` : "";
-    const topTodayHtml = await topEventsByViewWindowHtml(
-      zonedYmdBoundaryToUtcIso(pacificToday?.ymd || "", "start"),
-      zonedYmdBoundaryToUtcIso(pacificTomorrowYmd, "start"),
-      "No views today."
-    );
-    const topWeekHtml = await topEventsByViewWindowHtml(
-      zonedYmdBoundaryToUtcIso(pacificWeekStartYmd, "start"),
-      zonedYmdBoundaryToUtcIso(pacificTomorrowYmd, "start"),
-      "No views this week."
-    );
-    const topMonthHtml = await topEventsByViewWindowHtml(
-      zonedYmdBoundaryToUtcIso(pacificMonthStartYmd, "start"),
-      zonedYmdBoundaryToUtcIso(pacificTomorrowYmd, "start"),
-      "No views this month."
-    );
-    const topYearHtml = await topEventsByViewWindowHtml(
-      zonedYmdBoundaryToUtcIso(pacificYearStartYmd, "start"),
-      zonedYmdBoundaryToUtcIso(pacificTomorrowYmd, "start"),
-      "No views this year."
-    );
-
-    // Top organizers by total event views
-    const orgRows = await all(`
-      SELECT 
-        COALESCE(NULLIF(TRIM(organizer), ''), '(unknown)') AS organizer,
-        COALESCE(SUM(COALESCE(viewCount, 0)), 0) AS totalViews
-      FROM events
-      ${dashWhereSql}
-      GROUP BY organizer
-      ORDER BY totalViews DESC, organizer ASC
-      LIMIT 5
-    `, dashParams);
+    const orgRows = [...organizerPeriodViews].map(([organizer, totalViews]) => ({ organizer, totalViews }))
+      .sort((a, b) => b.totalViews - a.totalViews || a.organizer.localeCompare(b.organizer)).slice(0, 5);
 
     const topOrganizersHtml = orgRows
       .map((r, index) => {
-        const organizerHref = `/admin/events-organizers?organizer=${encodeURIComponent(String(r.organizer || ""))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`;
+        const organizerHref = buildScopedAdminHref("/admin/events-organizers", { ...analyticsPeriodParams, organizer: r.organizer });
         const organizerName = String(r.organizer || "(unknown)");
         const label = `<a href="${esc(organizerHref)}" title="${esc(organizerName)}">${esc(organizerName)}</a>`;
         const count = Number(r.totalViews || 0);
         return `<div class="kv organizer-ranking-row"><div class="top-event-rank" aria-hidden="true">${index + 1}</div><div class="k">${label}</div><div class="v">${count.toLocaleString("en-US")}</div></div>`;
       })
-      .join("");
+      .join("") || `<div class="muted">No organizer views in this reporting period.</div>`;
 
-    // Category popularity is based on lifetime event views within the current workspace.
+    // Include events scheduled or viewed during the reporting period.
     // An event can count toward each category assigned to it.
     const categoryAnalytics = new Map();
     for (const event of dashboardEventRows || []) {
+      const activity = eventPeriodActivity.get(event.id);
+      if (!activity || (!activity.dates.length && !activity.tracked)) continue;
       const categories = Array.isArray(safeParseJson(event?.categories, []))
         ? safeParseJson(event.categories, [])
         : [];
       const uniqueCategories = [...new Set(categories.map((category) => String(category || "").trim()).filter(Boolean))];
-      const views = Number(event?.viewCount || 0);
+      const views = activity.tracked;
       const organizer = String(event?.organizer || "").trim() || "(unknown)";
       for (const category of uniqueCategories) {
         if (!categoryAnalytics.has(category)) {
@@ -7347,337 +7330,22 @@ return `
         }).join("")
       : `<tr><td colspan="4" class="muted">No category leaders yet.</td></tr>`;
 
-    // ------------------------------
-    // Chart: Daily / Weekly / Monthly / Yearly
-    // ------------------------------
-    const hasViewsCol = cols.has("viewCount");
-    const viewsExpr = hasViewsCol ? "SUM(COALESCE(viewCount,0))" : "0";
-
-    function makeDailyBuckets() {
-      const labels = [];
-      const keys = [];
-      for (let i = 13; i >= 0; i--) {
-        const dt = new Date();
-        dt.setHours(12, 0, 0, 0);
-        dt.setDate(dt.getDate() - i);
-        const key = dt.toISOString().slice(0, 10);
-        labels.push(key.slice(5));
-        keys.push(key);
-      }
-      return { labels, keys };
-    }
-
-    function makeWeeklyBuckets() {
-      const labels = [];
-      const keys = [];
-      const now = new Date();
-      now.setHours(12, 0, 0, 0);
-      const monday = new Date(now);
-      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-      for (let i = 11; i >= 0; i--) {
-        const dt = new Date(monday);
-        dt.setDate(dt.getDate() - i * 7);
-        const key = dt.toISOString().slice(0, 10);
-        labels.push(key.slice(5));
-        keys.push(key);
-      }
-      return { labels, keys };
-    }
-
-    function makeMonthlyBuckets() {
-      const labels = [];
-      const keys = [];
-      const d = new Date();
-      d.setDate(1);
-      d.setHours(12, 0, 0, 0);
-      const curYr = new Date().getFullYear();
-      for (let i = 11; i >= 0; i--) {
-        const dt = new Date(d);
-        dt.setMonth(dt.getMonth() - i);
-        const ym = dt.toISOString().slice(0, 7);
-        const mon = dt.toLocaleString("en-US", { month: "short" });
-        const yr = dt.getFullYear();
-        labels.push(yr === curYr ? mon : `${mon} ${String(yr).slice(-2)}`);
-        keys.push(ym);
-      }
-      return { labels, keys };
-    }
-
-    function makeYearlyBuckets() {
-      const labels = [];
-      const keys = [];
-      const curY = new Date().getFullYear();
-      for (let y = curY - 4; y <= curY; y++) {
-        labels.push(String(y));
-        keys.push(String(y));
-      }
-      return { labels, keys };
-    }
-
-    function keyForOccurrence(occ, mode) {
-      const parts = occ.parts || parseIsoParts(occ.startDateTime || "");
-      if (!parts) return "";
-      if (mode === "daily") return toYmd(parts);
-      if (mode === "weekly") {
-        const wk = startOfWeekLocalDate(parts);
-        return toYmd({ ...wk, hour: 0, minute: 0, second: 0, offset: parts.offset });
-      }
-      if (mode === "monthly") return `${parts.year}-${pad2(parts.month)}`;
-      if (mode === "yearly") return String(parts.year);
-      return "";
-    }
-
-    function endOfCurrentDayUtcMs() {
-      const now = new Date();
-      now.setHours(23, 59, 59, 999);
-      return now.getTime();
-    }
-
-    function endOfCurrentWeekUtcMs() {
-      const now = new Date();
-      now.setHours(23, 59, 59, 999);
-      const weekEnd = new Date(now);
-      weekEnd.setDate(weekEnd.getDate() + (7 - ((weekEnd.getDay() + 6) % 7) - 1));
-      return weekEnd.getTime();
-    }
-
-    function endOfCurrentMonthUtcMs() {
-      const now = new Date();
-      return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).getTime();
-    }
-
-    function endOfCurrentYearUtcMs() {
-      const now = new Date();
-      return new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999).getTime();
-    }
-
-    const eventChartRows = await all(
-      `SELECT id, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
-       FROM events
-       ${dashWhereSql}`,
-      dashParams
-    );
-
-    const cityEventChartRows = isOrganizerUser
-      ? await all(
-          `SELECT id, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate
-           FROM events
-           ${cityDashWhereSql}`,
-          cityDashParams
-        )
-      : [];
-
-    function buildOccurrenceCountsFromRows(mode, rows) {
-      const bucketFactory =
-        mode === "daily" ? makeDailyBuckets :
-        mode === "weekly" ? makeWeeklyBuckets :
-        mode === "monthly" ? makeMonthlyBuckets :
-        makeYearlyBuckets;
-      const { labels, keys } = bucketFactory();
-      const counts = new Map(keys.map((key) => [key, 0]));
-
-      let windowStartUtcMs = 0;
-      let windowEndUtcMs = 0;
-      if (mode === "daily") {
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
-        d.setDate(d.getDate() - 13);
-        windowStartUtcMs = d.getTime();
-        windowEndUtcMs = endOfCurrentDayUtcMs();
-      } else if (mode === "weekly") {
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        now.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-        now.setDate(now.getDate() - 11 * 7);
-        windowStartUtcMs = now.getTime();
-        windowEndUtcMs = endOfCurrentWeekUtcMs();
-      } else if (mode === "monthly") {
-        const now = new Date();
-        windowStartUtcMs = new Date(now.getFullYear(), now.getMonth() - 11, 1, 0, 0, 0, 0).getTime();
-        windowEndUtcMs = endOfCurrentMonthUtcMs();
-      } else {
-        const now = new Date();
-        windowStartUtcMs = new Date(now.getFullYear() - 4, 0, 1, 0, 0, 0, 0).getTime();
-        windowEndUtcMs = endOfCurrentYearUtcMs();
-      }
-
-      for (const row of (rows || []).map((item) => normalizeRowTimes(item))) {
-        const isRecurring = hasRecurringData(row);
-        const occurrences = isRecurring
-          ? generateAdminOccurrences(row, windowStartUtcMs, windowEndUtcMs)
-          : (() => {
-              const parts = parseIsoParts(row?.startDateTime || "");
-              const startUtc = Date.parse(row?.startDateTime || "");
-              if (!parts || !Number.isFinite(startUtc) || startUtc < windowStartUtcMs || startUtc > windowEndUtcMs) return [];
-              return [{
-                occurrenceDate: row.startDateTime.slice(0, 10),
-                startDateTime: row.startDateTime,
-                parts,
-              }];
-            })();
-
-        for (const occ of occurrences) {
-          const key = keyForOccurrence(occ, mode);
-          if (!counts.has(key)) continue;
-          counts.set(key, Number(counts.get(key) || 0) + 1);
-        }
-      }
-
-      return { labels, values: keys.map((key) => Number(counts.get(key) || 0)) };
-    }
-
-    function buildOccurrenceCounts(mode) {
-      return buildOccurrenceCountsFromRows(mode, eventChartRows);
-    }
-
-    const buildDaily = async (metric) => {
-      if (metric === "events") return buildOccurrenceCounts("daily");
-      let rows = [];
-      if (hasSourceTrackingTable) {
-        rows = await all(
-          `SELECT date(ev.viewedAt) AS d, COUNT(*) AS n
-           FROM event_views ev
-           WHERE ev.eventId IN (SELECT id FROM events ${trackedEventWhereSql})
-             AND date(ev.viewedAt) >= date('now','-13 day')
-           GROUP BY d
-           ORDER BY d`,
-          trackedEventWhereParams
-        );
-      } else {
-        rows = await all(
-          `SELECT date(startDateTime) AS d, ${viewsExpr} AS n
-           FROM events
-           ${dashAnd}date(startDateTime) >= date('now','-13 day')
-           GROUP BY d
-           ORDER BY d`,
-          dashParams
-        );
-      }
-      const byDay = new Map((rows || []).map((r) => [String(r.d), Number(r.n || 0)]));
-      const { labels, keys } = makeDailyBuckets();
-      return { labels, values: keys.map((key) => byDay.get(key) || 0) };
+    const chartDates = [...periodDays.keys()];
+    const chartLabels = chartDates.map((date) => date.slice(5));
+    const chartSeries = {
+      dates: chartDates,
+      labels: chartLabels,
+      events: chartDates.map((date) => periodDays.get(date).events),
+      views: chartDates.map((date) => periodDays.get(date).views),
     };
-
-    const buildWeekly = async (metric) => {
-      if (metric === "events") return buildOccurrenceCounts("weekly");
-      let rows = [];
-      if (hasSourceTrackingTable) {
-        rows = await all(
-          `SELECT date(ev.viewedAt, 'weekday 1', '-7 day') AS wk, COUNT(*) AS n
-           FROM event_views ev
-           WHERE ev.eventId IN (SELECT id FROM events ${trackedEventWhereSql})
-             AND date(ev.viewedAt) >= date('now','-83 day')
-           GROUP BY wk
-           ORDER BY wk`,
-          trackedEventWhereParams
-        );
-      } else {
-        rows = await all(
-          `SELECT date(startDateTime, 'weekday 1', '-7 day') AS wk, ${viewsExpr} AS n
-           FROM events
-           ${dashAnd}date(startDateTime) >= date('now','-83 day')
-           GROUP BY wk
-           ORDER BY wk`,
-          dashParams
-        );
-      }
-      const byWk = new Map((rows || []).map((r) => [String(r.wk), Number(r.n || 0)]));
-      const { labels, keys } = makeWeeklyBuckets();
-      return { labels, values: keys.map((key) => byWk.get(key) || 0) };
-    };
-
-    const buildMonthly = async (metric) => {
-      if (metric === "events") return buildOccurrenceCounts("monthly");
-      let rows = [];
-      if (hasSourceTrackingTable) {
-        rows = await all(
-          `SELECT strftime('%Y-%m', ev.viewedAt) AS ym, COUNT(*) AS n
-           FROM event_views ev
-           WHERE ev.eventId IN (SELECT id FROM events ${trackedEventWhereSql})
-             AND date(ev.viewedAt) >= date('now','start of month','-11 month')
-           GROUP BY ym
-           ORDER BY ym`,
-          trackedEventWhereParams
-        );
-      } else {
-        rows = await all(
-          `SELECT strftime('%Y-%m', startDateTime) AS ym, ${viewsExpr} AS n
-           FROM events
-           ${dashAnd}date(startDateTime) >= date('now','start of month','-11 month')
-           GROUP BY ym
-           ORDER BY ym`,
-          dashParams
-        );
-      }
-      const byYm = new Map((rows || []).map((r) => [String(r.ym), Number(r.n || 0)]));
-      const { labels, keys } = makeMonthlyBuckets();
-      return { labels, values: keys.map((key) => byYm.get(key) || 0) };
-    };
-
-    const buildYearly = async (metric) => {
-      if (metric === "events") return buildOccurrenceCounts("yearly");
-      let rows = [];
-      if (hasSourceTrackingTable) {
-        rows = await all(
-          `SELECT strftime('%Y', ev.viewedAt) AS y, COUNT(*) AS n
-           FROM event_views ev
-           WHERE ev.eventId IN (SELECT id FROM events ${trackedEventWhereSql})
-             AND date(ev.viewedAt) >= date('now','start of year','-4 year')
-           GROUP BY y
-           ORDER BY y`,
-          trackedEventWhereParams
-        );
-      } else {
-        rows = await all(
-          `SELECT strftime('%Y', startDateTime) AS y, ${viewsExpr} AS n
-           FROM events
-           ${dashAnd}date(startDateTime) >= date('now','start of year','-4 year')
-           GROUP BY y
-           ORDER BY y`,
-          dashParams
-        );
-      }
-      const byY = new Map((rows || []).map((r) => [String(r.y), Number(r.n || 0)]));
-      const { labels, keys } = makeYearlyBuckets();
-      return { labels, values: keys.map((key) => byY.get(key) || 0) };
-    };
-
-    let chartSets = {
-      events: {
-        daily: await buildDaily("events"),
-        weekly: await buildWeekly("events"),
-        monthly: await buildMonthly("events"),
-        yearly: await buildYearly("events"),
-      },
-      views: {
-        daily: await buildDaily("views"),
-        weekly: await buildWeekly("views"),
-        monthly: await buildMonthly("views"),
-        yearly: await buildYearly("views"),
-      },
-    };
-    if (isOrganizerUser) {
-      chartSets.cityEvents = {
-        daily: buildOccurrenceCountsFromRows("daily", cityEventChartRows),
-        weekly: buildOccurrenceCountsFromRows("weekly", cityEventChartRows),
-        monthly: buildOccurrenceCountsFromRows("monthly", cityEventChartRows),
-        yearly: buildOccurrenceCountsFromRows("yearly", cityEventChartRows),
-      };
-    }
     // These markers are populated only for an individual event report.  They
     // deliberately use the event record timestamps rather than view data so
     // an admin can compare when an event was added with its scheduled day.
     let selectedEventChartMarkers = [];
 
-    function buildEventsChartSvgForMode(mode) {
-      const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : { labels: [], values: [] };
-      const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : { labels: [], values: [] };
-      const cityEventSet = (chartSets.cityEvents && chartSets.cityEvents[mode]) ? chartSets.cityEvents[mode] : { labels: [], values: [] };
+    function buildEventsChartSvg() {
       const isIndividualEventChart = !!selectedEventAnalytics;
-      const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
-      const eventValues = Array.isArray(eventSet.values) ? eventSet.values.map((v) => Number(v || 0)) : [];
-      const viewValues = Array.isArray(viewSet.values) ? viewSet.values.map((v) => Number(v || 0)) : [];
-      const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values.map((v) => Number(v || 0)) : [];
+      const { labels, events: eventValues, views: viewValues } = chartSeries;
       const allValues = (isIndividualEventChart ? viewValues : eventValues.concat(viewValues))
         .filter((v) => Number.isFinite(v));
       const { width, height, padL, padR, padB } = analyticsChartStyle;
@@ -7698,7 +7366,7 @@ return `
         return `
           <svg viewBox="0 0 ${width} ${chartHeight}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Events chart">
             <rect x="0" y="0" width="${width}" height="${chartHeight}" fill="transparent"></rect>
-            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No recent activity</text>
+            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No activity in this reporting period</text>
           </svg>
         `;
       }
@@ -7714,26 +7382,22 @@ return `
       const stepX = labels.length <= 1 ? 0 : plotW / (labels.length - 1);
       const eventPoints = labels.map((label, index) => {
         const value = Number(eventValues[index] || 0);
-        const x = padL + stepX * index;
+        const x = padL + (labels.length === 1 ? plotW / 2 : stepX * index);
         const y = padT + plotH - ((value / eventScale.yMax) * plotH);
         return { x, y, value };
       });
       const viewPoints = labels.map((label, index) => {
         const value = Number(viewValues[index] || 0);
-        const x = padL + stepX * index;
+        const x = padL + (labels.length === 1 ? plotW / 2 : stepX * index);
         const y = padT + plotH - ((value / viewScale.yMax) * plotH);
         return { x, y, value };
       });
-      const markerBucket =
-        mode === "daily" ? makeDailyBuckets() :
-        mode === "weekly" ? makeWeeklyBuckets() :
-        mode === "monthly" ? makeMonthlyBuckets() :
-        makeYearlyBuckets();
       const labeledMarkerBuckets = new Set();
       const chartMarkers = selectedEventChartMarkers.map((marker, markerIndex) => {
-        const parts = parseIsoParts(String(marker?.dateTime || ""));
-        const key = parts ? keyForOccurrence({ parts }, mode) : "";
-        const pointIndex = markerBucket.keys.indexOf(key);
+        const timestamp = Date.parse(marker.dateTime);
+        if (!Number.isFinite(timestamp) || !dashboardIsoInRange(marker.dateTime, eventsPeriod.start.toMillis(), eventsPeriod.end.toMillis())) return "";
+        const key = DateTime.fromMillis(timestamp, { zone: DEFAULT_TZ }).toISODate();
+        const pointIndex = chartDates.indexOf(key);
         if (pointIndex < 0 || !eventPoints[pointIndex]) return "";
         const x = eventPoints[pointIndex].x;
         const labelKey = `${pointIndex}:${String(marker.label || "")}`;
@@ -7793,7 +7457,7 @@ return `
         const nextX = index < labels.length - 1 ? eventPoints[index + 1].x : centerX + (stepX || plotW / Math.max(1, labels.length));
         const left = index === 0 ? padL : (prevX + centerX) / 2;
         const right = index === labels.length - 1 ? (padL + plotW) : (centerX + nextX) / 2;
-        const widthPx = Math.max(12, right - left);
+        const widthPx = right - left;
         return `
           <rect
             x="${left.toFixed(2)}"
@@ -7802,9 +7466,9 @@ return `
             height="${plotH.toFixed(2)}"
             fill="transparent"
             data-chart-hit="${index}"
-            onmousemove="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
-            onmouseenter="window.ocShowEventsChartTipIndex && window.ocShowEventsChartTipIndex(${index}, event)"
-            onmouseleave="window.ocHideEventsChartTip && window.ocHideEventsChartTip()"
+            data-point-x="${centerX}"
+            data-event-y="${eventPoints[index].y}"
+            data-view-y="${viewPoints[index].y}"
           ></rect>
         `;
       }).join("");
@@ -7829,242 +7493,56 @@ return `
           ${!isIndividualEventChart && fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
           ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${!isIndividualEventChart && eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+          ${labels.length === 1 ? `
+            ${!isIndividualEventChart ? `<circle cx="${eventPoints[0].x}" cy="${eventPoints[0].y}" r="3" fill="${lineColor}"></circle>` : ""}
+            <circle cx="${viewPoints[0].x}" cy="${viewPoints[0].y}" r="3" fill="${dashedColor}"></circle>` : ""}
           ${chartMarkers}
           ${hoverRects}
           ${labels.map((label, index) => {
             if (index !== labels.length - 1 && index % labelStep !== 0) return "";
-            const anchor = index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
+            const anchor = labels.length === 1 ? "middle" : index === labels.length - 1 ? "end" : (index === 0 ? "start" : "middle");
             return `<text x="${eventPoints[index].x.toFixed(2)}" y="${(padT + plotH + 30).toFixed(2)}" text-anchor="${anchor}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(label || ""))}</text>`;
           }).join("")}
         </svg>
       `;
     }
-    function buildEventsChartInfoHtml(mode, index = null) {
-      const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : { labels: [], values: [] };
-      const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : { labels: [], values: [] };
-      const cityEventSet = (chartSets.cityEvents && chartSets.cityEvents[mode]) ? chartSets.cityEvents[mode] : { labels: [], values: [] };
-      const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
-      const eventValues = Array.isArray(eventSet.values) ? eventSet.values : [];
-      const viewValues = Array.isArray(viewSet.values) ? viewSet.values : [];
-      const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values : [];
-      if (!labels.length) return "No stats for this period.";
-      const safeIndex = index === null ? (labels.length - 1) : Math.max(0, Math.min(Number(index || 0), labels.length - 1));
-      const label = String(labels[safeIndex] || "");
-      const events = Number(eventValues[safeIndex] || 0).toLocaleString("en-US");
-      const views = Number(viewValues[safeIndex] || 0).toLocaleString("en-US");
-      const cityEvents = Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US");
-      const safeLabel = esc(label);
-      return 'Period: <strong>' + safeLabel + '</strong>' +
-        (!selectedEventAnalytics ? ' <span style="margin-left:14px;">Events: <strong>' + events + '</strong></span>' : '') +
-        (!selectedEventAnalytics && Number(cityEventValues[safeIndex] || 0) > 0 ? ' <span style="margin-left:14px;">City events: <strong>' + cityEvents + '</strong></span>' : '') +
-        ' <span style="margin-left:14px;">Views: <strong>' + views + '</strong></span>';
-    }
     let selectedEventAnalytics = null;
     let analyticsSideTitle = "Top organizers";
-    let analyticsSideSub = "Highest total event views";
+    let analyticsSideSub = "Highest measured event views in the selected period";
     let analyticsSideBodyHtml = `<div class="mini mini-list">${topOrganizersHtml}</div>`;
-    if (requestedEventId) {
-      const selectedEventScope = buildCityScopeSql("city", selectedAdminCities);
-      // Older SQLite installations can predate the createdAt column.  Keep
-      // the event report available there; the creation marker simply cannot
-      // be shown until that historical schema is migrated.
+    if (isEventsAnalyticsView && requestedEventId) {
       const selectedEventCreatedAtSql = cols.has("createdAt") ? "createdAt" : "NULL AS createdAt";
       const selectedEventSubmittedAtSql = cols.has("submittedAt") ? "submittedAt" : "NULL AS submittedAt";
       const selectedEventRow = await get(
-        `SELECT id, title, slug, location, organizer, startDateTime, endDateTime, ${selectedEventCreatedAtSql}, ${selectedEventSubmittedAtSql}, hasRecurrence, recurrenceRule,
-                recurrenceDates, recurrenceStartDate, recurrenceUntilDate, featured, viewCount, uniqueViewCount, ticketClickCount,
-                goingCount, interestedCount
-         FROM events
-         WHERE id = ?
-         ${selectedEventScope.sql ? `AND ${selectedEventScope.sql}` : ""}
-         ${organizerOwnerClause ? `AND ${organizerOwnerClause.sql}` : ""}
-         ${hasArchiveCols2 ? "AND (isArchived IS NULL OR isArchived = 0)" : ""}`,
-        [requestedEventId, ...selectedEventScope.params, ...(organizerOwnerClause ? organizerOwnerClause.params : [])]
+        `SELECT id, title, location, organizer, ${selectedEventCreatedAtSql}, ${selectedEventSubmittedAtSql}
+           FROM events ${dashAnd} id = ?`,
+        [...dashParams, requestedEventId]
       );
       if (selectedEventRow) {
-        const eventRow = normalizeRowTimes(selectedEventRow);
-        const nowMs = Date.now();
-        const monthlyWindowStartMs = new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1, 0, 0, 0, 0).getTime();
-        const monthlyWindowEndMs = endOfCurrentMonthUtcMs();
-        const isRecurring = hasRecurringData(eventRow);
-        const chartHistoryStartMs = new Date(new Date().getFullYear() - 4, 0, 1, 0, 0, 0, 0).getTime();
-        const chartHistoryEndMs = endOfCurrentYearUtcMs();
-        const eventDayMarkers = isRecurring
-          ? generateAdminOccurrences(eventRow, chartHistoryStartMs, chartHistoryEndMs)
-              .map((occurrence) => ({ label: "Event day", dateTime: occurrence.startDateTime }))
-          : [{ label: "Event day", dateTime: eventRow.startDateTime }];
+        const eventRow = selectedEventRow;
+        const activity = eventPeriodActivity.get(eventRow.id) || emptyActivity();
+        const occurrenceDays = new Map();
+        for (const date of activity.dates) {
+          const day = DateTime.fromMillis(Date.parse(date), { zone: DEFAULT_TZ }).toISODate();
+          occurrenceDays.set(day, (occurrenceDays.get(day) || 0) + 1);
+        }
+        chartSeries.events = chartDates.map((date) => occurrenceDays.get(date) || 0);
+        chartSeries.views = chartDates.map((date) => activity.viewsByDay.get(date) || 0);
         selectedEventChartMarkers = [
           { label: "Event submitted", dateTime: eventRow.submittedAt || eventRow.createdAt },
-          ...eventDayMarkers,
-        ].filter((marker) => parseIsoParts(String(marker.dateTime || "")));
-        const selectedEventViewRows = hasSourceTrackingTable
-          ? await all(
-              `SELECT viewedAt
-               FROM event_views
-               WHERE eventId = ?
-                 AND date(viewedAt) >= date('now','start of year','-4 year')`,
-              [requestedEventId]
-            )
-          : [];
-
-        function selectedEventOccurrencesForMode(mode) {
-          const bucketFactory =
-            mode === "daily" ? makeDailyBuckets :
-            mode === "weekly" ? makeWeeklyBuckets :
-            mode === "monthly" ? makeMonthlyBuckets :
-            makeYearlyBuckets;
-          const { labels, keys } = bucketFactory();
-          const counts = new Map(keys.map((key) => [key, 0]));
-          let windowStartUtcMs = 0;
-          let windowEndUtcMs = 0;
-          if (mode === "daily") {
-            const d = new Date();
-            d.setHours(0, 0, 0, 0);
-            d.setDate(d.getDate() - 13);
-            windowStartUtcMs = d.getTime();
-            windowEndUtcMs = endOfCurrentDayUtcMs();
-          } else if (mode === "weekly") {
-            const now = new Date();
-            now.setHours(0, 0, 0, 0);
-            now.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-            now.setDate(now.getDate() - 11 * 7);
-            windowStartUtcMs = now.getTime();
-            windowEndUtcMs = endOfCurrentWeekUtcMs();
-          } else if (mode === "monthly") {
-            const now = new Date();
-            windowStartUtcMs = new Date(now.getFullYear(), now.getMonth() - 11, 1, 0, 0, 0, 0).getTime();
-            windowEndUtcMs = endOfCurrentMonthUtcMs();
-          } else {
-            const now = new Date();
-            windowStartUtcMs = new Date(now.getFullYear() - 4, 0, 1, 0, 0, 0, 0).getTime();
-            windowEndUtcMs = endOfCurrentYearUtcMs();
-          }
-          const occurrences = isRecurring
-            ? generateAdminOccurrences(eventRow, windowStartUtcMs, windowEndUtcMs)
-            : (() => {
-                const parts = parseIsoParts(eventRow?.startDateTime || "");
-                const startUtc = Date.parse(eventRow?.startDateTime || "");
-                if (!parts || !Number.isFinite(startUtc) || startUtc < windowStartUtcMs || startUtc > windowEndUtcMs) return [];
-                return [{
-                  occurrenceDate: eventRow.startDateTime.slice(0, 10),
-                  startDateTime: eventRow.startDateTime,
-                  parts,
-                }];
-              })();
-          for (const occ of occurrences) {
-            const key = keyForOccurrence(occ, mode);
-            if (!counts.has(key)) continue;
-            counts.set(key, Number(counts.get(key) || 0) + 1);
-          }
-          return { labels, values: keys.map((key) => Number(counts.get(key) || 0)) };
-        }
-
-        function selectedEventViewsForMode(mode) {
-          const bucketFactory =
-            mode === "daily" ? makeDailyBuckets :
-            mode === "weekly" ? makeWeeklyBuckets :
-            mode === "monthly" ? makeMonthlyBuckets :
-            makeYearlyBuckets;
-          const { labels, keys } = bucketFactory();
-          const counts = new Map(keys.map((key) => [key, 0]));
-          for (const row of selectedEventViewRows || []) {
-            const viewedAt = String(row?.viewedAt || "");
-            const dt = new Date(viewedAt);
-            if (Number.isNaN(dt.getTime())) continue;
-            let key = "";
-            if (mode === "daily") {
-              key = `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
-            } else if (mode === "weekly") {
-              const wk = new Date(dt);
-              wk.setHours(0, 0, 0, 0);
-              wk.setDate(wk.getDate() - ((wk.getDay() + 6) % 7));
-              key = `${wk.getFullYear()}-${pad2(wk.getMonth() + 1)}-${pad2(wk.getDate())}`;
-            } else if (mode === "monthly") {
-              key = `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}`;
-            } else {
-              key = String(dt.getFullYear());
-            }
-            if (!counts.has(key)) continue;
-            counts.set(key, Number(counts.get(key) || 0) + 1);
-          }
-          return { labels, values: keys.map((key) => Number(counts.get(key) || 0)) };
-        }
-
-        chartSets = {
-          events: {
-            daily: selectedEventOccurrencesForMode("daily"),
-            weekly: selectedEventOccurrencesForMode("weekly"),
-            monthly: selectedEventOccurrencesForMode("monthly"),
-            yearly: selectedEventOccurrencesForMode("yearly"),
-          },
-          views: {
-            daily: selectedEventViewsForMode("daily"),
-            weekly: selectedEventViewsForMode("weekly"),
-            monthly: selectedEventViewsForMode("monthly"),
-            yearly: selectedEventViewsForMode("yearly"),
-          },
-        };
-
-        let sourceSummary = {
-          allViews: 0,
-          directViews: 0,
-          referralViews: 0,
-          internalViews: 0,
-          otherViews: 0,
-        };
-        if (hasSourceTrackingTable) {
-          try {
-            const sourceRow = await get(
-              `SELECT
-                 COUNT(*) AS tracked,
-                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:direct%' OR COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 1 ELSE 0 END), 0) AS directCount,
-                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:referral%' THEN 1 ELSE 0 END), 0) AS referralCount,
-                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount,
-                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:campaign%' THEN 1 ELSE 0 END), 0) AS campaignCount,
-                 COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:%' THEN 0 WHEN COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 0 ELSE 1 END), 0) AS unknownCount
-               FROM event_views
-               WHERE eventId = ?`,
-              [requestedEventId]
-            );
-            sourceSummary = {
-              allViews: Number(sourceRow?.tracked || 0),
-              directViews: Number(sourceRow?.directCount || 0),
-              referralViews: Number(sourceRow?.referralCount || 0),
-              internalViews: Number(sourceRow?.internalCount || 0),
-              otherViews: Number(sourceRow?.campaignCount || 0) + Number(sourceRow?.unknownCount || 0),
-            };
-          } catch (_) {}
-        }
-
-        const totalOccurrencesAllTime = isRecurring
-          ? generateAdminOccurrences(
-              eventRow,
-              Number.isFinite(Date.parse(String(eventRow?.startDateTime || "")))
-                ? Date.parse(String(eventRow?.startDateTime || ""))
-                : monthlyWindowStartMs,
-              getRecurringSeriesEndUtcMs(eventRow, monthlyWindowEndMs)
-            ).length || 1
-          : 1;
-        const upcomingOccurrences = isRecurring
-          ? generateAdminOccurrences(eventRow, nowMs - 5 * 60 * 1000, nowMs + 90 * 86400 * 1000).length
-          : (() => {
-              const startUtc = Date.parse(String(eventRow?.startDateTime || ""));
-              return Number.isFinite(startUtc) && startUtc >= nowMs ? 1 : 0;
-            })();
+          ...activity.dates.map((dateTime) => ({ label: "Event day", dateTime })),
+        ];
         selectedEventAnalytics = {
-          id: Number(eventRow.id || 0),
+          id: Number(eventRow.id),
           title: String(eventRow.title || "Untitled event"),
           location: String(eventRow.location || ""),
           organizer: String(eventRow.organizer || ""),
-          totalOccurrences: Number(totalOccurrencesAllTime || 0),
-          upcomingOccurrences: Number(upcomingOccurrences || 0),
-          featured: Number(eventRow.featured || 0) === 1 ? 1 : 0,
-          lifetimeViews: Number(eventRow.viewCount || 0),
-          uniqueViews: Number(eventRow.uniqueViewCount || 0),
-          ticketClicks: Number(eventRow.ticketClickCount || 0),
-          going: Number(eventRow.goingCount || 0),
-          interested: Number(eventRow.interestedCount || 0),
-          ...sourceSummary,
+          occurrences: activity.dates.length,
+          allViews: activity.tracked,
+          directViews: activity.direct,
+          referralViews: activity.referral,
+          internalViews: activity.internal,
+          otherViews: activity.other,
         };
 
         analyticsSideTitle = selectedEventAnalytics.title;
@@ -8072,28 +7550,16 @@ return `
         analyticsSideBodyHtml = `
           <div class="mini event-insights-mini">
             <div style="margin-bottom:12px;">
-              <a class="btn" href="/admin/events-analytics${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Back to all events analytics</a>
+              <a class="btn" href="${esc(buildScopedAdminHref("/admin/events-analytics", analyticsPeriodParams))}">Back to all events analytics</a>
             </div>
             ${selectedEventAnalytics.location ? `<div class="muted" style="margin-bottom:6px;">${esc(selectedEventAnalytics.location)}</div>` : ``}
             ${selectedEventAnalytics.organizer ? `<div class="muted" style="margin-bottom:12px;">Organizer: ${esc(selectedEventAnalytics.organizer)}</div>` : ``}
-            <div class="kv"><div class="k">Tickets</div><div class="v">${selectedEventAnalytics.ticketClicks.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Going</div><div class="v">${selectedEventAnalytics.going.toLocaleString("en-US")}</div></div>
-            <div class="kv"><div class="k">Interested</div><div class="v">${selectedEventAnalytics.interested.toLocaleString("en-US")}</div></div>
+            <div class="kv"><div class="k">Scheduled dates in this period</div><div class="v">${fmt(selectedEventAnalytics.occurrences)}</div></div>
           </div>
         `;
       }
     }
-    const chartDataJson = JSON.stringify(chartSets);
-    const chartDataJsonForScript = chartDataJson
-      .replace(/</g, "\\u003c")
-      .replace(/>/g, "\\u003e")
-      .replace(/&/g, "\\u0026");
-    const eventsChartSvgByMode = {
-      daily: buildEventsChartSvgForMode("daily"),
-      weekly: buildEventsChartSvgForMode("weekly"),
-      monthly: buildEventsChartSvgForMode("monthly"),
-      yearly: buildEventsChartSvgForMode("yearly"),
-    };
+    const eventsChartSvg = isEventsAnalyticsView ? buildEventsChartSvg() : "";
     const adPlacementOptions = [
       "homepage-top",
       "homepage-bottom",
@@ -8278,9 +7744,16 @@ return `
       const editId = Number(req.query.editUpdate || 0);
       if (showUpdatesCreate && Number.isSafeInteger(editId) && editId > 0) editUpdate = await get("SELECT * FROM updates WHERE id = ? AND city = ? LIMIT 1", [editId, updateCity]);
       const analyticsId = Number(req.query.update || 0);
-      if (showUpdatesAnalytics && Number.isSafeInteger(analyticsId) && analyticsId > 0) {
-        editUpdate = await get("SELECT * FROM updates WHERE id = ? AND city = ? LIMIT 1", [analyticsId, updateCity]);
-        updateViewTotal = Number((await get("SELECT COUNT(*) AS total FROM update_metric_events WHERE updateId = ?", [analyticsId]))?.total || 0);
+      if (showUpdatesAnalytics) {
+        if (Number.isSafeInteger(analyticsId) && analyticsId > 0) {
+          editUpdate = await get("SELECT * FROM updates WHERE id = ? AND city = ? LIMIT 1", [analyticsId, updateCity]);
+        }
+        updateViewTotal = Number((await get(
+          `SELECT COUNT(*) AS total FROM update_metric_events
+             WHERE ${inAnalyticsPeriod("occurredAt")}
+               AND updateId IN (SELECT id FROM updates WHERE city = ?${analyticsId ? " AND id = ?" : ""})`,
+          [...periodBounds, updateCity, ...(analyticsId ? [analyticsId] : [])]
+        ))?.total || 0);
       }
     }
 
@@ -8347,7 +7820,7 @@ return `
       <form method="GET" action="${newsletterScopeSwitcherAction}" class="newsletter-scope-switch" style="display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin-bottom:16px;">
         ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
         <input type="hidden" name="newsletterScopeExplicit" value="1" />
-        ${showNewsletterAnalytics ? `${analyticsPeriodFields}<input type="hidden" name="chartView" value="${esc(chartViewMode)}" />` : ``}
+        ${showNewsletterAnalytics ? analyticsPeriodFields : ""}
         <div style="min-width:280px; max-width:420px; flex:1 1 320px;">
           <label for="newsletterScopeSelect">Newsletter list</label>
           <select class="ctrl" id="newsletterScopeSelect" name="newsletterScope" onchange="this.form.submit()">
@@ -8401,7 +7874,7 @@ return `
       newsletterSettings = await getNewsletterSettingsForCity(newsletterContextCity);
       newsletterAudienceRows = await getNewsletterAudienceForCity(newsletterContextCity);
       if (showNewsletterAudience || showNewsletterAnalytics || (showDashboard && canSeeNewsletterAnalytics)) {
-        newsletterAudienceAnalyticsRows = await getNewsletterAudienceAnalyticsForCity(newsletterContextCity);
+        newsletterAudienceAnalyticsRows = await getNewsletterAudienceAnalyticsForCity(newsletterContextCity, showNewsletterAnalytics ? periodBounds : []);
         const analyticsByEmail = new Map(
           newsletterAudienceAnalyticsRows.map((row) => [normalizeNewsletterEmailAddress(row.email), row])
         );
@@ -8498,17 +7971,9 @@ return `
     let newsletterTopCampaignsHtml = `<div class="muted">No newsletter open data yet.</div>`;
     let newsletterAudienceAnalyticsListHtml = `<div class="muted">No audience members yet.</div>`;
     let newsletterChartDataJson = esc(JSON.stringify({ events: {}, views: {} }));
-    let newsletterChartSvgByMode = { daily: "", weekly: "", monthly: "", yearly: "" };
-    const buildNewsletterAnalyticsChartHref = (mode) =>
-      buildNewsletterHref("/admin/newsletter/analytics", {
-        chartView: String(mode || "daily"),
-        campaignId: requestedNewsletterCampaignId && !requestedNewsletterAudienceEmail ? String(requestedNewsletterCampaignId) : "",
-        audienceEmail: requestedNewsletterAudienceEmail ? requestedNewsletterAudienceEmail : "",
-        campaignPage: String(requestedNewsletterCampaignPage || 1),
-      });
+    let newsletterChartSvg = "";
     const buildNewsletterAudienceAnalyticsHref = (email, extraParams = {}) =>
       buildNewsletterHref("/admin/newsletter/analytics", {
-        chartView: chartViewMode,
         campaignId: "",
         audienceEmail: normalizeNewsletterEmailAddress(email),
         campaignPage: String(requestedNewsletterCampaignPage || 1),
@@ -8521,8 +7986,9 @@ return `
         `SELECT id, city, mode, subject, previewText, totalRecipients, sentCount, failedCount, openCount, uniqueOpenCount, clickCount, uniqueClickCount, sentAt, createdAt
            FROM newsletter_campaigns
           WHERE city = ?
+            ${showNewsletterAnalytics ? `AND ${inAnalyticsPeriod("COALESCE(sentAt, createdAt)")}` : ""}
           ORDER BY datetime(COALESCE(sentAt, createdAt)) DESC, id DESC`,
-        [newsletterContextCity]
+        [newsletterContextCity, ...(showNewsletterAnalytics ? periodBounds : [])]
       );
       const recipientRows = await all(
         `SELECT
@@ -8537,7 +8003,7 @@ return `
             r.lastOpenedAt,
             r.firstClickedAt,
             r.lastClickedAt,
-            COALESCE(r.sentAt, r.createdAt) AS sentAt,
+            COALESCE(c.sentAt, c.createdAt, r.sentAt, r.createdAt) AS sentAt,
             r.createdAt,
             COALESCE(c.mode, 'scheduled') AS campaignMode,
             c.subject AS campaignSubject
@@ -8546,8 +8012,9 @@ return `
              ON c.id = r.campaignId
           WHERE r.city = ?
             AND COALESCE(c.mode, 'scheduled') <> 'test'
+            ${showNewsletterAnalytics ? `AND ${inAnalyticsPeriod("COALESCE(c.sentAt, c.createdAt, r.sentAt, r.createdAt)")}` : ""}
           ORDER BY datetime(COALESCE(r.sentAt, r.createdAt)) DESC, r.id DESC`,
-        [newsletterContextCity]
+        [newsletterContextCity, ...(showNewsletterAnalytics ? periodBounds : [])]
       );
       const selectedCampaignRow = requestedNewsletterCampaignId
         ? (campaignRows.find((row) => Number(row.id || 0) === Number(requestedNewsletterCampaignId)) || null)
@@ -8569,8 +8036,8 @@ return `
         : campaignRows;
       const campaignStatsRows = selectedAudienceEmail
         ? []
-        : selectedCampaignRow
-        ? campaignRows.filter((row) => Number(row.id || 0) === Number(selectedCampaignRow.id))
+        : requestedNewsletterCampaignId
+        ? campaignRows.filter((row) => Number(row.id || 0) === requestedNewsletterCampaignId)
         : campaignRows;
       const memberSeriesRows = selectedAudienceRecipientRows.map((row) => ({
         sentAt: row.sentAt,
@@ -8615,9 +8082,19 @@ return `
         reopens,
         linkClicks,
         openRatePct: totalEmailsSent > 0 ? `${Math.round((openedEmails / totalEmailsSent) * 100)}%` : "0%",
-        audienceSize: newsletterAudienceRows.length,
+        audienceSize: showNewsletterAnalytics
+          ? new Set(recipientRows.filter((row) => String(row.deliveryStatus) === "sent" &&
+              (!selectedAudienceEmail || normalizeNewsletterEmailAddress(row.email) === selectedAudienceEmail) &&
+              (!selectedCampaignRow || row.campaignId === selectedCampaignRow.id))
+            .map((row) => normalizeNewsletterEmailAddress(row.email))).size
+          : newsletterAudienceRows.length,
         failedEmails,
       };
+
+      if (!selectedAudienceEmail && requestedNewsletterCampaignId && !selectedCampaignRow) {
+        newsletterSelectedCampaignNoticeHtml = `<div class="card" style="margin-bottom:var(--gap);">No activity for this campaign in the selected period.
+          <a class="btn" href="${esc(buildNewsletterHref("/admin/newsletter/analytics"))}">Clear filter</a></div>`;
+      }
 
       if (newsletterSelectedAudienceRow) {
         newsletterSelectedAudienceNoticeHtml = `
@@ -8628,7 +8105,7 @@ return `
                 <p class="sub">The cards and chart below are filtered to this subscriber.</p>
               </div>
               <div class="right">
-                <a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignPage: String(requestedNewsletterCampaignPage || 1) })}">Clear filter</a>
+                <a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { campaignPage: String(requestedNewsletterCampaignPage || 1) })}">Clear filter</a>
               </div>
             </div>
             <div class="mini">
@@ -8651,7 +8128,7 @@ return `
                 <p class="sub">The cards and chart below are filtered to this send only.</p>
               </div>
               <div class="right">
-                <a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignPage: String(requestedNewsletterCampaignPage || 1) })}">Clear filter</a>
+                <a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { campaignPage: String(requestedNewsletterCampaignPage || 1) })}">Clear filter</a>
               </div>
             </div>
             <div class="mini">
@@ -8680,7 +8157,6 @@ return `
             const sentDt = sentLabel ? DateTime.fromISO(sentLabel, { zone: DEFAULT_TZ }) : null;
             const isSelected = Number(selectedCampaignRow?.id || 0) === Number(row.id || 0);
             const analyticsHref = buildNewsletterHref("/admin/newsletter/analytics", {
-              chartView: chartViewMode,
               campaignId: String(row.id || ""),
               audienceEmail: "",
               campaignPage: String(currentPage),
@@ -8704,8 +8180,8 @@ return `
               <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:14px;">
                 <div class="muted" style="font-size:12px;">Page ${currentPage} of ${totalPages}</div>
                 <div style="display:flex; gap:8px;">
-                  ${currentPage > 1 ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignId: selectedAudienceEmail ? "" : (selectedCampaignRow ? String(selectedCampaignRow.id) : ""), audienceEmail: selectedAudienceEmail || "", campaignPage: String(currentPage - 1) })}">Previous</a>` : ``}
-                  ${currentPage < totalPages ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { chartView: chartViewMode, campaignId: selectedAudienceEmail ? "" : (selectedCampaignRow ? String(selectedCampaignRow.id) : ""), audienceEmail: selectedAudienceEmail || "", campaignPage: String(currentPage + 1) })}">Next</a>` : ``}
+                  ${currentPage > 1 ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { campaignId: selectedAudienceEmail ? "" : (selectedCampaignRow ? String(selectedCampaignRow.id) : ""), audienceEmail: selectedAudienceEmail || "", campaignPage: String(currentPage - 1) })}">Previous</a>` : ``}
+                  ${currentPage < totalPages ? `<a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { campaignId: selectedAudienceEmail ? "" : (selectedCampaignRow ? String(selectedCampaignRow.id) : ""), audienceEmail: selectedAudienceEmail || "", campaignPage: String(currentPage + 1) })}">Next</a>` : ``}
                 </div>
               </div>
             ` : "";
@@ -8759,93 +8235,21 @@ return `
           }).join("")
         : newsletterAudienceAnalyticsListHtml;
 
-      const nowTz = DateTime.now().setZone(DEFAULT_TZ);
-      function makeNewsletterDailyBuckets() {
-        const labels = [];
-        const keys = [];
-        for (let i = 13; i >= 0; i--) {
-          const dt = nowTz.startOf("day").minus({ days: i });
-          labels.push(dt.toFormat("MM-dd"));
-          keys.push(dt.toISODate());
-        }
-        return { labels, keys };
+      const daily = new Map(analyticsDays.map((date) => [date, { sent: 0, opened: 0 }]));
+      for (const row of selectedAudienceEmail ? memberSeriesRows : campaignStatsRows) {
+        const raw = String(row.sentAt || row.createdAt || "");
+        const parsed = DateTime.fromISO(raw, { zone: "utc" });
+        const day = daily.get(parsed.isValid ? parsed.setZone(DEFAULT_TZ).toISODate() : metricDay(raw));
+        if (!day) continue;
+        day.sent += Number(row.sentCount || 0);
+        day.opened += Number(row.uniqueOpenCount || 0);
       }
-      function makeNewsletterWeeklyBuckets() {
-        const labels = [];
-        const keys = [];
-        const base = nowTz.startOf("week");
-        for (let i = 11; i >= 0; i--) {
-          const dt = base.minus({ weeks: i });
-          labels.push(dt.toFormat("MM-dd"));
-          keys.push(dt.toISODate());
-        }
-        return { labels, keys };
-      }
-      function makeNewsletterMonthlyBuckets() {
-        const labels = [];
-        const keys = [];
-        const base = nowTz.startOf("month");
-        for (let i = 11; i >= 0; i--) {
-          const dt = base.minus({ months: i });
-          labels.push(dt.year === nowTz.year ? dt.toFormat("LLL") : dt.toFormat("LLL yy"));
-          keys.push(dt.toFormat("yyyy-MM"));
-        }
-        return { labels, keys };
-      }
-      function makeNewsletterYearlyBuckets() {
-        const labels = [];
-        const keys = [];
-        for (let i = 4; i >= 0; i--) {
-          const year = nowTz.year - i;
-          labels.push(String(year));
-          keys.push(String(year));
-        }
-        return { labels, keys };
-      }
-      function getNewsletterBucketKey(dt, mode) {
-        if (!dt || !dt.isValid) return "";
-        if (mode === "daily") return dt.toISODate();
-        if (mode === "weekly") return dt.startOf("week").toISODate();
-        if (mode === "monthly") return dt.toFormat("yyyy-MM");
-        return String(dt.year);
-      }
-      function buildNewsletterSeries(mode, rows, dateField, valueFn) {
-        const bucketFactory =
-          mode === "daily" ? makeNewsletterDailyBuckets :
-          mode === "weekly" ? makeNewsletterWeeklyBuckets :
-          mode === "monthly" ? makeNewsletterMonthlyBuckets :
-          makeNewsletterYearlyBuckets;
-        const { labels, keys } = bucketFactory();
-        const counts = new Map(keys.map((key) => [key, 0]));
-        for (const row of rows || []) {
-          const dt = DateTime.fromISO(String(row[dateField] || ""), { zone: DEFAULT_TZ });
-          if (!dt.isValid) continue;
-          const key = getNewsletterBucketKey(dt, mode);
-          if (!counts.has(key)) continue;
-          counts.set(key, Number(counts.get(key) || 0) + Number(valueFn(row) || 0));
-        }
-        return { labels, values: keys.map((key) => Number(counts.get(key) || 0)) };
-      }
+      const labelsByDate = analyticsDays.map(periodLabel);
+      const sentSet = { labels: labelsByDate, values: [...daily.values()].map((day) => day.sent) };
+      const openSet = { labels: labelsByDate, values: [...daily.values()].map((day) => day.opened) };
+      newsletterChartDataJson = esc(JSON.stringify({ events: sentSet, views: openSet }));
 
-      const newsletterChartSets = {
-        events: {
-          daily: buildNewsletterSeries("daily", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.sentCount),
-          weekly: buildNewsletterSeries("weekly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.sentCount),
-          monthly: buildNewsletterSeries("monthly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.sentCount),
-          yearly: buildNewsletterSeries("yearly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.sentCount),
-        },
-        views: {
-          daily: buildNewsletterSeries("daily", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
-          weekly: buildNewsletterSeries("weekly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
-          monthly: buildNewsletterSeries("monthly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
-          yearly: buildNewsletterSeries("yearly", selectedAudienceEmail ? memberSeriesRows : campaignStatsRows, "sentAt", (row) => row.uniqueOpenCount),
-        },
-      };
-      newsletterChartDataJson = esc(JSON.stringify(newsletterChartSets));
-
-      function buildNewsletterChartSvgForMode(mode) {
-        const sentSet = (newsletterChartSets.events && newsletterChartSets.events[mode]) ? newsletterChartSets.events[mode] : { labels: [], values: [] };
-        const openSet = (newsletterChartSets.views && newsletterChartSets.views[mode]) ? newsletterChartSets.views[mode] : { labels: [], values: [] };
+      function buildNewsletterChartSvg() {
         const labels = Array.isArray(sentSet.labels) ? sentSet.labels : [];
         const sentValues = Array.isArray(sentSet.values) ? sentSet.values.map((v) => Number(v || 0)) : [];
         const openValues = Array.isArray(openSet.values) ? openSet.values.map((v) => Number(v || 0)) : [];
@@ -8929,12 +8333,7 @@ return `
         `;
       }
 
-      newsletterChartSvgByMode = {
-        daily: buildNewsletterChartSvgForMode("daily"),
-        weekly: buildNewsletterChartSvgForMode("weekly"),
-        monthly: buildNewsletterChartSvgForMode("monthly"),
-        yearly: buildNewsletterChartSvgForMode("yearly"),
-      };
+      newsletterChartSvg = buildNewsletterChartSvg();
     }
 
     let pendingRows = [];
@@ -10132,7 +9531,7 @@ return `
     let adTopClicksRows = [];
     let adPlacementRows = [];
     let adAnalyticsOptions = [];
-    let adMonthlyHistory = [];
+    let adPeriodHistory = [];
     let selectedAd = null;
     let selectedAdActualId = null;
     let bulkImportedRows = [];
@@ -10252,6 +9651,10 @@ return `
         jobCityWhere.push(organizerVenueOwnerClause.sql);
         jobCityParams.push(...organizerVenueOwnerClause.params);
       }
+      if (showJobsAnalytics) {
+        jobCityWhere.push(inAnalyticsPeriod("createdAt"));
+        jobCityParams.push(...periodBounds);
+      }
       const jobCityWhereSql = jobCityWhere.length ? ("WHERE " + jobCityWhere.join(" AND ")) : "";
       const row = await get(
         "SELECT " +
@@ -10293,6 +9696,10 @@ return `
         if (isOrganizerUser && organizerVenueOwnerClause) {
           jobApplicantWhere.push(`j.${organizerVenueOwnerClause.sql}`);
           jobApplicantParams.push(...organizerVenueOwnerClause.params);
+        }
+        if (showJobsAnalytics) {
+          jobApplicantWhere.push(inAnalyticsPeriod("a.createdAt"));
+          jobApplicantParams.push(...periodBounds);
         }
         const applicantStatsRow = await get(
           "SELECT " +
@@ -10383,16 +9790,44 @@ return `
           adDashParams
         );
         adAnalyticsOptions = await all(
-          "SELECT id, name, slug, placement, placementsJson, COALESCE(viewCount,0) AS viewCount, COALESCE(clickCount,0) AS clickCount FROM ads " +
+          "SELECT id, name, slug, placement, placementsJson, status, createdAt, startsAt, endsAt, COALESCE(viewCount,0) AS viewCount, COALESCE(clickCount,0) AS clickCount FROM ads " +
           adDashWhereSql + " ORDER BY name COLLATE NOCASE ASC, id ASC",
           adDashParams
         );
         adTopViewsRows = adTopViewsRows.map((ad) => ({ ...ad, placements: normalizeAdPlacements(ad.placementsJson, ad.placement || "") }));
         adTopClicksRows = adTopClicksRows.map((ad) => ({ ...ad, placements: normalizeAdPlacements(ad.placementsJson, ad.placement || "") }));
         adAnalyticsOptions = adAnalyticsOptions.map((ad) => ({ ...ad, placements: normalizeAdPlacements(ad.placementsJson, ad.placement || "") }));
+        const adPeriodMetrics = showAdsAnalytics
+          ? await loadPeriodMetricEvents("ad_metric_events", "adId", `SELECT id FROM ads ${adDashWhereSql}`, adDashParams)
+          : new Map();
+        let adsInPeriod = adAnalyticsOptions;
+        if (showAdsAnalytics) {
+          adAnalyticsOptions = adAnalyticsOptions.map((ad) => ({
+            ...ad,
+            viewCount: adPeriodMetrics.get(ad.id)?.totals.get("view") || 0,
+            clickCount: adPeriodMetrics.get(ad.id)?.totals.get("click") || 0,
+          }));
+          adsInPeriod = adAnalyticsOptions.filter((ad) => {
+            if (adPeriodMetrics.has(ad.id)) return true;
+            const starts = Date.parse(ad.startsAt || ad.createdAt || "");
+            const ends = ad.endsAt ? Date.parse(ad.endsAt) : Infinity;
+            return starts < analyticsPeriod.end.toMillis() && ends >= analyticsPeriod.start.toMillis();
+          });
+          adAnalyticsStats = {
+            total: adsInPeriod.length,
+            active: adsInPeriod.filter((ad) => String(ad.status).toLowerCase() === "active").length,
+            paused: adsInPeriod.filter((ad) => String(ad.status).toLowerCase() === "paused").length,
+            views: adsInPeriod.reduce((sum, ad) => sum + ad.viewCount, 0),
+            clicks: adsInPeriod.reduce((sum, ad) => sum + ad.clickCount, 0),
+          };
+          adTopViewsRows = adsInPeriod.filter((ad) => ad.viewCount > 0)
+            .sort((a, b) => b.viewCount - a.viewCount || b.id - a.id).slice(0, 8);
+          adTopClicksRows = adsInPeriod.filter((ad) => ad.clickCount > 0)
+            .sort((a, b) => b.clickCount - a.clickCount || b.id - a.id).slice(0, 8);
+        }
         {
           const placementCounts = new Map();
-          for (const ad of adAnalyticsOptions) {
+          for (const ad of adsInPeriod) {
             for (const placement of ad.placements || []) {
               placementCounts.set(placement, Number(placementCounts.get(placement) || 0) + 1);
             }
@@ -10410,39 +9845,10 @@ return `
           null;
         selectedAdActualId = selectedAd ? Number(selectedAd.id || 0) : null;
 
-        if (selectedAdActualId) {
-          const monthlyRows = await all(
-            `SELECT strftime('%Y-%m', createdAt) AS ym,
-                    COALESCE(SUM(CASE WHEN metric = 'view' THEN 1 ELSE 0 END), 0) AS views,
-                    COALESCE(SUM(CASE WHEN metric = 'click' THEN 1 ELSE 0 END), 0) AS clicks
-             FROM ad_metric_events
-             WHERE adId = ?
-               AND date(createdAt) >= date('now', 'start of month', '-11 month')
-             GROUP BY ym
-             ORDER BY ym ASC`,
-            [selectedAdActualId]
-          );
-          const monthlyMap = new Map(
-            (monthlyRows || []).map((item) => [
-              String(item.ym || ""),
-              {
-                views: Number(item.views || 0),
-                clicks: Number(item.clicks || 0),
-              },
-            ])
-          );
-          const monthCursor = new Date();
-          monthCursor.setDate(1);
-          for (let i = 11; i >= 0; i--) {
-            const dt = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - i, 1);
-            const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
-            const base = monthlyMap.get(ym) || { views: 0, clicks: 0 };
-            adMonthlyHistory.push({
-              ym,
-              label: dt.toLocaleString("en-US", { month: "short", year: "numeric" }),
-              views: base.views,
-              clicks: base.clicks,
-            });
+        if (showAdsAnalytics && selectedAdActualId) {
+          const days = adPeriodMetrics.get(selectedAdActualId)?.days;
+          for (const day of analyticsDays) {
+            adPeriodHistory.push({ label: periodLabel(day), views: days?.get(day)?.get("view") || 0, clicks: days?.get(day)?.get("click") || 0 });
           }
         }
       }
@@ -10494,20 +9900,20 @@ return `
 
     const adChartDataJson = JSON.stringify({
       views: {
-        labels: adMonthlyHistory.map((row) => row.label),
-        values: adMonthlyHistory.map((row) => Number(row.views || 0)),
+        labels: adPeriodHistory.map((row) => row.label),
+        values: adPeriodHistory.map((row) => Number(row.views || 0)),
       },
       clicks: {
-        labels: adMonthlyHistory.map((row) => row.label),
-        values: adMonthlyHistory.map((row) => Number(row.clicks || 0)),
+        labels: adPeriodHistory.map((row) => row.label),
+        values: adPeriodHistory.map((row) => Number(row.clicks || 0)),
       },
     });
     function buildAdChartSvg(metric = "views") {
-      const labels = adMonthlyHistory.map((row) => String(row.label || ""));
-      const primaryValues = adMonthlyHistory.map((row) =>
+      const labels = adPeriodHistory.map((row) => String(row.label || ""));
+      const primaryValues = adPeriodHistory.map((row) =>
         Number(metric === "clicks" ? row.clicks || 0 : row.views || 0)
       );
-      const secondaryValues = adMonthlyHistory.map((row) =>
+      const secondaryValues = adPeriodHistory.map((row) =>
         Number(metric === "clicks" ? row.views || 0 : row.clicks || 0)
       );
       const allValues = primaryValues.concat(secondaryValues).filter((v) => Number.isFinite(v));
@@ -10525,7 +9931,7 @@ return `
         return `
           <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Ad chart">
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
-            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No monthly ad history yet</text>
+            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No ad activity in this reporting period</text>
           </svg>
         `;
       }
@@ -10732,331 +10138,89 @@ return `
     let organizerTopEventsHtml = `<div class="muted">No organizer events yet.</div>`;
 
     if (showOrganizers) {
-      const organizerWhereParts = [];
-      const organizerWhereParams = [];
-      pushCityScopeCondition(organizerWhereParts, organizerWhereParams, selectedAdminCities);
-      // Organizers can view this analytics surface, but only for events that
-      // belong to their own organizer identity.
-      if (isOrganizerUser && organizerOwnerClause) {
-        organizerWhereParts.push(organizerOwnerClause.sql);
-        organizerWhereParams.push(...organizerOwnerClause.params);
-      }
-      if (hasArchiveCols2) {
-        organizerWhereParts.push("(isArchived IS NULL OR isArchived = 0)");
-      }
-      const organizerWhereSql = organizerWhereParts.length ? `WHERE ${organizerWhereParts.join(" AND ")}` : "";
-      let organizerEventRows = await all(
-        `SELECT id, title, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates,
-                recurrenceStartDate, recurrenceUntilDate, featured, viewCount
-         FROM events
-         ${organizerWhereSql}
-         ORDER BY datetime(startDateTime) ASC`,
-        organizerWhereParams
-      );
-      organizerEventRows = (organizerEventRows || []).map((row) => normalizeRowTimes(row));
-      const buildOrganizerInsightsHref = (name) =>
-        buildScopedAdminHref("/admin/events-organizers", { ...analyticsPeriodParams, organizer: name });
-
       const organizerMap = new Map();
-      const nowMs = Date.now();
-      const upcomingEndMs = nowMs + 90 * 86400 * 1000;
-      const monthStartMs = new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1, 0, 0, 0, 0).getTime();
-      const monthEndMs = endOfCurrentMonthUtcMs();
-
-      for (const row of organizerEventRows) {
-        const organizerName = String(row?.organizer || "").trim() || "(unknown)";
-        let entry = organizerMap.get(organizerName);
-        if (!entry) {
-          entry = {
-            organizer: organizerName,
-            uniqueEvents: 0,
-            totalOccurrences: 0,
-            upcomingOccurrences: 0,
-            views: 0,
-            featured: 0,
-            monthlyEvents: new Map(),
-            rows: [],
-          };
-          organizerMap.set(organizerName, entry);
-        }
-
-        entry.uniqueEvents += 1;
-        entry.views += Number(row?.viewCount || 0);
-        entry.featured += Number(row?.featured || 0) === 1 ? 1 : 0;
-        entry.rows.push(row);
-
-        const isRecurring = hasRecurringData(row);
-        if (!isRecurring) {
-          const startUtc = Date.parse(String(row?.startDateTime || ""));
-          if (Number.isFinite(startUtc)) {
-            entry.totalOccurrences += 1;
-            if (startUtc >= nowMs) entry.upcomingOccurrences += 1;
-            if (startUtc >= monthStartMs && startUtc <= monthEndMs) {
-              const parts = parseIsoParts(row?.startDateTime || "");
-              if (parts) {
-                const ym = `${parts.year}-${pad2(parts.month)}`;
-                entry.monthlyEvents.set(ym, Number(entry.monthlyEvents.get(ym) || 0) + 1);
-              }
-            }
-          }
-          continue;
-        }
-
-        const startUtc = Date.parse(String(row?.startDateTime || ""));
-        const totalWindowEndMs = getRecurringSeriesEndUtcMs(row, monthEndMs);
-        const totalOccurrences = generateAdminOccurrences(
-          row,
-          Number.isFinite(startUtc) ? startUtc : monthStartMs,
-          totalWindowEndMs
-        );
-        entry.totalOccurrences += totalOccurrences.length || 1;
-
-        const upcomingOccurrences = generateAdminOccurrences(row, nowMs - 5 * 60 * 1000, upcomingEndMs);
-        entry.upcomingOccurrences += upcomingOccurrences.length;
-
-        const monthlyOccurrences = generateAdminOccurrences(row, monthStartMs, monthEndMs);
-        for (const occ of monthlyOccurrences) {
-          const parts = occ.parts || parseIsoParts(occ.startDateTime || "");
-          if (!parts) continue;
-          const ym = `${parts.year}-${pad2(parts.month)}`;
-          entry.monthlyEvents.set(ym, Number(entry.monthlyEvents.get(ym) || 0) + 1);
-        }
-      }
-
-      organizerLeaderboard = [...organizerMap.values()].sort((a, b) =>
-        Number(b.views || 0) - Number(a.views || 0) ||
-        Number(b.totalOccurrences || 0) - Number(a.totalOccurrences || 0) ||
-        String(a.organizer || "").localeCompare(String(b.organizer || ""))
-      );
-      organizerAnalyticsOptions = organizerLeaderboard.map((row) => row.organizer);
+      const organizerName = (event) => String(event.organizer || "").trim() || "(unknown)";
+      organizerAnalyticsOptions = [...new Set(dashboardEventRows.map(organizerName))].sort((a, b) => a.localeCompare(b));
       const requestedOrganizer = String(req.query.organizer || "").trim();
-      selectedOrganizer = isOrganizerUser
-        ? (organizerAnalyticsOptions[0] || "")
-        : (organizerAnalyticsOptions.find((name) => name === requestedOrganizer) || "");
-
-      organizerPageSummary = organizerLeaderboard.reduce((acc, row) => {
-        acc.uniqueEvents += Number(row.uniqueEvents || 0);
-        acc.totalOccurrences += Number(row.totalOccurrences || 0);
-        acc.upcomingOccurrences += Number(row.upcomingOccurrences || 0);
-        acc.views += Number(row.views || 0);
-        acc.featured += Number(row.featured || 0);
-        return acc;
-      }, {
-        uniqueEvents: 0,
-        totalOccurrences: 0,
-        upcomingOccurrences: 0,
-        views: 0,
-        featured: 0,
-        allViews: 0,
-        directViews: 0,
-        referralViews: 0,
-        internalViews: 0,
+      selectedOrganizer = organizerAnalyticsOptions.includes(requestedOrganizer) ? requestedOrganizer : "";
+      const makeSummary = () => ({
+        uniqueEvents: 0, totalOccurrences: 0, upcomingOccurrences: 0, views: 0, featured: 0,
+        allViews: 0, directViews: 0, referralViews: 0, internalViews: 0,
       });
-
-      if (hasSourceTrackingTable) {
-        try {
-          const organizerOverallSourceScope = buildCityScopeSql("e.city", selectedAdminCities);
-          const overallSourceRow = await get(
-            `SELECT
-               COUNT(*) AS tracked,
-               COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:direct%' OR COALESCE(ev.ref,'') = '__direct__' OR trim(COALESCE(ev.ref,'')) = '' THEN 1 ELSE 0 END), 0) AS directCount,
-               COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:referral%' THEN 1 ELSE 0 END), 0) AS referralCount,
-               COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount
-             FROM event_views ev
-             JOIN events e ON e.id = ev.eventId
-             WHERE 1=1
-             ${organizerOverallSourceScope.sql ? `AND ${organizerOverallSourceScope.sql}` : ""}
-             ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}`,
-            organizerOverallSourceScope.params
-          );
-          organizerPageSummary.allViews = Number(overallSourceRow?.tracked || 0);
-          organizerPageSummary.directViews = Number(overallSourceRow?.directCount || 0);
-          organizerPageSummary.referralViews = Number(overallSourceRow?.referralCount || 0);
-          organizerPageSummary.internalViews = Number(overallSourceRow?.internalCount || 0);
-        } catch (_) {}
+      organizerPageSummary = makeSummary();
+      const dates = new Map(analyticsDays.map((day) => [day, { events: 0, views: 0 }]));
+      for (const event of dashboardEventRows) {
+        const activity = eventPeriodActivity.get(event.id);
+        if (!activity || (!activity.dates.length && !activity.tracked)) continue;
+        const name = organizerName(event);
+        if (!organizerMap.has(name)) organizerMap.set(name, { organizer: name, ...makeSummary() });
+        const entry = organizerMap.get(name);
+        const scheduled = Number(activity.dates.length > 0);
+        const upcoming = activity.dates.filter((date) => Date.parse(date) >= periodNowMs).length;
+        const totals = {
+          uniqueEvents: scheduled, totalOccurrences: activity.dates.length, upcomingOccurrences: upcoming,
+          views: activity.tracked, featured: scheduled * Number(Number(event.featured) === 1),
+          allViews: activity.tracked, directViews: activity.direct,
+          referralViews: activity.referral, internalViews: activity.internal,
+        };
+        for (const [key, value] of Object.entries(totals)) {
+          entry[key] += value;
+          if (!selectedOrganizer || name === selectedOrganizer) organizerPageSummary[key] += value;
+        }
+        if (selectedOrganizer && name !== selectedOrganizer) continue;
+        for (const date of activity.dates) {
+          const day = dates.get(DateTime.fromMillis(Date.parse(date), { zone: DEFAULT_TZ }).toISODate());
+          if (day) day.events += 1;
+        }
+        for (const [date, views] of activity.viewsByDay) {
+          const day = dates.get(date);
+          if (day) day.views += views;
+        }
       }
-
+      organizerSummary = organizerPageSummary;
+      organizerLeaderboard = [...organizerMap.values()].sort((a, b) =>
+        b.views - a.views || b.totalOccurrences - a.totalOccurrences || a.organizer.localeCompare(b.organizer)
+      );
       organizerLeaderboardHtml = organizerLeaderboard.slice(0, 10).map((row, index) => `
         <tr>
           <td>${index + 1}</td>
-          <td><a href="${esc(buildOrganizerInsightsHref(row.organizer))}">${esc(row.organizer)}</a></td>
-          <td>${Number(row.uniqueEvents || 0).toLocaleString("en-US")}</td>
-          <td>${Number(row.totalOccurrences || 0).toLocaleString("en-US")}</td>
-          <td>${Number(row.upcomingOccurrences || 0).toLocaleString("en-US")}</td>
-          <td>${Number(row.views || 0).toLocaleString("en-US")}</td>
-        </tr>
-      `).join("") || organizerLeaderboardHtml;
-
-      organizerTopEventsHtml = [...organizerEventRows]
-        .sort((a, b) => Number(b.viewCount || 0) - Number(a.viewCount || 0) || Number(b.id || 0) - Number(a.id || 0))
-        .slice(0, 5)
-        .map((row) => `
-          <div class="kv">
-            <div class="k"><a href="${esc(buildEventAnalyticsHref(row.id))}">${esc(String(row.title || "Untitled event"))}</a></div>
-            <div class="v">${Number(row.viewCount || 0).toLocaleString("en-US")}</div>
-          </div>
-        `)
-        .join("") || `<div class="muted">No organizer events yet.</div>`;
-
-      const overallMonthlyViewRows = hasSourceTrackingTable
-        ? await all(
-            (() => {
-              const organizerOverallMonthlyScope = buildCityScopeSql("e.city", selectedAdminCities);
-              return `SELECT strftime('%Y-%m', ev.viewedAt) AS ym, COUNT(*) AS n
-             FROM event_views ev
-             JOIN events e ON e.id = ev.eventId
-             WHERE 1=1
-             ${organizerOverallMonthlyScope.sql ? `AND ${organizerOverallMonthlyScope.sql}` : ""}
-             ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}
-             AND date(ev.viewedAt) >= date('now', 'start of month', '-11 month')
-             GROUP BY ym
-             ORDER BY ym ASC`;
-            })(),
-            buildCityScopeSql("e.city", selectedAdminCities).params
-          )
-        : [];
-      const overallMonthlyViewMap = new Map((overallMonthlyViewRows || []).map((row) => [String(row.ym || ""), Number(row.n || 0)]));
-      const overallMonthlyEventMap = new Map();
-      for (const row of organizerLeaderboard) {
-        for (const [ym, count] of row.monthlyEvents.entries()) {
-          overallMonthlyEventMap.set(ym, Number(overallMonthlyEventMap.get(ym) || 0) + Number(count || 0));
-        }
-      }
-      {
-        const monthCursor = new Date();
-        monthCursor.setDate(1);
-        const labels = [];
-        const eventValues = [];
-        const viewValues = [];
-        for (let i = 11; i >= 0; i--) {
-          const dt = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - i, 1);
-          const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
-          labels.push(dt.toLocaleString("en-US", { month: "short", year: "numeric" }));
-          eventValues.push(Number(overallMonthlyEventMap.get(ym) || 0));
-          viewValues.push(Number(overallMonthlyViewMap.get(ym) || 0));
-        }
-        organizerChartLabels = labels.slice();
-        organizerChartEventValues = eventValues.slice();
-        organizerChartViewValues = viewValues.slice();
-        organizerChartDataJson = JSON.stringify({
-          events: { labels, values: eventValues },
-          views: { labels, values: viewValues },
-        });
-      }
-
-      organizerSummary = { ...organizerPageSummary };
-
-      const selectedOrganizerEntry = organizerLeaderboard.find((row) => row.organizer === selectedOrganizer) || null;
-      if (selectedOrganizerEntry) {
+          <td><a href="${esc(buildScopedAdminHref("/admin/events-organizers", { ...analyticsPeriodParams, organizer: row.organizer }))}">${esc(row.organizer)}</a></td>
+          <td>${fmt(row.uniqueEvents)}</td>
+          <td>${fmt(row.totalOccurrences)}</td>
+          <td>${fmt(row.upcomingOccurrences)}</td>
+          <td>${fmt(row.views)}</td>
+        </tr>`).join("") || `<tr><td colspan="6" class="muted">No organizer activity in this reporting period.</td></tr>`;
+      organizerChartLabels = analyticsDays.map(periodLabel);
+      organizerChartEventValues = [...dates.values()].map((day) => day.events);
+      organizerChartViewValues = [...dates.values()].map((day) => day.views);
+      organizerChartDataJson = JSON.stringify({
+        events: { labels: organizerChartLabels, values: organizerChartEventValues },
+        views: { labels: organizerChartLabels, values: organizerChartViewValues },
+      });
+      organizerTopEventsHtml = renderTopEventsByViewRows(
+        rankedEvents.filter((event) => !selectedOrganizer || organizerName(event) === selectedOrganizer).slice(0, 5),
+        "No event views in this reporting period."
+      );
+      if (selectedOrganizer) {
         organizerChartTitle = `${selectedOrganizer} performance`;
         organizerInsightsHeading = selectedOrganizer;
-        organizerInsightsSub = `Detailed organizer insights`;
+        organizerInsightsSub = "Activity during the selected reporting period";
         organizerTopEventsTitle = `Top events for ${selectedOrganizer}`;
-        organizerSummary = {
-          uniqueEvents: Number(selectedOrganizerEntry.uniqueEvents || 0),
-          totalOccurrences: Number(selectedOrganizerEntry.totalOccurrences || 0),
-          upcomingOccurrences: Number(selectedOrganizerEntry.upcomingOccurrences || 0),
-          views: Number(selectedOrganizerEntry.views || 0),
-          featured: Number(selectedOrganizerEntry.featured || 0),
-          allViews: 0,
-          directViews: 0,
-          referralViews: 0,
-          internalViews: 0,
-        };
-
-        if (hasSourceTrackingTable) {
-          try {
-            const organizerDetailSourceScope = buildCityScopeSql("e.city", selectedAdminCities);
-            const sourceRow = await get(
-              `SELECT
-                 COUNT(*) AS tracked,
-                 COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:direct%' OR COALESCE(ev.ref,'') = '__direct__' OR trim(COALESCE(ev.ref,'')) = '' THEN 1 ELSE 0 END), 0) AS directCount,
-                 COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:referral%' THEN 1 ELSE 0 END), 0) AS referralCount,
-                 COALESCE(SUM(CASE WHEN COALESCE(ev.ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount
-               FROM event_views ev
-               JOIN events e ON e.id = ev.eventId
-               WHERE COALESCE(NULLIF(TRIM(e.organizer), ''), '(unknown)') = ?
-               ${organizerDetailSourceScope.sql ? `AND ${organizerDetailSourceScope.sql}` : ""}
-               ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}`,
-              [selectedOrganizer, ...organizerDetailSourceScope.params]
-            );
-            organizerSummary.allViews = Number(sourceRow?.tracked || 0);
-            organizerSummary.directViews = Number(sourceRow?.directCount || 0);
-            organizerSummary.referralViews = Number(sourceRow?.referralCount || 0);
-            organizerSummary.internalViews = Number(sourceRow?.internalCount || 0);
-          } catch (_) {}
-        }
-
-        organizerPageSummary = { ...organizerSummary };
         organizerSelectionHtml = `
           <div class="mini" style="margin-bottom:12px;">
-            <a class="btn" href="/admin/events-organizers${selectedCity ? `?city=${encodeURIComponent(selectedCity)}` : ""}">Back to all organizers</a>
+            <a class="btn" href="${esc(buildScopedAdminHref("/admin/events-organizers", analyticsPeriodParams))}">Back to all organizers</a>
           </div>
           <form method="GET" action="/admin/events-organizers" style="display:grid; gap:12px;">
-            ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
+            ${analyticsPeriodFields}
+            <input type="hidden" name="city" value="${esc(selectedAdminPrimaryCity)}" />
+            <input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" />
             <div class="field">
-              <label>Organizer</label>
-              <select name="organizer" class="ctrl" onchange="this.form.submit()">
+              <label for="analyticsOrganizer">Organizer</label>
+              <select id="analyticsOrganizer" name="organizer" class="ctrl" onchange="this.form.submit()">
                 ${organizerAnalyticsOptions.map((name) => `<option value="${esc(name)}" ${name === selectedOrganizer ? "selected" : ""}>${esc(name)}</option>`).join("")}
               </select>
             </div>
-          </form>
-        `;
-
-        organizerTopEventsHtml = [...selectedOrganizerEntry.rows]
-          .sort((a, b) => Number(b.viewCount || 0) - Number(a.viewCount || 0) || Number(b.id || 0) - Number(a.id || 0))
-          .slice(0, 5)
-          .map((row) => `
-            <div class="kv">
-              <div class="k"><a href="${esc(buildEventAnalyticsHref(row.id))}">${esc(String(row.title || "Untitled event"))}</a></div>
-              <div class="v">${Number(row.viewCount || 0).toLocaleString("en-US")}</div>
-            </div>
-          `)
-          .join("") || organizerTopEventsHtml;
-
-        const monthlyViewRows = hasSourceTrackingTable
-          ? await all(
-              (() => {
-                const organizerDetailMonthlyScope = buildCityScopeSql("e.city", selectedAdminCities);
-                return `SELECT strftime('%Y-%m', ev.viewedAt) AS ym, COUNT(*) AS n
-               FROM event_views ev
-               JOIN events e ON e.id = ev.eventId
-               WHERE COALESCE(NULLIF(TRIM(e.organizer), ''), '(unknown)') = ?
-               ${organizerDetailMonthlyScope.sql ? `AND ${organizerDetailMonthlyScope.sql}` : ""}
-               ${hasArchiveCols2 ? "AND (e.isArchived IS NULL OR e.isArchived = 0)" : ""}
-               AND date(ev.viewedAt) >= date('now', 'start of month', '-11 month')
-               GROUP BY ym
-               ORDER BY ym ASC`;
-              })(),
-              [selectedOrganizer, ...buildCityScopeSql("e.city", selectedAdminCities).params]
-            )
-          : [];
-        const monthlyViewMap = new Map((monthlyViewRows || []).map((row) => [String(row.ym || ""), Number(row.n || 0)]));
-        const monthCursor = new Date();
-        monthCursor.setDate(1);
-        const labels = [];
-        const eventValues = [];
-        const viewValues = [];
-        for (let i = 11; i >= 0; i--) {
-          const dt = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - i, 1);
-          const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
-          labels.push(dt.toLocaleString("en-US", { month: "short", year: "numeric" }));
-          eventValues.push(Number(selectedOrganizerEntry.monthlyEvents.get(ym) || 0));
-          viewValues.push(Number(monthlyViewMap.get(ym) || 0));
-        }
-        organizerChartLabels = labels.slice();
-        organizerChartEventValues = eventValues.slice();
-        organizerChartViewValues = viewValues.slice();
-        organizerChartDataJson = JSON.stringify({
-          events: { labels, values: eventValues },
-          views: { labels, values: viewValues },
-        });
-      } else if (organizerAnalyticsOptions.length) {
-        organizerSelectionHtml = `
-          <div class="mini">
-            Click any organizer name in the table below to open detailed insights for that organizer.
-          </div>
-        `;
+          </form>`;
       }
     }
     const organizerChartSvg = buildOrganizerChartSvg(
@@ -11131,94 +10295,8 @@ return `
       : "Dashboard";
     let analyticsPeriodHtml = "";
     if (showAnalytics || showOrganizers || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showUpdatesAnalytics) {
-      const periodQuery = req.query.range ? req.query : { range: "30d" };
-      const period = parseDashboardReportingPeriod(periodQuery);
-      const range = period.key || (periodQuery.range === "custom" ? "custom" : "30d");
-      const periodParams = period.error ? [] : [period.start.toUTC().toISO(), period.end.toUTC().toISO()];
-      const inPeriod = (column) => `datetime(${column}) >= datetime(?) AND datetime(${column}) < datetime(?)`;
-      const metrics = [];
-      const addMetric = (label, value) => metrics.push({ label, value });
-      const count = async (sql, params) => Number((await get(sql, params))?.count || 0);
-      let periodError = period.error || "";
-      if (!periodError) {
-        try {
-          if (showAnalytics || showOrganizers) {
-            const conditions = [...dashParts];
-            const params = [...dashParams];
-            if (selectedEventAnalytics) {
-              conditions.push("id = ?");
-              params.push(selectedEventAnalytics.id);
-            }
-            if (showOrganizers && selectedOrganizer) {
-              conditions.push("COALESCE(NULLIF(TRIM(organizer), ''), '(unknown)') = ?");
-              params.push(selectedOrganizer);
-            }
-            const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-            const startMs = period.start.toMillis();
-            const endMs = period.end.toMillis();
-            const events = await all(
-              `SELECT startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates,
-                      recurrenceStartDate, recurrenceUntilDate FROM events ${where}`,
-              params
-            );
-            const occurrences = events.reduce((total, event) => total + (hasRecurringData(event)
-              ? generateAdminOccurrences(event, startMs, endMs - 1).length
-              : Number(dashboardIsoInRange(event.startDateTime, startMs, endMs))), 0);
-            addMetric("Scheduled occurrences", occurrences);
-            addMetric("Measured event views", hasSourceTrackingTable ? await count(
-              `SELECT COUNT(*) AS count FROM event_views
-               WHERE eventId IN (SELECT id FROM events ${where}) AND ${inPeriod("viewedAt")}`,
-              [...params, ...periodParams]
-            ) : null);
-          } else if (showVenueAnalytics || showAdsAnalytics) {
-            const venue = showVenueAnalytics;
-            const item = venue ? selectedVenue : selectedAd;
-            const tracking = !venue || hasVenueMetricHistory;
-            const row = item && tracking ? await get(
-              `SELECT SUM(metric = 'view') AS views, SUM(metric ${venue ? "IN ('phone_click', 'website_click', 'social_click')" : "= 'click'"}) AS clicks
-                 FROM ${venue ? "venue_metric_events" : "ad_metric_events"}
-                WHERE ${venue ? "venueId" : "adId"} = ? AND ${inPeriod("createdAt")}`,
-              [item.id, ...periodParams]
-            ) : null;
-            const label = item ? ` for ${item.name}` : "";
-            addMetric(`Measured views${label}`, tracking ? Number(row?.views || 0) : null);
-            addMetric(`Measured clicks${label}`, tracking ? Number(row?.clicks || 0) : null);
-          } else if (showJobsAnalytics) {
-            const scope = buildCityScopeSql("city", selectedAdminCities);
-            addMetric("Jobs posted", await count(
-              `SELECT COUNT(*) AS count FROM jobs WHERE ${inPeriod("createdAt")}${scope.sql ? ` AND ${scope.sql}` : ""}`,
-              [...periodParams, ...scope.params]
-            ));
-            addMetric("Applications received", await count(
-              `SELECT COUNT(*) AS count FROM job_applicants WHERE ${inPeriod("createdAt")}
-                 AND jobId IN (SELECT id FROM jobs ${scope.sql ? `WHERE ${scope.sql}` : ""})`,
-              [...periodParams, ...scope.params]
-            ));
-          } else if (showNewsletterAnalytics) {
-            const row = await get(
-              `SELECT COUNT(*) AS campaigns, COALESCE(SUM(sentCount), 0) AS delivered,
-                      COALESCE(SUM(failedCount), 0) AS failed
-                 FROM newsletter_campaigns
-                WHERE city = ? AND mode <> 'test' AND ${inPeriod("sentAt")}${requestedNewsletterCampaignId ? " AND id = ?" : ""}`,
-              [newsletterContextCity, ...periodParams, ...(requestedNewsletterCampaignId ? [requestedNewsletterCampaignId] : [])]
-            );
-            addMetric("Campaigns sent", Number(row?.campaigns || 0));
-            addMetric("Successful deliveries", Number(row?.delivered || 0));
-            addMetric("Failed deliveries", Number(row?.failed || 0));
-          } else {
-            const city = pickAccessibleCity(req.query.city, accessUser, { fallbackCity: selectedCity });
-            const updateId = Number(req.query.update || 0);
-            addMetric(editUpdate ? `Measured views for ${editUpdate.title}` : "Measured update views", await count(
-              `SELECT COUNT(*) AS count FROM update_metric_events WHERE ${inPeriod("occurredAt")}
-                 AND updateId IN (SELECT id FROM updates WHERE city = ?${updateId ? " AND id = ?" : ""})`,
-              [...periodParams, city, ...(updateId ? [updateId] : [])]
-            ));
-          }
-        } catch (error) {
-          console.error("[admin analytics reporting period]", error);
-          periodError = "Reporting period data is temporarily unavailable.";
-        }
-      }
+      const range = requestedAnalyticsPeriod.key || (req.query.range === "custom" ? "custom" : "30d");
+      const periodError = requestedAnalyticsPeriod.error;
       const query = { ...req.query, city: selectedAdminPrimaryCity, workspace: selectedAdminWorkspace };
       if (showNewsletterAnalytics) {
         query.newsletterScope = selectedNewsletterScope;
@@ -11228,15 +10306,6 @@ return `
         .filter(([key, value]) => !["range", "start", "end"].includes(key) && typeof value === "string" && value)
         .map(([key, value]) => `<input type="hidden" name="${esc(key)}" value="${esc(value)}" />`).join("");
       const dateValue = (key) => /^\d{4}-\d{2}-\d{2}$/.test(String(req.query[key] || "")) ? String(req.query[key]) : "";
-      const summary = periodError
-        ? `<p class="sub" role="alert">${esc(periodError)}</p>`
-        : `<div class="dashboard-kpi-grid">${metrics.map(({ label, value }) => `
-            <div class="dashboard-kpi-card metric">
-              <span class="dashboard-kpi-content">
-                <span class="dashboard-kpi-label k">${esc(label)}</span>
-                <strong class="v">${value === null ? "Unavailable" : value.toLocaleString("en-US")}</strong>
-              </span>
-            </div>`).join("")}</div>`;
       analyticsPeriodHtml = `
         <section class="dashboard-command" aria-labelledby="analyticsPeriodTitle">
           <div class="dashboard-command-head">
@@ -11246,7 +10315,7 @@ return `
               ${renderReportingPeriodControl({ range, start: dateValue("start"), end: dateValue("end"), analytics: true })}
             </form>
           </div>
-          ${summary}
+          ${periodError ? `<p class="sub" role="alert">${esc(periodError)} Showing the last 30 days.</p>` : ""}
         </section>`;
     }
     const eventsMenuOpen = showExisting || showCreate || showApprove || showEventReports || showUpload;
@@ -13058,8 +12127,7 @@ return `
         white-space:nowrap;
       }
       /* Mutually exclusive mini-panels are alternatives, not stacked content. */
-      .grid2 > .card:last-child [data-category-leader-panel].mini + [data-category-leader-panel].mini,
-      [data-top-events-panel].mini{
+      .grid2 > .card:last-child [data-category-leader-panel].mini + [data-category-leader-panel].mini{
         margin-top:0;
       }
       .grid4 > .card .mini-spaced{
@@ -15608,7 +14676,7 @@ return `
           ${selectedEventAnalytics ? `
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("All views", analyticsMetricHelp.allViews)}</div>
+              <div class="k">${analyticsMetricLabel("All views", "Tracked event-page views during the selected reporting period.")}</div>
               <div class="v">${esc(selectedEventAnalytics.allViews.toLocaleString("en-US"))}</div>
             </div>
           </div>
@@ -15643,25 +14711,25 @@ return `
           ` : `
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("Total events", analyticsMetricHelp.totalEvents)}</div>
+              <div class="k">${analyticsMetricLabel("Total events", "Scheduled occurrences starting during this reporting period, including recurring dates.")}</div>
               <div class="v">${esc(stats.total)}</div>
             </div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("Unique events", analyticsMetricHelp.uniqueEvents)}</div>
+              <div class="k">${analyticsMetricLabel("Unique events", "Event records with at least one scheduled date in this reporting period.")}</div>
               <div class="v">${esc(stats.uniqueTotal)}</div>
             </div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("Upcoming", analyticsMetricHelp.upcoming)}</div>
+              <div class="k">${analyticsMetricLabel("Upcoming", "Scheduled occurrences that have yet to start within this reporting period.")}</div>
               <div class="v">${esc(stats.upcoming)}</div>
             </div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("Featured", analyticsMetricHelp.featured)}</div>
+              <div class="k">${analyticsMetricLabel("Featured", "Featured events with at least one scheduled date in this reporting period.")}</div>
               <div class="v">${esc(stats.featured)}</div>
             </div>
           </div>
@@ -15669,7 +14737,7 @@ return `
         <section class="metrics analytics-engagement-metrics" aria-label="Event view sources">
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("All views", analyticsMetricHelp.allViews)}</div>
+              <div class="k">${analyticsMetricLabel("All views", "Tracked event-page views during the selected reporting period.")}</div>
               <div class="v">${esc(stats.sourceTracked)}</div>
             </div>
           </div>
@@ -15712,7 +14780,7 @@ return `
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
                 <div class="chartTitle">${selectedEventAnalytics ? "Event views over time" : "Event activity over time"}</div>
-                <p class="sub" id="chartRangeLabel">${esc(chartRangeLabelByMode[chartViewMode] || chartRangeLabelByMode.daily)} · Events use scheduled start dates; views use recorded dates.</p>
+                <p class="sub" id="chartRangeLabel">Selected reporting period · Events use scheduled start dates; views use recorded dates.${hasSourceTrackingTable ? "" : " View tracking is unavailable."}</p>
                 <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
                       ${!selectedEventAnalytics ? `
                       <div class="chartLegendItem is-events" data-legend-metric="events">
@@ -15726,19 +14794,10 @@ return `
                     </div>
                   </div>
                 </div>
-              <div class="right">
-                <div class="seg" id="chartViewSeg" aria-label="Chart view">
-                  <a href="${buildAnalyticsChartHref("daily")}" data-view="daily" class="${chartViewMode === "daily" ? "on" : ""}">Daily</a>
-                  <a href="${buildAnalyticsChartHref("weekly")}" data-view="weekly" class="${chartViewMode === "weekly" ? "on" : ""}">Weekly</a>
-                  <a href="${buildAnalyticsChartHref("monthly")}" data-view="monthly" class="${chartViewMode === "monthly" ? "on" : ""}">Monthly</a>
-                  <a href="${buildAnalyticsChartHref("yearly")}" data-view="yearly" class="${chartViewMode === "yearly" ? "on" : ""}">Yearly</a>
-                </div>
-              </div>
             </div>
             <div class="chart-wrap" id="eventsChartWrap" style="min-height:96px;">
-              <div id="eventsChartSvgHost">${eventsChartSvgByMode[chartViewMode] || eventsChartSvgByMode.daily}</div>
-              <div id="eventsChartData" data-chart="${esc(chartDataJson)}" hidden></div>
-              <canvas id="eventsChart" style="width:100%; height:194px; display:none;"></canvas>
+              <div id="eventsChartSvgHost">${eventsChartSvg}</div>
+              <div id="eventsChartData" data-chart="${esc(JSON.stringify(chartSeries))}" hidden></div>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
           </div>
@@ -15759,7 +14818,7 @@ return `
 
         ${showOrganizers ? `
         <section class="metrics" id="organizer-analytics-metrics">
-          <div class="metric"><div><div class="k">${analyticsMetricLabel("Organizers", analyticsMetricHelp.organizers)}</div><div class="v">${organizerAnalyticsOptions.length.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">${analyticsMetricLabel("Organizers", analyticsMetricHelp.organizers)}</div><div class="v">${fmt(selectedOrganizer ? Number(organizerLeaderboard.some((row) => row.organizer === selectedOrganizer)) : organizerLeaderboard.length)}</div></div></div>
           <div class="metric"><div><div class="k">${analyticsMetricLabel("Unique events", analyticsMetricHelp.uniqueEvents)}</div><div class="v">${organizerPageSummary.uniqueEvents.toLocaleString("en-US")}</div></div></div>
           <div class="metric"><div><div class="k">${analyticsMetricLabel("Total events", analyticsMetricHelp.totalEvents)}</div><div class="v">${organizerPageSummary.totalOccurrences.toLocaleString("en-US")}</div></div></div>
           <div class="metric"><div><div class="k">${analyticsMetricLabel("Upcoming", analyticsMetricHelp.upcoming)}</div><div class="v">${organizerPageSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div></div>
@@ -15780,7 +14839,7 @@ return `
                       <span>Views</span>
                     </div>
                   </div>
-                  <p class="sub" id="organizerChartRangeLabel">Last 12 months</p>
+                  <p class="sub" id="organizerChartRangeLabel">Selected reporting period</p>
                 </div>
                 <div class="chartTitle" style="font-weight:700;">${esc(organizerChartTitle)}</div>
               </div>
@@ -15826,7 +14885,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>${esc(organizerTopEventsTitle)}</h2>
-                <p class="sub">Top 5 by lifetime views</p>
+                <p class="sub">Top 5 by views in the selected period</p>
               </div>
             </div>
             <div class="mini mini-list">${organizerTopEventsHtml}</div>
@@ -15862,7 +14921,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>${esc(organizerTopEventsTitle)}</h2>
-                <p class="sub">Top 5 by lifetime views</p>
+                <p class="sub">Top 5 by views in the selected period</p>
               </div>
             </div>
             <div class="mini mini-list">${organizerTopEventsHtml}</div>
@@ -15878,7 +14937,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Most popular categories</h2>
-                <p class="sub">Lifetime views by category. Events with multiple categories contribute to each assigned category.</p>
+                <p class="sub">Views by category in the selected reporting period. Events with multiple categories contribute to each assigned category.</p>
               </div>
             </div>
             <div class="mini">
@@ -15923,17 +14982,8 @@ return `
                 <h2>Top performing events</h2>
                 <p class="sub">Top 5 ranked by tracked views in the selected period.</p>
               </div>
-              <div class="seg" data-top-events-toggle aria-label="Top event period">
-                <button type="button" class="on" data-top-events-period="today" aria-pressed="true">Today</button>
-                <button type="button" data-top-events-period="week" aria-pressed="false">This week</button>
-                <button type="button" data-top-events-period="month" aria-pressed="false">This month</button>
-                <button type="button" data-top-events-period="year" aria-pressed="false">This year</button>
-              </div>
             </div>
-            <div class="mini mini-list" data-top-events-panel="today"><div class="top-events-column-head"><span>Event</span><span>Views</span></div>${topTodayHtml}</div>
-            <div class="mini mini-list" data-top-events-panel="week" hidden><div class="top-events-column-head"><span>Event</span><span>Views</span></div>${topWeekHtml}</div>
-            <div class="mini mini-list" data-top-events-panel="month" hidden><div class="top-events-column-head"><span>Event</span><span>Views</span></div>${topMonthHtml}</div>
-            <div class="mini mini-list" data-top-events-panel="year" hidden><div class="top-events-column-head"><span>Event</span><span>Views</span></div>${topYearHtml}</div>
+            <div class="mini mini-list"><div class="top-events-column-head"><span>Event</span><span>Views</span></div>${topPeriodEventsHtml}</div>
         </section>
         ` : ``}
 
@@ -16291,7 +15341,7 @@ return `
           </div>
           <div class="metric" data-newsletter-search-item>
             <div>
-              <div class="k">${analyticsMetricLabel("Audience size", analyticsMetricHelp.audienceSize)}</div>
+              <div class="k">${analyticsMetricLabel("Audience reached", "Distinct recipients of delivered campaign emails in this reporting period.")}</div>
               <div class="v">${newsletterAnalyticsStats.audienceSize.toLocaleString("en-US")}</div>
             </div>
           </div>
@@ -16318,20 +15368,12 @@ return `
                       <span>Opens</span>
                     </div>
                   </div>
-                  <p class="sub">${esc(chartRangeLabelByMode[chartViewMode] || chartRangeLabelByMode.daily)}</p>
-                </div>
-              </div>
-              <div class="right">
-                <div class="seg" id="newsletterChartViewSeg" aria-label="Newsletter chart view">
-                  <a href="${buildNewsletterAnalyticsChartHref("daily")}" data-view="daily" class="${chartViewMode === "daily" ? "on" : ""}">Daily</a>
-                  <a href="${buildNewsletterAnalyticsChartHref("weekly")}" data-view="weekly" class="${chartViewMode === "weekly" ? "on" : ""}">Weekly</a>
-                  <a href="${buildNewsletterAnalyticsChartHref("monthly")}" data-view="monthly" class="${chartViewMode === "monthly" ? "on" : ""}">Monthly</a>
-                  <a href="${buildNewsletterAnalyticsChartHref("yearly")}" data-view="yearly" class="${chartViewMode === "yearly" ? "on" : ""}">Yearly</a>
+                  <p class="sub">Campaigns sent in the selected reporting period</p>
                 </div>
               </div>
             </div>
             <div class="chart-wrap" id="newsletterChartWrap" style="min-height:220px;">
-              <div id="newsletterChartSvgHost">${newsletterChartSvgByMode[chartViewMode] || newsletterChartSvgByMode.daily}</div>
+              <div id="newsletterChartSvgHost">${newsletterChartSvg}</div>
               <div id="newsletterChartData" data-chart="${newsletterChartDataJson}" hidden></div>
               <canvas id="newsletterChart" style="position:absolute; inset:0; width:100%; height:100%; display:none;"></canvas>
               <div id="newsletterChartTip" style="position:absolute; display:none; pointer-events:none;"></div>
@@ -16960,7 +16002,7 @@ return `
             <form method="POST" action="/admin/updates" enctype="multipart/form-data"><input type="hidden" name="id" value="${esc(editUpdate?.id || "")}" /><div class="formGrid"><label>Title<input class="ctrl" name="title" required maxlength="180" value="${esc(editUpdate?.title || "")}" /></label>${editUpdate ? `<label>URL slug <input class="ctrl" name="slug" maxlength="180" value="${esc(editUpdate.slug || "")}" /><span class="note">Leave unchanged to keep the published URL stable.</span></label>` : ``}<label>Community<select class="ctrl" name="city">${cityOptions}</select></label><label>Category<select class="ctrl" name="categoryId"><option value="">Uncategorized</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(editUpdate?.categoryId || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></label><label>Status<select class="ctrl" name="status">${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(editUpdate?.status || "draft") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select></label><label>Publication date/time<input class="ctrl" type="datetime-local" name="scheduledFor" value="${esc(String(editUpdate?.scheduledFor || "").replace(/Z$/, "").slice(0,16))}" /></label><label>Tags<input class="ctrl" name="tags" maxlength="900" value="${esc((safeParseJson(editUpdate?.tagsJson, []) || []).join(", "))}" placeholder="Comma-separated" /></label></div><label>Summary<textarea class="ctrl" name="summary" maxlength="600" rows="3">${esc(editUpdate?.summary || "")}</textarea></label><label>Main content<textarea class="ctrl" name="bodyHtml" required rows="14" maxlength="100000" placeholder="Use paragraphs, headings, lists, bold, italic, and safe links.">${esc(editUpdate?.bodyHtml || "")}</textarea></label><div class="formGrid"><label>Featured image<input class="ctrl" type="file" name="updateImageFile" accept="image/*" /></label><label>Image alt text<input class="ctrl" name="imageAlt" maxlength="220" value="${esc(editUpdate?.imageAlt || "")}" /></label><label>Related event IDs<input class="ctrl" name="relatedEventIds" value="" placeholder="Example: 12, 34" /></label><label>Related venue IDs<input class="ctrl" name="relatedVenueIds" value="" placeholder="Example: 8, 19" /></label></div>${editUpdate?.featuredImageUrl ? `<label class="checkbox"><input type="checkbox" name="removeImage" value="1" /> Remove current image</label>` : ``}<div class="actions"><button class="btn btn-primary" type="submit">${editUpdate ? "Save update" : "Create update"}</button><a class="btn" href="${buildScopedAdminHref("/admin/updates")}">Cancel</a></div></form>
             <form method="POST" action="/admin/updates/categories?city=${encodeURIComponent(selectedCity)}" class="mini" style="margin-top:22px;"><strong>Add a category for ${esc(selectedCity)}</strong><div class="actions" style="margin-top:8px;"><input class="ctrl" name="name" maxlength="80" required placeholder="Category name" /><button class="btn" type="submit">Add category</button></div></form>
           </div>` : ``}
-          ${showUpdatesAnalytics ? `<div class="card"><div class="sectionTitle"><div><h2>Update Analytics</h2><p class="sub">Select an update to view its public page views.</p></div></div><form method="GET" action="/admin/updates/analytics" class="filters">${analyticsPeriodFields}<input type="hidden" name="city" value="${esc(selectedCity)}" /><select class="ctrl" name="update">${updateRows.map((row) => `<option value="${row.id}" ${Number(req.query.update || 0) === row.id ? "selected" : ""}>${esc(row.title)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">View analytics</button></form>${editUpdate ? `<div class="mini" style="margin-top:16px;"><h3>${esc(editUpdate.title)}</h3><div class="stats"><div class="stat"><div class="k">Total views</div><div class="v">${updateViewTotal.toLocaleString("en-US")}</div></div><div class="stat"><div class="k">Published</div><div class="v">${esc(editUpdate.publishedAt || "Not published")}</div></div></div></div>` : ``}</div>` : ``}
+          ${showUpdatesAnalytics ? `<div class="card"><div class="sectionTitle"><div><h2>Update Analytics</h2><p class="sub">Public page views in the selected reporting period.</p></div></div><form method="GET" action="/admin/updates/analytics" class="filters">${analyticsPeriodFields}<input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" /><input type="hidden" name="city" value="${esc(selectedCity)}" /><select class="ctrl" name="update"><option value="">All updates</option>${updateRows.map((row) => `<option value="${row.id}" ${Number(req.query.update || 0) === row.id ? "selected" : ""}>${esc(row.title)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">View analytics</button></form><div class="mini" style="margin-top:16px;"><h3>${esc(editUpdate?.title || "Update views")}</h3><div class="stats"><div class="stat"><div class="k">Total views</div><div class="v">${updateViewTotal.toLocaleString("en-US")}</div></div>${editUpdate ? `<div class="stat"><div class="k">Published</div><div class="v">${esc(editUpdate.publishedAt || "Not published")}</div></div>` : ""}</div></div></div>` : ``}
         </section>` : ``}
 
         <!-- Manage -->
@@ -18241,11 +17283,11 @@ return `
 	            <div class="card" style="margin-top:14px;">
 	              <div class="sectionTitle">
 	                <div>
-	                  <h2>Venue monthly performance</h2>
-	                  <p class="sub">Choose one venue to review monthly views and click activity</p>
+	                  <h2>Venue performance</h2>
+	                  <p class="sub">Choose one venue to review daily views and click activity</p>
 	                </div>
 	              </div>
-	              <form class="analytics-toolbar" method="GET" action="/admin/venues/analytics">${analyticsPeriodFields}
+	              <form class="analytics-toolbar" method="GET" action="/admin/venues/analytics">${analyticsPeriodFields}<input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" />
 	                ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
 	                <div style="min-width:0; flex:1 1 360px;">
 	                  <label for="venueAnalyticsSelect" style="margin-top:0;">Venue</label>
@@ -18261,15 +17303,15 @@ return `
 	                </div>
 	                <button class="btn btn-primary" type="submit" ${venueAnalyticsOptions.length ? "" : "disabled"}>View venue</button>
 	              </form>
-	              <div class="note">Monthly venue interaction history starts from this update forward.</div>
+	              <div class="note">Shows recorded venue activity during the selected period.</div>
 
 		              ${selectedVenue ? `
 		                <div class="venue-monthly-grid">
 		                  <div class="mini">
 		                    <div class="sectionTitle sectionTitle--chart" style="margin-bottom:10px;">
 		                      <div class="left">
-		                        <div class="chartTitle" style="font-weight:700;">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)} monthly performance</div>
-		                        <p class="sub" id="venueChartRangeLabel">Last 12 months</p>
+		                        <div class="chartTitle" style="font-weight:700;">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)} performance</div>
+		                        <p class="sub" id="venueChartRangeLabel">Selected reporting period</p>
 		                        <div class="chartLegend" id="venueChartLegend" aria-label="Chart legend">
 		                          <div class="chartLegendItem is-events" data-legend-metric="views">
 		                            <span class="chartLegendLine"></span>
@@ -18298,7 +17340,7 @@ return `
 		                    </div>
 		                  </div>
 		                </div>
-		              ` : `<div class="muted" style="margin-top:12px;">Add a venue first to see monthly performance.</div>`}
+		              ` : `<div class="muted" style="margin-top:12px;">Add a venue first to see performance.</div>`}
 	            </div>
 	          </div>
 	          ` : ``}
@@ -18618,17 +17660,17 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Job analytics</h2>
-                <p class="sub">Performance and funnel metrics for job listings</p>
+                <p class="sub">Current status of listings posted in the reporting period and applications received during it.</p>
               </div>
             </div>
 
             <div class="kpis">
-              <div class="kpi"><div class="label">Total Jobs</div><div class="value">${Number(jobAnalyticsStats.total || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Jobs posted</div><div class="value">${Number(jobAnalyticsStats.total || 0).toLocaleString("en-US")}</div></div>
               <div class="kpi"><div class="label">Active</div><div class="value">${Number(jobAnalyticsStats.active || 0).toLocaleString("en-US")}</div></div>
               <div class="kpi"><div class="label">Paused</div><div class="value">${Number(jobAnalyticsStats.paused || 0).toLocaleString("en-US")}</div></div>
               <div class="kpi"><div class="label">Filled</div><div class="value">${Number(jobAnalyticsStats.filled || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Total Views</div><div class="value">${Number(jobAnalyticsStats.views || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Avg Views / Job</div><div class="value">${Number(jobAnalyticsStats.avgViews || 0).toLocaleString("en-US")}</div></div>
+              <div class="kpi"><div class="label">Applications received</div><div class="value">${fmt(jobApplicantStats.total)}</div></div>
+              <div class="kpi"><div class="label">Listings with an apply link</div><div class="value">${fmt(jobAnalyticsStats.withApplyUrl)}</div></div>
             </div>
 
             <div class="venue-analytics-grid2" style="margin-top:14px;">
@@ -18650,7 +17692,7 @@ return `
                 <div class="sectionTitle">
                   <div>
                     <h2>Applicants funnel</h2>
-                    <p class="sub">Status totals across all applicants</p>
+                    <p class="sub">Current status of applications received during the selected period</p>
                   </div>
                 </div>
                 <div class="mini">
@@ -18918,11 +17960,11 @@ return `
             <div class="card" style="margin-top:14px;">
               <div class="sectionTitle">
                 <div>
-                  <h2>Ad monthly performance</h2>
-                  <p class="sub">Choose one ad to review monthly views and clicks</p>
+                  <h2>Ad performance</h2>
+                  <p class="sub">Choose one ad to review daily views and clicks</p>
                 </div>
               </div>
-              <form class="analytics-toolbar" method="GET" action="/admin/ads/analytics">${analyticsPeriodFields}
+              <form class="analytics-toolbar" method="GET" action="/admin/ads/analytics">${analyticsPeriodFields}<input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" />
                 ${selectedCity ? `<input type="hidden" name="city" value="${esc(selectedCity)}" />` : ``}
                 <div style="min-width:0; flex:1 1 260px;">
                   <label for="adAnalyticsSelect" style="margin-top:0;">Ad</label>
@@ -18944,7 +17986,7 @@ return `
                   <div class="sectionTitle">
                     <div>
                       <h2>Placement breakdown</h2>
-                      <p class="sub">How many ads exist per slot</p>
+                      <p class="sub">Placements for ads in the selected period</p>
                     </div>
                   </div>
                   <div class="mini">
@@ -18958,8 +18000,8 @@ return `
                   ${selectedAd ? `
                   <div class="mini">
                     <div class="kv"><span class="k">Placements</span><strong class="v">${esc((selectedAd.placements || []).join(", ") || selectedAd.placement || "default")}</strong></div>
-                    <div class="kv"><span class="k">Lifetime views</span><strong class="v">${Number(selectedAd.viewCount || 0).toLocaleString("en-US")}</strong></div>
-                    <div class="kv"><span class="k">Lifetime clicks</span><strong class="v">${Number(selectedAd.clickCount || 0).toLocaleString("en-US")}</strong></div>
+                    <div class="kv"><span class="k">Views in period</span><strong class="v">${Number(selectedAd.viewCount || 0).toLocaleString("en-US")}</strong></div>
+                    <div class="kv"><span class="k">Clicks in period</span><strong class="v">${Number(selectedAd.clickCount || 0).toLocaleString("en-US")}</strong></div>
                   </div>
                   ` : `<div class="muted">Select an ad to view details.</div>`}
                 </div>
@@ -18970,8 +18012,8 @@ return `
                 <div class="mini">
                   <div class="sectionTitle sectionTitle--chart" style="margin-bottom:10px;">
                     <div class="left">
-                      <div class="chartTitle" style="font-weight:700;">${esc(selectedAd.name || `Ad #${selectedAd.id}`)} monthly performance</div>
-                      <p class="sub" id="adChartRangeLabel">Last 12 months</p>
+                      <div class="chartTitle" style="font-weight:700;">${esc(selectedAd.name || `Ad #${selectedAd.id}`)} performance</div>
+                      <p class="sub" id="adChartRangeLabel">Selected reporting period</p>
                       <div class="chartLegend" id="adChartLegend" aria-label="Chart legend">
                         <div class="chartLegendItem is-events" data-legend-metric="views">
                           <span class="chartLegendLine"></span>
@@ -19000,7 +18042,7 @@ return `
                   </div>
                 </div>
               </div>
-              ` : `<div class="muted" style="margin-top:12px;">Create an ad first to see monthly performance.</div>`}
+              ` : `<div class="muted" style="margin-top:12px;">Create an ad first to see performance.</div>`}
             </div>
           </div>
           ` : ``}
@@ -20761,10 +19803,10 @@ return `
     const yMin = Math.min.apply(null, points.map((p) => (typeof p.chartMinY !== "undefined" ? p.chartMinY : p.y)));
     const yMax = Math.max.apply(null, points.map((p) => (typeof p.chartMaxY !== "undefined" ? p.chartMaxY : p.y)));
     ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
     if (points.length === 1) {
-      ctx.lineTo(points[0].x, points[0].y);
+      ctx.arc(points[0].x, points[0].y, 2, 0, Math.PI * 2);
     } else {
+      ctx.moveTo(points[0].x, points[0].y);
       for (let i = 0; i < points.length - 1; i++) {
         const p0 = points[i - 1] || points[i];
         const p1 = points[i];
@@ -21016,14 +20058,12 @@ return `
   }
 
   function initNewsletterChart(){
-    const wrap = document.getElementById("newsletterChartWrap"), host = document.getElementById("newsletterChartSvgHost"), data = document.getElementById("newsletterChartData"), canvas = document.getElementById("newsletterChart"), tip = document.getElementById("newsletterChartTip"), seg = document.getElementById("newsletterChartViewSeg");
+    const wrap = document.getElementById("newsletterChartWrap"), host = document.getElementById("newsletterChartSvgHost"), data = document.getElementById("newsletterChartData"), canvas = document.getElementById("newsletterChart"), tip = document.getElementById("newsletterChartTip");
     if (!wrap || !canvas || !canvas.getContext) return;
     const ctx = canvas.getContext("2d"); if (!ctx) return;
     let chartData = { events:{}, views:{} }; try { chartData = JSON.parse(data?.getAttribute("data-chart") || "{}") || chartData; } catch (_) {}
-    const selected = seg?.querySelector(".on");
-    const mode = String(selected?.getAttribute("data-view") || "daily");
-    const primary = (chartData.events && chartData.events[mode]) || { labels:[], values:[] };
-    const secondary = (chartData.views && chartData.views[mode]) || { labels:[], values:[] };
+    const primary = chartData.events || { labels:[], values:[] };
+    const secondary = chartData.views || { labels:[], values:[] };
     const labels = Array.isArray(primary.labels) ? primary.labels : [];
     const sent = Array.isArray(primary.values) ? primary.values.map(Number) : [];
     const opened = Array.isArray(secondary.values) ? secondary.values.map(Number) : [];
@@ -21052,525 +20092,49 @@ return `
   }
 
   function initEventsChart(){
-    const $svgHost = document.getElementById("eventsChartSvgHost");
-    const $data   = document.getElementById("eventsChartData");
-    const $canvas = document.getElementById("eventsChart");
-    const $wrap   = document.getElementById("eventsChartWrap");
-    const $tip    = document.getElementById("eventsChartTip");
-    const $seg    = document.getElementById("chartViewSeg");
-    const $range  = document.getElementById("chartRangeLabel");
-    const $legend = document.getElementById("eventsChartLegend");
-    const $info = document.getElementById("eventsChartInfo");
-    const hoverOverlay = ensureChartHoverOverlay($wrap, "events");
-    if ($svgHost && !$canvas) {
-      if ($canvas) $canvas.style.display = "none";
-      if ($info) $info.style.display = "none";
-      let svgChartSets = { events: {}, views: {} };
-      try {
-        if ($data) {
-          const rawChartJson = ($data.getAttribute("data-chart") || ($data.textContent || "").trim() || "{}");
-          const parsed = JSON.parse(rawChartJson);
-          if (parsed && typeof parsed === "object") {
-            svgChartSets = parsed;
-          }
-        }
-      } catch (_) {}
-      const hasCityEventSeries = !!(svgChartSets.cityEvents && svgChartSets.cityEvents.daily);
-      // Individual event reports intentionally chart views only. The absence of
-      // the Events legend is the server-rendered signal for that mode.
-      const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
-      function showSvgChartTip(index, ev){
-        if (!$tip || !ev) return;
-        const activeViewEl = $seg ? $seg.querySelector(".on") : null;
-        const mode = activeViewEl ? String(activeViewEl.getAttribute("data-view") || "daily") : "daily";
-        const eventSet = (svgChartSets.events && svgChartSets.events[mode]) ? svgChartSets.events[mode] : { labels: [], values: [] };
-        const viewSet = (svgChartSets.views && svgChartSets.views[mode]) ? svgChartSets.views[mode] : { labels: [], values: [] };
-        const cityEventSet = (svgChartSets.cityEvents && svgChartSets.cityEvents[mode]) ? svgChartSets.cityEvents[mode] : { labels: [], values: [] };
-        const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
-        const eventValues = Array.isArray(eventSet.values) ? eventSet.values : [];
-        const viewValues = Array.isArray(viewSet.values) ? viewSet.values : [];
-        const cityEventValues = Array.isArray(cityEventSet.values) ? cityEventSet.values : [];
-        const safeIndex = Math.max(0, Math.min(Number(index || 0), labels.length - 1));
-        const label = String(labels[safeIndex] || "");
-        const periodNames = { daily: "Day", weekly: "Week", monthly: "Month", yearly: "Year" };
-        const svgEl = $svgHost ? $svgHost.querySelector("svg") : null;
-        const svgRect = svgEl ? svgEl.getBoundingClientRect() : null;
-        const viewBoxHeight = Number(svgEl?.viewBox?.baseVal?.height || 260);
-        const topInset = isIndividualEventChart ? 18 : ${CHART_TITLED_AXIS_TOP};
-        const plotFrame = svgRect ? {
-          padT: svgRect.height * (topInset / viewBoxHeight),
-          gh: svgRect.height - (svgRect.height * ((topInset + 32) / viewBoxHeight)),
-        } : null;
-        const pointX = svgRect && labels.length > 1
-          ? (svgRect.width * (56 / 1200)) + ((svgRect.width - (svgRect.width * (56 / 1200)) - (svgRect.width * (18 / 1200))) / (labels.length - 1)) * safeIndex
-          : (svgRect ? svgRect.width / 2 : 0);
-        const allValues = (isIndividualEventChart ? viewValues : eventValues.concat(viewValues))
-          .map((v) => Number(v || 0));
-        const yScale = getYScale(allValues);
-        const primaryY = plotFrame
-          ? clamp(plotFrame.padT + plotFrame.gh - ((Number(eventValues[safeIndex] || 0) / yScale.yMax) * plotFrame.gh), plotFrame.padT, plotFrame.padT + plotFrame.gh)
-          : 0;
-        const secondaryY = plotFrame
-          ? clamp(plotFrame.padT + plotFrame.gh - ((Number(viewValues[safeIndex] || 0) / yScale.yMax) * plotFrame.gh), plotFrame.padT, plotFrame.padT + plotFrame.gh)
-          : 0;
-        showChartHoverOverlay(
-          hoverOverlay,
-          { padT: plotFrame ? plotFrame.padT : 0, gh: plotFrame ? plotFrame.gh : 0 },
-          { x: pointX, y: isIndividualEventChart ? secondaryY : primaryY },
-          isIndividualEventChart ? null : { x: pointX, y: secondaryY },
-          getChartPalette(isIndividualEventChart ? "clicks" : "events")
-        );
-        showChartTipCard($tip, $wrap, pointX, isIndividualEventChart ? secondaryY : Math.min(primaryY, secondaryY), renderChartTipHtml(
-          (periodNames[mode] || "Period") + ": " + label,
-          isIndividualEventChart
-            ? [{ label: "Views", value: Number(viewValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" }]
-            : [
-              { label: hasCityEventSeries ? "My events" : "Events", value: Number(eventValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
-              ...(Number(cityEventValues[safeIndex] || 0) > 0 ? [{ label: "City events", value: Number(cityEventValues[safeIndex] || 0).toLocaleString("en-US"), color: "#475569" }] : []),
-              { label: "Views", value: Number(viewValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
-            ]
-        ));
-      }
-      function hideSvgChartTip(){
-        if ($tip) $tip.style.display = "none";
-        hideChartHoverOverlay(hoverOverlay);
-      }
-      function getSvgHoverIndexFromEvent(ev){
-        const activeViewEl = $seg ? $seg.querySelector(".on") : null;
-        const mode = activeViewEl ? String(activeViewEl.getAttribute("data-view") || "daily") : "daily";
-        const eventSet = (svgChartSets.events && svgChartSets.events[mode]) ? svgChartSets.events[mode] : { labels: [], values: [] };
-        const labels = Array.isArray(eventSet.labels) ? eventSet.labels : [];
-        if (!labels.length || !$svgHost) return -1;
-        const svgEl = $svgHost.querySelector("svg");
-        if (!svgEl) return -1;
-        const rect = svgEl.getBoundingClientRect();
-        if (!rect.width || !rect.height) return -1;
-        const viewBoxHeight = Number(svgEl.viewBox?.baseVal?.height || 260);
-        const mx = ev.clientX - rect.left;
-        const my = ev.clientY - rect.top;
-        const padL = rect.width * (56 / 1200);
-        const padR = rect.width * (18 / 1200);
-        const padT = rect.height * ((isIndividualEventChart ? 18 : ${CHART_TITLED_AXIS_TOP}) / viewBoxHeight);
-        const padB = rect.height * (32 / viewBoxHeight);
-        const plotW = rect.width - padL - padR;
-        const plotH = rect.height - padT - padB;
-        if (mx < padL || mx > padL + plotW || my < padT || my > padT + plotH) return -1;
-        if (labels.length === 1) return 0;
-        const stepX = plotW / (labels.length - 1);
-        const rawIndex = Math.round((mx - padL) / stepX);
-        return Math.max(0, Math.min(rawIndex, labels.length - 1));
-      }
-      window.ocShowEventsChartTipIndex = showSvgChartTip;
-      window.ocHideEventsChartTip = hideSvgChartTip;
+    const host = document.getElementById("eventsChartSvgHost");
+    const wrap = document.getElementById("eventsChartWrap");
+    const tip = document.getElementById("eventsChartTip");
+    const data = document.getElementById("eventsChartData");
+    const svg = host?.querySelector("svg");
+    if (!svg || !wrap || !tip || !data) return;
 
-      const handleSvgChartPointerMove = function(ev){
-        const index = getSvgHoverIndexFromEvent(ev);
-        if (!Number.isInteger(index) || index < 0) {
-          hideSvgChartTip();
-          return;
-        }
-        showSvgChartTip(index, ev);
-      };
-      // Pointer events cover mouse, trackpad, pen, and touch-enabled desktops.
-      $svgHost.addEventListener("pointermove", handleSvgChartPointerMove);
-      $svgHost.addEventListener("pointerleave", hideSvgChartTip);
-      return;
-    }
-    if ($svgHost) $svgHost.style.display = "none";
-    if ($canvas) $canvas.style.display = "block";
-    if ($info) $info.style.display = "none";
-
-    if (!$canvas || !$wrap) return;
-    const ctx = $canvas.getContext("2d");
-    if (!ctx) return;
-
-    let chartSets = { events: {}, views: {} };
+    let series;
     try {
-      if ($data) {
-        const rawChartJson = ($data.getAttribute("data-chart") || ($data.textContent || "").trim() || "{}");
-        const parsed = JSON.parse(rawChartJson);
-        if (parsed && typeof parsed === "object") {
-          const parsedEvents = parsed.events || {};
-          const parsedViews = parsed.views || {};
-          const parsedCityEvents = parsed.cityEvents || {};
-          chartSets = {
-            events: {
-              daily: {
-                labels: parsedEvents.daily && Array.isArray(parsedEvents.daily.labels) ? parsedEvents.daily.labels : [],
-                values: parsedEvents.daily && Array.isArray(parsedEvents.daily.values) ? parsedEvents.daily.values : [],
-              },
-              weekly: {
-                labels: parsedEvents.weekly && Array.isArray(parsedEvents.weekly.labels) ? parsedEvents.weekly.labels : [],
-                values: parsedEvents.weekly && Array.isArray(parsedEvents.weekly.values) ? parsedEvents.weekly.values : [],
-              },
-              monthly: {
-                labels: parsedEvents.monthly && Array.isArray(parsedEvents.monthly.labels) ? parsedEvents.monthly.labels : [],
-                values: parsedEvents.monthly && Array.isArray(parsedEvents.monthly.values) ? parsedEvents.monthly.values : [],
-              },
-              yearly: {
-                labels: parsedEvents.yearly && Array.isArray(parsedEvents.yearly.labels) ? parsedEvents.yearly.labels : [],
-                values: parsedEvents.yearly && Array.isArray(parsedEvents.yearly.values) ? parsedEvents.yearly.values : [],
-              },
-            },
-            views: {
-              daily: {
-                labels: parsedViews.daily && Array.isArray(parsedViews.daily.labels) ? parsedViews.daily.labels : [],
-                values: parsedViews.daily && Array.isArray(parsedViews.daily.values) ? parsedViews.daily.values : [],
-              },
-              weekly: {
-                labels: parsedViews.weekly && Array.isArray(parsedViews.weekly.labels) ? parsedViews.weekly.labels : [],
-                values: parsedViews.weekly && Array.isArray(parsedViews.weekly.values) ? parsedViews.weekly.values : [],
-              },
-              monthly: {
-                labels: parsedViews.monthly && Array.isArray(parsedViews.monthly.labels) ? parsedViews.monthly.labels : [],
-                values: parsedViews.monthly && Array.isArray(parsedViews.monthly.values) ? parsedViews.monthly.values : [],
-              },
-              yearly: {
-                labels: parsedViews.yearly && Array.isArray(parsedViews.yearly.labels) ? parsedViews.yearly.labels : [],
-                values: parsedViews.yearly && Array.isArray(parsedViews.yearly.values) ? parsedViews.yearly.values : [],
-              },
-            },
-            cityEvents: {
-              daily: {
-                labels: parsedCityEvents.daily && Array.isArray(parsedCityEvents.daily.labels) ? parsedCityEvents.daily.labels : [],
-                values: parsedCityEvents.daily && Array.isArray(parsedCityEvents.daily.values) ? parsedCityEvents.daily.values : [],
-              },
-              weekly: {
-                labels: parsedCityEvents.weekly && Array.isArray(parsedCityEvents.weekly.labels) ? parsedCityEvents.weekly.labels : [],
-                values: parsedCityEvents.weekly && Array.isArray(parsedCityEvents.weekly.values) ? parsedCityEvents.weekly.values : [],
-              },
-              monthly: {
-                labels: parsedCityEvents.monthly && Array.isArray(parsedCityEvents.monthly.labels) ? parsedCityEvents.monthly.labels : [],
-                values: parsedCityEvents.monthly && Array.isArray(parsedCityEvents.monthly.values) ? parsedCityEvents.monthly.values : [],
-              },
-              yearly: {
-                labels: parsedCityEvents.yearly && Array.isArray(parsedCityEvents.yearly.labels) ? parsedCityEvents.yearly.labels : [],
-                values: parsedCityEvents.yearly && Array.isArray(parsedCityEvents.yearly.values) ? parsedCityEvents.yearly.values : [],
-              },
-            },
-          };
-        }
-      }
-    } catch (_) {}
-    const hasCityEventSeries = !!(chartSets.cityEvents && chartSets.cityEvents.daily);
-
-    let mode = (($seg && $seg.querySelector(".on")) ? String($seg.querySelector(".on").getAttribute("data-view") || "daily") : "daily");
-    let hoverIndex = -1;
-    let resizeRetry = 0;
-
-  function setActiveBtn(){
-    if ($seg) {
-      $seg.querySelectorAll("[data-view]").forEach((b) => {
-        const on = (b.getAttribute("data-view") === mode);
-        b.classList.toggle("on", on);
-        b.setAttribute("aria-pressed", on ? "true" : "false");
-      });
-    }
-  }
-
-  function setRangeLabel(){
-    if (!$range) return;
-    const map = {
-      daily:  "Last 14 days (by start date)",
-      weekly: "Last 12 weeks (by start date)",
-      monthly:"Last 12 months (by start date)",
-      yearly: "Last 5 years (by start date)",
-    };
-    $range.textContent = (map[mode] || map.daily) + " · Events use scheduled start dates; views use recorded dates.";
-  }
-
-  function getPeriodLabel(rawLabel){
-    const label = String(rawLabel || "").trim();
-    if (!label) return "";
-    const prefixMap = {
-      daily: "Day",
-      weekly: "Week",
-      monthly: "Month",
-      yearly: "Year",
-    };
-    return (prefixMap[mode] || "Period") + ": " + label;
-  }
-
-  function syncLegend(){
-    if (!$legend) return;
-    $legend.querySelectorAll("[data-legend-metric]").forEach((item) => {
-      const itemMetric = item.getAttribute("data-legend-metric") || "";
-      const line = item.querySelector(".chartLegendLine");
-      if (!line) return;
-      const isPrimary = itemMetric === "events";
-      line.classList.toggle("is-dashed", !isPrimary);
-    });
-  }
-
-    function sizeCanvas(){
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      let w = $wrap.clientWidth || Math.floor($wrap.getBoundingClientRect().width || 0);
-      if (!w || w < 10) w = Math.floor(($canvas.parentElement ? $canvas.parentElement.getBoundingClientRect().width : 0) || 0);
-      w = w || 320;
-      let h = $wrap.clientHeight || Math.floor($wrap.getBoundingClientRect().height || 0);
-      h = Math.max(220, h || 260);
-      $canvas.style.width  = w + "px";
-      $canvas.style.height = h + "px";
-      $canvas.width  = Math.floor(w * dpr);
-      $canvas.height = Math.floor(h * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      return { w, h };
-    }
-
-  function draw(){
-      const primarySet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
-      const secondarySet = (chartSets.views && chartSets.views[mode])
-        ? chartSets.views[mode]
-        : ((chartSets.views && chartSets.views.daily) ? chartSets.views.daily : { labels: [], values: [] });
-    const labels = (primarySet && primarySet.labels) ? primarySet.labels : [];
-    const primaryValues = (primarySet && primarySet.values) ? primarySet.values : [];
-    const secondaryValues = (secondarySet && secondarySet.values) ? secondarySet.values : [];
-    const combinedValues = [...primaryValues, ...secondaryValues];
-
-      const { w, h } = sizeCanvas();
-      ctx.clearRect(0,0,w,h);
-
-      const hasAnyValue = combinedValues.some((value) => Number(value || 0) > 0);
-      if (!labels.length || !hasAnyValue){
-        ctx.fillStyle = chartTheme.emptyTextColor;
-      ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-      ctx.fillText("No recent activity", 18, 90);
+      series = JSON.parse(data.getAttribute("data-chart"));
+    } catch (_) {
       return;
     }
+    const eventLegend = document.querySelector('#eventsChartLegend [data-legend-metric="events"]');
+    const overlay = ensureChartHoverOverlay(wrap, "events");
+    const hide = () => {
+      tip.style.display = "none";
+      hideChartHoverOverlay(overlay);
+    };
+    svg.addEventListener("pointermove", (event) => {
+      const hit = event.target.closest("[data-chart-hit]");
+      if (!hit) return hide();
 
-      const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
-      const frame = getChartFrame(w, h, !isIndividualEventChart);
-      if (!isIndividualEventChart) {
-        frame.padR = 58;
-        frame.gw = w - frame.padL - frame.padR;
-      }
-      const primaryScale = getYScale(primaryValues);
-      const secondaryScale = getYScale(secondaryValues);
-      const primaryPoints = labels.map((label, index) => ({
-        x: frame.padL + (labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1)) * index),
-        y: clamp(frame.padT + frame.gh - ((Number(primaryValues[index] || 0) / primaryScale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
-        value: Number(primaryValues[index] || 0),
-        index,
-        chartMinY: frame.padT,
-        chartMaxY: frame.padT + frame.gh,
-      }));
-      const secondaryPoints = labels.length === secondaryValues.length ? labels.map((label, index) => ({
-            x: frame.padL + (labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1)) * index),
-            y: clamp(frame.padT + frame.gh - ((Number(secondaryValues[index] || 0) / secondaryScale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh),
-            value: Number(secondaryValues[index] || 0),
-            index,
-            chartMinY: frame.padT,
-            chartMaxY: frame.padT + frame.gh,
-        })) : [];
+      const index = Number(hit.dataset.chartHit);
+      const rect = svg.getBoundingClientRect();
+      const { width, height } = svg.viewBox.baseVal;
+      const scaleX = rect.width / width;
+      const scaleY = rect.height / height;
+      const x = Number(hit.dataset.pointX) * scaleX;
+      const eventY = Number(hit.dataset.eventY) * scaleY;
+      const viewY = Number(hit.dataset.viewY) * scaleY;
+      const frame = { padT: Number(hit.getAttribute("y")) * scaleY, gh: Number(hit.getAttribute("height")) * scaleY };
+      const rows = [];
+      if (eventLegend) rows.push({ label: eventLegend.textContent.trim(), value: series.events[index].toLocaleString("en-US") });
+      rows.push({ label: "Views", value: series.views[index].toLocaleString("en-US") });
 
-    const palette = getChartPalette("events");
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = chartTheme.gridColor;
-    ctx.fillStyle = chartTheme.textColorMuted;
-    ctx.font = "500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-    ctx.textAlign = "left";
-    for (let i = 0; i <= primaryScale.yTicks; i++) {
-      const v = i * primaryScale.tickStep;
-      const y = frame.padT + frame.gh - (v / primaryScale.yMax) * frame.gh;
-      ctx.beginPath();
-      ctx.moveTo(frame.padL, y);
-      ctx.lineTo(frame.padL + frame.gw, y);
-      ctx.stroke();
-      ctx.fillText(String(v), 0, y + 4);
-    }
-    if (!isIndividualEventChart) {
-      ctx.textAlign = "right";
-      for (let i = 0; i <= secondaryScale.yTicks; i++) {
-        const v = i * secondaryScale.tickStep;
-        const y = frame.padT + frame.gh - (v / secondaryScale.yMax) * frame.gh;
-        ctx.fillText(String(v), w, y + 4);
-      }
-      ctx.font = "650 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-      ctx.fillStyle = chartTheme.greenStroke;
-      ctx.textAlign = "left";
-      ctx.fillText("Events", 0, ${CHART_AXIS_TITLE_BASELINE});
-      ctx.fillStyle = chartTheme.blueStroke;
-      ctx.textAlign = "right";
-      ctx.fillText("Views", w, ${CHART_AXIS_TITLE_BASELINE});
-    }
-    if (primaryPoints.length > 1) {
-      const labelStep = primaryPoints.length <= 4 ? 1 : Math.ceil(primaryPoints.length / 4);
-      labels.forEach((label, index) => {
-        if (index !== primaryPoints.length - 1 && index % labelStep !== 0) return;
-        const point = primaryPoints[index];
-        ctx.textAlign = index === primaryPoints.length - 1 ? "right" : (index === 0 ? "left" : "center");
-        ctx.fillStyle = chartTheme.textColor;
-        ctx.fillText(String(label || ""), point.x, frame.padT + frame.gh + 30);
-      });
-    }
-
-    const primaryColor = palette.primary;
-    const secondaryColor = palette.secondary;
-
-    if (primaryPoints.length) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(primaryPoints[0].x, frame.padT + frame.gh);
-      ctx.lineTo(primaryPoints[0].x, primaryPoints[0].y);
-      if (primaryPoints.length === 1) {
-        ctx.lineTo(primaryPoints[0].x, primaryPoints[0].y);
-      } else {
-        for (let i = 0; i < primaryPoints.length - 1; i++) {
-          const p0 = primaryPoints[i - 1] || primaryPoints[i];
-          const p1 = primaryPoints[i];
-          const p2 = primaryPoints[i + 1];
-          const p3 = primaryPoints[i + 2] || p2;
-          const segmentMinY = Math.min(p1.y, p2.y);
-          const segmentMaxY = Math.max(p1.y, p2.y);
-          const cp1x = p1.x + (p2.x - p0.x) / 6;
-          const cp1y = clamp(p1.y + (p2.y - p0.y) / 6, segmentMinY, segmentMaxY);
-          const cp2x = p2.x - (p3.x - p1.x) / 6;
-          const cp2y = clamp(p2.y - (p3.y - p1.y) / 6, segmentMinY, segmentMaxY);
-          ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-        }
-      }
-      const last = primaryPoints[primaryPoints.length - 1];
-      ctx.lineTo(last.x, frame.padT + frame.gh);
-      ctx.closePath();
-      ctx.fillStyle = palette.primaryFill;
-      ctx.fill();
-      ctx.restore();
-    }
-
-    if (secondaryPoints.length) {
-      ctx.save();
-      ctx.strokeStyle = secondaryColor;
-      ctx.lineWidth = chartTheme.seriesStrokeWidth;
-      ctx.setLineDash(chartTheme.secondaryDash);
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      drawSmoothLine(ctx, secondaryPoints, true);
-      ctx.restore();
-    }
-
-    ctx.save();
-    ctx.strokeStyle = primaryColor;
-    ctx.lineWidth = chartTheme.seriesStrokeWidth;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    drawSmoothLine(ctx, primaryPoints, true);
-    ctx.restore();
-
-  }
-
-  function getPointIndexFromEvent(ev){
-    const set = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
-    const values = (set && set.values) ? set.values : [];
-    if (!values.length) return -1;
-
-    const rect = $canvas.getBoundingClientRect();
-    const mx = ev.clientX - rect.left;
-    const my = ev.clientY - rect.top;
-    const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
-    const frame = getChartFrame(rect.width, rect.height, !isIndividualEventChart);
-    if (!isIndividualEventChart) {
-      frame.padR = 58;
-      frame.gw = rect.width - frame.padL - frame.padR;
-    }
-    const points = getLinePoints(frame, values);
-    return getNearestPointIndex(points, mx, my, frame);
-  }
-
-  function showTip(ev, idx){
-    if (!$tip) return;
-    const eventSet = (chartSets.events && chartSets.events[mode]) ? chartSets.events[mode] : chartSets.events.daily;
-    const viewSet = (chartSets.views && chartSets.views[mode]) ? chartSets.views[mode] : chartSets.views.daily;
-    const cityEventSet = (chartSets.cityEvents && chartSets.cityEvents[mode])
-      ? chartSets.cityEvents[mode]
-      : ((chartSets.cityEvents && chartSets.cityEvents.daily) ? chartSets.cityEvents.daily : { labels: [], values: [] });
-    const labels = (eventSet && eventSet.labels) ? eventSet.labels : [];
-    const eventValues = (eventSet && eventSet.values) ? eventSet.values : [];
-    const viewValues = (viewSet && viewSet.values) ? viewSet.values : [];
-    const cityEventValues = (cityEventSet && cityEventSet.values) ? cityEventSet.values : [];
-
-    const rect = $canvas.getBoundingClientRect();
-    const eventValue = Number(typeof eventValues[idx] !== "undefined" ? eventValues[idx] : 0);
-    const viewValue = Number(typeof viewValues[idx] !== "undefined" ? viewValues[idx] : 0);
-    const cityEventValue = Number(typeof cityEventValues[idx] !== "undefined" ? cityEventValues[idx] : 0);
-    const periodLabel = getPeriodLabel(labels[idx] || "");
-    const isIndividualEventChart = !!($legend && !$legend.querySelector('[data-legend-metric="events"]'));
-    const frame = getChartFrame(rect.width, rect.height, !isIndividualEventChart);
-    if (!isIndividualEventChart) {
-      frame.padR = 58;
-      frame.gw = rect.width - frame.padL - frame.padR;
-    }
-    const primaryScale = getYScale(eventValues);
-    const secondaryScale = getYScale(viewValues);
-    const stepX = labels.length <= 1 ? 0 : (frame.gw / (labels.length - 1));
-    const pointX = frame.padL + stepX * idx;
-    const primaryY = clamp(frame.padT + frame.gh - ((eventValue / primaryScale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
-    const secondaryY = clamp(frame.padT + frame.gh - ((viewValue / secondaryScale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
-    const palette = getChartPalette(isIndividualEventChart ? "clicks" : "events");
-    showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: isIndividualEventChart ? secondaryY : primaryY }, isIndividualEventChart ? null : { x: pointX, y: secondaryY }, palette);
-    showChartTipCard($tip, $wrap, pointX, isIndividualEventChart ? secondaryY : Math.min(primaryY, secondaryY), renderChartTipHtml(
-      periodLabel,
-      isIndividualEventChart
-        ? [{ label: "Views", value: viewValue.toLocaleString("en-US"), color: "#0f172a" }]
-        : [
-          { label: hasCityEventSeries ? "My events" : "Events", value: eventValue.toLocaleString("en-US"), color: "#0f172a" },
-          ...(hasCityEventSeries ? [{ label: "City events", value: cityEventValue.toLocaleString("en-US"), color: "#475569" }] : []),
-          { label: "Views", value: viewValue.toLocaleString("en-US"), color: "#0f172a" },
-        ]
-    ));
-  }
-
-  function hideTip(){
-    if ($tip) $tip.style.display = "none";
-    hideChartHoverOverlay(hoverOverlay);
-  }
-
-  // Bind toggle
-  if ($seg){
-    $seg.addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-view]");
-      if (!btn) return;
-      mode = btn.getAttribute("data-view") || "daily";
-      hoverIndex = -1;
-      hideTip();
-      setActiveBtn();
-      setRangeLabel();
-      syncLegend();
-      draw();
+      showChartHoverOverlay(overlay, frame, { x, y: eventLegend ? eventY : viewY },
+        eventLegend ? { x, y: viewY } : null, getChartPalette(eventLegend ? "events" : "clicks"));
+      showChartTipCard(tip, wrap, x, eventLegend ? Math.min(eventY, viewY) : viewY,
+        renderChartTipHtml("Date: " + series.dates[index], rows));
     });
+    svg.addEventListener("pointerleave", hide);
   }
-
-  // Hover tooltip
-  $canvas.addEventListener("mousemove", (e) => {
-    const idx = getPointIndexFromEvent(e);
-    if (idx !== hoverIndex){
-      hoverIndex = idx;
-      draw();
-    }
-    if (idx >= 0) showTip(e, idx); else hideTip();
-  });
-  $canvas.addEventListener("mouseleave", () => {
-    hoverIndex = -1;
-    hideTip();
-    draw();
-  });
-
-  // Initial paint / resize
-  function init(){
-    setActiveBtn();
-    setRangeLabel();
-    syncLegend();
-    draw();
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init, { once: true });
-  } else {
-    init();
-  }
-
-  window.addEventListener("resize", () => window.requestAnimationFrame(draw));
-  observeChartResize($wrap, draw);
-}
 
   function initOrganizerChart(){
     const $data = document.getElementById("organizerChartData");
@@ -21964,7 +20528,7 @@ return `
       if (!labels.length || !combinedValues.length) {
         ctx.fillStyle = "rgba(15,23,42,.75)";
         ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-        ctx.fillText("No monthly venue history yet", 18, 90);
+        ctx.fillText("No venue activity in this reporting period", 18, 90);
         return;
       }
 
@@ -22286,7 +20850,7 @@ return `
       if (!labels.length || !combinedValues.length) {
         ctx.fillStyle = chartTheme.emptyTextColor;
         ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-        ctx.fillText("No monthly ad history yet", 18, 90);
+        ctx.fillText("No ad activity in this reporting period", 18, 90);
         return;
       }
 
@@ -22521,25 +21085,6 @@ return `
       if (subtitle) subtitle.textContent = mode === 'event'
         ? 'Highest-viewed event in each category'
         : 'Organizer with the most views in each category';
-    });
-  })();
-
-  (function initTopEventsToggle(){
-    var toggle = document.querySelector('[data-top-events-toggle]');
-    if (!toggle) return;
-    var panels = document.querySelectorAll('[data-top-events-panel]');
-    toggle.addEventListener('click', function(event){
-      var button = event.target.closest('[data-top-events-period]');
-      if (!button) return;
-      var period = String(button.getAttribute('data-top-events-period') || 'today');
-      toggle.querySelectorAll('[data-top-events-period]').forEach(function(item){
-        var active = item.getAttribute('data-top-events-period') === period;
-        item.classList.toggle('on', active);
-        item.setAttribute('aria-pressed', active ? 'true' : 'false');
-      });
-      panels.forEach(function(panel){
-        panel.hidden = panel.getAttribute('data-top-events-panel') !== period;
-      });
     });
   })();
 
