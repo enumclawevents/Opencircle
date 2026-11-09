@@ -1,10 +1,37 @@
 "use strict";
 
+async function submitBillingChange(action, data) {
+  const response = await fetch("/admin/billing/" + action, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  const result = await response.json();
+  if (!response.ok || result.ok !== true) {
+    const error = new Error(result.error || "Could not confirm the billing change. Reload Billing and try again.");
+    error.status = response.status;
+    throw error;
+  }
+}
+
 (async () => {
   const form = document.getElementById("plateauBillingForm");
   if (!form) return;
   const status = document.getElementById("billingStatus");
   const submit = form.querySelector("button[type=submit]");
+  const replacing = form.dataset.replaceCard === "1";
+  if (replacing) {
+    const details = document.getElementById("changeCardDetails");
+    if (!details.open) {
+      await new Promise(resolve => details.addEventListener("toggle", function onToggle() {
+        if (!details.open) return;
+        details.removeEventListener("toggle", onToggle);
+        resolve();
+      }));
+    }
+    status.textContent = "Loading the Square card form…";
+  }
   let card;
   let sourceId;
   if (form.dataset.needsCard === "1") {
@@ -22,7 +49,7 @@
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     submit.disabled = true;
-    status.textContent = "Setting up test autopay…";
+    status.textContent = replacing ? "Saving the replacement test card…" : "Setting up test autopay…";
     try {
       if (card && !sourceId) {
         const result = await card.tokenize({
@@ -49,22 +76,43 @@
         }
         sourceId = result.token;
       }
-      const response = await fetch("/admin/billing/enroll", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceId, acceptedStart: form.dataset.startDate, authorized: form.elements.authorized.checked }),
+      await submitBillingChange(replacing ? "change-card" : "enroll", {
+        sourceId, acceptedStart: form.dataset.startDate, authorized: form.elements.authorized.checked,
       });
-      const data = await response.json();
-      if (!response.ok) {
-        if (response.status === 422) sourceId = undefined;
-        throw new Error(data.error || "Test autopay setup failed. Please try again.");
-      }
-      status.textContent = "Test autopay authorized. Refreshing your subscription…";
-      window.location.assign("/admin/billing");
+      status.textContent = replacing ? "Square confirmed your replacement card. Refreshing Billing…" : "Test autopay authorized. Refreshing your subscription…";
+      setTimeout(() => window.location.assign("/admin/billing"), replacing ? 1200 : 0);
     } catch (error) {
+      if (error.status === 422) sourceId = undefined;
       status.textContent = error.message;
       submit.disabled = false;
     }
   });
 })();
+
+const billingDayForm = document.getElementById("billingDayForm");
+if (billingDayForm) {
+  const button = billingDayForm.querySelector("button[type=submit]");
+  const status = billingDayForm.querySelector("[role=status]");
+  button.disabled = false;
+  billingDayForm.addEventListener("change", event => {
+    if (event.target === billingDayForm.elements.day) billingDayForm.elements.authorized.checked = false;
+  });
+  billingDayForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    button.disabled = true;
+    status.textContent = "Asking Square to schedule the billing day change…";
+    try {
+      await submitBillingChange("change-day", {
+        day: Number(billingDayForm.elements.day.value),
+        currentDay: Number(billingDayForm.dataset.currentDay),
+        nextDate: billingDayForm.dataset.nextDate,
+        authorized: billingDayForm.elements.authorized.checked,
+      });
+      status.textContent = "Square confirmed the scheduled change. Refreshing Billing…";
+      setTimeout(() => window.location.assign("/admin/billing"), 1200);
+    } catch (error) {
+      status.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+}
