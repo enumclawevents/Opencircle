@@ -5008,7 +5008,12 @@ async function renderAdmin(req, res, view) {
     const showBilling = view === "billing";
     const canSeeBilling = canManagePlateauSandboxBilling(req, sessionUser);
     if (showBilling && !canSeeBilling) return res.status(403).send("Forbidden");
-    const billing = showBilling ? await renderPlateauBilling(sessionUser) : null;
+    const showProductionPreview = showBilling && req.query.previewProduction === "1";
+    const billing = showBilling && !showProductionPreview ? await renderPlateauBilling(sessionUser) : null;
+    const productionAppId = showProductionPreview ? String(process.env.SQUARE_PRODUCTION_APPLICATION_ID || "").trim() : "";
+    const productionLocationId = showProductionPreview ? String(process.env.SQUARE_PRODUCTION_LOCATION_ID || "").trim() : "";
+    const loadProductionCard = /^[A-Za-z0-9_-]+$/.test(productionAppId)
+      && !productionAppId.startsWith("sandbox-") && /^[A-Za-z0-9]+$/.test(productionLocationId);
     const productionBillingStatus = showBilling
       ? await (req.query.checkProduction === "1" ? runProductionBillingCheck() : checkProductionBilling())
       : "";
@@ -10409,12 +10414,14 @@ return `
     const billingNonce = showBilling ? crypto.randomBytes(18).toString("base64") : "";
     const scriptNonce = billingNonce ? ` nonce="${billingNonce}"` : "";
     if (showBilling) {
+      const squareWebOrigin = showProductionPreview ? "https://web.squarecdn.com" : "https://sandbox.web.squarecdn.com";
+      const squarePciOrigin = showProductionPreview ? "https://pci-connect.squareup.com" : "https://pci-connect.squareupsandbox.com";
       res.set("Content-Security-Policy", [
         "default-src 'self'",
-        `script-src 'self' 'nonce-${billingNonce}' https://sandbox.web.squarecdn.com https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js`,
-        "frame-src https://sandbox.web.squarecdn.com",
-        "connect-src 'self' https://sandbox.web.squarecdn.com https://pci-connect.squareupsandbox.com https://o160250.ingest.sentry.io",
-        "style-src 'self' 'unsafe-inline' https://sandbox.web.squarecdn.com https://cdnjs.cloudflare.com",
+        `script-src 'self' 'nonce-${billingNonce}' ${squareWebOrigin} https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js`,
+        `frame-src ${squareWebOrigin}`,
+        `connect-src 'self' ${squareWebOrigin} ${squarePciOrigin} https://o160250.ingest.sentry.io`,
+        `style-src 'self' 'unsafe-inline' ${squareWebOrigin} https://cdnjs.cloudflare.com`,
         "font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://cdnjs.cloudflare.com",
         "img-src 'self' data: https:",
         "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'",
@@ -15951,7 +15958,7 @@ return `
         </section>
         ` : ``}
 
-        ${billing ? `
+        ${showBilling ? `
         <section class="card" id="billing" aria-labelledby="billingTitle">
           <div class="sectionTitle">
             <div>
@@ -15965,12 +15972,30 @@ return `
             <p>Customer enrollment is disabled.</p>
             <p id="productionBillingStatus" role="status">${esc(productionBillingStatus)}</p>
             <form id="productionBillingCheck" method="get" action="/admin/billing">
+              ${showProductionPreview ? '<input type="hidden" name="previewProduction" value="1">' : ""}
               <button class="btn" type="submit" name="checkProduction" value="1">Check Square connection</button>
+              ${showProductionPreview
+                ? '<a class="btn" href="/admin/billing">Back to Sandbox billing</a>'
+                : '<a class="btn" href="/admin/billing?previewProduction=1">Preview live card form</a>'}
             </form>
           </div>
+          ${showProductionPreview ? `
+          <div class="mini" aria-labelledby="productionCardTitle">
+            <h2 id="productionCardTitle">Live card form preview</h2>
+            <p>Admin preview. Card saving and subscription enrollment are disabled.</p>
+            <p>Proposed first charge <strong>${esc(DateTime.fromISO(nextBillingDate(), { zone: DEFAULT_TZ }).toFormat("MMMM d, yyyy"))}</strong> (Pacific time).</p>
+            <p>By authorizing autopay, the account’s billing contact allows Square to save their card and charge <strong>$100 per month on the 8th</strong> for the account’s OpenCircle Premium subscription until canceled.</p>
+            ${loadProductionCard ? `
+            <div id="productionSquareCard" data-application-id="${esc(productionAppId)}" data-location-id="${esc(productionLocationId)}"></div>
+            <p id="productionCardStatus" role="status">Loading the Square card form…</p>
+            ` : '<p role="status">Set the production Square Application ID and Location ID in Render to load the card form.</p>'}
+            <button class="btn btn-primary" type="button" disabled>Authorize autopay</button>
+          </div>
+          ` : `
           <h2>Square Sandbox</h2>
           <p class="sub">Test cards only</p>
           ${billing.html}
+          `}
         </section>
         ` : ``}
 
@@ -21266,7 +21291,10 @@ return `
   })();
 })();</script>
     ${showDashboard || analyticsPeriodHtml ? `<script src="/assets/report-download.js" defer></script>` : ""}
-    ${billing?.scripts || ""}
+    ${showProductionPreview ? (loadProductionCard ? `
+      <script defer src="https://web.squarecdn.com/v1/square.js"></script>
+      <script defer src="/assets/production-card-preview.js"></script>
+    ` : "") : (billing?.scripts || "")}
     ${showBilling ? '<script defer src="/assets/production-billing-check.js"></script>' : ""}
   </body>
 </html>`);
