@@ -12,6 +12,7 @@
       const payments = window.Square.payments(form.dataset.applicationId, form.dataset.locationId);
       card = await payments.card();
       await card.attach("#squareCard");
+      status.textContent = "";
     } catch (_) {
       status.textContent = "Square’s test card form could not load. Reload this page to try again.";
       return;
@@ -59,6 +60,7 @@
         if (response.status === 422) sourceId = undefined;
         throw new Error(data.error || "Test autopay setup failed. Please try again.");
       }
+      status.textContent = "Test autopay authorized. Refreshing your subscription…";
       window.location.assign("/admin/billing");
     } catch (error) {
       status.textContent = error.message;

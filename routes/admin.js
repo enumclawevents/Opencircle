@@ -5017,6 +5017,11 @@ async function renderAdmin(req, res, view) {
     const productionBillingStatus = showBilling
       ? await (req.query.checkProduction === "1" ? runProductionBillingCheck() : checkProductionBilling())
       : "";
+    const billingStatus = billing?.status || (showProductionPreview ? "Not subscribed" : "Unavailable");
+    const billingStatusTone = { Active: "positive", Pending: "pending", Paused: "pending", Canceled: "ended", Deactivated: "ended" }[billingStatus] || "neutral";
+    const proposedBillingDate = showProductionPreview
+      ? DateTime.fromISO(nextBillingDate(), { zone: DEFAULT_TZ }).toFormat("MMMM d, yyyy")
+      : "";
     await ensureJobSchema();
     await ensureAdSchema();
     await ensureJobApplicantSchema();
@@ -10361,7 +10366,7 @@ return `
       : showUpdates
       ? "All Updates"
       : showBilling
-      ? "OpenCircle Premium Billing"
+      ? "Billing & Subscription"
       : showPreferences
       ? "Preferences"
       : showUsers
@@ -10408,7 +10413,7 @@ return `
     const adsMenuOpen = showAdsExisting || showAdsCreate;
     const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showOrganizers;
     const adminMenuOpen = showUsers || showInvites || showPreferences || showBilling;
-    const pageTitle = showBilling ? pageTitleBase : `OpenCircle | ${pageTitleBase}`;
+    const pageTitle = showBilling ? esc(pageTitleBase) : `OpenCircle | ${pageTitleBase}`;
 
     // The shared admin layout uses inline scripts for navigation and theme.
     const billingNonce = showBilling ? crypto.randomBytes(18).toString("base64") : "";
@@ -10437,6 +10442,7 @@ return `
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
     <title>${pageTitle}</title>
+    ${showBilling ? '<link rel="stylesheet" href="/assets/premium-billing.css">' : ""}
     <style>
       :root{
         /* Main (light, WordPress-like) */
@@ -15959,43 +15965,75 @@ return `
         ` : ``}
 
         ${showBilling ? `
-        <section class="card" id="billing" aria-labelledby="billingTitle">
-          <div class="sectionTitle">
+        <section class="premium-billing" id="billing" aria-labelledby="billingTitle">
+          <header class="premium-billing__header">
             <div>
-              <h1 id="billingTitle" style="margin:0;">${pageTitleBase}</h1>
-              <p class="sub">Manage billing setup for OpenCircle Premium.</p>
+              <h1 id="billingTitle">${esc(pageTitleBase)}</h1>
+              <p>Manage your OpenCircle Premium subscription, payment method, and billing details.</p>
             </div>
+            <span class="premium-billing__badge" data-tone="${billingStatusTone}">${esc(billingStatus)}</span>
+          </header>
+
+          <div class="premium-billing__notice">
+            ${showProductionPreview
+              ? "<strong>Preview Mode</strong> · Payment collection and enrollment are disabled. Leave the card fields blank."
+              : "<strong>Sandbox</strong> · Use test cards only. All charges are simulated."}
           </div>
-          <div class="mini">
-            <h2>Production setup</h2>
-            <p><strong>$100 per month</strong>, billed on the 8th.</p>
-            <p>Customer enrollment is disabled.</p>
+
+          <section class="premium-billing__card" aria-labelledby="subscriptionOverviewTitle">
+            <h2 id="subscriptionOverviewTitle">Subscription Overview</h2>
+            <div class="premium-billing__overview">
+              <div>
+                <p class="premium-billing__plan">OpenCircle Premium</p>
+                <p class="premium-billing__price">$100.00 <span>/ month</span></p>
+                <p>Billed automatically on the 8th of each month.</p>
+              </div>
+              <dl class="premium-billing__facts">
+                <div><dt>Subscription status</dt><dd>${esc(billingStatus)}</dd></div>
+                <div><dt>${billing?.firstScheduled ? "First scheduled payment" : "Next billing date"}</dt><dd>${esc(billing?.firstScheduled || (proposedBillingDate ? proposedBillingDate + " (proposed)" : "—"))}</dd></div>
+                <div><dt>Monthly payment</dt><dd>$100.00</dd></div>
+                <div><dt>Billing frequency</dt><dd>Monthly</dd></div>
+              </dl>
+            </div>
+            ${billing?.canEnroll ? '<a class="btn" href="#paymentMethod">Activate Premium in Sandbox</a>' : ""}
+          </section>
+
+          <section class="premium-billing__card" id="paymentMethod" aria-labelledby="paymentMethodTitle">
+            <h2 id="paymentMethodTitle">Payment Method</h2>
+            ${showProductionPreview ? `
+              <p>A card on file is required for automatic billing.</p>
+              ${loadProductionCard ? `
+                <div class="premium-billing__fields" id="productionSquareCard" data-application-id="${esc(productionAppId)}" data-location-id="${esc(productionLocationId)}"></div>
+                <p class="premium-billing__feedback" id="productionCardStatus" role="status">Loading the Square card form…</p>
+              ` : '<p role="status">The payment form is unavailable. Check the setup in Billing Diagnostics.</p>'}
+              <p class="premium-billing__secure">Card details are handled securely by Square.</p>
+              <div class="premium-billing__authorization">
+                <h3>Automatic payment authorization</h3>
+                <p>By enabling automatic payments, you authorize Square to securely store your payment method and charge $100.00 monthly on the 8th for your OpenCircle Premium subscription until canceled.</p>
+                <p>Proposed first charge <strong>${esc(proposedBillingDate)}</strong> (Pacific time).</p>
+              </div>
+            ` : billing.html}
+          </section>
+
+          <section class="premium-billing__card" aria-labelledby="billingHistoryTitle">
+            <h2 id="billingHistoryTitle">Billing History</h2>
+            <p class="premium-billing__empty">${showProductionPreview || billing?.status === "Not subscribed"
+              ? "No billing history yet. Your payments will appear here once your subscription begins."
+              : "Square invoice and payment history is unavailable in this view."}</p>
+          </section>
+
+          <details class="premium-billing__card premium-billing__diagnostics"${req.query.checkProduction === "1" ? " open" : ""}>
+            <summary>Developer &amp; Billing Diagnostics <span class="premium-billing__badge">${showProductionPreview ? "Production" : "Sandbox"}</span></summary>
+            <p>Production enrollment is disabled.</p>
             <p id="productionBillingStatus" role="status">${esc(productionBillingStatus)}</p>
-            <form id="productionBillingCheck" method="get" action="/admin/billing">
+            <form method="get" action="/admin/billing" id="productionBillingCheck">
               ${showProductionPreview ? '<input type="hidden" name="previewProduction" value="1">' : ""}
               <button class="btn" type="submit" name="checkProduction" value="1">Check Square connection</button>
               ${showProductionPreview
                 ? '<a class="btn" href="/admin/billing">Back to Sandbox billing</a>'
                 : '<a class="btn" href="/admin/billing?previewProduction=1">Preview live card form</a>'}
             </form>
-          </div>
-          ${showProductionPreview ? `
-          <div class="mini" aria-labelledby="productionCardTitle">
-            <h2 id="productionCardTitle">Live card form preview</h2>
-            <p>Admin preview. Card saving and subscription enrollment are disabled.</p>
-            <p>Proposed first charge <strong>${esc(DateTime.fromISO(nextBillingDate(), { zone: DEFAULT_TZ }).toFormat("MMMM d, yyyy"))}</strong> (Pacific time).</p>
-            <p>By authorizing autopay, the account’s billing contact allows Square to save their card and charge <strong>$100 per month on the 8th</strong> for the account’s OpenCircle Premium subscription until canceled.</p>
-            ${loadProductionCard ? `
-            <div id="productionSquareCard" data-application-id="${esc(productionAppId)}" data-location-id="${esc(productionLocationId)}"></div>
-            <p id="productionCardStatus" role="status">Loading the Square card form…</p>
-            ` : '<p role="status">Set the production Square Application ID and Location ID in Render to load the card form.</p>'}
-            <button class="btn btn-primary" type="button" disabled>Authorize autopay</button>
-          </div>
-          ` : `
-          <h2>Square Sandbox</h2>
-          <p class="sub">Test cards only</p>
-          ${billing.html}
-          `}
+          </details>
         </section>
         ` : ``}
 
@@ -21339,19 +21377,36 @@ async function renderPlateauBilling(user) {
   const startLabel = DateTime.fromISO(start, { zone: DEFAULT_TZ }).toFormat("MMMM d, yyyy");
   const needsCard = !row?.cardId;
   const canEnroll = !row?.subscriptionId && start >= nextBillingDate();
+  const statusLabels = { ACTIVE: "Active", PENDING: "Pending", PAUSED: "Paused", CANCELED: "Canceled", DEACTIVATED: "Deactivated", COMPLETED: "Completed" };
+  const status = row?.subscriptionId
+    ? (statusUnavailable ? "Unavailable" : (statusLabels[row.status] || "Unknown"))
+    : "Not subscribed";
+  const savedCard = !needsCard ? `
+    <div class="premium-billing__saved">
+      <i class="fa-regular fa-credit-card" aria-hidden="true"></i>
+      <div><strong>Test card on file</strong>${row.cardLast4 ? `<p>Ending in ${esc(row.cardLast4)}</p>` : ""}</div>
+    </div>` : "";
   return {
+    status,
+    canEnroll,
+    firstScheduled: status === "Pending" ? startLabel : "",
     html: `
-        <p><strong>$100 per month</strong>, billed on the 8th.</p>
-        <p>First scheduled test charge: <strong>${esc(startLabel)}</strong>.</p>
-        ${row?.subscriptionId ? `<p>Subscription status: <strong>${esc(statusUnavailable ? "Could not refresh" : (row.status || "Unknown"))}</strong></p>
-          ${row.cardLast4 ? `<p>Test card ending in ${esc(row.cardLast4)}.</p>` : ""}` :
-          canEnroll ? `<form id="plateauBillingForm" data-needs-card="${needsCard ? "1" : "0"}"
-            data-start-date="${esc(start)}" data-application-id="${esc(config.appId)}" data-location-id="${esc(config.locationId)}">
-            ${needsCard ? '<div id="squareCard" style="margin:16px 0;"></div>' : "<p>A test card is already saved. You can finish setting up the subscription.</p>"}
+      ${savedCard}
+      ${canEnroll ? `
+        ${needsCard ? "<p>Add a test card to set up automatic payments.</p>" : "<p>Your test card is ready. Authorize autopay to finish setup.</p>"}
+        <form id="plateauBillingForm" data-needs-card="${needsCard ? "1" : "0"}"
+          data-start-date="${esc(start)}" data-application-id="${esc(config.appId)}" data-location-id="${esc(config.locationId)}">
+          ${needsCard ? '<div class="premium-billing__fields" id="squareCard"></div><p class="premium-billing__secure">Card details are handled securely by Square.</p>' : ""}
+          <div class="premium-billing__authorization">
+            <h3>Automatic payment authorization</h3>
+            <p>Proposed first test charge <strong>${esc(startLabel)}</strong> (Pacific time).</p>
             <label class="checkbox"><input type="checkbox" name="authorized" required><span>I authorize Square Sandbox to save this test card and simulate a $100 charge on the 8th of each month starting ${esc(startLabel)}.</span></label>
-            <button class="btn btn-primary" type="submit" disabled>Set up test autopay</button>
-            <p id="billingStatus" role="status"></p>
-          </form>` : "<p>This setup needs review in Square Sandbox because its original start date has passed.</p>"}
+            <button class="btn btn-primary" type="submit" disabled>Authorize &amp; Activate Subscription</button>
+            <p class="premium-billing__feedback" id="billingStatus" role="status">${needsCard ? "Loading the Square card form…" : ""}</p>
+          </div>
+        </form>
+      ` : row?.subscriptionId ? (needsCard ? "<p>No saved card details are available.</p>" : "")
+        : "<p>This setup needs review in Square Sandbox because its original start date has passed.</p>"}
     `,
     scripts: `
       ${canEnroll && needsCard ? '<script defer src="https://sandbox.web.squarecdn.com/v1/square.js"></script>' : ""}
