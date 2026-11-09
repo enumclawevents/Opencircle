@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 const { test, after } = require("node:test");
 const { DateTime } = require("luxon");
 const { run, db } = require("../db");
-const { readBilling, refreshBilling, replaceBillingCard, changeBillingDay } = require("../lib/plateau-billing");
+const { readBilling, refreshBilling, replaceBillingCard, changeBillingDay, readBillingHistory } = require("../lib/plateau-billing");
 
 after(() => new Promise((resolve, reject) => db.close(error => error ? reject(error) : resolve())));
 
@@ -94,4 +94,63 @@ test("Sandbox changes target the linked subscription and require Square confirma
   assert.equal(billing.schedule.pending.day, 5);
   assert.equal(billing.schedule.canChangeDay, false);
   assert.ok(requests.every(request => !request.path.includes("another-subscription") && !request.path.includes("disable")));
+});
+
+test("history follows only the linked subscription and paginates confirmed Square data", async t => {
+  const config = { locationId: "history-location", token: "test-secret" };
+  await run("DELETE FROM plateau_sandbox_billing");
+  assert.deepEqual(await readBillingHistory(config, 25), { entries: [], nextCursor: null });
+  await run(
+    "INSERT INTO plateau_sandbox_billing (scope, ownerUserId, locationId, enrollmentId, customerId, subscriptionId) VALUES (?, ?, ?, ?, ?, ?)",
+    ["Plateau Regional", 25, config.locationId, "history-enrollment", "history-customer", "history-subscription"]
+  );
+  const invoiceIds = ["inv-6", "inv-5", "inv-4", "inv-3", "inv-2", "inv-1"];
+  let unavailable = false;
+  let mismatch = false;
+  let calls = 0;
+  t.mock.method(global, "fetch", async (url) => {
+    calls++;
+    const requestUrl = new URL(url);
+    assert.equal(requestUrl.origin, "https://connect.squareupsandbox.com");
+    const [, , resource, id] = requestUrl.pathname.split("/");
+    if (unavailable) return { ok: false, status: 503, json: async () => ({ errors: [{ code: "SERVICE_UNAVAILABLE" }] }) };
+    let data;
+    if (resource === "subscriptions") {
+      assert.equal(id, "history-subscription");
+      data = { subscription: { id, location_id: config.locationId, customer_id: "history-customer", invoice_ids: invoiceIds } };
+    } else if (resource === "invoices") {
+      assert.ok(invoiceIds.includes(id));
+      data = { invoice: { id, subscription_id: mismatch ? "other-subscription" : "history-subscription",
+        location_id: config.locationId, primary_recipient: { customer_id: "history-customer" },
+        order_id: id.replace("inv-", "ord-"), status: "UNPAID" } };
+    } else if (resource === "orders") {
+      const number = Number(id.at(-1));
+      data = { order: { id, location_id: config.locationId, created_at: `2026-10-0${number}T18:00:00Z`,
+        total_money: { amount: 10000, currency: "USD" }, tenders: number >= 4 ? [{ payment_id: "pay-" + number }] : [] } };
+    } else {
+      assert.equal(resource, "payments");
+      const number = Number(id.at(-1));
+      data = { payment: { id, order_id: "ord-" + number, location_id: config.locationId,
+        created_at: `2026-10-0${number}T18:00:00Z`, status: number === 4 ? "FAILED" : "COMPLETED",
+        total_money: { amount: 10000, currency: "USD" }, refunded_money: { amount: number === 5 ? 10000 : 0, currency: "USD" },
+        receipt_url: number === 6 ? "https://squareup.com/receipt/preview/test" : "javascript:invalid" } };
+    }
+    return { ok: true, status: 200, json: async () => data };
+  });
+  await assert.rejects(readBillingHistory(config, 99), /different account/);
+  assert.equal(calls, 0);
+  const first = await readBillingHistory(config, 25);
+  assert.deepEqual(first.entries.map(entry => entry.status), ["Paid", "Refunded", "Failed", "Unpaid", "Unpaid"]);
+  assert.equal(first.entries[0].receipt, "https://squareup.com/receipt/preview/test");
+  assert.equal(first.entries[1].receipt, null);
+  assert.equal(first.entries[0].amount, 10000);
+  assert.equal(first.nextCursor, "inv-2");
+  const second = await readBillingHistory(config, 25, first.nextCursor);
+  assert.deepEqual(second.entries.map(entry => entry.id), ["inv-1"]);
+  assert.equal(second.nextCursor, null);
+  await assert.rejects(readBillingHistory(config, 25, "other-invoice"), /history changed/);
+  mismatch = true;
+  await assert.rejects(readBillingHistory(config, 25), /could not verify an invoice/);
+  unavailable = true;
+  await assert.rejects(readBillingHistory(config, 25), /SERVICE_UNAVAILABLE/);
 });

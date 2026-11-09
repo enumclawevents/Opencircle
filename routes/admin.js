@@ -1,7 +1,7 @@
 "use strict";
 
 const express = require("express");
-const { billingAdminEmail, billingConfig, checkProductionBilling, BillingError, enrollBilling, nextBillingDate, readBilling, refreshBilling, replaceBillingCard, changeBillingDay } = require("../lib/plateau-billing");
+const { billingAdminEmail, billingConfig, checkProductionBilling, BillingError, enrollBilling, nextBillingDate, readBilling, refreshBilling, replaceBillingCard, changeBillingDay, readBillingHistory } = require("../lib/plateau-billing");
 const { buildReportDownload } = require("../lib/report-download");
 const router = express.Router();
 const CHART_SERIES_STROKE_WIDTH = 2;
@@ -15971,7 +15971,6 @@ return `
               <h1 id="billingTitle">${esc(pageTitleBase)}</h1>
               <p class="sub">Manage your OpenCircle Premium subscription, payment method, and billing details.</p>
             </div>
-            <span class="pill premium-billing__badge" data-tone="${billingStatusTone}">${esc(billingStatus)}</span>
           </header>
 
           <div class="dashboard-highlight">
@@ -16000,8 +15999,11 @@ return `
           <section class="card dashboard-command-card premium-billing__section" id="paymentMethod" aria-labelledby="paymentMethodTitle">
             <div class="sectionTitle premium-billing__section-head">
               <div><h2 id="paymentMethodTitle">Payment Methods</h2><p class="sub">Manage the payment method used for your OpenCircle Premium subscription.</p></div>
-              ${billing?.canReplaceCard ? '<button class="btn" type="button" aria-expanded="false" aria-controls="plateauBillingForm" data-billing-toggle disabled>Change Card</button>' : ""}
+              <button class="btn" type="button" disabled ${billing?.canReplaceCard ? 'aria-expanded="false" aria-controls="plateauBillingForm" data-billing-toggle' : 'aria-describedby="changeCardAvailability"'}>Change Card</button>
             </div>
+            ${billing?.canReplaceCard ? "" : `<p class="sub" id="changeCardAvailability">${showProductionPreview
+              ? "Card changes are disabled in preview mode."
+              : "Card changes are available once Square confirms the subscription is active."}</p>`}
             ${showProductionPreview ? `
               <p>A card on file is required for automatic billing.</p>
               ${loadProductionCard ? `
@@ -16020,14 +16022,20 @@ return `
           <section class="card dashboard-command-card premium-billing__section" aria-labelledby="billingScheduleTitle">
             <div class="sectionTitle premium-billing__section-head">
               <h2 id="billingScheduleTitle">Billing Schedule</h2>
-              ${billing?.schedule?.canChangeDay ? '<button class="btn" type="button" aria-expanded="false" aria-controls="billingDayForm" data-billing-toggle disabled>Change Billing Day</button>' : ""}
+              <button class="btn" type="button" disabled ${billing?.schedule?.canChangeDay ? 'aria-expanded="false" aria-controls="billingDayForm" data-billing-toggle' : 'aria-describedby="changeDayAvailability"'}>Change Billing Day</button>
             </div>
             <dl class="premium-billing__schedule">
               <div><dt class="dashboard-kpi-label">Monthly Billing Day</dt><dd>${esc(billing?.billingDayLabel || "Unconfirmed")}</dd></div>
               <div><dt class="dashboard-kpi-label">Next Scheduled Payment</dt><dd>${esc(billing?.nextPaymentLabel || "Unconfirmed")}</dd></div>
               <div><dt class="dashboard-kpi-label">Monthly Amount</dt><dd>$100.00</dd></div>
             </dl>
-            ${billing?.schedule?.pending ? `<div class="dashboard-highlight sub">Square scheduled a change to day ${esc(billing.schedule.pending.day || "unknown")} effective ${esc(billing.pendingDateLabel || "on a date to be confirmed")}.</div>` : ""}
+            ${billing?.schedule?.canChangeDay ? "" : `<p class="sub" id="changeDayAvailability">${showProductionPreview
+              ? "Billing day changes are disabled in preview mode."
+              : billing?.pendingDayLabel && billing.pendingDateLabel
+                ? `Your billing date is scheduled to change to the ${esc(billing.pendingDayLabel)} of each month starting ${esc(billing.pendingDateLabel)}.`
+                : billing?.pendingUnconfirmed
+                  ? "Square is still confirming your billing schedule."
+                  : "Billing day changes require an active subscription with a confirmed billing cycle."}</p>`}
             ${billing?.schedule?.canChangeDay ? `
               <form class="mini premium-billing__authorization" id="billingDayForm" hidden data-current-day="${billing.schedule.day}" data-next-date="${esc(billing.schedule.nextDate)}">
                 <p>Current billing day <strong>${billing.schedule.day}</strong>. Expected next payment under the current schedule <strong>${esc(billing.nextPaymentLabel)}</strong>.</p>
@@ -16041,7 +16049,7 @@ return `
                 <button class="btn btn-primary" type="submit" disabled>Confirm billing day</button>
                 <p class="premium-billing__feedback" role="status"></p>
               </form>
-            ` : billing?.schedule && !billing.schedule.pending ? '<p class="sub">Billing day changes require an active subscription with a confirmed billing cycle and no scheduled changes.</p>' : ""}
+            ` : ""}
           </section>
 
           <section class="card dashboard-command-card premium-billing__section" aria-labelledby="billingHistoryTitle">
@@ -16051,11 +16059,15 @@ return `
             <div class="mini premium-billing__table" role="region" aria-labelledby="billingHistoryTitle" tabindex="0">
               <table class="analytics-table" aria-labelledby="billingHistoryTitle">
                 <thead><tr><th scope="col">Invoice or Transaction ID</th><th scope="col">Date</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Payment Status</th><th scope="col">Receipt</th></tr></thead>
-                <tbody><tr><td colspan="6" class="premium-billing__empty">${showProductionPreview || billing?.status === "Not subscribed"
-                  ? "No billing history yet. Your payments will appear here once your subscription begins."
-                  : "Square invoice and payment history is unavailable in this view."}</td></tr></tbody>
+                <tbody id="billingHistoryRows"><tr><td colspan="6" class="premium-billing__empty">${showProductionPreview
+                  ? "Billing history is unavailable in preview mode."
+                  : "Loading billing history…"}</td></tr></tbody>
               </table>
             </div>
+            ${showProductionPreview ? "" : `
+              <p id="billingHistoryStatus" class="sub" role="status"></p>
+              <button id="billingHistoryMore" class="btn" type="button" hidden>Load More</button>
+            `}
           </section>
 
           <details class="card dashboard-command-card dashboard-card premium-billing__diagnostics"${req.query.checkProduction === "1" ? " open" : ""}>
@@ -21370,6 +21382,7 @@ return `
       <script defer src="/assets/production-card-preview.js"></script>
     ` : "") : (billing?.scripts || "")}
     ${showBilling ? '<script defer src="/assets/production-billing-check.js"></script>' : ""}
+    ${showBilling && !showProductionPreview ? '<script defer src="/assets/billing-history.js"></script>' : ""}
   </body>
 </html>`);
   } catch (err) {
@@ -21424,7 +21437,10 @@ async function renderPlateauBilling(user) {
     return date.isValid ? date.toFormat("MMMM d, yyyy") : "";
   };
   const day = schedule?.day;
-  const suffix = day >= 11 && day <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[day % 10] || "th");
+  const ordinal = value => value + (value % 100 >= 11 && value % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[value % 10] || "th"));
+  const pending = schedule?.pending;
+  const today = DateTime.now().setZone(schedule?.zone || DEFAULT_TZ).toISODate();
+  const pendingIsUpcoming = pending?.date && pending.date >= today && pending.day !== day;
   const savedCard = !needsCard ? `
     <div class="mini premium-billing__table" role="region" aria-labelledby="paymentMethodTitle" tabindex="0">
       <table class="analytics-table premium-billing__methods" aria-labelledby="paymentMethodTitle" role="table">
@@ -21441,10 +21457,12 @@ async function renderPlateauBilling(user) {
     status,
     canEnroll,
     canReplaceCard,
-    billingDayLabel: day ? `${day}${suffix} of each month` : "",
+    billingDayLabel: day ? `${ordinal(day)} of each month` : "",
     schedule,
     nextPaymentLabel: dateLabel(schedule?.nextDate),
-    pendingDateLabel: dateLabel(schedule?.pending?.date),
+    pendingUnconfirmed: Boolean(pending && pending.day !== day),
+    pendingDayLabel: pendingIsUpcoming && pending.day ? ordinal(pending.day) : "",
+    pendingDateLabel: pendingIsUpcoming ? dateLabel(pending.date) : "",
     html: `
       ${savedCard}
       ${canEnroll ? `
@@ -21471,7 +21489,7 @@ async function renderPlateauBilling(user) {
             <p class="premium-billing__feedback" id="billingStatus" role="status"></p>
           </div>
         </form>
-      ` : row?.subscriptionId ? '<p class="sub">Card changes are available once Square confirms the subscription is active.</p>'
+      ` : row?.subscriptionId ? ""
         : "<p>This setup needs review in Square Sandbox because its original start date has passed.</p>"}
     `,
     scripts: `
@@ -21541,6 +21559,25 @@ router.post("/report-download", async (req, res) => {
 router.get("/billing", async (req, res) => {
   res.set("Cache-Control", "private, no-store");
   return renderAdmin(req, res, "billing");
+});
+
+router.get("/billing/history", async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+  try {
+    const user = await resolveSessionUser(req);
+    if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
+    const config = billingConfig();
+    if (!config) return res.status(503).json({ error: "Sandbox billing setup is incomplete." });
+    const cursor = req.query.cursor;
+    if (cursor !== undefined && (typeof cursor !== "string" || !cursor || cursor.length > 255)) {
+      return res.status(400).json({ error: "Invalid billing history cursor." });
+    }
+    return res.json(await readBillingHistory(config, user.id, cursor));
+  } catch (error) {
+    if (error instanceof BillingError && error.status === 409) return res.status(409).json({ error: error.message });
+    console.error("[square sandbox] billing history unavailable", error.name);
+    return res.status(502).json({ error: "Billing history is temporarily unavailable." });
+  }
 });
 
 router.get("/billing/production-connection", async (req, res) => {
