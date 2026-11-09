@@ -10413,7 +10413,7 @@ return `
     const adsMenuOpen = showAdsExisting || showAdsCreate;
     const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showOrganizers;
     const adminMenuOpen = showUsers || showInvites || showPreferences || showBilling;
-    const pageTitle = showBilling ? esc(pageTitleBase) : `OpenCircle | ${pageTitleBase}`;
+    const pageTitle = `OpenCircle | ${showBilling ? esc(pageTitleBase) : pageTitleBase}`;
 
     // The shared admin layout uses inline scripts for navigation and theme.
     const billingNonce = showBilling ? crypto.randomBytes(18).toString("base64") : "";
@@ -15965,23 +15965,28 @@ return `
         ` : ``}
 
         ${showBilling ? `
-        <section class="premium-billing" id="billing" aria-labelledby="billingTitle">
-          <header class="premium-billing__header">
+        <section class="dashboard-command premium-billing" id="billing" aria-labelledby="billingTitle">
+          <header class="dashboard-command-head">
             <div>
               <h1 id="billingTitle">${esc(pageTitleBase)}</h1>
-              <p>Manage your OpenCircle Premium subscription, payment method, and billing details.</p>
+              <p class="sub">Manage your OpenCircle Premium subscription, payment method, and billing details.</p>
             </div>
-            <span class="premium-billing__badge" data-tone="${billingStatusTone}">${esc(billingStatus)}</span>
+            <span class="pill premium-billing__badge" data-tone="${billingStatusTone}">${esc(billingStatus)}</span>
           </header>
 
-          <div class="premium-billing__notice">
+          <div class="dashboard-highlight">
+            <div class="dashboard-attention-copy">
+              <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+              <span>
             ${showProductionPreview
               ? "<strong>Preview Mode</strong> · Payment collection and enrollment are disabled. Leave the card fields blank."
               : "<strong>Sandbox</strong> · Use test cards only. All charges are simulated."}
+              </span>
+            </div>
           </div>
 
-          <section class="premium-billing__card" aria-labelledby="subscriptionOverviewTitle">
-            <h2 id="subscriptionOverviewTitle">Subscription Overview</h2>
+          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="subscriptionOverviewTitle">
+            <div class="sectionTitle"><h2 id="subscriptionOverviewTitle">Subscription Overview</h2></div>
             <div class="premium-billing__overview">
               <div>
                 <p class="premium-billing__plan">OpenCircle Premium</p>
@@ -15989,17 +15994,17 @@ return `
                 <p>Billed automatically on the 8th of each month.</p>
               </div>
               <dl class="premium-billing__facts">
-                <div><dt>Subscription status</dt><dd>${esc(billingStatus)}</dd></div>
-                <div><dt>${billing?.firstScheduled ? "First scheduled payment" : "Next billing date"}</dt><dd>${esc(billing?.firstScheduled || (proposedBillingDate ? proposedBillingDate + " (proposed)" : "—"))}</dd></div>
-                <div><dt>Monthly payment</dt><dd>$100.00</dd></div>
-                <div><dt>Billing frequency</dt><dd>Monthly</dd></div>
+                <div><dt class="dashboard-kpi-label">Subscription status</dt><dd>${esc(billingStatus)}</dd></div>
+                <div><dt class="dashboard-kpi-label">${billing?.firstScheduled ? "First scheduled payment" : "Next billing date"}</dt><dd>${esc(billing?.firstScheduled || (proposedBillingDate ? proposedBillingDate + " (proposed)" : "—"))}</dd></div>
+                <div><dt class="dashboard-kpi-label">Monthly payment</dt><dd>$100.00</dd></div>
+                <div><dt class="dashboard-kpi-label">Billing frequency</dt><dd>Monthly</dd></div>
               </dl>
             </div>
             ${billing?.canEnroll ? '<a class="btn" href="#paymentMethod">Activate Premium in Sandbox</a>' : ""}
           </section>
 
-          <section class="premium-billing__card" id="paymentMethod" aria-labelledby="paymentMethodTitle">
-            <h2 id="paymentMethodTitle">Payment Method</h2>
+          <section class="card dashboard-command-card premium-billing__section" id="paymentMethod" aria-labelledby="paymentMethodTitle">
+            <div class="sectionTitle"><h2 id="paymentMethodTitle">Payment Method</h2></div>
             ${showProductionPreview ? `
               <p>A card on file is required for automatic billing.</p>
               ${loadProductionCard ? `
@@ -16007,7 +16012,7 @@ return `
                 <p class="premium-billing__feedback" id="productionCardStatus" role="status">Loading the Square card form…</p>
               ` : '<p role="status">The payment form is unavailable. Check the setup in Billing Diagnostics.</p>'}
               <p class="premium-billing__secure">Card details are handled securely by Square.</p>
-              <div class="premium-billing__authorization">
+              <div class="mini premium-billing__authorization">
                 <h3>Automatic payment authorization</h3>
                 <p>By enabling automatic payments, you authorize Square to securely store your payment method and charge $100.00 monthly on the 8th for your OpenCircle Premium subscription until canceled.</p>
                 <p>Proposed first charge <strong>${esc(proposedBillingDate)}</strong> (Pacific time).</p>
@@ -16015,15 +16020,15 @@ return `
             ` : billing.html}
           </section>
 
-          <section class="premium-billing__card" aria-labelledby="billingHistoryTitle">
-            <h2 id="billingHistoryTitle">Billing History</h2>
-            <p class="premium-billing__empty">${showProductionPreview || billing?.status === "Not subscribed"
+          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="billingHistoryTitle">
+            <div class="sectionTitle"><h2 id="billingHistoryTitle">Billing History</h2></div>
+            <p class="sub">${showProductionPreview || billing?.status === "Not subscribed"
               ? "No billing history yet. Your payments will appear here once your subscription begins."
               : "Square invoice and payment history is unavailable in this view."}</p>
           </section>
 
-          <details class="premium-billing__card premium-billing__diagnostics"${req.query.checkProduction === "1" ? " open" : ""}>
-            <summary>Developer &amp; Billing Diagnostics <span class="premium-billing__badge">${showProductionPreview ? "Production" : "Sandbox"}</span></summary>
+          <details class="card dashboard-command-card premium-billing__diagnostics"${req.query.checkProduction === "1" ? " open" : ""}>
+            <summary>Developer &amp; Billing Diagnostics <span class="pill premium-billing__badge">${showProductionPreview ? "Production" : "Sandbox"}</span></summary>
             <p>Production enrollment is disabled.</p>
             <p id="productionBillingStatus" role="status">${esc(productionBillingStatus)}</p>
             <form method="get" action="/admin/billing" id="productionBillingCheck">
@@ -21397,7 +21402,7 @@ async function renderPlateauBilling(user) {
         <form id="plateauBillingForm" data-needs-card="${needsCard ? "1" : "0"}"
           data-start-date="${esc(start)}" data-application-id="${esc(config.appId)}" data-location-id="${esc(config.locationId)}">
           ${needsCard ? '<div class="premium-billing__fields" id="squareCard"></div><p class="premium-billing__secure">Card details are handled securely by Square.</p>' : ""}
-          <div class="premium-billing__authorization">
+          <div class="mini premium-billing__authorization">
             <h3>Automatic payment authorization</h3>
             <p>Proposed first test charge <strong>${esc(startLabel)}</strong> (Pacific time).</p>
             <label class="checkbox"><input type="checkbox" name="authorized" required><span>I authorize Square Sandbox to save this test card and simulate a $100 charge on the 8th of each month starting ${esc(startLabel)}.</span></label>

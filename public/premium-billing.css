@@ -1,91 +1,52 @@
-.premium-billing {
-  width: 100%;
-  display: grid;
-  gap: 16px;
-}
-
-.premium-billing__header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.premium-billing h1,
-.premium-billing h2,
-.premium-billing h3,
-.premium-billing p {
-  margin: 0;
-}
-
-.premium-billing h1 { font-size: clamp(24px, 4vw, 32px); }
-.premium-billing h2 { font-size: 17px; }
-.premium-billing h3 { font-size: 15px; }
-.premium-billing p { color: var(--muted); line-height: 1.5; }
-.premium-billing strong { color: var(--text); }
-.premium-billing__header p { margin-top: 4px; }
-
-.premium-billing__card,
-.premium-billing__notice {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  min-width: 0;
-}
-
-.premium-billing__card { padding: clamp(16px, 3vw, 24px); }
-.premium-billing__notice { padding: 10px 14px; color: var(--muted); font-size: 13px; }
-.premium-billing .premium-billing__card > * + * { margin-top: 12px; }
-
-.premium-billing__badge {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 3px 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel2);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 650;
+.premium-billing .dashboard-command-head .pill {
+  align-self: flex-start;
   white-space: nowrap;
 }
 
-.premium-billing__badge[data-tone="positive"] { border-color: #0f8b6b; }
+.premium-billing__badge:not([data-tone="positive"]) {
+  background: var(--panel2);
+  border-color: var(--line);
+  color: var(--text);
+}
+
 .premium-billing__badge[data-tone="pending"] { border-color: #ad7615; }
 .premium-billing__badge[data-tone="ended"] { border-color: #b76060; }
 
+.premium-billing__section > :not(.sectionTitle) + *,
+.premium-billing__diagnostics > * + * { margin-top: 12px; }
+
 .premium-billing__overview {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: start;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  align-items: center;
+  gap: var(--gap);
 }
 
-.premium-billing .premium-billing__plan,
-.premium-billing .premium-billing__price { color: var(--text); font-weight: 700; }
-.premium-billing .premium-billing__price { font-size: 28px; }
-.premium-billing__price span { font-size: 14px; font-weight: 500; color: var(--muted); }
+.premium-billing__overview p { margin: 0; }
+.premium-billing__plan { font-size: var(--dashboard-body); font-weight: 700; }
+.premium-billing__price { font-size: 28px; font-weight: 700; }
+.premium-billing__price span { font-size: var(--dashboard-body); font-weight: 500; color: var(--muted); }
 
 .premium-billing__facts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gap);
   margin: 0;
-  padding: 14px;
-  border-radius: 8px;
-  background: var(--panel2);
 }
-.premium-billing__facts dt { color: var(--muted); font-size: 12px; }
-.premium-billing__facts dd { margin: 3px 0 0; font-size: 14px; font-weight: 650; }
+.premium-billing__facts dd {
+  margin: 4px 0 0;
+  font-size: var(--dashboard-body);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
 
 .premium-billing__saved {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.premium-billing__saved i { font-size: 20px; color: var(--muted); }
+.premium-billing__saved i { font-size: var(--dashboard-heading); color: var(--muted); }
+.premium-billing__saved p { margin: 0; color: var(--muted); }
 
 .premium-billing__fields {
   max-width: 560px;
@@ -93,31 +54,28 @@
   margin: 12px 0;
 }
 .premium-billing__secure,
-.premium-billing__feedback { font-size: 13px; }
+.premium-billing__feedback { color: var(--muted); font-size: var(--dashboard-support); }
 .premium-billing__feedback:empty { margin: 0; }
 
 .premium-billing__authorization {
   display: grid;
   gap: 8px;
-  margin-top: 14px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel2);
+  margin-top: 12px;
 }
+.premium-billing__authorization h3,
+.premium-billing__authorization p { margin: 0; font-size: var(--dashboard-body); }
 .premium-billing__authorization .checkbox { align-items: flex-start; }
 .premium-billing__authorization .btn { justify-self: start; max-width: 100%; white-space: normal; }
 
-.premium-billing__empty {
-  padding: 12px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-}
 .premium-billing__diagnostics summary { cursor: pointer; font-weight: 650; }
-.premium-billing__diagnostics summary span { margin-inline-start: 6px; }
+.premium-billing__diagnostics summary .pill { margin-inline-start: 6px; }
 .premium-billing__diagnostics form { display: flex; flex-wrap: wrap; gap: 8px; }
 .premium-billing :focus-visible { outline: 2px solid var(--brand2); outline-offset: 3px; }
 
-@media (max-width: 640px) {
-  .premium-billing__overview { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@media (max-width: 1050px) {
+  .premium-billing__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 650px) {
+  .premium-billing__overview { grid-template-columns: minmax(0, 1fr); }
 }
