@@ -1,6 +1,7 @@
 "use strict";
 
 const express = require("express");
+const { buildReportDownload } = require("../lib/report-download");
 const router = express.Router();
 const CHART_SERIES_STROKE_WIDTH = 2;
 const CHART_AXIS_TITLE_BASELINE = 14;
@@ -3759,12 +3760,13 @@ async function buildEmailReportAnalytics(user, frequency, now = DateTime.now().s
 // otherwise changes any analytics counters or content records.
 function parseDashboardReportingPeriod(query, now = DateTime.now().setZone(DEFAULT_TZ)) {
   const range = String(query?.range || "30d").trim().toLowerCase();
+  if (range === "yearly") return { key: range, start: now.minus({ years: 1 }), end: now };
   const rangeDays = { "7d": 7, "30d": 30, "90d": 90 };
   if (Object.prototype.hasOwnProperty.call(rangeDays, range)) {
     const end = now;
     return { key: range, start: end.minus({ days: rangeDays[range] }), end };
   }
-  if (range !== "custom") return { error: "range must be 7d, 30d, 90d, or custom" };
+  if (range !== "custom") return { error: "range must be 7d, 30d, 90d, yearly, or custom" };
 
   const startRaw = String(query?.start || "").trim();
   const endRaw = String(query?.end || "").trim();
@@ -3780,7 +3782,7 @@ function parseDashboardReportingPeriod(query, now = DateTime.now().setZone(DEFAU
 
 function renderReportingPeriodControl({ range = "30d", start = "", end = "", analytics = false } = {}) {
   const prefix = analytics ? "analyticsPeriod" : "dashboard";
-  const options = [["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["custom", "Custom range"]];
+  const options = [["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["yearly", "Yearly (last 12 months)"], ["custom", "Custom range"]];
   return `
     <label for="${prefix}Range">Reporting period</label>
     <div class="dashboard-period-row">
@@ -3792,7 +3794,67 @@ function renderReportingPeriodControl({ range = "30d", start = "", end = "", ana
       <select id="${prefix}Range" name="range" class="ctrl">
         ${options.map(([value, label]) => `<option value="${value}"${value === range ? " selected" : ""}>${label}</option>`).join("")}
       </select>
+      <details class="report-share" data-report-share>
+        <summary class="btn" aria-label="Share this report" title="Share this report">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m-4 4 4-4 4 4M5 11H4v9h16v-9h-1"/></svg>
+        </summary>
+        <div class="report-share-options" aria-label="Download report">
+          <button type="button" class="btn" data-report-format="pdf">Download PDF</button>
+          <button type="button" class="btn" data-report-format="xlsx">Download Excel</button>
+          <button type="button" class="btn" data-report-format="csv">Download CSV</button>
+          <div class="sub" role="status"></div>
+        </div>
+      </details>
     </div>`;
+}
+
+const ANALYTICS_CHART_GROUPS = Object.freeze({ day: "Day", week: "Week", month: "Month", year: "Year" });
+
+function normalizeAnalyticsChartGroup(value) {
+  return Object.hasOwn(ANALYTICS_CHART_GROUPS, value) ? value : "day";
+}
+
+function renderChartGroupingControl(group = "day", dashboard = false) {
+  const id = dashboard ? "dashboardChartGroup" : "analyticsChartGroup";
+  return `<label class="chart-group-control" for="${id}">Chart by
+    <select id="${id}" class="ctrl"${dashboard ? "" : ' name="chartGroup" form="analyticsPeriodForm"'}>
+      ${Object.entries(ANALYTICS_CHART_GROUPS).map(([value, label]) =>
+        `<option value="${value}"${value === group ? " selected" : ""}>${label}</option>`).join("")}
+    </select>
+  </label>`;
+}
+
+function buildAnalyticsChartBuckets(days, group) {
+  const buckets = new Map();
+  for (const day of days) {
+    const date = DateTime.fromISO(day, { zone: DEFAULT_TZ });
+    const start = date.startOf(group);
+    const key = start.toISODate();
+    if (!buckets.has(key)) {
+      const label = group === "year" ? start.toFormat("yyyy")
+        : group === "month" ? start.toFormat("LLL yyyy") : start.toFormat("MM-dd");
+      const tooltip = group === "week" ? `Week of ${start.toFormat("LLL d, yyyy")}`
+        : group === "day" ? start.toFormat("LLL d, yyyy") : label;
+      buckets.set(key, { key, label, tooltip, days: [] });
+    }
+    buckets.get(key).days.push(day);
+  }
+  return [...buckets.values()];
+}
+
+function sumAnalyticsChartBucket(bucket, valueForDay) {
+  return bucket.days.reduce((total, day) => total + (valueForDay(day) || 0), 0);
+}
+
+const UPCOMING_RECURRING_DAYS = 90;
+const UPCOMING_EVENTS_HELP = "Future one-time events and recurring dates in the next 90 days, independent of the reporting period.";
+
+function countUpcomingEventOccurrences(event, nowMs) {
+  if (hasRecurringData(event)) {
+    const endMs = DateTime.fromMillis(nowMs, { zone: DEFAULT_TZ }).plus({ days: UPCOMING_RECURRING_DAYS }).toMillis();
+    return generateAdminOccurrences(event, nowMs, endMs - 1).length;
+  }
+  return Number(Date.parse(String(event.startDateTime || "")) >= nowMs);
 }
 
 function dashboardIsoInRange(value, startMs, endMs) {
@@ -3894,23 +3956,12 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
   const scopedEvents = (eventRows || []).filter(ownsEvent);
   const eventIds = scopedEvents.map((event) => Number(event.id)).filter((id) => Number.isInteger(id) && id > 0);
   let upcomingOccurrences = 0;
-  const upcomingWindowEndMs = nowMs + periodDurationMs;
   for (const event of scopedEvents) {
     const summary = citySummary(event.city);
     summary.publishedEvents += 1;
     if (dashboardIsoInRange(event.createdAt, periodStartMs, periodEndMs)) summary.eventsAdded += 1;
     if (dashboardIsoInRange(event.createdAt, previousStartMs, periodStartMs)) summary.previousEventsAdded += 1;
-    const isRecurring = Number(event?.hasRecurrence || 0) === 1 || hasRecurringData(event);
-    if (isRecurring && hasRecurringData(event)) {
-      const occurrences = generateAdminOccurrences(event, nowMs, upcomingWindowEndMs);
-      upcomingOccurrences += occurrences.filter((occurrence) => {
-        const startsAt = Date.parse(String(occurrence?.startDateTime || "").trim());
-        return Number.isFinite(startsAt) && startsAt >= nowMs && startsAt < upcomingWindowEndMs;
-      }).length;
-    } else {
-      const startsAt = Date.parse(String(event.startDateTime || "").trim());
-      if (Number.isFinite(startsAt) && startsAt >= nowMs && startsAt < upcomingWindowEndMs) upcomingOccurrences += 1;
-    }
+    upcomingOccurrences += countUpcomingEventOccurrences(event, nowMs);
   }
 
   let engagementAvailable = false;
@@ -3970,17 +4021,6 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
         summary.previousViews = Number(row.previousViews || 0);
         summary.uniqueViews = Number(row.uniqueViews || 0);
       }
-      const trendRows = await all(
-        `SELECT substr(ev.viewedAt, 1, 10) AS date, COUNT(*) AS views
-           FROM event_views ev
-          WHERE ev.eventId IN (${eventIdPlaceholders})
-            AND datetime(ev.viewedAt) >= datetime(?)
-            AND datetime(ev.viewedAt) < datetime(?)
-          GROUP BY substr(ev.viewedAt, 1, 10)
-          ORDER BY date ASC`,
-        [...eventIds, period.start.toUTC().toISO(), period.end.toUTC().toISO()]
-      );
-      for (const row of trendRows || []) dailyViews.set(String(row.date || ""), Number(row.views || 0));
       const weekdayRows = await all(
         `SELECT viewedAt FROM event_views
           WHERE eventId IN (${eventIdPlaceholders})
@@ -3993,10 +4033,14 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
         // SQLite's datetime('now') default is a UTC SQL timestamp such as
         // "2026-10-16 18:30:00", while some deployments persist ISO strings.
         // Support both before bucketing in the reporting timezone.
-        let viewedAt = DateTime.fromISO(rawViewedAt, { setZone: true });
+        let viewedAt = DateTime.fromISO(rawViewedAt, { zone: "utc" });
         if (!viewedAt.isValid) viewedAt = DateTime.fromSQL(rawViewedAt, { zone: "utc" });
         viewedAt = viewedAt.setZone(DEFAULT_TZ);
-        if (viewedAt.isValid) weekdayViews[viewedAt.weekday - 1] += 1;
+        if (viewedAt.isValid) {
+          weekdayViews[viewedAt.weekday - 1] += 1;
+          const date = viewedAt.toISODate();
+          dailyViews.set(date, (dailyViews.get(date) || 0) + 1);
+        }
       }
       engagementAvailable = true;
       engagementSeriesAvailable = true;
@@ -4109,6 +4153,15 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
       eventViews: engagementSeriesAvailable ? Number(dailyViews.get(date) || 0) : null,
     });
   }
+  const chartGroup = normalizeAnalyticsChartGroup(req.query?.chartGroup);
+  const seriesByDay = new Map(series.map((point) => [point.date, point]));
+  const chartSeries = chartGroup === "day" ? series : buildAnalyticsChartBuckets([...seriesByDay.keys()], chartGroup).map((bucket) => ({
+    date: bucket.days[0],
+    label: bucket.label,
+    tooltip: bucket.tooltip,
+    eventOccurrences: sumAnalyticsChartBucket(bucket, (day) => seriesByDay.get(day).eventOccurrences),
+    eventViews: engagementSeriesAvailable ? sumAnalyticsChartBucket(bucket, (day) => seriesByDay.get(day).eventViews) : null,
+  }));
   const dashboardCommunities = [];
   const enumclawSummary = citySummaries.get("Enumclaw");
   if (enumclawSummary) dashboardCommunities.push({ ...enumclawSummary });
@@ -4164,7 +4217,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
     },
     attention,
     communities: dashboardCommunities,
-    series,
+    series: chartSeries,
     insights: {
       categoryDistribution,
       categoryAssignmentTotal,
@@ -4909,7 +4962,7 @@ function buildCreatedByOwnerClause(userId) {
 async function renderAdmin(req, res, view) {
   try {
     const analyticsPeriodParams = Object.fromEntries(
-      ["range", "start", "end"]
+      ["range", "start", "end", "chartGroup"]
         .filter((key) => typeof req.query[key] === "string" && req.query[key])
         .map((key) => [key, req.query[key]])
     );
@@ -4921,7 +4974,9 @@ async function renderAdmin(req, res, view) {
     for (let date = analyticsPeriod.start.startOf("day"); date < analyticsPeriod.end; date = date.plus({ days: 1 })) {
       analyticsDays.push(date.toISODate());
     }
-    const periodLabel = (day) => day.slice(5);
+    const chartGroup = normalizeAnalyticsChartGroup(req.query.chartGroup);
+    const chartBuckets = buildAnalyticsChartBuckets(analyticsDays, chartGroup);
+    const chartGroupingControl = renderChartGroupingControl(chartGroup);
     const metricDay = (value) => DateTime.fromSQL(value, { zone: "utc" }).setZone(DEFAULT_TZ).toISODate();
     async function loadPeriodMetricEvents(table, foreignKey, scopedItemsSql, params) {
       const rows = await all(
@@ -6172,8 +6227,6 @@ return `
       );
       scheduledEventRows = occRows || [];
       dashboardEventRows = scheduledEventRows.map((row) => normalizeRowTimes(row));
-      const nowMs = Date.now();
-      const upcomingWindowEndMs = nowMs + 90 * 86400 * 1000;
       const currentYearEndMs = new Date(new Date().getFullYear(), 11, 31, 23, 59, 59, 999).getTime();
 
       totalOccurrences = dashboardEventRows.reduce((sum, row) => {
@@ -6190,15 +6243,6 @@ return `
         return sum + Math.max(1, occ.length);
       }, 0);
 
-      upcoming = dashboardEventRows.reduce((sum, row) => {
-        const hasRec = hasRecurringData(row);
-        if (!hasRec) {
-          const startUtc = Date.parse(String(row?.startDateTime || ""));
-          return sum + (Number.isFinite(startUtc) && startUtc >= nowMs ? 1 : 0);
-        }
-        const occ = generateAdminOccurrences(row, nowMs - 5 * 60 * 1000, upcomingWindowEndMs);
-        return sum + occ.length;
-      }, 0);
     } catch (_) {
       totalOccurrences = total;
       try {
@@ -6216,6 +6260,14 @@ return `
         dashParams
       );
       upcoming = Number(upcomingRow?.n || 0);
+    }
+
+    const upcomingNowMs = Date.now();
+    const upcomingByEvent = new Map(scheduledEventRows.map((event) =>
+      [event.id, countUpcomingEventOccurrences(event, upcomingNowMs)]
+    ));
+    if (scheduledEventRows.length) {
+      upcoming = [...upcomingByEvent.values()].reduce((sum, count) => sum + count, 0);
     }
 
     // Optional sums (only if columns exist)
@@ -6579,13 +6631,10 @@ return `
     const periodScheduledEvents = eventsPeriod
       ? dashboardEventRows.filter((event) => eventPeriodActivity.get(event.id)?.dates.length)
       : [];
-    const periodNowMs = Date.now();
     const stats = {
       uniqueTotal: fmt(eventsPeriod ? periodScheduledEvents.length : total),
       total: fmt(eventsPeriod ? [...periodDays.values()].reduce((sum, day) => sum + day.events, 0) : (totalOccurrences || total)),
-      upcoming: fmt(eventsPeriod
-        ? periodScheduledEvents.reduce((sum, event) => sum + eventPeriodActivity.get(event.id).dates.filter((date) => Date.parse(date) >= periodNowMs).length, 0)
-        : upcoming),
+      upcoming: fmt(upcoming),
       past: fmt(past),
       featured: fmt(eventsPeriod ? periodScheduledEvents.filter((event) => Number(event.featured) === 1).length : featuredCount),
       views: fmt(viewsSum),
@@ -7045,8 +7094,12 @@ return `
         .filter((venue) => venue.clicks > 0).sort((a, b) => b.clicks - a.clicks || b.id - a.id).slice(0, 5);
       if (selectedVenueActualId) {
         const days = metricRows.get(selectedVenueActualId)?.days;
-        for (const day of analyticsDays) {
-          venuePeriodHistory.push({ label: periodLabel(day), views: days?.get(day)?.get("view") || 0, totalClicks: sumClicks(days?.get(day)) });
+        for (const bucket of chartBuckets) {
+          venuePeriodHistory.push({
+            label: bucket.label,
+            views: sumAnalyticsChartBucket(bucket, (day) => days?.get(day)?.get("view")),
+            totalClicks: sumAnalyticsChartBucket(bucket, (day) => sumClicks(days?.get(day))),
+          });
         }
       }
     }
@@ -7330,13 +7383,13 @@ return `
         }).join("")
       : `<tr><td colspan="4" class="muted">No category leaders yet.</td></tr>`;
 
-    const chartDates = [...periodDays.keys()];
-    const chartLabels = chartDates.map((date) => date.slice(5));
+    const chartBucketIndexByDay = new Map(chartBuckets.flatMap((bucket, index) => bucket.days.map((day) => [day, index])));
     const chartSeries = {
-      dates: chartDates,
-      labels: chartLabels,
-      events: chartDates.map((date) => periodDays.get(date).events),
-      views: chartDates.map((date) => periodDays.get(date).views),
+      dates: chartBuckets.map((bucket) => bucket.days[0]),
+      labels: chartBuckets.map((bucket) => bucket.label),
+      ...(chartGroup === "day" ? {} : { tooltips: chartBuckets.map((bucket) => bucket.tooltip) }),
+      events: chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => periodDays.get(day)?.events)),
+      views: chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => periodDays.get(day)?.views)),
     };
     // These markers are populated only for an individual event report.  They
     // deliberately use the event record timestamps rather than view data so
@@ -7397,8 +7450,8 @@ return `
         const timestamp = Date.parse(marker.dateTime);
         if (!Number.isFinite(timestamp) || !dashboardIsoInRange(marker.dateTime, eventsPeriod.start.toMillis(), eventsPeriod.end.toMillis())) return "";
         const key = DateTime.fromMillis(timestamp, { zone: DEFAULT_TZ }).toISODate();
-        const pointIndex = chartDates.indexOf(key);
-        if (pointIndex < 0 || !eventPoints[pointIndex]) return "";
+        const pointIndex = chartBucketIndexByDay.get(key);
+        if (pointIndex === undefined || !eventPoints[pointIndex]) return "";
         const x = eventPoints[pointIndex].x;
         const labelKey = `${pointIndex}:${String(marker.label || "")}`;
         const showLabel = !labeledMarkerBuckets.has(labelKey);
@@ -7526,8 +7579,8 @@ return `
           const day = DateTime.fromMillis(Date.parse(date), { zone: DEFAULT_TZ }).toISODate();
           occurrenceDays.set(day, (occurrenceDays.get(day) || 0) + 1);
         }
-        chartSeries.events = chartDates.map((date) => occurrenceDays.get(date) || 0);
-        chartSeries.views = chartDates.map((date) => activity.viewsByDay.get(date) || 0);
+        chartSeries.events = chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => occurrenceDays.get(day)));
+        chartSeries.views = chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => activity.viewsByDay.get(day)));
         selectedEventChartMarkers = [
           { label: "Event submitted", dateTime: eventRow.submittedAt || eventRow.createdAt },
           ...activity.dates.map((dateTime) => ({ label: "Event day", dateTime })),
@@ -8244,9 +8297,9 @@ return `
         day.sent += Number(row.sentCount || 0);
         day.opened += Number(row.uniqueOpenCount || 0);
       }
-      const labelsByDate = analyticsDays.map(periodLabel);
-      const sentSet = { labels: labelsByDate, values: [...daily.values()].map((day) => day.sent) };
-      const openSet = { labels: labelsByDate, values: [...daily.values()].map((day) => day.opened) };
+      const labelsByDate = chartBuckets.map((bucket) => bucket.label);
+      const sentSet = { labels: labelsByDate, values: chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => daily.get(day).sent)) };
+      const openSet = { labels: labelsByDate, values: chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => daily.get(day).opened)) };
       newsletterChartDataJson = esc(JSON.stringify({ events: sentSet, views: openSet }));
 
       function buildNewsletterChartSvg() {
@@ -9847,8 +9900,12 @@ return `
 
         if (showAdsAnalytics && selectedAdActualId) {
           const days = adPeriodMetrics.get(selectedAdActualId)?.days;
-          for (const day of analyticsDays) {
-            adPeriodHistory.push({ label: periodLabel(day), views: days?.get(day)?.get("view") || 0, clicks: days?.get(day)?.get("click") || 0 });
+          for (const bucket of chartBuckets) {
+            adPeriodHistory.push({
+              label: bucket.label,
+              views: sumAnalyticsChartBucket(bucket, (day) => days?.get(day)?.get("view")),
+              clicks: sumAnalyticsChartBucket(bucket, (day) => days?.get(day)?.get("click")),
+            });
           }
         }
       }
@@ -10149,16 +10206,18 @@ return `
       });
       organizerPageSummary = makeSummary();
       const dates = new Map(analyticsDays.map((day) => [day, { events: 0, views: 0 }]));
+      const upcomingByOrganizer = new Map();
       for (const event of dashboardEventRows) {
+        const name = organizerName(event);
+        const upcoming = upcomingByEvent.get(event.id) || 0;
+        upcomingByOrganizer.set(name, (upcomingByOrganizer.get(name) || 0) + upcoming);
         const activity = eventPeriodActivity.get(event.id);
         if (!activity || (!activity.dates.length && !activity.tracked)) continue;
-        const name = organizerName(event);
         if (!organizerMap.has(name)) organizerMap.set(name, { organizer: name, ...makeSummary() });
         const entry = organizerMap.get(name);
         const scheduled = Number(activity.dates.length > 0);
-        const upcoming = activity.dates.filter((date) => Date.parse(date) >= periodNowMs).length;
         const totals = {
-          uniqueEvents: scheduled, totalOccurrences: activity.dates.length, upcomingOccurrences: upcoming,
+          uniqueEvents: scheduled, totalOccurrences: activity.dates.length,
           views: activity.tracked, featured: scheduled * Number(Number(event.featured) === 1),
           allViews: activity.tracked, directViews: activity.direct,
           referralViews: activity.referral, internalViews: activity.internal,
@@ -10177,6 +10236,10 @@ return `
           if (day) day.views += views;
         }
       }
+      organizerPageSummary.upcomingOccurrences = selectedOrganizer ? (upcomingByOrganizer.get(selectedOrganizer) || 0) : upcoming;
+      for (const entry of organizerMap.values()) {
+        entry.upcomingOccurrences = upcomingByOrganizer.get(entry.organizer) || 0;
+      }
       organizerSummary = organizerPageSummary;
       organizerLeaderboard = [...organizerMap.values()].sort((a, b) =>
         b.views - a.views || b.totalOccurrences - a.totalOccurrences || a.organizer.localeCompare(b.organizer)
@@ -10190,9 +10253,9 @@ return `
           <td>${fmt(row.upcomingOccurrences)}</td>
           <td>${fmt(row.views)}</td>
         </tr>`).join("") || `<tr><td colspan="6" class="muted">No organizer activity in this reporting period.</td></tr>`;
-      organizerChartLabels = analyticsDays.map(periodLabel);
-      organizerChartEventValues = [...dates.values()].map((day) => day.events);
-      organizerChartViewValues = [...dates.values()].map((day) => day.views);
+      organizerChartLabels = chartBuckets.map((bucket) => bucket.label);
+      organizerChartEventValues = chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => dates.get(day).events));
+      organizerChartViewValues = chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => dates.get(day).views));
       organizerChartDataJson = JSON.stringify({
         events: { labels: organizerChartLabels, values: organizerChartEventValues },
         views: { labels: organizerChartLabels, values: organizerChartViewValues },
@@ -10251,19 +10314,19 @@ return `
       : showNewsletter
       ? "Newsletter"
       : showNewsletterAnalytics
-      ? "Newsletter Analytics"
+      ? "Newsletter Dashboard"
       : showNewsletterPreview
       ? "Newsletter Preview"
       : showNewsletterAudience
       ? "Newsletter Audience"
       : showOrganizers
-      ? "Organizer Analytics"
+      ? "Organizers Dashboard"
       : showVenueCreate
       ? "Create Venue"
       : showVenueExisting
       ? "All Venues"
       : showVenueAnalytics
-      ? "Venue Analytics"
+      ? "Venues Dashboard"
       : showJobsCreate
       ? "Create Job"
       : showJobsExisting
@@ -10271,17 +10334,17 @@ return `
       : showJobsApplicants
       ? "Job Applicants"
       : showJobsAnalytics
-      ? "Job Analytics"
+      ? "Jobs Dashboard"
       : showAdsCreate
       ? "Create Ad"
       : showAdsExisting
       ? "All Ads"
       : showAdsAnalytics
-      ? "Ads Analytics"
+      ? "Ads Dashboard"
       : showUpdatesCreate
       ? (editUpdate ? "Edit Update" : "Create Update")
       : showUpdatesAnalytics
-      ? "Update Analytics"
+      ? "Updates Dashboard"
       : showUpdates
       ? "All Updates"
       : showPreferences
@@ -10292,6 +10355,8 @@ return `
       ? "Release Notes"
       : showInvites
       ? "Invites"
+      : showAnalytics
+      ? (selectedEventAnalytics?.title || "Events Dashboard")
       : "Dashboard";
     let analyticsPeriodHtml = "";
     if (showAnalytics || showOrganizers || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showUpdatesAnalytics) {
@@ -10303,14 +10368,17 @@ return `
         query.newsletterScopeExplicit = "1";
       }
       const hiddenFields = Object.entries(query)
-        .filter(([key, value]) => !["range", "start", "end"].includes(key) && typeof value === "string" && value)
+        .filter(([key, value]) => !["range", "start", "end", "chartGroup"].includes(key) && typeof value === "string" && value)
         .map(([key, value]) => `<input type="hidden" name="${esc(key)}" value="${esc(value)}" />`).join("");
       const dateValue = (key) => /^\d{4}-\d{2}-\d{2}$/.test(String(req.query[key] || "")) ? String(req.query[key]) : "";
       analyticsPeriodHtml = `
         <section class="dashboard-command" aria-labelledby="analyticsPeriodTitle">
           <div class="dashboard-command-head">
             <div><h1 id="analyticsPeriodTitle">${selectedEventAnalytics ? "Event activity" : esc(pageTitleBase)}</h1><p class="sub">Activity during the selected reporting period.</p></div>
-            <form class="dashboard-period-controls" method="GET" id="analyticsPeriodForm">
+            <form class="dashboard-period-controls" method="GET" id="analyticsPeriodForm"
+              data-report-title="${esc(selectedEventAnalytics ? selectedEventAnalytics.title + " report" : pageTitleBase)}"
+              data-report-scope="${esc(selectedAdminWorkspace || selectedAdminPrimaryCity || "")}"
+              data-report-start="${esc(periodBounds[0])}" data-report-end="${esc(periodBounds[1])}">
               ${hiddenFields}
               ${renderReportingPeriodControl({ range, start: dateValue("start"), end: dateValue("end"), analytics: true })}
             </form>
@@ -14062,6 +14130,13 @@ return `
       .dashboard-community-scope{ display:grid; gap:5px; }
       .dashboard-period-row{ display:flex; gap:8px; align-items:center; justify-content:flex-end; }
       .dashboard-period-row .ctrl{ min-width:142px; margin:0; padding:8px 10px; font-size:14px; }
+      .report-share{ position:relative; flex:none; }
+      .report-share > summary.btn{ display:grid; place-items:center; width:var(--ctrl-h); height:var(--ctrl-h); padding:0; list-style:none; cursor:pointer; }
+      .report-share > summary::-webkit-details-marker{ display:none; }
+      .report-share-options{ position:absolute; z-index:20; top:calc(100% + 6px); right:0; width:168px; padding:6px; border:1px solid var(--line); border-radius:var(--radius-inner); background:var(--panel); box-shadow:0 8px 20px rgba(15,23,42,.14); }
+      .report-share:not([open]) .report-share-options{ display:none; }
+      .report-share-options .btn{ display:block; width:100%; text-align:left; margin:0; border-color:transparent; background:transparent; }
+      .report-share-options [role="status"]:empty{ display:none; }
       .dashboard-period-row select.ctrl{ padding-right:44px; }
       .dashboard-create-event{ white-space:nowrap; }
       .dashboard-custom-range{ display:flex; gap:6px; align-items:center; }
@@ -14094,6 +14169,9 @@ return `
       .dashboard-command-activity .chartLegend{ gap:14px; margin-top:8px; }
       .dashboard-command-activity .chartLegendItem{ gap:7px; font-size:13px; font-weight:500; }
       .dashboard-command-activity .chartLegendLine{ width:22px; }
+      .chart-group-control{ display:flex; align-items:center; gap:8px; white-space:nowrap; margin:0; }
+      .chart-group-control .ctrl{ width:auto; min-width:96px; margin:0; }
+      .dashboard-chart-controls{ display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; }
       .dashboard-series-controls{ display:inline-flex; align-items:center; gap:4px; padding:3px; border:1px solid var(--line); border-radius:999px; background:var(--panel2); }
       .dashboard-series-control{ min-height:28px; padding:0 10px; border:0; border-radius:999px; background:transparent; color:var(--muted); font-size:12px; font-weight:650; cursor:pointer; }
       .dashboard-series-control:hover,.dashboard-series-control[aria-pressed="true"]{ color:var(--text); background:rgba(0,192,139,.12); }
@@ -14515,6 +14593,9 @@ return `
               if (range.value !== 'custom') form.requestSubmit();
             });
             syncDates();
+            document.addEventListener('change', function(event){
+              if (event.target.id === 'analyticsChartGroup') form.requestSubmit();
+            });
           })();
         </script>
 
@@ -14540,7 +14621,7 @@ return `
           </div>
 
           <div class="dashboard-kpi-grid" aria-live="polite" aria-busy="true" id="dashboardKpis">
-            <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My upcoming events" : "Upcoming events", "Scheduled event occurrences within the selected reporting period. Recurring events count each scheduled occurrence.")}</span><strong class="v" id="dashboardKpiUpcoming">—</strong></span><span class="dashboard-kpi-detail">In the selected reporting window</span></a>
+            <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My upcoming events" : "Upcoming events", UPCOMING_EVENTS_HELP)}</span><strong class="v" id="dashboardKpiUpcoming">—</strong></span><span class="dashboard-kpi-detail">From today</span></a>
             <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/events-analytics")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My unique event views" : "Event views", isOrganizerUser ? "Distinct tracked visitor hashes across your events in the selected reporting period. This is not attendance." : "Tracked event-page views in the selected reporting period. This is not attendance or ticket sales.")}</span><strong class="v" id="dashboardKpiViews">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiViewsChange">Loading measured engagement…</span></a>
             <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel("Events added", "Events created during the selected reporting period. This is separate from whether an event has been published.")}</span><strong class="v" id="dashboardKpiAdded">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiAddedChange">Loading…</span></a>
             <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref(isOrganizerUser ? "/admin/events-analytics" : "/admin/events-organizers")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My event views" : "Active organizers", isOrganizerUser ? "Tracked event-page views across your events in the selected reporting period. This is not attendance." : "Organizers with published events in your authorized communities.")}</span><strong class="v" id="dashboardKpiOrganizers">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiOrganizersDetail">Loading…</span></a>
@@ -14549,7 +14630,7 @@ return `
           <div class="dashboard-command-columns" data-support-card-count="${visibleDashboardCardCount}">
             <div class="dashboard-command-left">
               <section class="card dashboard-command-card dashboard-command-activity" aria-labelledby="dashboardActivityTitle">
-                <div class="sectionTitle"><div class="dashboard-activity-copy"><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div><div class="dashboard-series-controls" aria-label="Activity chart series"><button type="button" class="dashboard-series-control" data-dashboard-series="both" aria-pressed="true">Both</button><button type="button" class="dashboard-series-control" data-dashboard-series="events" aria-pressed="false">Events</button><button type="button" class="dashboard-series-control" data-dashboard-series="views" aria-pressed="false">Views</button></div></div>
+                <div class="sectionTitle"><div class="dashboard-activity-copy"><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div><div class="dashboard-chart-controls">${renderChartGroupingControl("day", true)}<div class="dashboard-series-controls" aria-label="Activity chart series"><button type="button" class="dashboard-series-control" data-dashboard-series="both" aria-pressed="true">Both</button><button type="button" class="dashboard-series-control" data-dashboard-series="events" aria-pressed="false">Events</button><button type="button" class="dashboard-series-control" data-dashboard-series="views" aria-pressed="false">Views</button></div></div></div>
                 <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
               </section>
               <div class="dashboard-command-insights">
@@ -14723,7 +14804,7 @@ return `
           </div>
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("Upcoming", "Scheduled occurrences that have yet to start within this reporting period.")}</div>
+              <div class="k">${analyticsMetricLabel("Upcoming", UPCOMING_EVENTS_HELP)}</div>
               <div class="v">${esc(stats.upcoming)}</div>
             </div>
           </div>
@@ -14794,6 +14875,7 @@ return `
                     </div>
                   </div>
                 </div>
+              ${chartGroupingControl}
             </div>
             <div class="chart-wrap" id="eventsChartWrap" style="min-height:96px;">
               <div id="eventsChartSvgHost">${eventsChartSvg}</div>
@@ -14821,7 +14903,7 @@ return `
           <div class="metric"><div><div class="k">${analyticsMetricLabel("Organizers", analyticsMetricHelp.organizers)}</div><div class="v">${fmt(selectedOrganizer ? Number(organizerLeaderboard.some((row) => row.organizer === selectedOrganizer)) : organizerLeaderboard.length)}</div></div></div>
           <div class="metric"><div><div class="k">${analyticsMetricLabel("Unique events", analyticsMetricHelp.uniqueEvents)}</div><div class="v">${organizerPageSummary.uniqueEvents.toLocaleString("en-US")}</div></div></div>
           <div class="metric"><div><div class="k">${analyticsMetricLabel("Total events", analyticsMetricHelp.totalEvents)}</div><div class="v">${organizerPageSummary.totalOccurrences.toLocaleString("en-US")}</div></div></div>
-          <div class="metric"><div><div class="k">${analyticsMetricLabel("Upcoming", analyticsMetricHelp.upcoming)}</div><div class="v">${organizerPageSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">${analyticsMetricLabel("Upcoming", UPCOMING_EVENTS_HELP)}</div><div class="v">${organizerPageSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div></div>
         </section>
 
         <section class="grid2 analytics-main-grid organizer-chart-grid">
@@ -14843,6 +14925,7 @@ return `
                 </div>
                 <div class="chartTitle" style="font-weight:700;">${esc(organizerChartTitle)}</div>
               </div>
+              ${chartGroupingControl}
             </div>
             <div class="chart-wrap" id="organizerChartWrap" style="min-height:220px;">
               <div id="organizerChartSvgHost">${organizerChartSvg}</div>
@@ -15371,6 +15454,7 @@ return `
                   <p class="sub">Campaigns sent in the selected reporting period</p>
                 </div>
               </div>
+              ${chartGroupingControl}
             </div>
             <div class="chart-wrap" id="newsletterChartWrap" style="min-height:220px;">
               <div id="newsletterChartSvgHost">${newsletterChartSvg}</div>
@@ -17328,6 +17412,7 @@ return `
 		                          <button type="button" data-metric="views" class="on">Views</button>
 		                          <button type="button" data-metric="clicks">Total Clicks</button>
 		                        </div>
+		                        ${chartGroupingControl}
 		                      </div>
 		                    </div>
 		                    <div class="chart-wrap" id="venueChartWrap" style="min-height:320px;">
@@ -18030,6 +18115,7 @@ return `
                         <button type="button" data-metric="views" class="on">Views</button>
                         <button type="button" data-metric="clicks">Clicks</button>
                       </div>
+                      ${chartGroupingControl}
                     </div>
                   </div>
                   <div class="chart-wrap" id="adChartWrap" style="min-height:320px;">
@@ -18057,6 +18143,7 @@ return `
         var root = document.getElementById('dashboardCommand');
         if (!root || !window.fetch) return;
         var range = document.getElementById('dashboardRange');
+        var chartGroup = document.getElementById('dashboardChartGroup');
         var custom = document.getElementById('dashboardCustomRange');
         var start = document.getElementById('dashboardRangeStart');
         var end = document.getElementById('dashboardRangeEnd');
@@ -18066,6 +18153,7 @@ return `
         var organizer = root.getAttribute('data-organizer') === '1';
         var activitySeriesMode = 'both';
         var latestDashboardSummary = null;
+        var dashboardRequestId = 0;
         var number = function(value){ return Number(value || 0).toLocaleString('en-US'); };
         var set = function(id, value){ var node = document.getElementById(id); if (node) node.textContent = value; };
         var pct = function(value){
@@ -18196,6 +18284,7 @@ return `
         };
         function render(summary){
           latestDashboardSummary = summary;
+          root.reportSummary = summary;
           Array.prototype.forEach.call(document.querySelectorAll('[data-dashboard-series]'), function(control){
             control.setAttribute('aria-pressed', control.getAttribute('data-dashboard-series') === activitySeriesMode ? 'true' : 'false');
           });
@@ -18281,7 +18370,7 @@ return `
               var axisColor = darkChart ? '#aab8cc' : '#64748b';
               var gridColor = darkChart ? 'rgba(148,163,184,.16)' : 'rgba(15,23,42,.08)';
               var stepX = series.length <= 1 ? 0 : plotW / (series.length - 1);
-              var points = function(values, yMax){ return values.map(function(value, index){ return { x: padL + stepX * index, y: padT + plotH - ((value / yMax) * plotH) }; }); };
+              var points = function(values, yMax){ return values.map(function(value, index){ return { x: padL + (series.length === 1 ? plotW / 2 : stepX * index), y: padT + plotH - ((value / yMax) * plotH) }; }); };
               var eventPoints = points(events, eventScale.max), viewPoints = points(views, viewScale.max);
               var smoothPath = function(items){
                 if (!items.length) return '';
@@ -18305,12 +18394,20 @@ return `
               var labelStep = series.length <= 4 ? 1 : Math.ceil(series.length / 4);
               var labels = series.map(function(item, index){
                 if (index !== series.length - 1 && index % labelStep !== 0) return '';
-                var anchor = index === series.length - 1 ? 'end' : (index === 0 ? 'start' : 'middle');
-                return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 24).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + dateLabel(seriesDate(index)) + '</text>';
+                var anchor = series.length === 1 ? 'middle' : index === series.length - 1 ? 'end' : (index === 0 ? 'start' : 'middle');
+                return '<text x="' + eventPoints[index].x.toFixed(2) + '" y="' + (padT + plotH + 24).toFixed(2) + '" text-anchor="' + anchor + '" fill="' + axisColor + '" font-size="12" font-weight="500">' + (item.label || dateLabel(seriesDate(index))) + '</text>';
               }).join('');
               // Align axis text with the heading and series controls at the card edges.
               var axisTitles = (showEvents ? '<text x="0" y="${CHART_AXIS_TITLE_BASELINE}" fill="rgba(16,185,129,.90)" font-size="12" font-weight="650">Events</text>' : '<text x="0" y="${CHART_AXIS_TITLE_BASELINE}" fill="rgba(37,99,235,.82)" font-size="12" font-weight="650">Views</text>') + (showViews && showEvents ? '<text x="' + width + '" y="${CHART_AXIS_TITLE_BASELINE}" text-anchor="end" fill="rgba(37,99,235,.82)" font-size="12" font-weight="650">Views</text>' : '');
-              chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + axisTitles + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + (showViews ? '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="${CHART_SERIES_STROKE_WIDTH}" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + (showEvents ? '<path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="${CHART_SERIES_STROKE_WIDTH}" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + labels + '</g></svg>';
+              var singlePoints = '';
+              if (series.length === 1) {
+                var pointMarker = function(point, color){
+                  return '<circle cx="' + point.x + '" cy="' + point.y + '" r="3" fill="' + color + '"></circle>';
+                };
+                if (showEvents) singlePoints += pointMarker(eventPoints[0], 'rgba(16,185,129,.90)');
+                if (showViews) singlePoints += pointMarker(viewPoints[0], 'rgba(37,99,235,.82)');
+              }
+              chart.innerHTML = '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Events and views over time"><g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">' + grid + axisTitles + (fillPath ? '<path d="' + fillPath + '" fill="rgba(16,185,129,.035)"></path>' : '') + (showViews ? '<path d="' + viewPath + '" fill="none" stroke="rgba(37,99,235,.82)" stroke-width="${CHART_SERIES_STROKE_WIDTH}" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + (showEvents ? '<path d="' + eventPath + '" fill="none" stroke="rgba(16,185,129,.90)" stroke-width="${CHART_SERIES_STROKE_WIDTH}" stroke-linecap="round" stroke-linejoin="round"></path>' : '') + singlePoints + labels + '</g></svg>';
               var svg = chart.querySelector('svg');
               var svgNode = 'http://www.w3.org/2000/svg';
               var highlight = document.createElementNS(svgNode, 'g');
@@ -18342,7 +18439,7 @@ return `
                 [eventHalo, eventDot].forEach(function(dot){ dot.setAttribute('cx', eventPoint.x); dot.setAttribute('cy', eventPoint.y); dot.setAttribute('display', showEvents ? '' : 'none'); });
                 viewDot.setAttribute('cx', viewPoint.x); viewDot.setAttribute('cy', viewPoint.y); viewDot.setAttribute('display', showViews ? '' : 'none');
                 highlight.setAttribute('display', '');
-                tooltipTitle.textContent = 'Date: ' + fullDateLabel(seriesDate(index));
+                tooltipTitle.textContent = series[index].tooltip || ('Date: ' + fullDateLabel(seriesDate(index)));
                 eventRow.hidden = !showEvents; viewRow.hidden = !showViews;
                 eventRow.querySelector('strong').textContent = number(events[index]);
                 viewRow.querySelector('strong').textContent = number(views[index]);
@@ -18400,16 +18497,19 @@ return `
           var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false');
         }
         function load(){
+          var requestId = ++dashboardRequestId;
+          root.reportLoading = true;
           var selected = range.value;
           custom.hidden = selected !== 'custom';
           if (selected === 'custom' && (!start.value || !end.value)) return;
           var url = new URL('/admin/dashboard-summary', window.location.origin); url.searchParams.set('range', selected); if (city) url.searchParams.set('city', city);
+          if (chartGroup) url.searchParams.set('chartGroup', chartGroup.value);
           if (communityScope && communityScope.value && communityScope.value !== 'all') url.searchParams.set('dashboardScope', communityScope.value);
           if (selected === 'custom') { url.searchParams.set('start', start.value); url.searchParams.set('end', end.value); }
-          fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'Dashboard data is not available for this account.' : 'Dashboard data is temporarily unavailable.'); return response.json(); }).then(render).catch(function(error){ var message = error && error.message ? error.message : 'Dashboard data is temporarily unavailable.'; set('dashboardContext', message + ' Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">' + message + '</div>'; ['dashboardActivityChart','dashboardCategoryChart','dashboardWeekdayChart'].forEach(function(id){ var chart = document.getElementById(id); if (chart) chart.innerHTML = '<div class="dashboard-chart-empty">' + message + '</div>'; }); var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
+          fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'Dashboard data is not available for this account.' : 'Dashboard data is temporarily unavailable.'); return response.json(); }).then(function(summary){ if (requestId !== dashboardRequestId) return; root.reportLoading = false; render(summary); }).catch(function(error){ if (requestId !== dashboardRequestId) return; var message = error && error.message ? error.message : 'Dashboard data is temporarily unavailable.'; set('dashboardContext', message + ' Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">' + message + '</div>'; ['dashboardActivityChart','dashboardCategoryChart','dashboardWeekdayChart'].forEach(function(id){ var chart = document.getElementById(id); if (chart) chart.innerHTML = '<div class="dashboard-chart-empty">' + message + '</div>'; }); var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
         }
         Array.prototype.forEach.call(document.querySelectorAll('[data-dashboard-series]'), function(control){ control.addEventListener('click', function(){ activitySeriesMode = control.getAttribute('data-dashboard-series') || 'both'; if (latestDashboardSummary) render(latestDashboardSummary); }); });
-        range.addEventListener('change', load); if (communityScope) communityScope.addEventListener('change', load); if (apply) apply.addEventListener('click', load); load();
+        range.addEventListener('change', load); if (chartGroup) chartGroup.addEventListener('change', load); if (communityScope) communityScope.addEventListener('change', load); if (apply) apply.addEventListener('click', load); load();
       })();
 
       (function(){
@@ -20131,7 +20231,7 @@ return `
       showChartHoverOverlay(overlay, frame, { x, y: eventLegend ? eventY : viewY },
         eventLegend ? { x, y: viewY } : null, getChartPalette(eventLegend ? "events" : "clicks"));
       showChartTipCard(tip, wrap, x, eventLegend ? Math.min(eventY, viewY) : viewY,
-        renderChartTipHtml("Date: " + series.dates[index], rows));
+        renderChartTipHtml(series.tooltips?.[index] || ("Date: " + series.dates[index]), rows));
     });
     svg.addEventListener("pointerleave", hide);
   }
@@ -21115,6 +21215,7 @@ return `
     });
   })();
 })();</script>
+    ${showDashboard || analyticsPeriodHtml ? `<script src="/assets/report-download.js" defer></script>` : ""}
   </body>
 </html>`);
   } catch (err) {
@@ -21130,6 +21231,7 @@ function isOrganizerAllowedAdminPath(pathname) {
   if ([
     "/",
     "/dashboard-summary",
+    "/report-download",
     "/events-analytics",
     "/search",
     "/messages",
@@ -21166,6 +21268,21 @@ router.use(async (req, res, next) => {
 });
 
 router.get("/", async (req, res) => renderAdmin(req, res, "dashboard"));
+router.post("/report-download", async (req, res) => {
+  try {
+    const user = await resolveSessionUser(req);
+    if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.is("application/json")) return res.status(415).json({ error: "Expected a JSON report" });
+    const download = await buildReportDownload(req.body?.format, req.body?.report);
+    if (!download) return res.status(400).json({ error: "Invalid report or download format" });
+    res.set("Cache-Control", "private, no-store");
+    res.set("Content-Disposition", `attachment; filename="${download.filename}"`);
+    return res.type(download.contentType).send(download.content);
+  } catch (error) {
+    console.error("[admin/report-download]", error);
+    return res.status(500).json({ error: "Could not prepare the report" });
+  }
+});
 router.get("/dashboard-summary", async (req, res) => {
   try {
     const user = await resolveSessionUser(req);
