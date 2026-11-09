@@ -5005,6 +5005,10 @@ async function renderAdmin(req, res, view) {
     await ensureVenueSchema();
     await ensureNewsletterSchema();
     const sessionUser = await resolveSessionUser(req);
+    const showBilling = view === "billing";
+    const canSeeBilling = canManagePlateauSandboxBilling(req, sessionUser);
+    if (showBilling && !canSeeBilling) return res.status(403).send("Forbidden");
+    const billing = showBilling ? await renderPlateauBilling(sessionUser) : null;
     await ensureJobSchema();
     await ensureAdSchema();
     await ensureJobApplicantSchema();
@@ -10348,6 +10352,8 @@ return `
       ? "Updates Dashboard"
       : showUpdates
       ? "All Updates"
+      : showBilling
+      ? "Plateau Regional Billing"
       : showPreferences
       ? "Preferences"
       : showUsers
@@ -10393,8 +10399,24 @@ return `
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants;
     const adsMenuOpen = showAdsExisting || showAdsCreate;
     const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showOrganizers;
-    const adminMenuOpen = showUsers || showInvites || showPreferences;
+    const adminMenuOpen = showUsers || showInvites || showPreferences || showBilling;
     const pageTitle = `OpenCircle | ${pageTitleBase}`;
+
+    // The shared admin layout uses inline scripts for navigation and theme.
+    const billingNonce = showBilling ? crypto.randomBytes(18).toString("base64") : "";
+    const scriptNonce = billingNonce ? ` nonce="${billingNonce}"` : "";
+    if (showBilling) {
+      res.set("Content-Security-Policy", [
+        "default-src 'self'",
+        `script-src 'self' 'nonce-${billingNonce}' https://sandbox.web.squarecdn.com https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js`,
+        "frame-src https://sandbox.web.squarecdn.com",
+        "connect-src 'self' https://sandbox.web.squarecdn.com https://pci-connect.squareupsandbox.com https://o160250.ingest.sentry.io",
+        "style-src 'self' 'unsafe-inline' https://sandbox.web.squarecdn.com https://cdnjs.cloudflare.com",
+        "font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://cdnjs.cloudflare.com",
+        "img-src 'self' data: https:",
+        "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'",
+      ].join("; "));
+    }
 
     res.send(`<!doctype html>
 <html>
@@ -14264,7 +14286,7 @@ return `
 </style>
   </head>
   <body>
-    <script>try{if(localStorage.getItem("oc-admin-theme") === "dark")document.body.classList.add("theme-dark");}catch(_){}</script>
+    <script${scriptNonce}>try{if(localStorage.getItem("oc-admin-theme") === "dark")document.body.classList.add("theme-dark");}catch(_){}</script>
     <div class="app">
       <button type="button" class="sidebar-backdrop" id="sidebarBackdrop" aria-label="Close sidebar"></button>
 
@@ -14389,7 +14411,7 @@ return `
             <a class="nav-title-btn" href="${hasDeveloperAccess ? buildScopedAdminHref("/admin/users") : buildScopedAdminHref("/admin/preferences")}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="user-round" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="${buildScopedAdminHref("/admin/preferences")}">Preferences</a>
-              ${canManagePlateauSandboxBilling(req, sessionUser) ? '<a class="subnav-link" href="/admin/billing">Billing</a>' : ""}
+              ${canSeeBilling ? `<a class="subnav-link ${showBilling ? "active" : ""}" href="/admin/billing"${showBilling ? ' aria-current="page"' : ""}>Billing</a>` : ""}
               ${hasAdminAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="${buildScopedAdminHref("/admin/users")}">Users</a>` : ``}
               ${hasAdminAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="${buildScopedAdminHref("/admin/invites")}">Invites</a>` : ``}
             </div>
@@ -14487,7 +14509,7 @@ return `
           </div>
         </div>
 
-        <script>
+        <script${scriptNonce}>
         (function(){
           var lastCount = ${pendingCount};
           var lastReportCount = ${openEventReportCount};
@@ -14576,7 +14598,7 @@ return `
         ` : ``}
 
         ${analyticsPeriodHtml}
-        <script>
+        <script${scriptNonce}>
           (function(){
             var form = document.getElementById('analyticsPeriodForm');
             if (!form) return;
@@ -15923,6 +15945,18 @@ return `
             `;
             })()}
           </div>
+        </section>
+        ` : ``}
+
+        ${billing ? `
+        <section class="card" id="billing" aria-labelledby="billingTitle">
+          <div class="sectionTitle">
+            <div>
+              <h1 id="billingTitle">Plateau Regional Billing</h1>
+              <p class="sub">Square Sandbox · Test cards only</p>
+            </div>
+          </div>
+          ${billing.html}
         </section>
         ` : ``}
 
@@ -18140,7 +18174,7 @@ return `
       </main>
     </div>
 
-    <script>
+    <script${scriptNonce}>
       (function(){
         var root = document.getElementById('dashboardCommand');
         if (!root || !window.fetch) return;
@@ -21218,9 +21252,11 @@ return `
   })();
 })();</script>
     ${showDashboard || analyticsPeriodHtml ? `<script src="/assets/report-download.js" defer></script>` : ""}
+    ${billing?.scripts || ""}
   </body>
 </html>`);
   } catch (err) {
+    if (view === "billing" && err instanceof BillingError) return res.status(err.status).send(err.message);
     console.error(err);
     res.status(500).send("Internal server error");
   }
@@ -21233,6 +21269,45 @@ function canManagePlateauSandboxBilling(req, user) {
   if (!ownerEmail || !user?.id || !isAdminRole(user.role) || String(user.email || "").trim().toLowerCase() !== ownerEmail) return false;
   const sessionIdentity = String(req.user?.user || "").trim().toLowerCase();
   return [user.email, user.username].some((value) => value && String(value).toLowerCase() === sessionIdentity);
+}
+
+async function renderPlateauBilling(user) {
+  const config = billingConfig();
+  if (!config) {
+    return {
+      html: '<p role="status">Square Sandbox setup is incomplete. Add the Sandbox credentials and enable billing in your server settings to test autopay.</p>',
+      scripts: "",
+    };
+  }
+  let row = await readBilling(config, user.id);
+  let statusUnavailable = false;
+  if (row?.subscriptionId) {
+    try { row = await refreshBilling(config, row); }
+    catch (_) { statusUnavailable = true; }
+  }
+  const start = row?.startDate || nextBillingDate();
+  const startLabel = DateTime.fromISO(start, { zone: DEFAULT_TZ }).toFormat("MMMM d, yyyy");
+  const needsCard = !row?.cardId;
+  const canEnroll = !row?.subscriptionId && start >= nextBillingDate();
+  return {
+    html: `
+        <p><strong>$100 per month</strong> for all of Plateau Regional, billed on the 8th.</p>
+        <p>First scheduled test charge: <strong>${esc(startLabel)}</strong> (Pacific time).</p>
+        ${row?.subscriptionId ? `<p>Subscription status: <strong>${esc(statusUnavailable ? "Could not refresh" : (row.status || "Unknown"))}</strong></p>
+          ${row.cardLast4 ? `<p>Test card ending in ${esc(row.cardLast4)}.</p>` : ""}` :
+          canEnroll ? `<form id="plateauBillingForm" data-needs-card="${needsCard ? "1" : "0"}"
+            data-start-date="${esc(start)}" data-application-id="${esc(config.appId)}" data-location-id="${esc(config.locationId)}">
+            ${needsCard ? '<div id="squareCard" style="margin:16px 0;"></div>' : "<p>A test card is already saved. You can finish setting up the subscription.</p>"}
+            <label class="checkbox"><input type="checkbox" name="authorized" required><span>I authorize Square Sandbox to save this test card and simulate a $100 charge on the 8th of each month starting ${esc(startLabel)}.</span></label>
+            <button class="btn btn-primary" type="submit" disabled>Set up test autopay</button>
+            <p id="billingStatus" role="status"></p>
+          </form>` : "<p>This setup needs review in Square Sandbox because its original start date has passed.</p>"}
+    `,
+    scripts: `
+      ${canEnroll && needsCard ? '<script defer src="https://sandbox.web.squarecdn.com/v1/square.js"></script>' : ""}
+      ${canEnroll ? '<script defer src="/assets/plateau-billing.js"></script>' : ""}
+    `,
+  };
 }
 
 function isOrganizerAllowedAdminPath(pathname) {
@@ -21294,73 +21369,7 @@ router.post("/report-download", async (req, res) => {
 });
 router.get("/billing", async (req, res) => {
   res.set("Cache-Control", "private, no-store");
-  try {
-    const user = await resolveSessionUser(req);
-    if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).send("Forbidden");
-    const config = billingConfig();
-    if (!config) {
-      return res.send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>OpenCircle | Plateau Regional Billing</title></head><body><main>
-        <a href="/admin">Back to OpenCircle</a>
-        <h1>Plateau Regional Billing</h1>
-        <p>Square Sandbox setup is incomplete. Add the Sandbox credentials and enable billing in your server settings to test autopay.</p>
-        </main></body></html>`);
-    }
-    let row = await readBilling(config, user.id);
-    let statusUnavailable = false;
-    if (row?.subscriptionId) {
-      try { row = await refreshBilling(config, row); }
-      catch (_) { statusUnavailable = true; }
-    }
-    const start = row?.startDate || nextBillingDate();
-    const startLabel = DateTime.fromISO(start, { zone: DEFAULT_TZ }).toFormat("MMMM d, yyyy");
-    const needsCard = !row?.cardId;
-    const canEnroll = !row?.subscriptionId && start >= nextBillingDate();
-    res.set("Content-Security-Policy", [
-      "default-src 'self'", "script-src 'self' https://sandbox.web.squarecdn.com",
-      "frame-src https://sandbox.web.squarecdn.com",
-      "connect-src 'self' https://sandbox.web.squarecdn.com https://pci-connect.squareupsandbox.com https://o160250.ingest.sentry.io",
-      "style-src 'self' 'unsafe-inline' https://sandbox.web.squarecdn.com",
-      "font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net",
-      "img-src 'self' data: https://sandbox.web.squarecdn.com",
-      "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'",
-    ].join("; "));
-    return res.send(`<!doctype html>
-      <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>OpenCircle | Plateau Regional Billing</title>
-      <style>
-        body{font:16px system-ui,sans-serif;margin:0;padding:24px;background:#eef3f8;color:#152438}
-        main{max-width:620px;margin:32px auto;background:#fff;border:1px solid #dae3eb;border-radius:16px;padding:24px}
-        h1{font-size:26px} a{color:#087663} .badge{display:inline-block;padding:5px 10px;border-radius:6px;background:#e3f5ef}
-        #squareCard{margin:20px 0} label{display:flex;align-items:flex-start;gap:8px;margin:18px 0}
-        button{font:inherit;padding:9px 14px;border:0;border-radius:8px;background:#087663;color:white;cursor:pointer}
-        button:disabled{opacity:.5;cursor:default}
-      </style>
-      </head><body><main>
-        <a href="/admin">Back to OpenCircle</a>
-        <h1>Plateau Regional Billing</h1>
-        <span class="badge">Square Sandbox · Test cards only</span>
-        <p><strong>$100 per month</strong> for all of Plateau Regional, billed on the 8th.</p>
-        <p>First scheduled test charge: <strong>${esc(startLabel)}</strong> (Pacific time).</p>
-        ${row?.subscriptionId ? `<p>Subscription status: <strong>${esc(statusUnavailable ? "Could not refresh" : (row.status || "Unknown"))}</strong></p>
-          ${row.cardLast4 ? `<p>Test card ending in ${esc(row.cardLast4)}.</p>` : ""}` :
-          canEnroll ? `<form id="plateauBillingForm" data-needs-card="${needsCard ? "1" : "0"}"
-            data-start-date="${esc(start)}" data-application-id="${esc(config.appId)}" data-location-id="${esc(config.locationId)}">
-            ${needsCard ? '<div id="squareCard"></div>' : "<p>A test card is already saved. You can finish setting up the subscription.</p>"}
-            <label><input type="checkbox" name="authorized" required> I authorize Square Sandbox to save this test card and simulate a $100 charge on the 8th of each month starting ${esc(startLabel)}.</label>
-            <button type="submit" disabled>Set up test autopay</button>
-            <p id="billingStatus" role="status"></p>
-          </form>` : "<p>This setup needs review in Square Sandbox because its original start date has passed.</p>"}
-      </main>
-      ${canEnroll && needsCard ? '<script defer src="https://sandbox.web.squarecdn.com/v1/square.js"></script>' : ""}
-      ${canEnroll ? '<script defer src="/assets/plateau-billing.js"></script>' : ""}
-      </body></html>`);
-  } catch (error) {
-    if (error instanceof BillingError) return res.status(error.status).send(error.message);
-    console.error("[plateau sandbox billing page]", error.name);
-    return res.status(500).send("Could not open Sandbox billing.");
-  }
+  return renderAdmin(req, res, "billing");
 });
 
 router.post("/billing/enroll", async (req, res) => {
