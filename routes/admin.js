@@ -3777,6 +3777,23 @@ function parseDashboardReportingPeriod(query, now = DateTime.now().setZone(DEFAU
   return { key: "custom", start, end };
 }
 
+function renderReportingPeriodControl({ range = "30d", start = "", end = "", analytics = false } = {}) {
+  const prefix = analytics ? "analyticsPeriod" : "dashboard";
+  const options = [["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["custom", "Custom range"]];
+  return `
+    <label for="${prefix}Range">Reporting period</label>
+    <div class="dashboard-period-row">
+      <div class="dashboard-custom-range" id="${prefix}CustomRange"${range === "custom" ? "" : " hidden"}>
+        <input class="ctrl" id="${prefix}RangeStart" name="start" type="date" value="${esc(start)}" aria-label="Reporting start date" />
+        <input class="ctrl" id="${prefix}RangeEnd" name="end" type="date" value="${esc(end)}" aria-label="Reporting end date" />
+        <button class="btn" type="${analytics ? "submit" : "button"}" id="${prefix}CustomApply">Apply</button>
+      </div>
+      <select id="${prefix}Range" name="range" class="ctrl">
+        ${options.map(([value, label]) => `<option value="${value}"${value === range ? " selected" : ""}>${label}</option>`).join("")}
+      </select>
+    </div>`;
+}
+
 function dashboardIsoInRange(value, startMs, endMs) {
   const timestamp = Date.parse(String(value || "").trim());
   return Number.isFinite(timestamp) && timestamp >= startMs && timestamp < endMs;
@@ -11047,6 +11064,71 @@ return `
       organizerChartEventValues,
       organizerChartViewValues
     );
+    const dashboardPrimaryInsightTarget = canSeeEventsAnalytics
+      ? "events"
+      : canSeeVenueAnalytics
+      ? "venues"
+      : canSeeAdsAnalytics
+      ? "ads"
+      : canSeeNewsletterAnalytics
+      ? "newsletter"
+      : "";
+
+    const pageTitleBase = showCreate
+      ? "Create Events"
+      : showUpload
+      ? "Upload Events"
+      : showApprove
+      ? "Approve Events"
+      : showEventReports
+      ? "Event Reports"
+      : showExisting
+      ? (isOrganizerUser ? "My Events" : "All Events")
+      : showNewsletter
+      ? "Newsletter"
+      : showNewsletterAnalytics
+      ? "Newsletter Analytics"
+      : showNewsletterPreview
+      ? "Newsletter Preview"
+      : showNewsletterAudience
+      ? "Newsletter Audience"
+      : showOrganizers
+      ? "Organizer Analytics"
+      : showVenueCreate
+      ? "Create Venue"
+      : showVenueExisting
+      ? "All Venues"
+      : showVenueAnalytics
+      ? "Venue Analytics"
+      : showJobsCreate
+      ? "Create Job"
+      : showJobsExisting
+      ? "All Jobs"
+      : showJobsApplicants
+      ? "Job Applicants"
+      : showJobsAnalytics
+      ? "Job Analytics"
+      : showAdsCreate
+      ? "Create Ad"
+      : showAdsExisting
+      ? "All Ads"
+      : showAdsAnalytics
+      ? "Ads Analytics"
+      : showUpdatesCreate
+      ? (editUpdate ? "Edit Update" : "Create Update")
+      : showUpdatesAnalytics
+      ? "Update Analytics"
+      : showUpdates
+      ? "All Updates"
+      : showPreferences
+      ? "Preferences"
+      : showUsers
+      ? "Users"
+      : showUpdatesLog
+      ? "Release Notes"
+      : showInvites
+      ? "Invites"
+      : "Dashboard";
     let analyticsPeriodHtml = "";
     if (showAnalytics || showOrganizers || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showUpdatesAnalytics) {
       const periodQuery = req.query.range ? req.query : { range: "30d" };
@@ -11145,98 +11227,28 @@ return `
       const hiddenFields = Object.entries(query)
         .filter(([key, value]) => !["range", "start", "end"].includes(key) && typeof value === "string" && value)
         .map(([key, value]) => `<input type="hidden" name="${esc(key)}" value="${esc(value)}" />`).join("");
-      const options = [["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["custom", "Custom range"]];
       const dateValue = (key) => /^\d{4}-\d{2}-\d{2}$/.test(String(req.query[key] || "")) ? String(req.query[key]) : "";
       const summary = periodError
         ? `<p class="sub" role="alert">${esc(periodError)}</p>`
-        : `<div class="kpis">${metrics.map(({ label, value }) => `<div class="kpi"><div class="label">${esc(label)}</div><div class="value">${value === null ? "Unavailable" : value.toLocaleString("en-US")}</div></div>`).join("")}</div>`;
+        : `<div class="dashboard-kpi-grid">${metrics.map(({ label, value }) => `
+            <div class="dashboard-kpi-card metric">
+              <span class="dashboard-kpi-content">
+                <span class="dashboard-kpi-label k">${esc(label)}</span>
+                <strong class="v">${value === null ? "Unavailable" : value.toLocaleString("en-US")}</strong>
+              </span>
+            </div>`).join("")}</div>`;
       analyticsPeriodHtml = `
-        <section class="card analytics-period-card" aria-labelledby="analyticsPeriodTitle">
-          <div class="sectionTitle">
-            <div><h2 id="analyticsPeriodTitle">Period summary</h2><p class="sub">The selected dates apply to this summary. Detailed reports below show their own time ranges.</p></div>
+        <section class="dashboard-command" aria-labelledby="analyticsPeriodTitle">
+          <div class="dashboard-command-head">
+            <div><h1 id="analyticsPeriodTitle">${selectedEventAnalytics ? "Event activity" : esc(pageTitleBase)}</h1><p class="sub">Activity during the selected reporting period.</p></div>
             <form class="dashboard-period-controls" method="GET" id="analyticsPeriodForm">
               ${hiddenFields}
-              <label for="analyticsPeriodRange">Reporting period</label>
-              <div class="dashboard-period-row">
-                <select class="ctrl" name="range" id="analyticsPeriodRange">
-                  ${options.map(([value, label]) => `<option value="${value}"${value === range ? " selected" : ""}>${label}</option>`).join("")}
-                </select>
-                <div class="dashboard-custom-range" id="analyticsPeriodDates">
-                  <input class="ctrl" type="date" name="start" value="${dateValue("start")}" aria-label="Reporting start date" />
-                  <input class="ctrl" type="date" name="end" value="${dateValue("end")}" aria-label="Reporting end date" />
-                </div>
-                <button class="btn" type="submit">Apply</button>
-              </div>
+              ${renderReportingPeriodControl({ range, start: dateValue("start"), end: dateValue("end"), analytics: true })}
             </form>
           </div>
           ${summary}
         </section>`;
     }
-    const dashboardPrimaryInsightTarget = canSeeEventsAnalytics
-      ? "events"
-      : canSeeVenueAnalytics
-      ? "venues"
-      : canSeeAdsAnalytics
-      ? "ads"
-      : canSeeNewsletterAnalytics
-      ? "newsletter"
-      : "";
-
-    const pageTitleBase = showCreate
-      ? "Create Events"
-      : showUpload
-      ? "Upload Events"
-      : showApprove
-      ? "Approve Events"
-      : showEventReports
-      ? "Event Reports"
-      : showExisting
-      ? (isOrganizerUser ? "My Events" : "All Events")
-      : showNewsletter
-      ? "Newsletter"
-      : showNewsletterAnalytics
-      ? "Newsletter Analytics"
-      : showNewsletterPreview
-      ? "Newsletter Preview"
-      : showNewsletterAudience
-      ? "Newsletter Audience"
-      : showOrganizers
-      ? "Organizer Analytics"
-      : showVenueCreate
-      ? "Create Venue"
-      : showVenueExisting
-      ? "All Venues"
-      : showVenueAnalytics
-      ? "Venue Analytics"
-      : showJobsCreate
-      ? "Create Job"
-      : showJobsExisting
-      ? "All Jobs"
-      : showJobsApplicants
-      ? "Job Applicants"
-      : showJobsAnalytics
-      ? "Job Analytics"
-      : showAdsCreate
-      ? "Create Ad"
-      : showAdsExisting
-      ? "All Ads"
-      : showAdsAnalytics
-      ? "Ads Analytics"
-      : showUpdatesCreate
-      ? (editUpdate ? "Edit Update" : "Create Update")
-      : showUpdatesAnalytics
-      ? "Update Analytics"
-      : showUpdates
-      ? "All Updates"
-      : showPreferences
-      ? "Preferences"
-      : showUsers
-      ? "Users"
-      : showUpdatesLog
-      ? "Release Notes"
-      : showInvites
-      ? "Invites"
-      : "Dashboard";
     const eventsMenuOpen = showExisting || showCreate || showApprove || showEventReports || showUpload;
     const newsletterMenuOpen = showNewsletter || showNewsletterPreview || showNewsletterAudience;
     const venuesMenuOpen = showVenueExisting || showVenueCreate;
@@ -14977,9 +14989,6 @@ return `
       .dashboard-command-head h1{ margin:0 0 4px; font-size:28px; font-weight:700; letter-spacing:-.01em; line-height:1.2; }
       .dashboard-command-head .sub{ margin:0; }
       .eyebrow{ font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:var(--accent); }
-      .analytics-period-card{ margin-bottom:var(--gap); }
-      .analytics-period-card .sectionTitle{ flex-wrap:wrap; }
-      .analytics-period-card .dashboard-period-row{ flex-wrap:wrap; justify-content:flex-start; }
       .dashboard-period-controls{ min-width:220px; display:grid; gap:5px; }
       .dashboard-period-controls label{ margin:0; font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
       .dashboard-community-scope{ display:grid; gap:5px; }
@@ -15424,7 +15433,7 @@ return `
             var form = document.getElementById('analyticsPeriodForm');
             if (!form) return;
             var range = document.getElementById('analyticsPeriodRange');
-            var dates = document.getElementById('analyticsPeriodDates');
+            var dates = document.getElementById('analyticsPeriodCustomRange');
             function syncDates(){
               var custom = range.value === 'custom';
               dates.hidden = !custom;
@@ -15450,20 +15459,7 @@ return `
               <p class="sub" id="dashboardContext">Loading your current dashboard…</p>
             </div>
             <div class="dashboard-period-controls">
-              <label for="dashboardRange">Reporting period</label>
-              <div class="dashboard-period-row">
-                <div class="dashboard-custom-range" id="dashboardCustomRange" hidden>
-                  <input class="ctrl" id="dashboardRangeStart" type="date" aria-label="Dashboard start date" />
-                  <input class="ctrl" id="dashboardRangeEnd" type="date" aria-label="Dashboard end date" />
-                  <button class="btn" type="button" id="dashboardCustomApply">Apply</button>
-                </div>
-                <select id="dashboardRange" class="ctrl" aria-label="Dashboard reporting period">
-                  <option value="7d">Last 7 days</option>
-                  <option value="30d" selected>Last 30 days</option>
-                  <option value="90d">Last 90 days</option>
-                  <option value="custom">Custom range</option>
-                </select>
-              </div>
+              ${renderReportingPeriodControl()}
               ${dashboardScopeOptions.length > 1 ? `
               <div class="dashboard-community-scope">
                 <label for="dashboardCommunityScope">Communities</label>
