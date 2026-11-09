@@ -1,7 +1,7 @@
 "use strict";
 
 const express = require("express");
-const { billingAdminEmail, billingConfig, BillingError, enrollBilling, nextBillingDate, readBilling, refreshBilling } = require("../lib/plateau-billing");
+const { billingAdminEmail, billingConfig, checkProductionBilling, BillingError, enrollBilling, nextBillingDate, readBilling, refreshBilling } = require("../lib/plateau-billing");
 const { buildReportDownload } = require("../lib/report-download");
 const router = express.Router();
 const CHART_SERIES_STROKE_WIDTH = 2;
@@ -5009,6 +5009,9 @@ async function renderAdmin(req, res, view) {
     const canSeeBilling = canManagePlateauSandboxBilling(req, sessionUser);
     if (showBilling && !canSeeBilling) return res.status(403).send("Forbidden");
     const billing = showBilling ? await renderPlateauBilling(sessionUser) : null;
+    const productionBillingStatus = showBilling
+      ? await checkProductionBilling({ verify: req.query.checkProduction === "1" })
+      : "";
     await ensureJobSchema();
     await ensureAdSchema();
     await ensureJobApplicantSchema();
@@ -10353,7 +10356,7 @@ return `
       : showUpdates
       ? "All Updates"
       : showBilling
-      ? "Plateau Regional Billing"
+      ? "OpenCircle Premium Billing"
       : showPreferences
       ? "Preferences"
       : showUsers
@@ -10400,7 +10403,7 @@ return `
     const adsMenuOpen = showAdsExisting || showAdsCreate;
     const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showOrganizers;
     const adminMenuOpen = showUsers || showInvites || showPreferences || showBilling;
-    const pageTitle = `OpenCircle | ${pageTitleBase}`;
+    const pageTitle = showBilling ? pageTitleBase : `OpenCircle | ${pageTitleBase}`;
 
     // The shared admin layout uses inline scripts for navigation and theme.
     const billingNonce = showBilling ? crypto.randomBytes(18).toString("base64") : "";
@@ -15952,10 +15955,21 @@ return `
         <section class="card" id="billing" aria-labelledby="billingTitle">
           <div class="sectionTitle">
             <div>
-              <h1 id="billingTitle">Plateau Regional Billing</h1>
-              <p class="sub">Square Sandbox · Test cards only</p>
+              <h1 id="billingTitle" style="margin:0;">${pageTitleBase}</h1>
+              <p class="sub">Manage billing setup for OpenCircle Premium.</p>
             </div>
           </div>
+          <div class="mini">
+            <h2>Production setup</h2>
+            <p><strong>$100 per month</strong>, billed on the 8th.</p>
+            <p>Customer enrollment is disabled.</p>
+            <p role="status">${esc(productionBillingStatus)}</p>
+            <form method="get" action="/admin/billing">
+              <button class="btn" type="submit" name="checkProduction" value="1">Check Square connection</button>
+            </form>
+          </div>
+          <h2>Square Sandbox</h2>
+          <p class="sub">Test cards only</p>
           ${billing.html}
         </section>
         ` : ``}
@@ -21291,8 +21305,8 @@ async function renderPlateauBilling(user) {
   const canEnroll = !row?.subscriptionId && start >= nextBillingDate();
   return {
     html: `
-        <p><strong>$100 per month</strong> for all of Plateau Regional, billed on the 8th.</p>
-        <p>First scheduled test charge: <strong>${esc(startLabel)}</strong> (Pacific time).</p>
+        <p><strong>$100 per month</strong>, billed on the 8th.</p>
+        <p>First scheduled test charge: <strong>${esc(startLabel)}</strong>.</p>
         ${row?.subscriptionId ? `<p>Subscription status: <strong>${esc(statusUnavailable ? "Could not refresh" : (row.status || "Unknown"))}</strong></p>
           ${row.cardLast4 ? `<p>Test card ending in ${esc(row.cardLast4)}.</p>` : ""}` :
           canEnroll ? `<form id="plateauBillingForm" data-needs-card="${needsCard ? "1" : "0"}"

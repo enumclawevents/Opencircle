@@ -30,6 +30,13 @@ The billing screen reads the subscription status from Square when reopened.
 Before enabling any production billing, verify the Sandbox subscription is
 pending, the start date and billing anchor are correct, and no invoice is
 charged at enrollment. Production credentials are not supported by this
-pilot. Production rollout also needs Meagan's account verified, an existing
+pilot's enrollment flow. The same admin tab has a read-only production setup
+section. Set `SQUARE_PRODUCTION_LOCATION_ID` and
+`SQUARE_PRODUCTION_ACCESS_TOKEN` separately in Render, then select
+**Check Square connection** to verify that the live location is active, uses
+USD, and supports card processing. The connection check only reads the
+location from Square.
+
+Production rollout also needs Meagan's account verified, an existing
 Square invoice/subscription check, and a plan for payment notifications,
 card replacement, and cancellation.
