@@ -14171,7 +14171,7 @@ return `
       .dashboard-command-activity .chartLegendLine{ width:22px; }
       .chart-group-control{ display:flex; align-items:center; gap:8px; white-space:nowrap; margin:0; }
       .chart-group-control .ctrl{ width:auto; min-width:96px; margin:0; }
-      .dashboard-chart-controls{ display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; }
+      .dashboard-chart-controls{ display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 16px; }
       .dashboard-series-controls{ display:inline-flex; align-items:center; gap:4px; padding:3px; border:1px solid var(--line); border-radius:999px; background:var(--panel2); }
       .dashboard-series-control{ min-height:28px; padding:0 10px; border:0; border-radius:999px; background:transparent; color:var(--muted); font-size:12px; font-weight:650; cursor:pointer; }
       .dashboard-series-control:hover,.dashboard-series-control[aria-pressed="true"]{ color:var(--text); background:rgba(0,192,139,.12); }
