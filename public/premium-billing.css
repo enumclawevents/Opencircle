@@ -1,7 +1,5 @@
 .premium-billing {
   width: 100%;
-  max-width: 1060px;
-  margin-inline: auto;
   display: grid;
   gap: 16px;
 }
