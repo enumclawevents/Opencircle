@@ -10442,7 +10442,7 @@ return `
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
     <title>${pageTitle}</title>
-    ${showBilling ? '<link rel="stylesheet" href="/assets/premium-billing.css">' : ""}
+    ${showBilling ? '<link rel="stylesheet" href="/assets/premium-billing.css?v=2">' : ""}
     <style>
       :root{
         /* Main (light, WordPress-like) */
@@ -15985,89 +15985,81 @@ return `
             </div>
           </div>
 
-          <section aria-labelledby="subscriptionOverviewTitle">
-            <h2 class="premium-billing__grid-title" id="subscriptionOverviewTitle">Subscription Overview</h2>
-            <div class="dashboard-kpi-grid">
-              <div class="dashboard-kpi-card premium-billing__metric">
-                <span class="dashboard-kpi-label">Current Plan</span>
-                <strong class="premium-billing__value">OpenCircle Premium</strong>
-                <p class="sub">$100.00 / month</p>
-                ${billing?.canEnroll ? '<a class="btn" href="#paymentMethod">Activate Premium in Sandbox</a>' : ""}
-              </div>
-              <div class="dashboard-kpi-card premium-billing__metric">
-                <span class="dashboard-kpi-label">Subscription Status</span>
-                <strong class="premium-billing__value">${esc(billingStatus)}</strong>
-              </div>
-              <div class="dashboard-kpi-card premium-billing__metric">
-                <span class="dashboard-kpi-label">Next Payment</span>
-                <strong class="premium-billing__value">${esc(billing?.nextPaymentLabel || proposedBillingDate || "Unconfirmed")}</strong>
-                ${billing?.firstScheduled ? '<p class="sub">First scheduled payment</p>' : proposedBillingDate ? '<p class="sub">Proposed date</p>' : ""}
-              </div>
-              <div class="dashboard-kpi-card premium-billing__metric">
-                <span class="dashboard-kpi-label">Billing Frequency</span>
-                <strong class="premium-billing__value">Monthly</strong>
-              </div>
-            </div>
+          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="subscriptionOverviewTitle">
+            <div class="sectionTitle"><h2 id="subscriptionOverviewTitle">Subscription Overview</h2></div>
+            <dl class="premium-billing__summary">
+              <div><dt class="dashboard-kpi-label">Plan</dt><dd class="premium-billing__plan">OpenCircle Premium</dd></div>
+              <div><dt class="dashboard-kpi-label">Amount</dt><dd>$100.00 / month</dd></div>
+              <div><dt class="dashboard-kpi-label">Billing Cycle</dt><dd>Monthly</dd></div>
+              <div><dt class="dashboard-kpi-label">Next Payment</dt><dd>${esc(billing?.nextPaymentLabel || (proposedBillingDate ? proposedBillingDate + " (proposed)" : "Unconfirmed"))}</dd></div>
+              <div><dt class="dashboard-kpi-label">Status</dt><dd><span class="pill premium-billing__badge" data-tone="${billingStatusTone}">${esc(billingStatus)}</span></dd></div>
+            </dl>
+            ${billing?.canEnroll ? '<a class="btn" href="#paymentMethod">Activate Premium in Sandbox</a>' : ""}
           </section>
 
-          <section aria-labelledby="paymentAndBillingTitle">
-            <h2 class="premium-billing__grid-title" id="paymentAndBillingTitle">Payment &amp; Billing</h2>
-            <div class="dashboard-kpi-grid premium-billing__payment-grid">
-              <section class="dashboard-kpi-card premium-billing__metric" id="paymentMethod" aria-labelledby="paymentMethodTitle">
-                <h3 class="dashboard-kpi-label" id="paymentMethodTitle">Payment Method</h3>
-                ${showProductionPreview ? `
-                  <p>A card on file is required for automatic billing.</p>
-                  ${loadProductionCard ? `
-                    <div class="premium-billing__fields" id="productionSquareCard" data-application-id="${esc(productionAppId)}" data-location-id="${esc(productionLocationId)}"></div>
-                    <p class="premium-billing__feedback" id="productionCardStatus" role="status">Loading the Square card form…</p>
-                  ` : '<p role="status">The payment form is unavailable. Check the setup in Billing Diagnostics.</p>'}
-                  <p class="premium-billing__secure">Card details are handled securely by Square.</p>
-                  <div class="mini premium-billing__authorization">
-                    <h3>Automatic payment authorization</h3>
-                    <p>By enabling automatic payments, you authorize Square to securely store your payment method and charge $100.00 monthly on the 8th for your OpenCircle Premium subscription until canceled.</p>
-                    <p>Proposed first charge <strong>${esc(proposedBillingDate)}</strong> (Pacific time).</p>
-                  </div>
-                ` : billing.html}
-              </section>
-              <section class="dashboard-kpi-card premium-billing__metric" aria-labelledby="billingScheduleTitle">
-                <h3 class="dashboard-kpi-label" id="billingScheduleTitle">Billing Day</h3>
-                <strong class="premium-billing__value">${billing?.schedule?.day ? `Day ${billing.schedule.day}` : "Unconfirmed"}</strong>
-                ${billing?.schedule?.pending ? `<p class="sub">Square scheduled a change to day ${esc(billing.schedule.pending.day || "unknown")} effective ${esc(billing.pendingDateLabel || "on a date to be confirmed")}.</p>`
-                : billing?.schedule?.canChangeDay ? `
-                  <details>
-                    <summary class="btn">Change Billing Day</summary>
-                    <form class="mini premium-billing__authorization" id="billingDayForm" data-current-day="${billing.schedule.day}" data-next-date="${esc(billing.schedule.nextDate)}">
-                      <p>Current billing day <strong>${billing.schedule.day}</strong>. Expected next payment under the current schedule <strong>${esc(billing.nextPaymentLabel)}</strong>.</p>
-                      <label for="requestedBillingDay">Requested billing day</label>
-                      <select class="ctrl" id="requestedBillingDay" name="day" required>
-                        <option value="">Select a day</option>
-                        ${Array.from({ length: 28 }, (_, index) => index + 1).filter(day => day !== billing.schedule.day).map(day => `<option value="${day}">${day}</option>`).join("")}
-                      </select>
-                      <p>OpenCircle requests a future effective date. Square does not confirm the new payment date in advance. This plan does not prorate, so another full $100 test charge may follow the previous charge sooner than a month.</p>
-                      <label class="checkbox"><input type="checkbox" name="authorized" required><span>I confirm the requested day and understand the next full test charge may follow a shortened billing cycle.</span></label>
-                      <button class="btn btn-primary" type="submit" disabled>Confirm billing day</button>
-                      <p class="premium-billing__feedback" role="status"></p>
-                    </form>
-                  </details>`
-                : billing?.schedule ? '<p class="sub">Billing day changes require an active subscription with a confirmed billing cycle and no scheduled changes.</p>' : ""}
-              </section>
-              <section class="dashboard-kpi-card premium-billing__metric" aria-labelledby="nextPaymentAmountTitle">
-                <h3 class="dashboard-kpi-label" id="nextPaymentAmountTitle">Next Payment Amount</h3>
-                <strong class="premium-billing__value">$100.00</strong>
-                <p class="sub">${esc(billing?.nextPaymentLabel || (proposedBillingDate ? proposedBillingDate + " (proposed)" : "Payment date unconfirmed"))}</p>
-              </section>
+          <section class="card dashboard-command-card premium-billing__section" id="paymentMethod" aria-labelledby="paymentMethodTitle">
+            <div class="sectionTitle premium-billing__section-head">
+              <div><h2 id="paymentMethodTitle">Payment Methods</h2><p class="sub">Manage the payment method used for your OpenCircle Premium subscription.</p></div>
+              ${billing?.canReplaceCard ? '<button class="btn" type="button" aria-expanded="false" aria-controls="plateauBillingForm" data-billing-toggle disabled>Change Card</button>' : ""}
             </div>
+            ${showProductionPreview ? `
+              <p>A card on file is required for automatic billing.</p>
+              ${loadProductionCard ? `
+                <div class="premium-billing__fields" id="productionSquareCard" data-application-id="${esc(productionAppId)}" data-location-id="${esc(productionLocationId)}"></div>
+                <p class="premium-billing__feedback" id="productionCardStatus" role="status">Loading the Square card form…</p>
+              ` : '<p role="status">The payment form is unavailable. Check the setup in Billing Diagnostics.</p>'}
+              <p class="premium-billing__secure">Card details are handled securely by Square.</p>
+              <div class="mini premium-billing__authorization">
+                <h3>Automatic payment authorization</h3>
+                <p>By enabling automatic payments, you authorize Square to securely store your payment method and charge $100.00 monthly on the 8th for your OpenCircle Premium subscription until canceled.</p>
+                <p>Proposed first charge <strong>${esc(proposedBillingDate)}</strong> (Pacific time).</p>
+              </div>
+            ` : billing.html}
+          </section>
+
+          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="billingScheduleTitle">
+            <div class="sectionTitle premium-billing__section-head">
+              <h2 id="billingScheduleTitle">Billing Schedule</h2>
+              ${billing?.schedule?.canChangeDay ? '<button class="btn" type="button" aria-expanded="false" aria-controls="billingDayForm" data-billing-toggle disabled>Change Billing Day</button>' : ""}
+            </div>
+            <dl class="premium-billing__schedule">
+              <div><dt class="dashboard-kpi-label">Monthly Billing Day</dt><dd>${esc(billing?.billingDayLabel || "Unconfirmed")}</dd></div>
+              <div><dt class="dashboard-kpi-label">Next Scheduled Payment</dt><dd>${esc(billing?.nextPaymentLabel || "Unconfirmed")}</dd></div>
+              <div><dt class="dashboard-kpi-label">Monthly Amount</dt><dd>$100.00</dd></div>
+            </dl>
+            ${billing?.schedule?.pending ? `<div class="dashboard-highlight sub">Square scheduled a change to day ${esc(billing.schedule.pending.day || "unknown")} effective ${esc(billing.pendingDateLabel || "on a date to be confirmed")}.</div>` : ""}
+            ${billing?.schedule?.canChangeDay ? `
+              <form class="mini premium-billing__authorization" id="billingDayForm" hidden data-current-day="${billing.schedule.day}" data-next-date="${esc(billing.schedule.nextDate)}">
+                <p>Current billing day <strong>${billing.schedule.day}</strong>. Expected next payment under the current schedule <strong>${esc(billing.nextPaymentLabel)}</strong>.</p>
+                <label for="requestedBillingDay">Requested billing day</label>
+                <select class="ctrl" id="requestedBillingDay" name="day" required>
+                  <option value="">Select a day</option>
+                  ${Array.from({ length: 28 }, (_, index) => index + 1).filter(day => day !== billing.schedule.day).map(day => `<option value="${day}">${day}</option>`).join("")}
+                </select>
+                <p>OpenCircle requests a future effective date. Square does not confirm the new payment date in advance. This plan does not prorate, so another full $100 test charge may follow the previous charge sooner than a month.</p>
+                <label class="checkbox"><input type="checkbox" name="authorized" required><span>I confirm the requested day and understand the next full test charge may follow a shortened billing cycle.</span></label>
+                <button class="btn btn-primary" type="submit" disabled>Confirm billing day</button>
+                <p class="premium-billing__feedback" role="status"></p>
+              </form>
+            ` : billing?.schedule && !billing.schedule.pending ? '<p class="sub">Billing day changes require an active subscription with a confirmed billing cycle and no scheduled changes.</p>' : ""}
           </section>
 
           <section class="card dashboard-command-card premium-billing__section" aria-labelledby="billingHistoryTitle">
-            <div class="sectionTitle"><h2 id="billingHistoryTitle">Billing History</h2></div>
-            <p class="sub">${showProductionPreview || billing?.status === "Not subscribed"
-              ? "No billing history yet. Your payments will appear here once your subscription begins."
-              : "Square invoice and payment history is unavailable in this view."}</p>
+            <div class="sectionTitle">
+              <div><h2 id="billingHistoryTitle">Billing History</h2><p class="sub">View your previous subscription payments and receipts.</p></div>
+            </div>
+            <div class="mini premium-billing__table" role="region" aria-labelledby="billingHistoryTitle" tabindex="0">
+              <table class="analytics-table" aria-labelledby="billingHistoryTitle">
+                <thead><tr><th scope="col">Invoice or Transaction ID</th><th scope="col">Date</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Payment Status</th><th scope="col">Receipt</th></tr></thead>
+                <tbody><tr><td colspan="6" class="premium-billing__empty">${showProductionPreview || billing?.status === "Not subscribed"
+                  ? "No billing history yet. Your payments will appear here once your subscription begins."
+                  : "Square invoice and payment history is unavailable in this view."}</td></tr></tbody>
+              </table>
+            </div>
           </section>
 
-          <details class="card dashboard-command-card premium-billing__diagnostics"${req.query.checkProduction === "1" ? " open" : ""}>
-            <summary>Developer &amp; Billing Diagnostics <span class="pill premium-billing__badge">${showProductionPreview ? "Production" : "Sandbox"}</span></summary>
+          <details class="card dashboard-command-card dashboard-card premium-billing__diagnostics"${req.query.checkProduction === "1" ? " open" : ""}>
+            <summary class="sectionTitle card-toggle"><span>Developer &amp; Billing Diagnostics <span class="pill premium-billing__badge">${showProductionPreview ? "Production" : "Sandbox"}</span></span><i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i></summary>
             <p>Production enrollment is disabled.</p>
             <p id="productionBillingStatus" role="status">${esc(productionBillingStatus)}</p>
             <form method="get" action="/admin/billing" id="productionBillingCheck">
@@ -21431,18 +21423,25 @@ async function renderPlateauBilling(user) {
     const date = DateTime.fromISO(value || "", { zone: schedule?.zone || DEFAULT_TZ });
     return date.isValid ? date.toFormat("MMMM d, yyyy") : "";
   };
+  const day = schedule?.day;
+  const suffix = day >= 11 && day <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[day % 10] || "th");
   const savedCard = !needsCard ? `
-    <div class="premium-billing__saved">
-      <i class="fa-regular fa-credit-card" aria-hidden="true"></i>
-      <div><strong>${esc(row.cardBrand ? row.cardBrand.replaceAll("_", " ") : "Test card on file")}</strong>
-        ${row.cardLast4 ? `<p>Ending in ${esc(row.cardLast4)}${row.cardMonth && row.cardYear ? ` · Expires ${esc(row.cardMonth)}/${esc(row.cardYear)}` : ""}</p>` : ""}
-        ${row.cardEnabled === false ? '<p>Square reports this card is disabled.</p>' : ""}
-      </div>
+    <div class="mini premium-billing__table" role="region" aria-labelledby="paymentMethodTitle" tabindex="0">
+      <table class="analytics-table premium-billing__methods" aria-labelledby="paymentMethodTitle" role="table">
+        <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">Payment Method</th><th role="columnheader" scope="col">Card Number</th><th role="columnheader" scope="col">Expiration</th><th role="columnheader" scope="col">Status</th></tr></thead>
+        <tbody role="rowgroup"><tr role="row">
+          <td role="cell" data-label="Payment Method"><span><i class="fa-regular fa-credit-card" aria-hidden="true"></i> <strong>${esc(row.cardBrand ? row.cardBrand.replaceAll("_", " ") : "Test card")}</strong></span></td>
+          <td role="cell" data-label="Card Number">${row.cardLast4 ? `•••• ${esc(row.cardLast4)}` : "Unavailable"}</td>
+          <td role="cell" data-label="Expiration">${row.cardMonth && row.cardYear ? `${esc(row.cardMonth)}/${esc(row.cardYear)}` : "Unavailable"}</td>
+          <td role="cell" data-label="Status">${row.cardEnabled === false ? '<span class="pill premium-billing__badge" data-tone="ended">Disabled</span>' : '<span class="pill premium-billing__badge">On file</span>'}</td>
+        </tr></tbody>
+      </table>
     </div>` : "";
   return {
     status,
     canEnroll,
-    firstScheduled: status === "Pending" ? dateLabel(schedule?.nextDate) : "",
+    canReplaceCard,
+    billingDayLabel: day ? `${day}${suffix} of each month` : "",
     schedule,
     nextPaymentLabel: dateLabel(schedule?.nextDate),
     pendingDateLabel: dateLabel(schedule?.pending?.date),
@@ -21462,25 +21461,22 @@ async function renderPlateauBilling(user) {
           </div>
         </form>
       ` : canReplaceCard ? `
-        <details id="changeCardDetails">
-          <summary class="btn">Change Card</summary>
-          <form id="plateauBillingForm" data-replace-card="1" data-needs-card="1"
-            data-application-id="${esc(config.appId)}" data-location-id="${esc(config.locationId)}">
-            <div class="premium-billing__fields" id="squareCard"></div>
-            <p class="premium-billing__secure">Card details are handled securely by Square.</p>
-            <div class="mini premium-billing__authorization">
-              <label class="checkbox"><input type="checkbox" name="authorized" required><span>I authorize Square Sandbox to save this test card and use it for future scheduled subscription charges.</span></label>
-              <button class="btn btn-primary" type="submit" disabled>Save replacement card</button>
-              <p class="premium-billing__feedback" id="billingStatus" role="status"></p>
-            </div>
-          </form>
-        </details>
+        <form id="plateauBillingForm" hidden data-replace-card="1" data-needs-card="1"
+          data-application-id="${esc(config.appId)}" data-location-id="${esc(config.locationId)}">
+          <div class="premium-billing__fields" id="squareCard"></div>
+          <p class="premium-billing__secure">Card details are handled securely by Square.</p>
+          <div class="mini premium-billing__authorization">
+            <label class="checkbox"><input type="checkbox" name="authorized" required><span>I authorize Square Sandbox to save this test card and use it for future scheduled subscription charges.</span></label>
+            <button class="btn btn-primary" type="submit" disabled>Save replacement card</button>
+            <p class="premium-billing__feedback" id="billingStatus" role="status"></p>
+          </div>
+        </form>
       ` : row?.subscriptionId ? '<p class="sub">Card changes are available once Square confirms the subscription is active.</p>'
         : "<p>This setup needs review in Square Sandbox because its original start date has passed.</p>"}
     `,
     scripts: `
       ${((canEnroll && needsCard) || canReplaceCard) ? '<script defer src="https://sandbox.web.squarecdn.com/v1/square.js"></script>' : ""}
-      ${(canEnroll || canReplaceCard) ? '<script defer src="/assets/plateau-billing.js"></script>' : ""}
+      ${(canEnroll || canReplaceCard) ? '<script defer src="/assets/plateau-billing.js?v=2"></script>' : ""}
     `,
   };
 }

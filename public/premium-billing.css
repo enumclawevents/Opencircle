@@ -15,38 +15,39 @@
 .premium-billing__section > :not(.sectionTitle) + *,
 .premium-billing__diagnostics > * + * { margin-top: 12px; }
 
-.premium-billing__grid-title {
-  margin-bottom: var(--gap);
-  font-size: var(--dashboard-heading);
-}
+.premium-billing__section-head { flex-wrap: wrap; }
+.premium-billing__section-head .btn { white-space: nowrap; }
+.premium-billing__section h2 { margin: 0; }
+.premium-billing .dashboard-attention-copy strong { display: inline; margin: 0; }
 
-.premium-billing .premium-billing__metric {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  min-width: 0;
-}
-
-.premium-billing__metric h3,
-.premium-billing__metric p { margin: 0; }
-.premium-billing__metric > .btn { align-self: flex-start; max-width: 100%; white-space: normal; }
-.premium-billing__metric > .premium-billing__value { overflow-wrap: anywhere; }
-.premium-billing__metric strong:not(.premium-billing__value) {
-  display: inline;
+.premium-billing__summary,
+.premium-billing__schedule {
+  display: grid;
+  gap: var(--gap);
+  align-items: start;
   margin: 0;
-  font-size: inherit;
-  line-height: inherit;
-  letter-spacing: inherit;
 }
+.premium-billing__summary { grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr)); }
+.premium-billing__schedule { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.premium-billing__summary dd,
+.premium-billing__schedule dd {
+  margin: 4px 0 0;
+  font-size: var(--dashboard-body);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.premium-billing__summary .premium-billing__plan { font-size: 16px; font-weight: 700; }
+.premium-billing__summary .pill { padding-block: 2px; }
 
-.premium-billing__saved {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.premium-billing__table { overflow-x: auto; }
+.premium-billing__table .analytics-table { margin: 0; }
+.premium-billing__table th { white-space: nowrap; }
+.premium-billing__table .analytics-table td.premium-billing__empty {
+  padding-block: 16px;
+  color: var(--muted);
+  text-align: left;
 }
-.premium-billing__saved i { font-size: var(--dashboard-heading); color: var(--muted); }
-.premium-billing__saved p { margin: 0; color: var(--muted); }
+.premium-billing__section [hidden] { display: none; }
 
 .premium-billing__fields {
   max-width: 560px;
@@ -72,10 +73,34 @@
 .premium-billing__diagnostics form { display: flex; flex-wrap: wrap; gap: 8px; }
 .premium-billing :focus-visible { outline: 2px solid var(--brand2); outline-offset: 3px; }
 
-@media (min-width: 1051px) {
-  .premium-billing__payment-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1050px) {
+  .premium-billing__summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 650px) {
-  .premium-billing .dashboard-kpi-grid { grid-template-columns: minmax(0, 1fr); }
+  .premium-billing__summary,
+  .premium-billing__schedule { grid-template-columns: minmax(0, 1fr); }
+
+  .premium-billing__methods thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .premium-billing__methods,
+  .premium-billing__methods tbody,
+  .premium-billing__methods tr { display: block; }
+  .premium-billing__methods td {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    text-align: left !important;
+  }
+  .premium-billing__methods td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-weight: 600;
+  }
 }

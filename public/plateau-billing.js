@@ -15,6 +15,16 @@ async function submitBillingChange(action, data) {
   }
 }
 
+for (const button of document.querySelectorAll("[data-billing-toggle]")) {
+  const panel = document.getElementById(button.getAttribute("aria-controls"));
+  if (!panel) continue;
+  button.disabled = false;
+  button.addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+    button.setAttribute("aria-expanded", String(!panel.hidden));
+  });
+}
+
 (async () => {
   const form = document.getElementById("plateauBillingForm");
   if (!form) return;
@@ -22,14 +32,8 @@ async function submitBillingChange(action, data) {
   const submit = form.querySelector("button[type=submit]");
   const replacing = form.dataset.replaceCard === "1";
   if (replacing) {
-    const details = document.getElementById("changeCardDetails");
-    if (!details.open) {
-      await new Promise(resolve => details.addEventListener("toggle", function onToggle() {
-        if (!details.open) return;
-        details.removeEventListener("toggle", onToggle);
-        resolve();
-      }));
-    }
+    const toggle = document.querySelector('[aria-controls="plateauBillingForm"]');
+    await new Promise(resolve => toggle.addEventListener("click", resolve, { once: true }));
     status.textContent = "Loading the Square card form…";
   }
   let card;
