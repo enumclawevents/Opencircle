@@ -12240,9 +12240,15 @@ return `
       }
       .category-analytics-grid > .card:first-child,
       .category-analytics-grid > .card:last-child{
+        display:grid;
         grid-column: span 1;
-        height: 100%;
+        grid-row: span 2;
+        grid-template-rows: subgrid;
+        row-gap:0;
         align-self: stretch;
+      }
+      .grid2.category-analytics-grid > .card > .sectionTitle{
+        margin-bottom:14px;
       }
       .newsletter-preview-tools{
         display:grid;
@@ -12891,6 +12897,16 @@ return `
       }
       .analytics-table tbody tr:last-child td{
         border-bottom:0;
+      }
+      .category-analytics-grid .analytics-table :is(th, td){
+        line-height:20px;
+      }
+      .category-analytics-grid .analytics-table td a[href]{
+        font-size:inherit;
+        line-height:inherit;
+      }
+      .category-analytics-grid .analytics-table th .metricInfo{
+        vertical-align:middle;
       }
       .category-analytics-grid .analytics-table td:nth-child(2){
         max-width:180px;
