@@ -126,7 +126,7 @@ class OpenCircle_Event_Submissions {
             </label>
           </div>
           <div class="oc-field">
-            <label>Add a Venue
+            <label>Add a Venue (optional)
               <select name="venueId">
                 <option value="">No venue</option>
               </select>

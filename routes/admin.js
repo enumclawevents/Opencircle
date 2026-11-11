@@ -17004,7 +17004,7 @@ return `
                     ${isOrganizerUser ? `<div class="note">Your organizer identity is applied automatically.</div>` : ``}
                   </div>
                   <div>
-                    <label for="eventVenueId" style="margin-top:0;">Add a Venue</label>
+                    <label for="eventVenueId" style="margin-top:0;">Add a Venue (optional)</label>
                     <select id="eventVenueId" class="ctrl" name="venueId">
                       <option value="">No venue</option>
                       ${!selectedVenueChoice && editEvent?.venueName ? `<option value="keep" data-city="${esc(formCity)}" selected>${esc(editEvent.venueName)} (current)</option>` : ""}
