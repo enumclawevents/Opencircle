@@ -19,6 +19,7 @@ const packageMeta = require("../package.json");
 const { hashPassword, hashToken, verifyPassword } = require("../lib/auth");
 const { DateTime } = require("luxon");
 const { esc } = require("../lib/html");
+const { resolveEventVenue } = require("../lib/event-venue");
 const { safeParseJson } = require("../lib/json");
 const { normalizeStoredRole } = require("../lib/roles");
 const { eventReportChangeLabel, eventReportChangeValue, parseEventReportChanges } = require("../lib/event-report-changes");
@@ -28,6 +29,7 @@ const {
   addHoursIso: sharedAddHoursIso,
   hasValidEventDateRange,
   normalizeEventDateTimes,
+  normalizeVenueName,
   normalizeMultiDaySchedule: sharedNormalizeMultiDaySchedule,
   requiredEventFields,
   toLocalISOWithOffset: sharedToLocalISOWithOffset,
@@ -1830,6 +1832,8 @@ async function insertEventFromPending(p, actorUserId = null) {
     ["startDateTime", startDateTime],
     ["endDateTime", endDateTime],
     ["location", String(p.location || "")],
+    ["venueName", p.venueName || null],
+    ["venueId", p.venueId ?? null],
     ["organizer", String(p.organizer || "")],
     ["imageUrl", String(p.imageUrl || "") || null],
     ["ticketUrl", String(p.ticketUrl || "") || null],
@@ -8533,6 +8537,7 @@ return `
                 <div style="min-width:0;">
                   <div style="font-weight:700; font-size:1.05rem;">${esc(p.title || "Untitled")}</div>
                   <div class="muted">${esc(startLabel)}${endLabel ? " – " + esc(endLabel) : ""}</div>
+                  ${p.venueName ? `<div class="muted">Venue: ${esc(p.venueName)}</div>` : ""}
                   <div class="muted">${esc(p.location || "")}</div>
                   ${p.organizer ? `<div class="muted">Organizer: ${esc(p.organizer)}</div>` : ""}
                   ${emailLine}
@@ -16984,8 +16989,12 @@ return `
                 <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg><div class="event-form-section-heading-copy"><h3>Location &amp; organizer</h3><p>Use the same venue and organizer names visitors will recognize.</p></div></div>
                 <div class="rec-grid">
                   <div>
-                    <label style="margin-top:0;">Location</label>
+                    <label style="margin-top:0;">Address / location</label>
                     <input class="ctrl" name="location" value="${esc(editEvent?.location || "")}" required />
+                  </div>
+                  <div>
+                    <label for="eventVenueName" style="margin-top:0;">Venue Name (optional)</label>
+                    <input id="eventVenueName" class="ctrl" name="venueName" maxlength="200" value="${esc(editEvent?.venueName || "")}" />
                   </div>
                   <div>
                     <label style="margin-top:0;">Organizer</label>
@@ -23318,11 +23327,14 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     // Enumclaw if an old editor form posts the workspace marker (or omits a
     // matching city selection). Pending submissions use Plateau Area before
     // approval; approved events live in Buckley, the Plateau primary city.
+    let pendingSubmission = null;
+    let submittedVenueName = req.body.venueName;
     if (!id && pendingId) {
-      const pendingSubmission = await get(
-        "SELECT city FROM pending_events WHERE id = ? LIMIT 1",
+      pendingSubmission = await get(
+        "SELECT city, venueName, venueId FROM pending_events WHERE id = ? LIMIT 1",
         [parseInt(String(pendingId), 10)]
       );
+      if (submittedVenueName === undefined) submittedVenueName = pendingSubmission?.venueName;
       if (String(pendingSubmission?.city || "").trim() === PLATEAU_SUBMISSION_AREA) {
         city = ADMIN_SIDEBAR_GROUPS["Plateau Regional"][0];
       }
@@ -23708,6 +23720,17 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["featured", featuredFlag],
       ["eddiesPick", eddiesPickFlag],
     ];
+    if (submittedVenueName !== undefined) {
+      const name = normalizeVenueName(submittedVenueName);
+      const previous = pendingSubmission || (isUpdate
+        ? await get("SELECT city, venueId, venueName FROM events WHERE id = ?", [eventId])
+        : null);
+      const previousCity = previous?.city === PLATEAU_SUBMISSION_AREA ? ADMIN_SIDEBAR_GROUPS["Plateau Regional"][0] : previous?.city;
+      const venue = previous?.venueId && previousCity === city && name === normalizeVenueName(previous.venueName)
+        ? { venueName: previous.venueName, venueId: previous.venueId }
+        : await resolveEventVenue(city, name);
+      baseFields.push(["venueName", venue.venueName], ["venueId", venue.venueId]);
+    }
     if (!isUpdate) {
       baseFields.push(["createdByUserId", sessionUser?.id || null]);
       if (pendingSubmissionCreatedAt) baseFields.push(["submittedAt", pendingSubmissionCreatedAt]);

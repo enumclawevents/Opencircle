@@ -119,6 +119,20 @@ class OpenCircle_Event_Submissions {
           <input type="text" name="location" required />
         </div>
 
+        <div class="oc-field" data-oc-venue-picker hidden>
+          <label>Existing venue (optional)
+            <select name="venueId">
+              <option value="">None / enter a venue name below</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="oc-field">
+          <label>Venue Name (optional)
+            <input type="text" name="venueName" maxlength="200" />
+          </label>
+        </div>
+
         <div class="oc-field">
           <label>Organizer</label>
           <input type="text" name="organizer" />
@@ -235,6 +249,8 @@ class OpenCircle_Event_Submissions {
       'startDateTime'  => self::to_local_iso($start),
       'endDateTime'    => !empty($_POST['end']) ? self::to_local_iso($_POST['end']) : '',
       'location'       => $location,
+      'venueId'        => sanitize_text_field($_POST['venueId'] ?? ''),
+      'venueName'      => sanitize_text_field($_POST['venueName'] ?? ''),
       'organizer'      => sanitize_text_field($_POST['organizer'] ?? ''),
       'description'    => $desc,
       'imageUrl'       => $imageUrl,
@@ -319,10 +335,12 @@ class OpenCircle_Event_Submissions {
   padding:18px;
 }
 .oc-field{ margin-bottom:14px; display:flex; flex-direction:column; gap:6px; }
+.oc-field[hidden]{ display:none; }
 .oc-row{ display:flex; gap:14px; }
 .oc-row .oc-field{ flex:1; }
 
 .oc-submit-form input,
+.oc-submit-form select,
 .oc-submit-form textarea{
   border:1px solid rgba(0,0,0,.15);
   border-radius:8px;
@@ -461,6 +479,31 @@ class OpenCircle_Event_Submissions {
     var upsell = root.querySelector('[data-oc-feature-upsell]');
     var upsellBtn = root.querySelector('[data-oc-feature-btn]');
     if(!form) return;
+
+    async function loadVenues(){
+      var picker = root.querySelector('[data-oc-venue-picker]');
+      if(!picker) return;
+      var select = form.elements.venueId;
+      var city = form.elements.city.value;
+      if (/^plateau(?: area| regional)?$/i.test(city)) city = 'Buckley';
+      var url = new URL(form.elements.api.value.replace(/\/+$/, '') + '/venues');
+      url.searchParams.set('city', city);
+      url.searchParams.set('limit', '100');
+      var offset = 0;
+      while (offset !== null) {
+        url.searchParams.set('offset', String(offset));
+        var response = await fetch(url);
+        if (!response.ok) return;
+        var result = await response.json();
+        for (var venue of result.data) {
+          var label = venue.name + (venue.address ? ' — ' + venue.address : '');
+          select.add(new Option(label, venue.id));
+        }
+        if (select.options.length > 1) picker.hidden = false;
+        offset = result.meta.nextOffset;
+      }
+    }
+    loadVenues().catch(function(){ /* The manual venue field remains available. */ });
 
     form.addEventListener('submit', async function(e){
       e.preventDefault();

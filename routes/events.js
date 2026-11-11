@@ -10,6 +10,7 @@ const { matchesVenueLocation, normalizeVenueIdentifier } = require("../lib/venue
 const { normalizeEventReportChanges } = require("../lib/event-report-changes");
 const { notifyAreaApprovers } = require("../lib/admin-notification-email");
 const { esc } = require("../lib/html");
+const { resolveEventVenue } = require("../lib/event-venue");
 const { findEventCategory } = require("../lib/admin-constants");
 const {
   hasValidEventDateRange,
@@ -207,6 +208,10 @@ router.post("/submit", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Invalid date/time." });
     }
 
+    const venue = await resolveEventVenue(city, body.venueName, body.venueId);
+    if (!venue) return res.status(400).json({ ok: false, error: "Choose an available venue for this area or leave the venue selection blank." });
+    const { venueId, venueName } = venue;
+
     const ticketUrl = String(body.ticketUrl || "").trim() || null;
     const eventLink = String(body.eventLink || "").trim() || null;
     const cats = normalizeCategoryInput(body.categories);
@@ -293,13 +298,13 @@ router.post("/submit", async (req, res) => {
     const inserted = await run(
       `INSERT INTO pending_events
         (city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
-         startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
+         startDateTime, endDateTime, location, venueName, venueId, organizer, imageUrl, eventLink, categories,
          submitterEmail, approvalNotes, source, submissionId, hasRecurrence, recurrenceRule,
          recurrenceDates, recurrenceStartDate, recurrenceUntilDate, multiDaySchedule)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
-        startDateTime, endDateTime, location, organizer, imageUrl, eventLink, categories,
+        startDateTime, endDateTime, location, venueName, venueId, organizer, imageUrl, eventLink, categories,
         submitterEmail, approvalNotes, source, submissionId, hasRecurrence,
         recurrenceRule ? JSON.stringify(recurrenceRule) : null,
         recurrenceDatesJson, recurrenceStartDate, recurrenceUntilDate, multiDayScheduleJson
@@ -1575,8 +1580,9 @@ async function listEventsHandler(req, res) {
       ? [...new Set(req.venueLocationLabels.map((value) => String(value || "").trim()).filter(Boolean))]
       : [];
     const hasInternalVenueFilter = venueLocationIdentifiers.length > 0 && venueLocationLabels.length > 0;
+    const venueId = req.linkedVenueId;
     const matchesVenue = (item) => hasInternalVenueFilter
-      ? matchesVenueLocation(item?.location, venueLocationIdentifiers)
+      ? (item.venueId != null ? item.venueId === venueId : matchesVenueLocation(item.location, venueLocationIdentifiers))
       : (!venue || String(item?.location || "").toLowerCase().includes(venue.toLowerCase()));
     const featuredParam = readEnumQueryValue(req.query, "featured", { defaultValue: "0", allowed: ["0", "1"] });
     if (featuredParam.error) {
@@ -1655,8 +1661,9 @@ async function listEventsHandler(req, res) {
       rowParams.push(organizer);
     }
     if (hasInternalVenueFilter) {
-      rowWhere.push(`(${venueLocationLabels.map(() => "LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))").join(" OR ")})`);
-      rowParams.push(...venueLocationLabels);
+      const legacyMatch = venueLocationLabels.map(() => "LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))").join(" OR ");
+      rowWhere.push(`(venueId = ? OR (venueId IS NULL AND (${legacyMatch})))`);
+      rowParams.push(venueId, ...venueLocationLabels);
     } else if (venue) {
       rowWhere.push("LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))");
       rowParams.push(venue);

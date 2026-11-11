@@ -654,7 +654,7 @@ async function getUpcomingEventsForVenue(venue, limit) {
   const locationPredicates = locationLabels.map(() => "LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))");
 
   const rows = await all(
-    `SELECT id, slug, title, startDateTime, endDateTime, location, imageUrl, categories,
+    `SELECT id, slug, title, startDateTime, endDateTime, location, venueId, imageUrl, categories,
             ${hasCol("archived") ? "archived" : "0 AS archived"},
             ${hasCol("hasRecurrence") ? "hasRecurrence" : "0 AS hasRecurrence"},
             ${hasCol("recurrenceDates") ? "recurrenceDates" : "NULL AS recurrenceDates"},
@@ -664,15 +664,15 @@ async function getUpcomingEventsForVenue(venue, limit) {
        FROM events
       WHERE LOWER(city) = LOWER(?)
         AND COALESCE(${hasCol("archived") ? "archived" : "0"}, 0) = 0
-        AND (${locationPredicates.join(" OR ")})
+        AND (venueId = ? OR (venueId IS NULL AND (${locationPredicates.join(" OR ")})))
       ORDER BY datetime(startDateTime) ASC`,
-    [city, ...locationLabels]
+    [city, venue.id, ...locationLabels]
   );
 
   const nowTs = Date.now() - 5 * 60 * 1000;
   const out = [];
   for (const r of rows || []) {
-    if (!matchesVenueLocation(r.location, locationIdentifiers)) continue;
+    if (r.venueId == null && !matchesVenueLocation(r.location, locationIdentifiers)) continue;
 
     const st = Date.parse(String(r.startDateTime || ""));
     const en = Date.parse(String(r.endDateTime || ""));
@@ -939,6 +939,7 @@ router.get("/:idOrSlug/events", async (req, res) => {
       value: venueLocationIdentifiers(venue),
       enumerable: true,
     });
+    Object.defineProperty(eventReq, "linkedVenueId", { value: venue.id });
     Object.defineProperty(eventReq, "publicEventProjection", {
       value: true,
       enumerable: true,

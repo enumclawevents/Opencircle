@@ -149,6 +149,8 @@ async function initDB() {
       expireDate TEXT,
 
       location TEXT,
+      venueName TEXT,
+      venueId INTEGER,
       organizer TEXT,
       host TEXT,
 
@@ -244,6 +246,8 @@ async function initDB() {
       endDateTime TEXT,
 
       location TEXT,
+      venueName TEXT,
+      venueId INTEGER,
       organizer TEXT,
 
       imageUrl TEXT,
@@ -438,6 +442,8 @@ async function initDB() {
   // Pending submissions: safe migrations
   const addPendingCol = createAddColumnHelper("pending_events");
 
+  await addPendingCol("venueId", `ALTER TABLE pending_events ADD COLUMN venueId INTEGER;`);
+  await addPendingCol("venueName", `ALTER TABLE pending_events ADD COLUMN venueName TEXT;`);
   await addPendingCol("eventLink", `ALTER TABLE pending_events ADD COLUMN eventLink TEXT;`);
   await addPendingCol("approvalNotes", `ALTER TABLE pending_events ADD COLUMN approvalNotes TEXT;`);
   await addPendingCol("submissionId", `ALTER TABLE pending_events ADD COLUMN submissionId TEXT;`);
@@ -474,6 +480,8 @@ async function initDB() {
   // Add common columns if missing
   const addCol = createAddColumnHelper("events");
 
+  await addCol("venueId", `ALTER TABLE events ADD COLUMN venueId INTEGER;`);
+  await addCol("venueName", `ALTER TABLE events ADD COLUMN venueName TEXT;`);
   await addCol("slug", `ALTER TABLE events ADD COLUMN slug TEXT;`);
   await addCol("eventDetails", `ALTER TABLE events ADD COLUMN eventDetails TEXT;`);
   await addCol("goodToKnow", `ALTER TABLE events ADD COLUMN goodToKnow TEXT;`);
