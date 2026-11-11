@@ -14299,6 +14299,46 @@ return `
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
       @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:26px; } .dashboard-command-columns,.dashboard-command-insights{ grid-template-columns:1fr; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-donut{ width:min(100%,200px); } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
       @media (max-width:420px){ .dashboard-category-legend{ max-width:280px; } .dashboard-category-row{ grid-template-columns:10px 36px minmax(0,1fr) auto; gap:7px; font-size:10px; } }
+      /* Keep selection feedback consistent across the admin's option controls. */
+      :root{
+        --toggle-duration:220ms;
+        --toggle-easing:cubic-bezier(.2,.65,.3,1);
+      }
+      .seg > :is(button,a),
+      .metricToggle > button,
+      .dashboard-series-control,
+      .insights-switcher > button,
+      .dashboard-calendar a.dashboard-calendar-scope-btn:not(.btn),
+      .users-filter-button,
+      .event-type-card,
+      .recurrence-choice,
+      input[type="checkbox"]{
+        transition-property:background-color,border-color,color,box-shadow;
+        transition-duration:var(--toggle-duration);
+        transition-timing-function:var(--toggle-easing);
+      }
+      input[type="checkbox"]::before,
+      .sidebar-collapse-toggle i,
+      .dashboard-card .card-toggle .card-caret,
+      .event-form-advanced > summary svg{
+        transition:transform var(--toggle-duration) var(--toggle-easing);
+      }
+      @media (prefers-reduced-motion:reduce){
+        :root{ --toggle-duration:0ms; }
+        .sidebar,.nav-sub{ transition:none; }
+      }
+      ${showDashboard ? `
+        /* Calendar scope is a link, so its selection crosses a page load. */
+        @media (prefers-reduced-motion:no-preference){
+          @view-transition{ navigation:auto; }
+          :root{ view-transition-name:none; }
+          .dashboard-calendar-scope-toggle{ view-transition-name:calendar-scope; }
+          ::view-transition-group(calendar-scope){
+            animation-duration:var(--toggle-duration);
+            animation-timing-function:var(--toggle-easing);
+          }
+        }
+      ` : ""}
 </style>
   </head>
   <body>
