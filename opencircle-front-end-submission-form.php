@@ -114,28 +114,24 @@ class OpenCircle_Event_Submissions {
           </div>
         </div>
 
-        <div class="oc-field">
-          <label>Location (Address) *</label>
-          <input type="text" name="location" required />
-        </div>
-
-        <div class="oc-field" data-oc-venue-picker hidden>
-          <label>Existing venue (optional)
-            <select name="venueId">
-              <option value="">None / enter a venue name below</option>
-            </select>
-          </label>
-        </div>
-
-        <div class="oc-field">
-          <label>Venue Name (optional)
-            <input type="text" name="venueName" maxlength="200" />
-          </label>
-        </div>
-
-        <div class="oc-field">
-          <label>Organizer</label>
-          <input type="text" name="organizer" />
+        <div class="oc-location-row">
+          <div class="oc-field">
+            <label>Address *
+              <input type="text" name="location" required />
+            </label>
+          </div>
+          <div class="oc-field">
+            <label>Organizer
+              <input type="text" name="organizer" />
+            </label>
+          </div>
+          <div class="oc-field">
+            <label>Add a Venue
+              <select name="venueId">
+                <option value="">No venue</option>
+              </select>
+            </label>
+          </div>
         </div>
 
         <div class="oc-field">
@@ -335,7 +331,9 @@ class OpenCircle_Event_Submissions {
   padding:18px;
 }
 .oc-field{ margin-bottom:14px; display:flex; flex-direction:column; gap:6px; }
-.oc-field[hidden]{ display:none; }
+.oc-location-row{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.oc-location-row label{ display:grid; gap:6px; }
+.oc-location-row select{ min-width:0; }
 .oc-row{ display:flex; gap:14px; }
 .oc-row .oc-field{ flex:1; }
 
@@ -441,6 +439,7 @@ class OpenCircle_Event_Submissions {
 /* Responsive */
 @media (max-width: 640px){
   .oc-row{ flex-direction:column; }
+  .oc-location-row{ grid-template-columns:1fr; gap:0; }
 }
 ";
 }
@@ -481,9 +480,8 @@ class OpenCircle_Event_Submissions {
     if(!form) return;
 
     async function loadVenues(){
-      var picker = root.querySelector('[data-oc-venue-picker]');
-      if(!picker) return;
       var select = form.elements.venueId;
+      if (!select) return;
       var city = form.elements.city.value;
       if (/^plateau(?: area| regional)?$/i.test(city)) city = 'Buckley';
       var url = new URL(form.elements.api.value.replace(/\/+$/, '') + '/venues');
@@ -499,11 +497,10 @@ class OpenCircle_Event_Submissions {
           var label = venue.name + (venue.address ? ' — ' + venue.address : '');
           select.add(new Option(label, venue.id));
         }
-        if (select.options.length > 1) picker.hidden = false;
         offset = result.meta.nextOffset;
       }
     }
-    loadVenues().catch(function(){ /* The manual venue field remains available. */ });
+    loadVenues().catch(function(){ /* Venue selection is optional. */ });
 
     form.addEventListener('submit', async function(e){
       e.preventDefault();

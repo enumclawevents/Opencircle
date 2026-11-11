@@ -5929,6 +5929,11 @@ try {
       ? ADMIN_SIDEBAR_GROUPS["Plateau Regional"][0]
       : (editEventCity || selectedAdminPrimaryCity);
     const cityOptions = buildAreaOptionsMarkup(formCity);
+    const eventVenueChoices = view === "create"
+      ? await all("SELECT id, name, address, city FROM venues ORDER BY name COLLATE NOCASE, id")
+      : [];
+    const selectedVenueChoice = eventVenueChoices.find(venue => venue.id === editEvent?.venueId && venue.city === formCity);
+
     const lifecycleLabel = {
       scheduled: "Scheduled",
       cancelled: "Cancelled",
@@ -12841,7 +12846,8 @@ return `
       /* Recurrence UI polish (keep your functionality, just match the new look) */
       .recurrence{ background: var(--panel2); border:1px solid var(--line); border-radius: var(--radius-mid); padding: 14px; }
       .rec-grid{ display:grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-      @media (max-width: 900px){ .rec-grid{ grid-template-columns: 1fr; } }
+      .event-form-location .rec-grid{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+      @media (max-width: 900px){ .rec-grid,.event-form-location .rec-grid{ grid-template-columns: 1fr; } }
       .event-type-picker{
         display:grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -16993,15 +16999,35 @@ return `
                     <input class="ctrl" name="location" value="${esc(editEvent?.location || "")}" required />
                   </div>
                   <div>
-                    <label for="eventVenueName" style="margin-top:0;">Venue Name (optional)</label>
-                    <input id="eventVenueName" class="ctrl" name="venueName" maxlength="200" value="${esc(editEvent?.venueName || "")}" />
-                  </div>
-                  <div>
                     <label style="margin-top:0;">Organizer</label>
                     <input class="ctrl" name="organizer" value="${esc(organizerFormValue)}" ${isOrganizerUser ? "readonly" : ""} required />
                     ${isOrganizerUser ? `<div class="note">Your organizer identity is applied automatically.</div>` : ``}
                   </div>
+                  <div>
+                    <label for="eventVenueId" style="margin-top:0;">Add a Venue</label>
+                    <select id="eventVenueId" class="ctrl" name="venueId">
+                      <option value="">No venue</option>
+                      ${!selectedVenueChoice && editEvent?.venueName ? `<option value="keep" data-city="${esc(formCity)}" selected>${esc(editEvent.venueName)} (current)</option>` : ""}
+                      ${eventVenueChoices.map(venue => `<option value="${venue.id}" data-city="${esc(venue.city)}"${venue.city !== formCity ? " hidden disabled" : ""}${selectedVenueChoice?.id === venue.id ? " selected" : ""}>${esc(venue.name)}${venue.address ? " — " + esc(venue.address) : ""}</option>`).join("")}
+                    </select>
+                  </div>
                 </div>
+                <script>
+                  (function(){
+                    const city = document.getElementById("cityHidden");
+                    const venue = document.getElementById("eventVenueId");
+                    if (!city || !venue) return;
+                    function syncVenues(){
+                      for (const option of venue.options) {
+                        const outsideArea = option.dataset.city && option.dataset.city !== city.value;
+                        option.disabled = option.hidden = Boolean(outsideArea);
+                      }
+                      if (venue.selectedOptions[0]?.disabled) venue.value = "";
+                    }
+                    city.addEventListener("change", syncVenues);
+                    syncVenues();
+                  })();
+                </script>
               </section>
 
               <section class="event-form-section event-form-media">
@@ -23720,7 +23746,13 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["featured", featuredFlag],
       ["eddiesPick", eddiesPickFlag],
     ];
-    if (submittedVenueName !== undefined) {
+    if (req.body.venueId === "keep") {
+      if (pendingSubmission) baseFields.push(["venueName", pendingSubmission.venueName], ["venueId", null]);
+    } else if (req.body.venueId !== undefined) {
+      const venue = await resolveEventVenue(city, null, req.body.venueId);
+      if (!venue) return res.status(400).send("Choose an available venue for this area or select No venue.");
+      baseFields.push(["venueName", venue.venueName], ["venueId", venue.venueId]);
+    } else if (submittedVenueName !== undefined) {
       const name = normalizeVenueName(submittedVenueName);
       const previous = pendingSubmission || (isUpdate
         ? await get("SELECT city, venueId, venueName FROM events WHERE id = ?", [eventId])
