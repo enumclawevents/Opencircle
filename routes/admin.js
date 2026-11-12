@@ -1302,6 +1302,81 @@ function hasRecurringData(row) {
   return Array.isArray(dates) && dates.length > 0;
 }
 
+function resolveUpcomingOccurrence(event, nowMs) {
+  const parseLocal = value => DateTime.fromISO(String(value || "").trim().replace(" ", "T"), { zone: DEFAULT_TZ, setZone: true });
+  const normalizeTime = value => {
+    const date = parseLocal(value);
+    return date.isValid ? date.set({ millisecond: 0 }).toISO({ suppressMilliseconds: true }).replace(/Z$/, "+00:00") : "";
+  };
+  const startDateTime = normalizeTime(event.startDateTime);
+  if (!startDateTime) return null;
+
+  const storedRule = parseStoredRule(event.recurrenceRule);
+  const dates = parseStoredDates(event.recurrenceDates);
+  const type = String(storedRule?.type || (dates.length ? "custom" : "")).trim().toLowerCase();
+  const interval = Math.max(1, Number(storedRule?.interval) || 1);
+  if (!Number.isSafeInteger(interval)) return null;
+  const rule = { ...storedRule, type, interval };
+  const template = {
+    ...event,
+    startDateTime,
+    endDateTime: normalizeTime(event.endDateTime),
+    hasRecurrence: 1,
+  };
+  const upcoming = (rule, from, to, recurrenceDates = []) =>
+    generateOccurrences({ ...template, recurrenceRule: JSON.stringify(rule), recurrenceDates: JSON.stringify(recurrenceDates) }, from, to)
+      .find(occurrence => {
+        const start = Date.parse(occurrence.startDateTime);
+        const end = Date.parse(occurrence.endDateTime || occurrence.startDateTime);
+        return Number.isFinite(start) && end >= start && end >= nowMs;
+      });
+
+  if (type === "custom") {
+    const hasRuleItems = Array.isArray(rule.items) && rule.items.length > 0;
+    const items = (hasRuleItems ? rule.items : dates).filter(item => item && typeof item === "object")
+      .map(item => ({ ...item, start: normalizeTime(item.start), end: normalizeTime(item.end) }))
+      .filter(item => item.start);
+    // Custom schedules are finite. The generator iterates the stored dates directly.
+    const lastRepresentableDate = 8.64e15;
+    const nextItem = items.length ? upcoming({ ...rule, items }, nowMs, lastRepresentableDate) : null;
+    if (hasRuleItems) return nextItem;
+    const dateOnly = dates.filter(date => typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) && parseLocal(date).isValid);
+    const nextDate = dateOnly.length ? upcoming({ ...rule, items: [] }, nowMs, lastRepresentableDate, dateOnly) : null;
+    if (!nextItem || (nextDate && Date.parse(nextDate.startDateTime) < Date.parse(nextItem.startDateTime))) return nextDate;
+    return nextItem;
+  }
+
+  const weekdays = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+  if (type === "weekly" || (type === "monthly" && rule.mode === "nthweekday")) {
+    const byDay = Array.isArray(rule.byDay) ? rule.byDay : type === "monthly" ? [rule.byDay] : [];
+    rule.byDay = byDay.map(day => String(day || "").trim().toUpperCase()).filter(Boolean);
+    if ((type === "weekly" || rule.byDay.length) && !rule.byDay.some(day => weekdays.includes(day))) return null;
+    if (type === "monthly" && ![-1, 1, 2, 3, 4, 5].includes(Number(rule.setPos || 1))) return null;
+  } else if (type === "monthly") {
+    if (!Number.isInteger(Number(rule.byMonthday)) || Number(rule.byMonthday) < 1) return null;
+  } else if (type !== "annual" && type !== "yearly") {
+    return null;
+  }
+
+  const now = DateTime.fromMillis(nowMs, { zone: DEFAULT_TZ });
+  // The public generator recognizes template durations of up to 14 days.
+  const from = Math.max(now.minus({ days: 15 }).startOf("day").toMillis(), Date.parse(startDateTime),
+    parseLocal(event.recurrenceStartDate).toMillis() || -Infinity);
+  const lookupStart = DateTime.fromMillis(Math.max(nowMs, from), { zone: DEFAULT_TZ });
+  const firstEnd = lookupStart.plus({ days: 370 }).toMillis();
+  const next = upcoming(rule, from, firstEnd);
+  if (next) return next;
+
+  // Give sparse schedules a wider search without walking unbounded intervals.
+  const until = parseLocal(event.recurrenceUntilDate).endOf("day").toMillis();
+  if (until <= firstEnd) return null;
+  const widerEnd = lookupStart.plus({ years: 10 }).toMillis();
+  const sparse = interval > 1 || (type === "monthly" && Number(rule.setPos) === 5);
+  if (!sparse) return null;
+  return upcoming(rule, firstEnd, widerEnd)
+    || (until <= widerEnd ? null : { startDateTime: "" });
+}
+
 function getRecurringSeriesEndUtcMs(row, fallbackUtcMs) {
   const rule = parseStoredRule(row?.recurrenceRule);
   const dates = parseStoredDates(row?.recurrenceDates);
@@ -5550,7 +5625,8 @@ if (recurringOnly) {
 
 const hasEndCol = colsForWhere.has("endDateTime");
 const hasStartCol = colsForWhere.has("startDateTime");
-const activeRecurrenceWhere = activeRecurrenceWhereClause();
+const resolveUpcomingList = view === "existing" && statusMode === "upcoming";
+const activeRecurrenceWhere = resolveUpcomingList ? recurrenceWhereClause() : activeRecurrenceWhereClause();
 let lifecycleDateExpr = "";
 if (hasEndCol && hasStartCol) {
   lifecycleDateExpr = `datetime(COALESCE(NULLIF(trim(endDateTime), ''), NULLIF(trim(startDateTime), '')))`;
@@ -5581,47 +5657,6 @@ if (statusMode === "archived") {
 
 const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
 
-const totalRow = await get(`SELECT COUNT(*) AS n FROM events ${whereSql}`, whereParams);
-const total = Number(totalRow?.n || 0);
-const pages = Math.max(1, Math.ceil(total / limit));
-const hasPrev = pg > 1;
-const hasNext = pg < pages;
-const baseListPath = "/admin/existing-events";
-
-    function adminUrl(nextPg) {
-      const sp = new URLSearchParams(req.query);
-      sp.set("pg", String(nextPg));
-      sp.set("limit", String(limit));
-      if (sort) sp.set("sort", sort);
-      if (q) sp.set("q", q);
-      if (statusMode) sp.set("status", statusMode);
-      if (recurringOnly) sp.set("recurring", "1");
-      if (fromDate) sp.set("from", fromDate);
-      if (toDate) sp.set("to", toDate);
-      if (selectedCity) sp.set("city", selectedCity);
-      return `${baseListPath}?${sp.toString()}`;
-    }
-
-const showingFrom = total ? offset + 1 : 0;
-const showingTo = Math.min(offset + limit, total);
-
-const pagerHtml = `
-  <div class="pager">
-    <div class="pager-left">
-      <span class="muted">Total: <strong style="color:var(--text)">${total}</strong></span>
-      <span class="muted">Showing ${showingFrom}–${showingTo}</span>
-    </div>
-    <div class="pager-right">
-      <a class="btn" data-page-action="first" href="${adminUrl(1)}" ${pg === 1 ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>First</a>
-      <a class="btn" data-page-action="prev" href="${adminUrl(Math.max(1, pg - 1))}" ${!hasPrev ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>Prev</a>
-      <span class="muted" style="padding:0 8px;" data-events-page-status tabindex="-1">Page <strong style="color:var(--text)">${pg}</strong> / ${pages}</span>
-      <a class="btn" data-page-action="next" href="${adminUrl(Math.min(pages, pg + 1))}" ${!hasNext ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>Next</a>
-      <a class="btn" data-page-action="last" href="${adminUrl(pages)}" ${pg === pages ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>Last</a>
-    </div>
-  </div>
-`;
-
-
 // Sort for listing
 let orderBySql = "startDateTime ASC";
 try {
@@ -5644,11 +5679,13 @@ try {
   else orderBySql = "startDateTime ASC";
 }
 
-// A recurring series' stored start date is its original anchor, not necessarily
-// the next time it will happen. For the date/time sort, load the matching rows
-// first so recurrence rules can supply the next actual occurrence before we
-// paginate the ordered result.
+// Resolve Upcoming eligibility before paginating, even for non-date sorts.
+// Past and Archived retain their existing date sort.
 const recurrenceAwareDateSort = sort === "datetime";
+const paginateInMemory = resolveUpcomingList || recurrenceAwareDateSort;
+const upcomingEligibilitySql = resolveUpcomingList
+  ? `, COALESCE(${lifecycleDateExpr || "NULL"} >= datetime('now'), 0) AS hasUpcomingTemplateDate`
+  : "";
 const recurrenceSelectSql = [
   colsForWhere.has("endDateTime") ? "endDateTime" : "NULL AS endDateTime",
   colsForWhere.has("hasRecurrence") ? "hasRecurrence" : "0 AS hasRecurrence",
@@ -5699,6 +5736,16 @@ function sortEventsByNextOccurrence(rows) {
     .map(({ event }) => event);
 }
 
+function resolveUpcomingEventRows(rows, nowMs) {
+  return rows.flatMap((event) => {
+    if (Number(event.hasRecurrence || 0) !== 1 && !hasRecurringData(event)) {
+      return event.hasUpcomingTemplateDate ? [event] : [];
+    }
+    const next = resolveUpcomingOccurrence(event, nowMs);
+    return next ? [{ ...event, nextOccurrenceStartDateTime: next.startDateTime }] : [];
+  });
+}
+
 // ✅ Resilient list query: supports optional columns
 let events = [];
 try {
@@ -5706,15 +5753,13 @@ try {
     `SELECT id, slug, title, startDateTime, location, featured, eddiesPick,
             goingCount, interestedCount, viewCount, uniqueViewCount, lastViewedAt, imageUrl,
             ${recurrenceSelectSql},
-            ${selectArchived}, ${selectArchivedAt}
+            ${selectArchived}, ${selectArchivedAt}${upcomingEligibilitySql}
      FROM events
      ${whereSql}
-     ORDER BY ${orderBySql}${recurrenceAwareDateSort ? "" : "\n     LIMIT ? OFFSET ?"}`,
-    recurrenceAwareDateSort ? whereParams : [...whereParams, limit, offset]
+     ORDER BY ${orderBySql}${paginateInMemory ? "" : "\n     LIMIT ? OFFSET ?"}`,
+    paginateInMemory ? whereParams : [...whereParams, limit, offset]
   );
-  events = recurrenceAwareDateSort
-    ? sortEventsByNextOccurrence(listRows).slice(offset, offset + limit)
-    : listRows;
+  events = !resolveUpcomingList && recurrenceAwareDateSort ? sortEventsByNextOccurrence(listRows) : listRows;
 } catch (err) {
   const errorCode = typeof err?.code === "string" && /^(?:SQLITE_[A-Z0-9_]+|ERR_[A-Z0-9_]+)$/.test(err.code)
     ? err.code
@@ -5729,15 +5774,13 @@ try {
 
   const listRows = await all(
     `SELECT id, slug, title, startDateTime, location, featured, eddiesPick
+            ${resolveUpcomingList ? `, ${recurrenceSelectSql}${upcomingEligibilitySql}` : ""}
      FROM events
      ${whereSql}
-     ORDER BY ${orderBySql}${recurrenceAwareDateSort ? "" : "\n     LIMIT ? OFFSET ?"}`,
-    recurrenceAwareDateSort ? whereParams : [...whereParams, limit, offset]
+     ORDER BY ${orderBySql}${paginateInMemory ? "" : "\n     LIMIT ? OFFSET ?"}`,
+    paginateInMemory ? whereParams : [...whereParams, limit, offset]
   );
-  events = (recurrenceAwareDateSort
-    ? sortEventsByNextOccurrence(listRows).slice(offset, offset + limit)
-    : listRows
-  ).map((x) => ({
+  events = (!resolveUpcomingList && recurrenceAwareDateSort ? sortEventsByNextOccurrence(listRows) : listRows).map((x) => ({
     ...x,
     goingCount: 0,
     interestedCount: 0,
@@ -5751,8 +5794,58 @@ try {
     imageUrl: null,
   }));
 }
+if (resolveUpcomingList) {
+  events = resolveUpcomingEventRows(events, Date.now());
+  if (recurrenceAwareDateSort) {
+    const dateKey = event => {
+      const date = Date.parse(event.nextOccurrenceStartDateTime ?? event.startDateTime);
+      return Number.isFinite(date) ? date : Infinity;
+    };
+    events.sort((a, b) => dateKey(a) - dateKey(b) || Number(a.id) - Number(b.id));
+  }
+}
 
+const total = resolveUpcomingList
+  ? events.length
+  : Number((await get(`SELECT COUNT(*) AS n FROM events ${whereSql}`, whereParams))?.n || 0);
+if (paginateInMemory) events = events.slice(offset, offset + limit);
+const pages = Math.max(1, Math.ceil(total / limit));
+const hasPrev = pg > 1;
+const hasNext = pg < pages;
+const baseListPath = "/admin/existing-events";
 
+    function adminUrl(nextPg) {
+      const sp = new URLSearchParams(req.query);
+      sp.set("pg", String(nextPg));
+      sp.set("limit", String(limit));
+      if (sort) sp.set("sort", sort);
+      if (q) sp.set("q", q);
+      if (statusMode) sp.set("status", statusMode);
+      if (recurringOnly) sp.set("recurring", "1");
+      if (fromDate) sp.set("from", fromDate);
+      if (toDate) sp.set("to", toDate);
+      if (selectedCity) sp.set("city", selectedCity);
+      return `${baseListPath}?${sp.toString()}`;
+    }
+
+const showingFrom = total && (!resolveUpcomingList || events.length) ? offset + 1 : 0;
+const showingTo = resolveUpcomingList && !events.length ? 0 : Math.min(offset + limit, total);
+
+const pagerHtml = `
+  <div class="pager">
+    <div class="pager-left">
+      <span class="muted">Total: <strong style="color:var(--text)">${total}</strong></span>
+      <span class="muted">Showing ${showingFrom}–${showingTo}</span>
+    </div>
+    <div class="pager-right">
+      <a class="btn" data-page-action="first" href="${adminUrl(1)}" ${pg === 1 ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>First</a>
+      <a class="btn" data-page-action="prev" href="${adminUrl(Math.max(1, pg - 1))}" ${!hasPrev ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>Prev</a>
+      <span class="muted" style="padding:0 8px;" data-events-page-status tabindex="-1">Page <strong style="color:var(--text)">${pg}</strong> / ${pages}</span>
+      <a class="btn" data-page-action="next" href="${adminUrl(Math.min(pages, pg + 1))}" ${!hasNext ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>Next</a>
+      <a class="btn" data-page-action="last" href="${adminUrl(pages)}" ${pg === pages ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>Last</a>
+    </div>
+  </div>
+`;
 
 // Per-event source stats for current page (All Events)
 const eventSourceStats = new Map();
@@ -6164,7 +6257,9 @@ return `
 
         <div class="event-meta">
           <div><strong>Slug:</strong> ${esc(e.slug || "")}</div>
-          <div><strong>Date:</strong> ${esc(formatEventListDateTime(e.nextOccurrenceStartDateTime || e.startDateTime))}</div>
+          <div><strong>Date:</strong> ${esc(resolveUpcomingList && e.nextOccurrenceStartDateTime === ""
+            ? "Next date unavailable"
+            : formatEventListDateTime(e.nextOccurrenceStartDateTime || e.startDateTime))}</div>
           <div><strong>Location:</strong> ${esc(e.location)}</div>
         </div>
       </div>
