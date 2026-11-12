@@ -20,7 +20,7 @@ const { hashPassword, hashToken, verifyPassword } = require("../lib/auth");
 const { DateTime } = require("luxon");
 const { esc } = require("../lib/html");
 const { resolveEventVenue } = require("../lib/event-venue");
-const { parentEventError, readParentEventId } = require("../lib/event-parent");
+const { availableEventSql, parentEventError, parseEventId, readParentEventId } = require("../lib/event-parent");
 const { safeParseJson } = require("../lib/json");
 const { normalizeStoredRole } = require("../lib/roles");
 const { eventReportChangeLabel, eventReportChangeValue, parseEventReportChanges } = require("../lib/event-report-changes");
@@ -5799,6 +5799,17 @@ try {
       }
     }
     const fromPending = !!pendingEvent && !editId;
+    const requestedParentId = !editEvent ? parseEventId(req.query.parentEventId) : null;
+    const currentParentId = editEvent?.parentEventId || requestedParentId;
+    const currentParent = currentParentId ? await get(
+      `SELECT e.id, e.title, e.city, e.startDateTime FROM events e WHERE e.id = ? AND ${availableEventSql("e")}`,
+      [currentParentId]
+    ) : null;
+    const parentId = editEvent?.parentEventId || (currentParent && currentParent.city === selectedCity ? currentParent.id : "");
+    const parentLabel = parentId ? (currentParent
+      ? `Selected: ${currentParent.title} — ${toDateTimeLocalValue(currentParent.startDateTime).slice(0, 10)}`
+      : `Selected: unavailable event #${parentId}`) : "";
+
 
     const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
     const isFeatured = Number(editEvent?.featured || 0) === 1;
@@ -12930,6 +12941,7 @@ return `
       .event-form-savebar{ position:static; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:0; padding:18px 0 0; border-top:1px solid var(--line); background:var(--panel); box-shadow:none; }
       .event-form-savebar .actions{ margin:0; order:2; }
       .event-form-savebar .note{ margin:0; order:1; }
+      .event-form-savebar [data-parent-save-status]:empty{ position:absolute; }
       .event-form-area{ margin-top:0 !important; padding:0 0 16px !important; border:0 !important; background:transparent !important; box-shadow:none !important; }
       .event-form-area .event-form-area-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }
       .event-form-area .ctrl{ font-size:16px !important; font-weight:650; border-width:1px !important; }
@@ -17081,6 +17093,24 @@ return `
                 <details class="event-form-advanced">
                   <summary><span style="display:inline-flex;align-items:center;gap:8px;"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.73l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>Advanced settings</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m9 18 6-6-6-6"/></svg></summary>
                   <div class="event-form-advanced-body">
+                    <div class="event-form-advanced-group" data-oc-event-parent data-parent-endpoint="/events/parent-options"
+                         data-event-id="${esc(editEvent && !fromPending ? editEvent.id : "")}"
+                         data-initial-label="${esc(parentLabel)}">
+                      <label class="checkbox" style="margin-top:0;">
+                        <input type="checkbox" data-parent-toggle ${parentId ? "checked" : ""} aria-controls="event-parent-panel" />
+                        <span>Part of a larger event</span>
+                      </label>
+                      <div id="event-parent-panel" data-parent-panel ${parentId ? "" : "hidden"}>
+                        <label for="event-parent-query">Search published events by title</label>
+                        <input id="event-parent-query" class="ctrl" type="search" data-parent-query autocomplete="off" />
+                        <input type="hidden" name="parentEventId" value="${esc(parentId)}" />
+                        <p data-parent-selected aria-live="polite">${esc(parentLabel)}</p>
+                        <p data-parent-status role="status"></p>
+                        <ul data-parent-results style="display:grid;gap:6px;list-style:none;padding:0;"></ul>
+                      </div>
+                      ${editEvent && !fromPending && currentEventLifecycleState !== "archived" && !Number(editEvent.archived)
+                        ? `<a href="/admin/create-events?city=${encodeURIComponent(editEvent.city)}&amp;parentEventId=${encodeURIComponent(editEvent.id)}">Add an event under this event</a>` : ""}
+                    </div>
                   ${isOrganizerUser ? `
                     <div class="event-form-advanced-group"><div class="note">SEO is generated automatically from your event details.</div></div>
                   ` : `
@@ -17119,12 +17149,15 @@ return `
               </section>
 
               <div class="event-form-savebar">
+                <p class="note" data-parent-save-status role="status"></p>
+                <button class="btn" type="button" data-parent-save-anyway hidden>Save anyway</button>
                 <div class="actions">
                 <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
               ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
                 </div>
               </div>
               </div>
+              <script defer src="/assets/event-parent-picker.js"></script>
             </form>
           </div>
           ` : ``}
@@ -23513,6 +23546,12 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         excludePendingId: pendingId ? parseInt(String(pendingId), 10) : null,
       });
       if (duplicateMatches.length) {
+        if (req.get("x-opencircle-event-editor") === "1") {
+          return res.status(409).json({
+            error: "A similar event already exists. Review the match before saving.",
+            duplicates: duplicateMatches.slice(0, 8).map(match => match.title),
+          });
+        }
         return res.status(409).send(buildAdminDuplicateResponse({
           title,
           startDateTime,

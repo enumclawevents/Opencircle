@@ -119,6 +119,21 @@ test("published parent links survive approval, edits and concurrent requests", a
   const childId = Number(new URL(approval.headers.get("location"), origin).searchParams.get("edit"));
   assert.ok(childId > 0);
 
+  for (const [url, checked] of [
+    ["/admin/create-events", false],
+    ["/admin/create-events?edit=" + childId, true],
+  ]) {
+    const editor = await fetch(origin + url, { headers });
+    assert.equal(editor.status, 200, errors);
+    const html = await editor.text();
+    const advanced = html.match(/<details class="event-form-advanced">([\s\S]*?)<\/details>/)?.[1];
+    assert.ok(advanced);
+    const toggle = advanced.match(/<input type="checkbox" data-parent-toggle[^>]*>/)?.[0];
+    assert.ok(toggle);
+    assert.equal(/\bchecked\b/.test(toggle), checked);
+    assert.match(advanced, /name="parentEventId"/);
+  }
+
   let child = await detail("slug/wine-walk-after-party");
   assert.equal(child.parentEventId, 100);
   assert.equal(child.parentEvent.title, "Wine Walk Current");
