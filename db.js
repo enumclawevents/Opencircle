@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const sqlite3 = require("sqlite3");
 const { normalizeStoredRole } = require("./lib/roles");
+const { installParentEventConstraints } = require("./lib/event-parent");
 
 // --------------------
 // DB location (prefer Render disk)
@@ -151,6 +152,7 @@ async function initDB() {
       location TEXT,
       venueName TEXT,
       venueId INTEGER,
+      parentEventId INTEGER,
       organizer TEXT,
       host TEXT,
 
@@ -248,6 +250,7 @@ async function initDB() {
       location TEXT,
       venueName TEXT,
       venueId INTEGER,
+      parentEventId INTEGER,
       organizer TEXT,
 
       imageUrl TEXT,
@@ -442,6 +445,9 @@ async function initDB() {
   // Pending submissions: safe migrations
   const addPendingCol = createAddColumnHelper("pending_events");
 
+  if (!(await hasColumn("pending_events", "parentEventId"))) {
+    await run("ALTER TABLE pending_events ADD COLUMN parentEventId INTEGER");
+  }
   await addPendingCol("venueId", `ALTER TABLE pending_events ADD COLUMN venueId INTEGER;`);
   await addPendingCol("venueName", `ALTER TABLE pending_events ADD COLUMN venueName TEXT;`);
   await addPendingCol("eventLink", `ALTER TABLE pending_events ADD COLUMN eventLink TEXT;`);
@@ -480,6 +486,9 @@ async function initDB() {
   // Add common columns if missing
   const addCol = createAddColumnHelper("events");
 
+  if (!(await hasColumn("events", "parentEventId"))) {
+    await run("ALTER TABLE events ADD COLUMN parentEventId INTEGER");
+  }
   await addCol("venueId", `ALTER TABLE events ADD COLUMN venueId INTEGER;`);
   await addCol("venueName", `ALTER TABLE events ADD COLUMN venueName TEXT;`);
   await addCol("slug", `ALTER TABLE events ADD COLUMN slug TEXT;`);
@@ -528,6 +537,8 @@ async function initDB() {
   await addCol("revision", `ALTER TABLE events ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;`);
   await addCol("publishedAt", `ALTER TABLE events ADD COLUMN publishedAt TEXT;`);
   await addCol("lifecycleUpdatedAt", `ALTER TABLE events ADD COLUMN lifecycleUpdatedAt TEXT;`);
+
+  await installParentEventConstraints(run);
 
   await tryExec(`
     CREATE TABLE IF NOT EXISTS event_changes (

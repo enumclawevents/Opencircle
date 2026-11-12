@@ -20,6 +20,7 @@ const { hashPassword, hashToken, verifyPassword } = require("../lib/auth");
 const { DateTime } = require("luxon");
 const { esc } = require("../lib/html");
 const { resolveEventVenue } = require("../lib/event-venue");
+const { parentEventError, readParentEventId } = require("../lib/event-parent");
 const { safeParseJson } = require("../lib/json");
 const { normalizeStoredRole } = require("../lib/roles");
 const { eventReportChangeLabel, eventReportChangeValue, parseEventReportChanges } = require("../lib/event-report-changes");
@@ -1858,7 +1859,7 @@ async function insertEventFromPending(p, actorUserId = null) {
     ["submittedAt", String(p.createdAt || "") || null],
   ];
 
-  const created = await createEventWithChange({ fields, actorUserId, changeType: "created" });
+  const created = await createEventWithChange({ fields, actorUserId, changeType: "created", pendingId: p.id });
   return created?.event?.id || null;
 }
 
@@ -23292,6 +23293,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     if (!(hasDeveloperAccessRole(role) || sectionPermissions.events)) {
       return res.status(403).send("Forbidden");
     }
+    const parentEventId = readParentEventId(req.body);
     await ensurePickSchema();
     const organizerAccessValues = role === "organizer" ? getOrganizerAccessValues(sessionUser, req) : [];
     const organizerPrimaryName = role === "organizer" ? getOrganizerPrimaryName(sessionUser, req) : "";
@@ -23354,11 +23356,12 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     // matching city selection). Pending submissions use Plateau Area before
     // approval; approved events live in Buckley, the Plateau primary city.
     let pendingSubmission = null;
+    const pendingSubmissionId = pendingId ? parseInt(String(pendingId), 10) : null;
     let submittedVenueName = req.body.venueName;
     if (!id && pendingId) {
       pendingSubmission = await get(
         "SELECT city, venueName, venueId FROM pending_events WHERE id = ? LIMIT 1",
-        [parseInt(String(pendingId), 10)]
+        [pendingSubmissionId]
       );
       if (submittedVenueName === undefined) submittedVenueName = pendingSubmission?.venueName;
       if (String(pendingSubmission?.city || "").trim() === PLATEAU_SUBMISSION_AREA) {
@@ -23776,6 +23779,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["recurrenceUntilDate", recurrenceUntilDateClean],
     ];
 
+    if (parentEventId !== undefined) baseFields.push(["parentEventId", parentEventId]);
     const fields = [...baseFields, ...lifecycleActionFields];
 
     // Only include recurrence columns if they exist in DB
@@ -23837,6 +23841,7 @@ await createEventWithChange({
   fields,
   actorUserId: sessionUser?.id || null,
   changeType: "created",
+  pendingId: pendingSubmission ? pendingSubmissionId : null,
 });
 
 // If this event came from a pending submission, remove it from the queue
@@ -23871,6 +23876,12 @@ return res.redirect(`/admin/create-events?${sp.toString()}`);
 
     }
   } catch (err) {
+    const parentError = parentEventError(err);
+    if (parentError) {
+      return req.is("application/json") || req.get("accept")?.includes("application/json")
+        ? res.status(400).json({ error: parentError })
+        : res.status(400).send(parentError);
+    }
     console.error(err);
     res.status(500).send("Server error.");
   }

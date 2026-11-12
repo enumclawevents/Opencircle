@@ -2,7 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
-const { all, get, run } = require("../db");
+const { all, get, run, transaction } = require("../db");
 const crypto = require("crypto");
 const { safeParseJson } = require("../lib/json");
 const { toPublicEventListItem } = require("../lib/public-event-list");
@@ -11,6 +11,7 @@ const { normalizeEventReportChanges } = require("../lib/event-report-changes");
 const { notifyAreaApprovers } = require("../lib/admin-notification-email");
 const { esc } = require("../lib/html");
 const { resolveEventVenue } = require("../lib/event-venue");
+const { availableEventSql, parentEventError, parseEventId, readParentEventId } = require("../lib/event-parent");
 const { findEventCategory } = require("../lib/admin-constants");
 const {
   hasValidEventDateRange,
@@ -185,6 +186,7 @@ router.post("/submit", async (req, res) => {
     const description = String(body.description || "").trim();
     const location = String(body.location || "").trim();
     const organizer = String(body.organizer || "").trim();
+    const parentEventId = readParentEventId(body) ?? null;
     const requestedCity = String(body.city || "Enumclaw").trim() || "Enumclaw";
     const city = ["plateau", "plateau area", "plateau regional"].includes(requestedCity.toLowerCase())
       ? "Plateau Area"
@@ -295,21 +297,21 @@ router.post("/submit", async (req, res) => {
       submissionId = (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString("hex"));
     }
 
-    const inserted = await run(
+    const inserted = await transaction(tx => tx.run(
       `INSERT INTO pending_events
         (city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
          startDateTime, endDateTime, location, venueName, venueId, organizer, imageUrl, eventLink, categories,
          submitterEmail, approvalNotes, source, submissionId, hasRecurrence, recurrenceRule,
-         recurrenceDates, recurrenceStartDate, recurrenceUntilDate, multiDaySchedule)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         recurrenceDates, recurrenceStartDate, recurrenceUntilDate, multiDaySchedule, parentEventId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
         startDateTime, endDateTime, location, venueName, venueId, organizer, imageUrl, eventLink, categories,
         submitterEmail, approvalNotes, source, submissionId, hasRecurrence,
         recurrenceRule ? JSON.stringify(recurrenceRule) : null,
-        recurrenceDatesJson, recurrenceStartDate, recurrenceUntilDate, multiDayScheduleJson
+        recurrenceDatesJson, recurrenceStartDate, recurrenceUntilDate, multiDayScheduleJson, parentEventId
       ]
-    );
+    ));
 
     void notifyAreaApprovers({
       category: "eventSubmissions",
@@ -321,6 +323,8 @@ router.post("/submit", async (req, res) => {
 
     return res.json({ ok: true, id: inserted.lastID, submissionId });
   } catch (err) {
+    const parentError = parentEventError(err);
+    if (parentError) return res.status(400).json({ ok: false, error: parentError });
     console.error("[POST /events/submit] error:", err);
     return res.status(500).json({ ok: false, error: "Server error" });
   }
@@ -1317,6 +1321,34 @@ function getEventDetailPath(item) {
   return `/events/${encodeURIComponent(key)}`;
 }
 
+function eventRelationshipSummary(row) {
+  const { id, slug, city, title, startDateTime, endDateTime, location, venueName, organizer } = normalizeRowTimes(row);
+  return {
+    id, slug, city, title, startDateTime, endDateTime,
+    location, venueName, organizer,
+    permalinkPath: getEventDetailPath(row),
+  };
+}
+
+async function publicEventRelationships(eventId) {
+  const rows = await all(
+    `WITH source AS (SELECT e.id, e.parentEventId FROM events e WHERE e.id = ? AND ${availableEventSql("e")})
+     SELECT p.*, 'parent' AS relationship FROM source s JOIN events p ON p.id = s.parentEventId
+      WHERE ${availableEventSql("p")}
+     UNION ALL
+     SELECT c.*, 'child' AS relationship FROM source s JOIN events c ON c.parentEventId = s.id
+      WHERE ${availableEventSql("c")}
+     ORDER BY startDateTime, id`,
+    [eventId]
+  );
+  const parent = rows.find(row => row.relationship === "parent");
+  return {
+    parentEventId: parent?.id ?? null,
+    parentEvent: parent ? eventRelationshipSummary(parent) : null,
+    linkedEvents: rows.filter(row => row.relationship === "child").map(eventRelationshipSummary),
+  };
+}
+
 function getApiBaseUrl(req) {
   return (
     (process.env.API_BASE_URL || process.env.PUBLIC_API_BASE_URL || "").trim() ||
@@ -1675,7 +1707,7 @@ async function listEventsHandler(req, res) {
     );
 
     // normalize base times first so recurrence generation uses correct offset
-    rows = rows.map((r) => normalizeRowTimes(r));
+    rows = rows.map(({ parentEventId, ...row }) => normalizeRowTimes(row));
 
     // Normalize base rows
     const normalizedRows = rows.map((r) => ({
@@ -1844,6 +1876,39 @@ async function listEventsHandler(req, res) {
   }
 }
 
+// Parent selection needs title matching and past editions, without the
+// browsing feed's recurrence expansion or rolling date window.
+router.get("/parent-options", async (req, res) => {
+  try {
+    const query = readOptionalQueryString(req.query, ["q"]);
+    const city = readOptionalQueryString(req.query, ["city"]);
+    const child = readOptionalQueryString(req.query, ["eventId"]);
+    const childId = child.value ? parseEventId(child.value) : null;
+    const error = query.error || city.error || child.error || (child.value && !childId ? "Invalid eventId." : "");
+    if (error) return res.status(400).json({ error });
+    if ((query.value || "").length < 2) return res.json({ data: [] });
+
+    const rows = await all(
+      `WITH RECURSIVE descendants(id) AS (
+         SELECT id FROM events WHERE id = ?
+         UNION
+         SELECT e.id FROM events e JOIN descendants d ON e.parentEventId = d.id
+       )
+       SELECT e.* FROM events e
+       WHERE e.city = ? COLLATE NOCASE AND ${availableEventSql("e")}
+         AND INSTR(LOWER(e.title), LOWER(?)) > 0
+         AND NOT EXISTS (SELECT 1 FROM descendants d WHERE d.id = e.id)
+       ORDER BY (LOWER(e.title) = LOWER(?)) DESC, datetime(e.startDateTime) DESC, e.id DESC
+       LIMIT 25`,
+      [childId, city.value || "Enumclaw", query.value, query.value]
+    );
+    return res.json({ data: rows.map(eventRelationshipSummary) });
+  } catch (error) {
+    console.error("[/events/parent-options]", error);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 router.get("/", listEventsHandler);
 
 // GET /events/past
@@ -2011,7 +2076,7 @@ router.get("/slug/:slug", async (req, res) => {
     }
 
     res.json({
-      data: enrichEventDetailForSeo(req, detailData),
+      data: { ...enrichEventDetailForSeo(req, detailData), ...await publicEventRelationships(row.id) },
     });
   } catch (err) {
     console.error(err);
@@ -2571,7 +2636,7 @@ router.get("/:idOrSlug", async (req, res) => {
     }
 
     res.json({
-      data: enrichEventDetailForSeo(req, detailData),
+      data: { ...enrichEventDetailForSeo(req, detailData), ...await publicEventRelationships(row.id) },
     });
   } catch (err) {
     console.error(err);
