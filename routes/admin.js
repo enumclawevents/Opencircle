@@ -5602,11 +5602,11 @@ const pagerHtml = `
       <span class="muted">Showing ${showingFrom}–${showingTo}</span>
     </div>
     <div class="pager-right">
-      <a class="btn" href="${adminUrl(1)}" ${pg === 1 ? 'style="opacity:.45; pointer-events:none;"' : ""}>First</a>
-      <a class="btn" href="${adminUrl(Math.max(1, pg - 1))}" ${!hasPrev ? 'style="opacity:.45; pointer-events:none;"' : ""}>Prev</a>
-      <span class="muted" style="padding:0 8px;">Page <strong style="color:var(--text)">${pg}</strong> / ${pages}</span>
-      <a class="btn" href="${adminUrl(Math.min(pages, pg + 1))}" ${!hasNext ? 'style="opacity:.45; pointer-events:none;"' : ""}>Next</a>
-      <a class="btn" href="${adminUrl(pages)}" ${pg === pages ? 'style="opacity:.45; pointer-events:none;"' : ""}>Last</a>
+      <a class="btn" data-page-action="first" href="${adminUrl(1)}" ${pg === 1 ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>First</a>
+      <a class="btn" data-page-action="prev" href="${adminUrl(Math.max(1, pg - 1))}" ${!hasPrev ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>Prev</a>
+      <span class="muted" style="padding:0 8px;" data-events-page-status tabindex="-1">Page <strong style="color:var(--text)">${pg}</strong> / ${pages}</span>
+      <a class="btn" data-page-action="next" href="${adminUrl(Math.min(pages, pg + 1))}" ${!hasNext ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>Next</a>
+      <a class="btn" data-page-action="last" href="${adminUrl(pages)}" ${pg === pages ? 'aria-disabled="true" tabindex="-1" style="opacity:.45; pointer-events:none;"' : ""}>Last</a>
     </div>
   </div>
 `;
@@ -6668,8 +6668,9 @@ return `
       const nextMonthYmd = requestedMonthYmd ? addMonthsToYmd(requestedMonthYmd, 1) : "";
       const prevMonthHref = buildCalendarHref({ calMonth: prevMonthYmd, calDay: prevMonthYmd, calPage: null });
       const nextMonthHref = buildCalendarHref({ calMonth: nextMonthYmd, calDay: nextMonthYmd, calPage: null });
-      const allEventsHref = buildCalendarHref({ calScope: "all", calPage: null });
-      const myEventsHref = buildCalendarHref({ calScope: "my", calPage: null });
+      const scopeView = { calMonth: requestedMonthYmd, calDay: selectedDayYmd, calPage: selectedDayPage };
+      const allEventsHref = buildCalendarHref({ ...scopeView, calScope: "all" });
+      const myEventsHref = buildCalendarHref({ ...scopeView, calScope: "my" });
       const selectedDayLabel = /^\d{4}-\d{2}-\d{2}$/.test(String(selectedDayYmd || ""))
         ? new Date(`${selectedDayYmd}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" })
         : "No day selected";
@@ -6681,9 +6682,9 @@ return `
               <div class="dashboard-calendar-head-top">
                 <div class="dashboard-calendar-head-left">
                   <div class="dashboard-calendar-month-row">
-                    <a class="dashboard-calendar-nav" href="${esc(prevMonthHref)}" aria-label="Previous month">‹</a>
+                    <a class="dashboard-calendar-nav" data-calendar-nav="previous-month" href="${esc(prevMonthHref)}" aria-label="Previous month">‹</a>
                     <div class="dashboard-calendar-month">${esc(monthLabel)}</div>
-                    <a class="dashboard-calendar-nav" href="${esc(nextMonthHref)}" aria-label="Next month">›</a>
+                    <a class="dashboard-calendar-nav" data-calendar-nav="next-month" href="${esc(nextMonthHref)}" aria-label="Next month">›</a>
                   </div>
                 </div>
                 <div class="dashboard-calendar-total">
@@ -6693,9 +6694,9 @@ return `
               </div>
               <div class="dashboard-calendar-toolbar">
                 ${canCompareCalendarScopes ? `
-                  <div class="dashboard-calendar-scope-toggle" role="tablist" aria-label="Calendar event scope">
-                    <a class="dashboard-calendar-scope-btn${calendarScope === "my" ? " active" : ""}" href="${esc(myEventsHref)}">My Events</a>
-                    <a class="dashboard-calendar-scope-btn${calendarScope === "all" ? " active" : ""}" href="${esc(allEventsHref)}">All Events</a>
+                  <div class="dashboard-calendar-scope-toggle" role="group" aria-label="Calendar event scope">
+                    <a class="dashboard-calendar-scope-btn${calendarScope === "my" ? " active" : ""}" href="${esc(myEventsHref)}" data-calendar-scope="my" data-calendar-nav="my-events" aria-current="${calendarScope === "my"}">My Events</a>
+                    <a class="dashboard-calendar-scope-btn${calendarScope === "all" ? " active" : ""}" href="${esc(allEventsHref)}" data-calendar-scope="all" data-calendar-nav="all-events" aria-current="${calendarScope === "all"}">All Events</a>
                   </div>
                 ` : `<div></div>`}
                 <div class="dashboard-calendar-legend" aria-label="Calendar event density legend">
@@ -6717,6 +6718,7 @@ return `
               ${calendarDaysWithHeat.map((day) => `
                 <a
                   href="${esc(buildCalendarHref({ calMonth: `${String(day.ymd).slice(0, 7)}-01`, calDay: day.ymd, calPage: null }))}"
+                  data-calendar-nav="${esc(day.ymd)}"
                   aria-label="${esc(day.ymd)}, ${day.count} event${day.count === 1 ? "" : "s"}"
                   class="dashboard-calendar-day${day.inMonth ? "" : " is-outside"}${day.isToday ? " is-today" : ""}${day.isPast ? " is-past" : ""}${day.ymd === selectedDayYmd ? " is-selected" : ""}${day.heatLevel ? ` heat-${day.heatLevel}` : ""}"
                 >
@@ -6729,12 +6731,12 @@ return `
           <div class="dashboard-calendar-panel dashboard-calendar-detail">
             <div class="dashboard-calendar-detail-head">
               <div>
-                <div class="dashboard-calendar-panel-title">${esc(selectedDayLabel)}</div>
+                <div class="dashboard-calendar-panel-title" tabindex="-1">${esc(selectedDayLabel)}</div>
               </div>
               <div class="dashboard-calendar-pager"${selectedDayTotalPages > 1 ? "" : ` style="display:none;"`}>
-                <a class="btn${selectedDayPage <= 1 ? " is-disabled" : ""}" ${selectedDayPage <= 1 ? `aria-disabled="true"` : `href="${esc(buildCalendarHref({ calMonth: requestedMonthYmd, calDay: selectedDayYmd, calPage: selectedDayPage - 1 }))}"`}>Prev</a>
+                <a data-calendar-nav="previous-agenda-page" class="btn${selectedDayPage <= 1 ? " is-disabled" : ""}" ${selectedDayPage <= 1 ? `aria-disabled="true"` : `href="${esc(buildCalendarHref({ calMonth: requestedMonthYmd, calDay: selectedDayYmd, calPage: selectedDayPage - 1 }))}"`}>Prev</a>
                 <span class="muted small">Page ${selectedDayPage} / ${selectedDayTotalPages}</span>
-                <a class="btn${selectedDayPage >= selectedDayTotalPages ? " is-disabled" : ""}" ${selectedDayPage >= selectedDayTotalPages ? `aria-disabled="true"` : `href="${esc(buildCalendarHref({ calMonth: requestedMonthYmd, calDay: selectedDayYmd, calPage: selectedDayPage + 1 }))}"`}>Next</a>
+                <a data-calendar-nav="next-agenda-page" class="btn${selectedDayPage >= selectedDayTotalPages ? " is-disabled" : ""}" ${selectedDayPage >= selectedDayTotalPages ? `aria-disabled="true"` : `href="${esc(buildCalendarHref({ calMonth: requestedMonthYmd, calDay: selectedDayYmd, calPage: selectedDayPage + 1 }))}"`}>Next</a>
               </div>
             </div>
             <div class="dashboard-calendar-list">
@@ -6752,6 +6754,10 @@ return `
       `;
     } catch (err) {
       console.error("[dashboard calendar]", err);
+    }
+    if (view === "dashboard" && req.get("X-OpenCircle-Calendar") === "1") {
+      res.set("Cache-Control", "private, no-store");
+      return res.json({ html: dashboardCalendarHtml });
     }
 
     // Venue dashboard metrics
@@ -14601,6 +14607,7 @@ return `
               </summary>
               <div class="card-body" id="dashboard-calendar-body">
                 ${dashboardCalendarHtml}
+                <p class="mini admin-notice admin-notice--error" id="dashboard-calendar-error" role="alert" hidden></p>
               </div>
             </details>
 
@@ -14991,7 +14998,7 @@ return `
             </div>
           </div>
           ${eventReportsNoticeHtml}
-          <form method="GET" action="/admin/event-reports" class="eventsFilters" style="margin-bottom:14px;">
+          <form method="GET" action="/admin/event-reports" class="eventsFilters" style="margin-bottom:14px;" data-results-filter>
             <input type="hidden" name="city" value="${esc(selectedCity)}" />
             ${selectedAdminWorkspace ? `<input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" />` : ""}
             <div class="filterField">
@@ -15011,7 +15018,8 @@ return `
             </div>
             <div class="filterActions"><button class="btn btn-primary" type="submit">Apply</button></div>
           </form>
-          ${eventReportsHtml}
+          <p class="mini admin-notice admin-notice--error" role="alert" data-results-filter-error hidden></p>
+          <div data-filter-results>${eventReportsHtml}</div>
         </section>
         ` : ``}
 
@@ -15976,7 +15984,7 @@ return `
         ${(showUpdates || showUpdatesCreate || showUpdatesAnalytics) ? `
         <section class="gridMain single" id="updates">
           ${showUpdates ? `<div class="card"><div class="sectionTitle"><div><h2>All Updates</h2><p class="sub">Community articles, announcements, and local stories for ${esc(selectedCity)}.</p></div><a class="btn btn-primary" href="${buildScopedAdminHref("/admin/updates/create")}">+ Create Update</a></div>
-            <form method="GET" action="/admin/updates" class="filters" style="margin-bottom:16px;">
+            <form method="GET" action="/admin/updates" class="filters" style="margin-bottom:16px;" data-results-filter>
               <input type="hidden" name="city" value="${esc(selectedCity)}" />
               <div class="filterField">
                 <label for="updatesSearch">Search updates</label>
@@ -15992,7 +16000,10 @@ return `
               </div>
               <div class="filterActions"><button class="btn btn-primary" type="submit">Apply</button></div>
             </form>
+            <p class="mini admin-notice admin-notice--error" role="alert" data-results-filter-error hidden></p>
+            <div data-filter-results>
             ${updateRows.length ? `<div class="tableWrap" role="region" aria-label="Updates table" tabindex="0"><table><thead><tr><th scope="col">Update</th><th scope="col">Category</th><th scope="col">Author</th><th scope="col">Status</th><th scope="col">Published</th><th scope="col">Views</th><th scope="col">Actions</th></tr></thead><tbody>${updateRows.map((row) => `<tr><td class="update-table-title">${row.featuredImageUrl ? `<img src="${esc(row.featuredImageUrl)}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:10px;" />` : ``}<strong>${esc(row.title)}</strong><div class="muted small">${esc(row.city)}</div></td><td>${esc(row.categoryName || "Uncategorized")}</td><td>${esc(row.authorName || "OpenCircle")}</td><td><span class="pill">${esc(row.status)}</span></td><td>${esc(row.publishedAt || row.scheduledFor || "—")}</td><td>${Number(row.views || 0).toLocaleString("en-US")}</td><td><div class="actions"><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}">Edit</a><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}&preview=1">Preview</a><form method="POST" action="/admin/updates/${row.id}/archive?city=${encodeURIComponent(selectedCity)}"><button class="btn" type="submit">Archive</button></form><form method="POST" action="/admin/updates/${row.id}/delete?city=${encodeURIComponent(selectedCity)}" onsubmit="return confirm('Delete this update permanently?');"><button class="btn btn-danger" type="submit">Delete</button></form></div></td></tr>`).join("")}</tbody></table></div>` : `<p class="mini admin-table-empty">No updates match these filters.</p>`}
+            </div>
           </div>` : ``}
           ${showUpdatesCreate ? `<div class="card"><div class="sectionTitle"><div><h2>${editUpdate ? "Edit update" : "Create update"}</h2><p class="sub">Publication times are entered in the community’s local timezone and stored in UTC.</p></div></div>
             ${String(req.query.preview || "") === "1" && editUpdate ? `<div class="mini" style="margin-bottom:16px;"><div class="eyebrow">Authorized preview</div><h2>${esc(editUpdate.title)}</h2>${editUpdate.featuredImageUrl ? `<img src="${esc(editUpdate.featuredImageUrl)}" alt="${esc(editUpdate.imageAlt || "")}" style="max-width:520px;border-radius:var(--radius-mid);" />` : ``}<p>${esc(editUpdate.summary || "")}</p><div style="white-space:pre-wrap;">${esc(editUpdate.bodyHtml || "")}</div></div>` : ``}
@@ -16017,6 +16028,9 @@ return `
               </div>
             </div>
 
+            ${!editEvent && !fromPending && req.query.eventCreated === "1" ? `
+            <div class="mini admin-notice admin-notice--success" role="status" data-event-created>Event created successfully.</div>
+            ` : ""}
             <form method="POST" action="/admin/events" enctype="multipart/form-data">
               ${editEvent && !fromPending ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
               ${fromPending ? `<input type="hidden" name="pendingId" value="${esc(pendingEvent.id)}" />` : ""}
@@ -17008,6 +17022,7 @@ return `
                 </form>
 	            </div>
 
+            <p class="mini admin-notice admin-notice--error" id="eventsRefreshError" role="alert" hidden></p>
 	            <div data-events-pager>${pagerHtml}</div>
 
             <div id="eventsList" style="display:grid; gap:var(--gap);">${listHtml}</div>
@@ -18702,6 +18717,138 @@ return `
         });
       })();
 
+      (function(){
+        var calendar = document.getElementById("dashboard-calendar-body");
+        if (!calendar) return;
+        var errorNotice = document.getElementById("dashboard-calendar-error");
+        var requestId = 0;
+
+        async function refreshCalendar(url, fromHistory){
+          var currentRequest = ++requestId;
+          errorNotice.hidden = true;
+          errorNotice.textContent = "";
+          calendar.setAttribute("aria-busy", "true");
+          try {
+            var response = await fetch(url, {
+              credentials: "same-origin",
+              headers: { Accept: "application/json", "X-OpenCircle-Calendar": "1" }
+            });
+            if (!response.ok || response.redirected) throw new Error("Calendar request failed");
+            var result = await response.json();
+            if (currentRequest !== requestId) return;
+            var nextTile = new DOMParser().parseFromString(result.html, "text/html").getElementById("dashboardCalendarTile");
+            var tile = calendar.querySelector("#dashboardCalendarTile");
+            if (!nextTile || !tile) throw new Error("Calendar unavailable");
+            var focused = document.activeElement;
+            var restoreFocus = tile.contains(focused);
+            var focusKey = focused?.getAttribute("data-calendar-nav");
+            var scrollX = window.scrollX;
+            var scrollY = window.scrollY;
+            if (!fromHistory && url !== window.location.href) {
+              window.history.pushState(window.history.state, "", url);
+            }
+            tile.replaceWith(nextTile);
+            if (restoreFocus) {
+              var nextFocus = Array.from(nextTile.querySelectorAll("a[data-calendar-nav][href]"))
+                .find(function(control){ return control.getAttribute("data-calendar-nav") === focusKey; });
+              // A pager link can become disabled on the first or last page.
+              (nextFocus || nextTile.querySelector(".dashboard-calendar-panel-title"))?.focus({ preventScroll: true });
+            }
+            if (window.scrollX !== scrollX || window.scrollY !== scrollY) {
+              window.scrollTo({ left: scrollX, top: scrollY, behavior: "instant" });
+            }
+          } catch (_) {
+            if (currentRequest !== requestId) return;
+            errorNotice.hidden = false;
+            errorNotice.textContent = "Calendar could not be updated. Try again.";
+          } finally {
+            if (currentRequest === requestId) calendar.removeAttribute("aria-busy");
+          }
+        }
+
+        calendar.addEventListener("click", function(event){
+          var link = event.target.closest("a[data-calendar-nav][href]");
+          if (!link || event.defaultPrevented || event.button !== 0 ||
+              event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          refreshCalendar(link.href, false);
+        });
+        window.addEventListener("popstate", function(){
+          if (window.location.pathname.replace(/\/$/, "") === "/admin") {
+            refreshCalendar(window.location.href, true);
+          }
+        });
+      })();
+
+      (function(){
+        var form = document.querySelector("[data-results-filter]");
+        if (!form) return;
+        var results = document.querySelector("[data-filter-results]");
+        var errorNotice = document.querySelector("[data-results-filter-error]");
+        var request;
+
+        async function refreshResults(url, restoreFilters){
+          request?.abort();
+          var current = new AbortController();
+          request = current;
+          errorNotice.hidden = true;
+          errorNotice.textContent = "";
+          results.setAttribute("aria-busy", "true");
+          try {
+            var response = await fetch(url, {
+              credentials: "same-origin",
+              headers: { "X-Requested-With": "XMLHttpRequest" },
+              signal: current.signal
+            });
+            if (!response.ok || response.redirected) throw new Error("Filter request failed");
+            var html = await response.text();
+            if (current.signal.aborted) return;
+            var nextPage = new DOMParser().parseFromString(html, "text/html");
+            var nextResults = nextPage.querySelector("[data-filter-results]");
+            var nextForm = nextPage.querySelector("[data-results-filter]");
+            if (!nextResults || !nextForm) throw new Error("Filter results unavailable");
+
+            var left = window.scrollX;
+            var top = window.scrollY;
+            var focusInResults = results.contains(document.activeElement);
+            if (restoreFilters) {
+              Array.from(nextForm.elements).forEach(function(control){
+                var field = control.name && form.elements.namedItem(control.name);
+                if (field) field.value = control.value;
+              });
+            } else if (url.href !== window.location.href) {
+              history.pushState(history.state, "", url);
+            }
+            results.replaceChildren(...nextResults.childNodes);
+            if (focusInResults) form.querySelector('button[type="submit"]').focus({ preventScroll: true });
+            if (window.scrollX !== left || window.scrollY !== top) {
+              window.scrollTo({ left: left, top: top, behavior: "instant" });
+            }
+          } catch (_) {
+            if (current.signal.aborted) return;
+            errorNotice.hidden = false;
+            errorNotice.textContent = "Results could not be updated. Try applying the filters again.";
+          } finally {
+            if (request === current) {
+              request = null;
+              results.removeAttribute("aria-busy");
+            }
+          }
+        }
+
+        form.addEventListener("submit", function(event){
+          if (event.defaultPrevented) return;
+          event.preventDefault();
+          var url = new URL(form.action);
+          url.search = new URLSearchParams(new FormData(form)).toString();
+          refreshResults(url, false);
+        });
+        window.addEventListener("popstate", function(){
+          var url = new URL(window.location.href);
+          if (url.pathname === new URL(form.action).pathname) refreshResults(url, true);
+        });
+      })();
+
       // ---- pagination scroll restore ----
       (function(){
         var storageKey = 'oc_pagination_scroll_restore';
@@ -18738,6 +18885,7 @@ return `
         } catch (_) {}
 
         document.addEventListener('click', function(e){
+          if (e.defaultPrevented) return;
           var link = e.target.closest('.pager a[href], .dashboard-calendar-pager a[href], .dashboard-calendar-month-row a[href], .dashboard-calendar-grid a[href], .dashboard-calendar-scope-toggle a[href]');
           if (!link) return;
           var href = String(link.getAttribute('href') || '');
@@ -19457,53 +19605,110 @@ return `
         var sortInput = document.getElementById('sortBy');
         var statusInput = document.getElementById('eventStatus');
         var recurrenceInput = document.getElementById('eventRecurrence');
-        var applyBtn = document.getElementById('eventSearchApply');
         var clearBtn = document.getElementById('eventSearchClear');
         var clearSearchIcon = document.getElementById('eventSearchClearIcon');
         var searchShell = input ? input.closest('.eventSearchInput') : null;
-        if(!input) return;
+        if (!form || !input) return;
 
-        function go(){
+        var list = document.getElementById("eventsList");
+        var errorNotice = document.getElementById("eventsRefreshError");
+        var pagers = Array.from(document.querySelectorAll("[data-events-pager]"));
+        var previousSearchValue = String(input.value || "").trim();
+        var searchUpdateTimer;
+        var request;
+
+        async function refreshEvents(url, mode){
+          window.clearTimeout(searchUpdateTimer);
+          request?.abort();
+          var current = new AbortController();
+          request = current;
+          errorNotice.hidden = true;
+          errorNotice.textContent = "";
+          list.setAttribute("aria-busy", "true");
           try {
-            sessionStorage.setItem("oc_admin_scroll", String(window.scrollY || 0));
-          } catch (_) {}
-          if (form) {
-            var params = new URLSearchParams(new FormData(form));
-            var requestUrl = new URL(form.action, window.location.origin);
-            requestUrl.search = params.toString();
-            window.fetch(requestUrl.toString(), { headers: { "X-Requested-With": "XMLHttpRequest" } })
-              .then(function(response){
-                if (!response.ok) throw new Error("Search request failed");
-                return response.text();
-              })
-              .then(function(html){
-                var nextDocument = new DOMParser().parseFromString(html, "text/html");
-                var nextList = nextDocument.getElementById("eventsList");
-                var currentList = document.getElementById("eventsList");
-                if (!nextList || !currentList) throw new Error("Search results unavailable");
-                currentList.innerHTML = nextList.innerHTML;
-                var nextEmpty = nextDocument.getElementById("eventsEmpty");
-                var currentEmpty = document.getElementById("eventsEmpty");
-                if (nextEmpty && currentEmpty) currentEmpty.outerHTML = nextEmpty.outerHTML;
-                var nextPagers = nextDocument.querySelectorAll("[data-events-pager]");
-                document.querySelectorAll("[data-events-pager]").forEach(function(pager, index){
-                  if (nextPagers[index]) pager.innerHTML = nextPagers[index].innerHTML;
-                });
-                window.history.replaceState({}, "", requestUrl.pathname + requestUrl.search);
-              })
-              .catch(function(){ form.submit(); });
-            return;
+            var response = await fetch(url, {
+              headers: { "X-Requested-With": "XMLHttpRequest" },
+              signal: current.signal
+            });
+            if (!response.ok || response.redirected) throw new Error("Event list request failed");
+            var html = await response.text();
+            if (current.signal.aborted) return;
+            var nextDocument = new DOMParser().parseFromString(html, "text/html");
+            var nextList = nextDocument.getElementById("eventsList");
+            var nextEmpty = nextDocument.getElementById("eventsEmpty");
+            var nextPagers = nextDocument.querySelectorAll("[data-events-pager]");
+            var nextForm = nextDocument.querySelector(".eventSearchForm");
+            if (!nextList || !nextEmpty || !nextForm || nextPagers.length !== pagers.length) {
+              throw new Error("Event list unavailable");
+            }
+
+            var left = window.scrollX;
+            var top = window.scrollY;
+            var focused = document.activeElement;
+            var focusedPager = pagers.find(function(pager){ return pager.contains(focused); });
+            var focusAction = focused?.getAttribute("data-page-action");
+            if (mode === "history") {
+              Array.from(nextForm.elements).forEach(function(control){
+                var field = control.name && form.elements.namedItem(control.name);
+                if (field) field.value = control.value;
+              });
+              previousSearchValue = String(input.value || "").trim();
+              searchShell?.classList.toggle("has-value", Boolean(previousSearchValue));
+            } else if (url.href !== window.location.href) {
+              if (mode === "page") history.pushState(history.state, "", url);
+              else history.replaceState(history.state, "", url);
+            }
+
+            list.replaceChildren(...nextList.childNodes);
+            document.getElementById("eventsEmpty").replaceWith(nextEmpty);
+            pagers.forEach(function(pager, index){
+              pager.replaceChildren(...nextPagers[index].childNodes);
+            });
+            if (focusedPager) {
+              var nextFocus = Array.from(focusedPager.querySelectorAll("a[data-page-action]:not([aria-disabled])"))
+                .find(function(link){ return link.getAttribute("data-page-action") === focusAction; });
+              (nextFocus || focusedPager.querySelector("[data-events-page-status]"))?.focus({ preventScroll: true });
+            }
+            if (window.scrollX !== left || window.scrollY !== top) {
+              window.scrollTo({ left: left, top: top, behavior: "instant" });
+            }
+          } catch (_) {
+            if (current.signal.aborted) return;
+            errorNotice.hidden = false;
+            errorNotice.textContent = "Events could not be updated. Try again.";
+          } finally {
+            if (request === current) {
+              request = null;
+              list.removeAttribute("aria-busy");
+            }
           }
         }
 
-        input.addEventListener('keydown', function(ev){
-          if (ev.key === 'Enter') {
-            ev.preventDefault();
-            go();
-          }
+        function go(){
+          var url = new URL(form.action);
+          url.search = new URLSearchParams(new FormData(form)).toString();
+          refreshEvents(url, "search");
+        }
+
+        form.addEventListener("submit", function(event){
+          if (event.defaultPrevented) return;
+          event.preventDefault();
+          go();
         });
-        var previousSearchValue = String(input.value || '').trim();
-        var searchUpdateTimer = null;
+        pagers.forEach(function(pager){
+          pager.addEventListener("click", function(event){
+            var link = event.target.closest("a[data-page-action][href]");
+            if (!link || event.defaultPrevented || event.button !== 0 ||
+                event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            if (link.getAttribute("aria-disabled") !== "true") refreshEvents(new URL(link.href), "page");
+          });
+        });
+        window.addEventListener("popstate", function(){
+          var url = new URL(window.location.href);
+          if (url.pathname === new URL(form.action).pathname) refreshEvents(url, "history");
+        });
+
         input.addEventListener('input', function(){
           var nextSearchValue = String(input.value || '').trim();
           if (searchShell) searchShell.classList.toggle('has-value', !!nextSearchValue);
@@ -19521,12 +19726,6 @@ return `
             input.value = '';
             input.dispatchEvent(new Event('input', { bubbles:true }));
             input.focus();
-          });
-        }
-        if(applyBtn){
-          applyBtn.addEventListener('click', function(ev){
-            ev.preventDefault();
-            go();
           });
         }
         if(sortInput){
@@ -19629,6 +19828,22 @@ return `
         try {
           if (history && "scrollRestoration" in history) {
             history.scrollRestoration = "manual";
+          }
+          if (document.querySelector("[data-event-created]")) {
+            requestAnimationFrame(function(){
+              window.scrollTo({
+                top: 0,
+                left: 0,
+                behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"
+              });
+            });
+            sessionStorage.removeItem("oc_admin_scroll_state");
+            sessionStorage.removeItem("oc_admin_scroll_fallback_state");
+            sessionStorage.removeItem("oc_admin_scroll");
+            var successUrl = new URL(window.location.href);
+            successUrl.searchParams.delete("eventCreated");
+            history.replaceState(history.state, "", successUrl);
+            return;
           }
           var restored = false;
           var rawState = sessionStorage.getItem("oc_admin_scroll_state");
@@ -23450,6 +23665,7 @@ const status = req.query.status ? String(req.query.status) : "upcoming";
 const recurring = req.query.recurring ? String(req.query.recurring) : "0";
 
 const sp = new URLSearchParams({ pg, limit, status });
+if (!pendingId) sp.set("eventCreated", "1");
 if (ADMIN_SIDEBAR_GROUPS["Plateau Regional"].includes(city)) {
   sp.set("workspace", "Plateau Regional");
 } else {
