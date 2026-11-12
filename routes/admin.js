@@ -7540,6 +7540,8 @@ return `
             ${selectedEventAnalytics.location ? `<div class="muted" style="margin-bottom:6px;">${esc(selectedEventAnalytics.location)}</div>` : ``}
             ${selectedEventAnalytics.organizer ? `<div class="muted" style="margin-bottom:12px;">Organizer: ${esc(selectedEventAnalytics.organizer)}</div>` : ``}
             <div class="kv"><div class="k">Scheduled dates in this period</div><div class="v">${fmt(selectedEventAnalytics.occurrences)}</div></div>
+            <div class="kv"><div class="k">${analyticsMetricLabel("Going", "Total going responses for this event across all dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.goingCount)}</div></div>
+            <div class="kv"><div class="k">${analyticsMetricLabel("Interested", "Total interested responses for this event across all dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.interestedCount)}</div></div>
           </div>
         `;
       }
@@ -12011,6 +12013,10 @@ return `
       .kv .v{
         flex: 0 0 auto;
       }
+      .event-insights-mini .kv .k{
+        white-space:normal;
+        overflow:visible;
+      }
       /* spacing tweaks only for specific widgets */
       .mini-organizers{
         flex:1;
@@ -14816,18 +14822,6 @@ return `
             </div>
             <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.otherViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
           </div>
-          <div class="metric">
-            <div>
-              <div class="k">${analyticsMetricLabel("Going", "Total going responses for this event across all dates, regardless of the reporting period.")}</div>
-              <div class="v">${fmt(selectedEventAnalytics.goingCount)}</div>
-            </div>
-          </div>
-          <div class="metric">
-            <div>
-              <div class="k">${analyticsMetricLabel("Interested", "Total interested responses for this event across all dates, regardless of the reporting period.")}</div>
-              <div class="v">${fmt(selectedEventAnalytics.interestedCount)}</div>
-            </div>
-          </div>
           ` : `
           <div class="metric">
             <div>
@@ -14923,7 +14917,7 @@ return `
             </div>
           </div>
 
-          ${!isOrganizerUser ? `
+          ${(!isOrganizerUser || selectedEventAnalytics) ? `
           <div class="card">
             <div class="sectionTitle">
               <div>
