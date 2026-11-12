@@ -154,3 +154,148 @@ test("history follows only the linked subscription and paginates confirmed Squar
   unavailable = true;
   await assert.rejects(readBillingHistory(config, 25), /SERVICE_UNAVAILABLE/);
 });
+
+test("production card setup creates isolated customer profiles and never submits a charge", async t => {
+  const { productionPaymentConfig, saveAccountPaymentMethod, listAccountPaymentMethods } = require("../lib/plateau-billing");
+  const config = productionPaymentConfig({
+    SQUARE_PRODUCTION_APPLICATION_ID: "sq0idp-example",
+    SQUARE_PRODUCTION_LOCATION_ID: "Prod123",
+    SQUARE_PRODUCTION_ACCESS_TOKEN: "mock-secret",
+  });
+  const customers = new Map();
+  const cards = new Map();
+  const requests = [];
+  let failCard = true;
+  t.mock.method(global, "fetch", async (url, options) => {
+    const requestUrl = new URL(url);
+    assert.equal(requestUrl.origin, "https://connect.squareup.com");
+    assert.equal(options.method, "POST");
+    const body = JSON.parse(options.body);
+    requests.push({ path: requestUrl.pathname, body });
+    let data;
+    if (requestUrl.pathname === "/v2/customers") {
+      const customer = customers.get(body.idempotency_key) || { id: "customer-" + (customers.size + 1) };
+      customers.set(body.idempotency_key, customer);
+      data = { customer };
+    } else {
+      assert.equal(requestUrl.pathname, "/v2/cards");
+      const card = cards.get(body.idempotency_key) || {
+        id: "card-" + (cards.size + 1), customer_id: body.card.customer_id, card_brand: "VISA",
+        last_4: body.card.customer_id === "customer-1" ? "1111" : "2222", exp_month: 12, exp_year: 2030,
+      };
+      cards.set(body.idempotency_key, card);
+      if (failCard) { failCard = false; throw new Error("Interrupted response"); }
+      data = { card };
+    }
+    return { ok: true, status: 200, json: async () => data };
+  });
+  const owner = { id: 41, email: "first@example.test" };
+  const other = { id: 42, email: "other@example.test" };
+  const card = { sourceId: "cnon:first-token", authorized: true, customerId: "untrusted" };
+  assert.deepEqual(await listAccountPaymentMethods(config, owner.id), []);
+  await assert.rejects(saveAccountPaymentMethod(config, owner, { ...card, authorized: false }), /authorize Square/);
+  await assert.rejects(saveAccountPaymentMethod(config, owner, { ...card, sourceId: "payment-id" }), /authorize Square/);
+  assert.equal(requests.length, 0);
+  await assert.rejects(saveAccountPaymentMethod(config, owner, card), /Interrupted response/);
+  await saveAccountPaymentMethod(config, owner, card);
+  assert.equal(requests[1].body.idempotency_key, requests[2].body.idempotency_key);
+  await saveAccountPaymentMethod(config, owner, { ...card, sourceId: "cnon:additional-card" });
+  await saveAccountPaymentMethod(config, other, { ...card, sourceId: "cnon:other-card" });
+  assert.equal(customers.size, 2);
+  assert.ok(requests.filter(request => request.path === "/v2/cards").every(request => request.body.card.customer_id !== "untrusted"));
+  assert.deepEqual((await listAccountPaymentMethods(config, owner.id)).map(item => item.last4), ["1111", "1111"]);
+  assert.deepEqual((await listAccountPaymentMethods(config, other.id)).map(item => item.last4), ["2222"]);
+  await assert.rejects(listAccountPaymentMethods({ ...config, locationId: "another" }, owner.id), /different Square location/);
+});
+
+test("organization enrollment requires its designated contact, consent, and a future start", async t => {
+  const { initDB } = require("../db");
+  const { Settings } = require("luxon");
+  const {
+    productionPaymentConfig, saveAccountPaymentMethod, createOrganizationBillingAccount, listOrganizationBillingAccounts,
+    setOrganizationEnrollment, enrollOrganizationBilling, getOrganizationBillingAccount, organizationBillingStatus,
+    readOrganizationBillingHistory,
+  } = require("../lib/plateau-billing");
+  await initDB();
+  await run("INSERT INTO users (id, email, username) VALUES (51, 'org-contact@example.test', 'org-contact')");
+  const config = productionPaymentConfig({
+    SQUARE_PRODUCTION_APPLICATION_ID: "sq0idp-example",
+    SQUARE_PRODUCTION_LOCATION_ID: "Org123",
+    SQUARE_PRODUCTION_ACCESS_TOKEN: "mock-secret",
+  });
+  const savedNow = Settings.now;
+  Settings.now = () => Date.parse("2026-11-20T20:00:00Z");
+  t.after(() => { Settings.now = savedNow; });
+  const subscriptionRequests = [];
+  let subscription;
+  let orderAmount = 11000;
+  t.mock.method(global, "fetch", async (url, options) => {
+    const path = new URL(url).pathname;
+    assert.equal(new URL(url).origin, "https://connect.squareup.com");
+    const body = options.body && JSON.parse(options.body);
+    let data;
+    switch (path) {
+      case "/v2/customers": data = { customer: { id: "org-customer" } }; break;
+      case "/v2/cards":
+      case "/v2/cards/org-card":
+        data = { card: { id: "org-card", customer_id: "org-customer", enabled: true, last_4: "1234" } };
+        break;
+      case "/v2/catalog/object/monthly":
+        data = { object: { id: "monthly", type: "SUBSCRIPTION_PLAN_VARIATION", present_at_all_locations: true,
+          subscription_plan_variation_data: { subscription_plan_id: "plan", monthly_billing_anchor_date: 1,
+            phases: [{ uid: "phase", cadence: "MONTHLY", pricing: { type: "RELATIVE" } }] } } };
+        break;
+      case "/v2/catalog/object/item":
+        data = { object: { id: "item", type: "ITEM_VARIATION",
+          item_variation_data: { price_money: { amount: 10000, currency: "USD" }, subscription_plan_ids: ["plan"] } } };
+        break;
+      case "/v2/orders":
+        assert.equal(body.order.state, "DRAFT");
+        assert.deepEqual(body.order.line_items, [{ catalog_object_id: "item", quantity: "1" }]);
+        data = { order: { id: "draft", state: "DRAFT", total_money: { amount: orderAmount, currency: "USD" } } };
+        break;
+      case "/v2/subscriptions":
+        subscriptionRequests.push(body);
+        assert.equal(body.start_date, "2026-12-01");
+        assert.equal(body.monthly_billing_anchor_date, 1);
+        assert.equal(body.card_id, "org-card");
+        assert.deepEqual(body.phases, [{ ordinal: 0, plan_phase_uid: "phase", order_template_id: "draft" }]);
+        if (subscriptionRequests.length === 1) throw new Error("Interrupted response");
+        subscription = { ...body, id: "org-subscription", status: "PENDING", invoice_ids: [] };
+        data = { subscription };
+        break;
+      case "/v2/subscriptions/org-subscription":
+        data = { subscription };
+        break;
+      default: assert.fail("Unexpected Square endpoint " + path);
+    }
+    return { ok: true, status: 200, json: async () => data };
+  });
+  const contact = { id: 51, email: "org-contact@example.test" };
+  const setup = { name: "Example Organization", contactUserId: contact.id, variationId: "monthly", itemVariationId: "item" };
+  await createOrganizationBillingAccount(config, setup);
+  await assert.rejects(createOrganizationBillingAccount(config, { ...setup, name: "example organization" }), /already exists/);
+  assert.deepEqual(await listOrganizationBillingAccounts(contact.id), []);
+  const [organization] = await listOrganizationBillingAccounts();
+  const consent = { organizationId: organization.id, cardId: "org-card", acceptedStart: "2026-12-01", authorized: true };
+  await saveAccountPaymentMethod(config, contact, { sourceId: "cnon:org", authorized: true });
+  await assert.rejects(enrollOrganizationBilling(config, contact.id, consent), /not found/);
+  await setOrganizationEnrollment(config, organization.id, true);
+  await assert.rejects(enrollOrganizationBilling(config, 52, consent), /not found/);
+  await assert.rejects(enrollOrganizationBilling(config, contact.id, { ...consent, authorized: false }), /confirm/);
+  await assert.rejects(enrollOrganizationBilling(config, contact.id, { ...consent, cardId: "someone-elses-card" }), /saved to your account/);
+  await assert.rejects(enrollOrganizationBilling(config, contact.id, { ...consent, acceptedStart: "2026-11-01" }), /authorized date/);
+  await assert.rejects(enrollOrganizationBilling(config, contact.id, consent), /does not total/);
+  assert.equal(subscriptionRequests.length, 0);
+  orderAmount = 10000;
+  await assert.rejects(enrollOrganizationBilling(config, contact.id, consent), /Interrupted response/);
+  await enrollOrganizationBilling(config, contact.id, consent);
+  await enrollOrganizationBilling(config, contact.id, consent);
+  assert.equal(subscriptionRequests.length, 2);
+  assert.deepEqual(subscriptionRequests[0], subscriptionRequests[1]);
+  const linked = await getOrganizationBillingAccount(organization.id, contact.id);
+  assert.ok(linked.consentedAt);
+  assert.equal((await organizationBillingStatus(config, linked)).schedule.nextDate, "2026-12-01");
+  assert.deepEqual((await readOrganizationBillingHistory(config, organization.id, contact.id)).entries, []);
+  await assert.rejects(readOrganizationBillingHistory(config, organization.id, 52), /not found/);
+});

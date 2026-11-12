@@ -61,8 +61,11 @@
     more.disabled = true;
     status.textContent = "Loading billing history…";
     try {
-      const params = cursor ? "?" + new URLSearchParams({ cursor }) : "";
-      const response = await fetch("/admin/billing/history" + params, { cache: "no-store" });
+      const params = new URLSearchParams();
+      if (cursor) params.set("cursor", cursor);
+      if (rows.dataset.organization) params.set("organization", rows.dataset.organization);
+      const endpoint = rows.dataset.endpoint || "/admin/billing/history";
+      const response = await fetch(endpoint + (params.size ? "?" + params : ""), { cache: "no-store" });
       if (!response.ok) {
         if (response.status === 409) {
           cursor = undefined;

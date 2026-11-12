@@ -84,7 +84,7 @@ for (const button of document.querySelectorAll("[data-billing-toggle]")) {
         sourceId, acceptedStart: form.dataset.startDate, authorized: form.elements.authorized.checked,
       });
       status.textContent = replacing ? "Square confirmed your replacement card. Refreshing Billing…" : "Test autopay authorized. Refreshing your subscription…";
-      setTimeout(() => window.location.assign("/admin/billing"), replacing ? 1200 : 0);
+      setTimeout(() => window.location.assign("/admin/billing?sandbox=1"), replacing ? 1200 : 0);
     } catch (error) {
       if (error.status === 422) sourceId = undefined;
       status.textContent = error.message;
@@ -113,7 +113,7 @@ if (billingDayForm) {
         authorized: billingDayForm.elements.authorized.checked,
       });
       status.textContent = "Square confirmed the scheduled change. Refreshing Billing…";
-      setTimeout(() => window.location.assign("/admin/billing"), 1200);
+      setTimeout(() => window.location.assign("/admin/billing?sandbox=1"), 1200);
     } catch (error) {
       status.textContent = error.message;
       button.disabled = false;

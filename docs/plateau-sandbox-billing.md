@@ -40,3 +40,30 @@ location from Square.
 Production rollout also needs Meagan's account verified, an existing
 Square invoice/subscription check, and a plan for payment notifications,
 card replacement, and cancellation.
+
+## Production payment methods
+
+Signed-in OpenCircle accounts with an email can add a card in **Admin → Billing**.
+This uses the existing production Square Application ID, Location ID, and access
+token. No customer-specific settings are required. OpenCircle creates and links
+a Square customer profile to the signed-in OpenCircle user ID on the first card
+save. It stores Square IDs and masked card details. Existing Square customer
+profiles, invoices, and subscriptions are not imported.
+
+Saving a card does not create a charge or subscription. The designated admin
+can still open **Sandbox billing and diagnostics** from the Billing page.
+
+## Organization subscriptions
+
+The designated billing admin can use **Admin → Billing → Organization Billing
+Setup** to create a billing account, assign its billing contact, and verify
+the shared Square plan and item variation. Each billing account starts with
+enrollment closed. Use **Open enrollment** when the organization is ready.
+No new Render settings are required.
+
+The contact adds a card, selects it for the organization, and explicitly
+authorizes $100 monthly on the 1st. The first charge is the next 1st in Pacific
+time. Square handles recurring charges and receipts. OpenCircle shows status
+and billing history for the linked subscription. Closing enrollment only
+blocks new enrollment and does not cancel an existing subscription. Billing
+does not grant, revoke, or otherwise change access to OpenCircle.
