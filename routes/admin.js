@@ -5826,10 +5826,10 @@ try {
       [currentParentId]
     ) : null;
     const parentId = editEvent?.parentEventId || (currentParent && currentParent.city === selectedCity ? currentParent.id : "");
+    const parentDate = DateTime.fromISO(currentParent?.startDateTime || "", { zone: DEFAULT_TZ });
     const parentLabel = parentId ? (currentParent
-      ? `Selected: ${currentParent.title} — ${toDateTimeLocalValue(currentParent.startDateTime).slice(0, 10)}`
-      : `Selected: unavailable event #${parentId}`) : "";
-
+      ? currentParent.title + (parentDate.isValid ? " · " + parentDate.toFormat("MMM d, yyyy") : "")
+      : `Unavailable event #${parentId}`) : "";
 
     const selectedCats = normalizeCategories(parseStoredCategories(editEvent?.categories));
     const isFeatured = Number(editEvent?.featured || 0) === 1;
@@ -12955,9 +12955,59 @@ return `
       .event-form-advanced > summary svg{ width:18px; height:18px; color:var(--muted); transition:transform .16s ease; }
       .event-form-advanced[open] > summary svg{ transform:rotate(90deg); }
       .event-form-advanced-body{ padding:0 14px 14px; }
-      .event-form-advanced-group{ padding:14px 0; border-top:1px solid var(--line); }
+      .event-form-advanced-group{ padding:10px 0; border-top:1px solid var(--line); }
       .event-form-advanced-group:first-child{ border-top:0; padding-top:2px; }
-      .event-form-advanced-group h4{ margin:0 0 10px; font-size:13px; color:var(--text); }
+      .event-form-advanced-group:last-child{ padding-bottom:0; }
+      .event-form-advanced-heading{
+        display:flex; align-items:center; gap:8px; margin:0;
+        color:var(--text); font-size:13px; font-weight:700;
+      }
+      .event-form-advanced-heading svg{ flex:none; width:16px; height:16px; color:var(--muted); }
+      .event-form-advanced-group > h4{ margin-bottom:6px; }
+      .event-form-advanced-group > summary{
+        justify-content:space-between; min-height:32px; padding:4px 6px; margin:0 -6px;
+        border-radius:var(--radius-inner); cursor:pointer; list-style:none;
+      }
+      .event-form-advanced-group > summary::-webkit-details-marker{ display:none; }
+      .event-form-advanced-group > summary:hover{ background:var(--panel2); }
+      .event-form-advanced-group > summary:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; }
+      .event-form-advanced-heading-label{ display:flex; align-items:center; gap:8px; }
+      .event-form-advanced-group[open] > summary > svg{ transform:rotate(90deg); }
+      .event-form-advanced-controls{ display:grid; gap:8px; padding-top:6px; }
+      form[action="/admin/events"] .event-form-advanced-controls > .note{ margin:0; }
+      form[action="/admin/events"] .event-form-advanced-check{ margin:0; padding:3px 0; gap:8px; }
+      form[action="/admin/events"] .event-form-advanced-controls > label{ margin:0; }
+      .event-form-advanced-controls > label > .ctrl{ margin-top:4px; }
+      form[action="/admin/events"] .event-parent-label{ margin:10px 0 4px; }
+      form[action="/admin/events"] .event-parent-help{ margin:0 0 8px; }
+      .event-parent-search{ position:relative; }
+      .event-parent-selection:not([hidden]){ display:flex; align-items:stretch; height:auto; min-height:var(--ctrl-h); padding:0; background:var(--panel); }
+      .event-parent-change,.event-parent-clear,.event-parent-results button{
+        border:0; background:transparent; color:var(--text); font:inherit; cursor:pointer;
+        border-radius:var(--radius-inner);
+      }
+      .event-parent-change{ display:flex; flex:1; align-items:center; gap:8px; min-width:0; padding:10px 12px; text-align:left; }
+      .event-parent-change span{ min-width:0; overflow-wrap:anywhere; }
+      .event-parent-change svg{ width:16px; height:16px; flex:none; color:var(--muted); }
+      .event-parent-clear{ flex:none; min-width:40px; color:var(--muted); font-size:20px; }
+      .event-parent-dropdown{
+        position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:5;
+        max-height:240px; overflow:auto; padding:4px;
+        background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-inner); box-shadow:var(--shadow);
+      }
+      .event-parent-results{ list-style:none; margin:0; padding:0; }
+      .event-parent-results button{ display:block; width:100%; padding:8px 10px; text-align:left; overflow-wrap:anywhere; }
+      .event-parent-change:hover,.event-parent-clear:hover,.event-parent-results button:hover,
+      .event-parent-results button:focus-visible{ background:var(--panel2); }
+      .event-parent-change:focus-visible,.event-parent-clear:focus-visible,.event-parent-results button:focus-visible{
+        outline:2px solid var(--brand); outline-offset:-2px;
+      }
+      .event-parent-status:not(:empty){ margin:0; padding:8px 10px; color:var(--muted); font-size:13px; }
+      .event-parent-dropdown:has(li) .event-parent-status{
+        position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap;
+      }
+      .event-parent-child-link{ display:inline-block; margin-top:8px; }
+
       .event-form-savebar{ position:static; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:0; padding:18px 0 0; border-top:1px solid var(--line); background:var(--panel); box-shadow:none; }
       .event-form-savebar .actions{ margin:0; order:2; }
       .event-form-savebar .note{ margin:0; order:1; }
@@ -14364,7 +14414,8 @@ return `
       input[type="checkbox"]::before,
       .sidebar-collapse-toggle i,
       .dashboard-card .card-toggle .card-caret,
-      .event-form-advanced > summary svg{
+      .event-form-advanced > summary svg,
+      .event-form-advanced-group > summary > svg{
         transition:transform var(--toggle-duration) var(--toggle-easing);
       }
       @media (prefers-reduced-motion:reduce){
@@ -17235,54 +17286,87 @@ return `
                     <div class="event-form-advanced-group" data-oc-event-parent data-parent-endpoint="/events/parent-options"
                          data-event-id="${esc(editEvent && !fromPending ? editEvent.id : "")}"
                          data-initial-label="${esc(parentLabel)}">
-                      <label class="checkbox" style="margin-top:0;">
+                      <h4 class="event-form-advanced-heading"><i data-lucide="link-2" aria-hidden="true"></i>Event Relationships</h4>
+                      <label class="checkbox event-form-advanced-check">
                         <input type="checkbox" data-parent-toggle ${parentId ? "checked" : ""} aria-controls="event-parent-panel" />
                         <span>Part of a larger event</span>
                       </label>
                       <div id="event-parent-panel" data-parent-panel ${parentId ? "" : "hidden"}>
-                        <label for="event-parent-query">Search published events by title</label>
-                        <input id="event-parent-query" class="ctrl" type="search" data-parent-query autocomplete="off" />
+                        <label class="event-parent-label" id="event-parent-label" for="event-parent-query">Parent event</label>
+                        <p class="note event-parent-help" id="event-parent-help">Link this event to a larger event, festival, or series.</p>
                         <input type="hidden" name="parentEventId" value="${esc(parentId)}" />
-                        <p data-parent-selected aria-live="polite">${esc(parentLabel)}</p>
-                        <p data-parent-status role="status"></p>
-                        <ul data-parent-results style="display:grid;gap:6px;list-style:none;padding:0;"></ul>
+                        <div class="ctrl event-parent-selection" data-parent-selection ${parentId ? "" : "hidden"}>
+                          <button class="event-parent-change" type="button" data-parent-change aria-labelledby="event-parent-change-label event-parent-selected">
+                            <span id="event-parent-change-label" hidden>Change parent event</span>
+                            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
+                            <span id="event-parent-selected" data-parent-selected>${esc(parentLabel)}</span>
+                          </button>
+                          <button class="event-parent-clear" type="button" data-parent-clear aria-label="Clear parent event">×</button>
+                        </div>
+                        <div class="event-parent-search" data-parent-search ${parentId ? "hidden" : ""}>
+                          <input id="event-parent-query" class="ctrl" type="search" data-parent-query autocomplete="off"
+                                 placeholder="Search for a parent event..." aria-describedby="event-parent-help" aria-controls="event-parent-results" />
+                          <div class="event-parent-dropdown" data-parent-dropdown hidden>
+                            <p class="event-parent-status" data-parent-status role="status"></p>
+                            <ul class="event-parent-results" id="event-parent-results" data-parent-results aria-label="Matching parent events"></ul>
+                          </div>
+                        </div>
                       </div>
                       ${editEvent && !fromPending && currentEventLifecycleState !== "archived" && !Number(editEvent.archived)
-                        ? `<a href="/admin/create-events?city=${encodeURIComponent(editEvent.city)}&amp;parentEventId=${encodeURIComponent(editEvent.id)}">Add an event under this event</a>` : ""}
+                        ? `<a class="event-parent-child-link" href="/admin/create-events?city=${encodeURIComponent(editEvent.city)}&amp;parentEventId=${encodeURIComponent(editEvent.id)}">Add an event under this event</a>` : ""}
                     </div>
-                  ${isOrganizerUser ? `
-                    <div class="event-form-advanced-group"><div class="note">SEO is generated automatically from your event details.</div></div>
-                  ` : `
-                    <div class="event-form-advanced-group">
-                      <h4>SEO</h4>
-                      <label>SEO Title</label>
-                      <input class="ctrl" name="seoTitle" value="${esc(editEvent?.seoTitle || "")}" />
-                      <label style="margin-top:10px;">Meta Description</label>
-                      <textarea class="ctrl" name="metaDescription" rows="3">${esc(editEvent?.metaDescription || "")}</textarea>
-                      <label style="margin-top:10px;">Focus Keyphrase</label>
-                      <input class="ctrl" name="focusKeyphrase" value="${esc(editEvent?.focusKeyphrase || "")}" />
-                      <label style="margin-top:10px;">Image Alt Text</label>
-                      <input class="ctrl" name="imageAlt" value="${esc(editEvent?.imageAlt || "")}" />
-                    </div>
-                  `}
-                  ${canFeatureEvents ? `
-                    <div class="event-form-advanced-group">
-                      <h4>Editorial</h4>
-                      <div class="checkbox">
-                        <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
-                        <label for="featured" style="margin:0;font-size:12px;font-weight:650;">Featured event</label>
+                    ${canFeatureEvents ? `
+                      <div class="event-form-advanced-group">
+                        <h4 class="event-form-advanced-heading"><i data-lucide="eye" aria-hidden="true"></i>Editorial &amp; Visibility</h4>
+                        <div class="event-form-advanced-controls">
+                          <label class="checkbox event-form-advanced-check">
+                            <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
+                            <span>Featured event</span>
+                          </label>
+                          ${canCurateEventPromotions ? `
+                            <label class="checkbox event-form-advanced-check">
+                              <input type="checkbox" id="eddiesPick" name="eddiesPick" value="1" ${isEddiesPick ? "checked" : ""} />
+                              <span>Eddie's Pick</span>
+                            </label>
+                          ` : ""}
+                        </div>
                       </div>
-                      ${canCurateEventPromotions ? `<div class="checkbox" style="margin-top:10px;"><input type="checkbox" id="eddiesPick" name="eddiesPick" value="1" ${isEddiesPick ? "checked" : ""} /><label for="eddiesPick" style="margin:0;font-size:12px;font-weight:650;">Eddie's Pick</label></div>` : ``}
-                    </div>
-                  ` : ``}
-                    <div class="event-form-advanced-group">
-                      <h4>Submission options</h4>
-                      <div class="checkbox">
-                        <input type="checkbox" id="forceDuplicateSave" name="forceDuplicateSave" value="1" />
-                        <label for="forceDuplicateSave" style="margin:0;font-size:12px;font-weight:650;">Save anyway if a possible duplicate is found</label>
+                    ` : ""}
+                    <details class="event-form-advanced-group">
+                      <summary class="event-form-advanced-heading">
+                        <span class="event-form-advanced-heading-label"><i data-lucide="search" aria-hidden="true"></i>Search Engine Optimization (SEO)</span>
+                        <i data-lucide="chevron-right" aria-hidden="true"></i>
+                      </summary>
+                      <div class="event-form-advanced-controls">
+                        ${isOrganizerUser ? `<p class="note">SEO is generated automatically from your event details.</p>` : `
+                          <label>SEO Title
+                            <input class="ctrl" name="seoTitle" value="${esc(editEvent?.seoTitle || "")}" />
+                          </label>
+                          <label>Meta Description
+                            <textarea class="ctrl" name="metaDescription" rows="3">${esc(editEvent?.metaDescription || "")}</textarea>
+                          </label>
+                          <label>Focus Keyphrase
+                            <input class="ctrl" name="focusKeyphrase" value="${esc(editEvent?.focusKeyphrase || "")}" />
+                          </label>
+                          <label>Image Alt Text
+                            <input class="ctrl" name="imageAlt" value="${esc(editEvent?.imageAlt || "")}" />
+                          </label>
+                        `}
                       </div>
-                      <div class="note">Use only when you are sure this is a separate event.</div>
-                    </div>
+                    </details>
+                    <details class="event-form-advanced-group">
+                      <summary class="event-form-advanced-heading">
+                        <span class="event-form-advanced-heading-label"><i data-lucide="list-checks" aria-hidden="true"></i>Submission Controls</span>
+                        <i data-lucide="chevron-right" aria-hidden="true"></i>
+                      </summary>
+                      <div class="event-form-advanced-controls">
+                        <label class="checkbox event-form-advanced-check">
+                          <input type="checkbox" id="forceDuplicateSave" name="forceDuplicateSave" value="1" aria-describedby="forceDuplicateHelp" />
+                          <span>Save anyway if a possible duplicate is found</span>
+                        </label>
+                        <p class="note" id="forceDuplicateHelp">Use only when you are sure this is a separate event.</p>
+                      </div>
+                    </details>
                   </div>
                 </details>
               </section>
@@ -17296,7 +17380,7 @@ return `
                 </div>
               </div>
               </div>
-              <script defer src="/assets/event-parent-picker.js"></script>
+              <script defer src="/assets/event-parent-picker.js?v=3"></script>
             </form>
           </div>
           ` : ``}
