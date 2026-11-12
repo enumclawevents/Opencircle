@@ -5716,6 +5716,17 @@ try {
     ? sortEventsByNextOccurrence(listRows).slice(offset, offset + limit)
     : listRows;
 } catch (err) {
+  const errorCode = typeof err?.code === "string" && /^(?:SQLITE_[A-Z0-9_]+|ERR_[A-Z0-9_]+)$/.test(err.code)
+    ? err.code
+    : "";
+  // Log only recognized messages. SQLite and JavaScript errors can contain input values.
+  const missingColumn = /^(?:SQLITE_ERROR: )?no such column: (goingCount|interestedCount|viewCount|uniqueViewCount|lastViewedAt|imageUrl)$/
+    .exec(typeof err?.message === "string" ? err.message : "");
+  const errorMessage = missingColumn
+    ? `Primary list query failed: no such column: ${missingColumn[1]}`
+    : "Primary event-list query or sort failed";
+  console.error(`[/admin/existing-events] Event list fallback${errorCode ? ` (${errorCode})` : ""}: ${errorMessage}`);
+
   const listRows = await all(
     `SELECT id, slug, title, startDateTime, location, featured, eddiesPick
      FROM events
