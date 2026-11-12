@@ -69,7 +69,7 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
   const baseUrl = `http://127.0.0.1:${port}`;
   const server = spawn(process.execPath, ["server.js"], {
     cwd: path.resolve(__dirname, ".."),
-    env: { ...process.env, DB_PATH: dbPath, PORT: String(port) },
+    env: { ...process.env, DB_PATH: dbPath, PORT: String(port), SQUARE_SANDBOX_BILLING_ADMIN_EMAIL: "billing-owner@example.test", SQUARE_PRODUCTION_APPLICATION_ID: "" },
     stdio: "ignore",
   });
 
@@ -130,6 +130,32 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
   assert.equal(developerSummary.communities.reduce((total, community) => total + community.publishedEvents, 0), 2);
 
   const organizerCookie = await signIn(baseUrl, "organizer@example.test", password);
+  await execSql(
+    dbPath,
+    "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)",
+    ["billing-owner@example.test", "billing-owner", hashPassword(password), "admin", "Enumclaw"]
+  );
+  const billingOwnerCookie = await signIn(baseUrl, "billing-owner@example.test", password);
+  const ownerBilling = await fetch(baseUrl + "/admin/billing", { headers: { cookie: billingOwnerCookie } });
+  assert.equal(ownerBilling.status, 200);
+  assert.match(await ownerBilling.text(), /href="\/admin\/billing" aria-current="page">Billing/);
+  const organizerAdmin = await fetch(baseUrl + "/admin", { headers: { cookie: organizerCookie } });
+  assert.equal(organizerAdmin.status, 200);
+  assert.doesNotMatch(await organizerAdmin.text(), /href="\/admin\/billing"/);
+  for (const [method, route] of [
+    ["GET", "/billing"],
+    ["GET", "/billing/organization-history"],
+    ["POST", "/billing/payment-methods"],
+    ["POST", "/billing/subscribe"],
+  ]) {
+    const response = await fetch(baseUrl + "/admin" + route, {
+      method,
+      headers: { cookie: organizerCookie, origin: baseUrl, "content-type": "application/json" },
+      ...(method === "POST" ? { body: "{}" } : {}),
+    });
+    assert.equal(response.status, 403, route);
+  }
+
   const organizerResponse = await fetch(`${baseUrl}/admin/dashboard-summary?range=30d`, {
     headers: { cookie: organizerCookie, accept: "application/json" },
   });

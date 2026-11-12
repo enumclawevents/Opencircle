@@ -5012,7 +5012,7 @@ async function renderAdmin(req, res, view) {
     const sessionUser = await resolveSessionUser(req);
     const showBilling = view === "billing";
     const canSeeSandboxBilling = canManagePlateauSandboxBilling(req, sessionUser);
-    const canSeeBilling = canUseAccountPaymentMethods(req, sessionUser) || canSeeSandboxBilling;
+    const canSeeBilling = canSeeSandboxBilling;
     if (showBilling && !canSeeBilling) return res.status(403).send("Forbidden");
     const showProductionPreview = showBilling && canSeeSandboxBilling && req.query.previewProduction === "1";
     const showSandboxBilling = showBilling && canSeeSandboxBilling && !showProductionPreview
@@ -21650,13 +21650,6 @@ function canManagePlateauSandboxBilling(req, user) {
   return [user.email, user.username].some((value) => value && String(value).toLowerCase() === sessionIdentity);
 }
 
-function canUseAccountPaymentMethods(req, user) {
-  const email = String(user?.email || "").trim().toLowerCase();
-  const identity = String(req.user?.user || "").trim().toLowerCase();
-  return Boolean(user?.id && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && identity
-    && (identity === email || identity === String(user.username || "").trim().toLowerCase()));
-}
-
 async function runProductionBillingCheck() {
   console.info("[square production] Connection check started");
   const status = await checkProductionBilling({ verify: true });
@@ -21825,7 +21818,7 @@ router.post("/billing/payment-methods", async (req, res) => {
   res.set("Cache-Control", "private, no-store");
   try {
     const user = await resolveSessionUser(req);
-    if (!canUseAccountPaymentMethods(req, user)) return res.status(403).json({ error: "Forbidden" });
+    if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
     const config = productionPaymentConfig();
     if (!config) return res.status(503).json({ error: "Payment method setup is currently unavailable." });
     if (!req.is("application/json") || req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
@@ -21873,7 +21866,7 @@ router.post("/billing/organizations", async (req, res) => {
 router.post("/billing/subscribe", async (req, res) => {
   res.set("Cache-Control", "private, no-store");
   const user = await resolveSessionUser(req);
-  if (!canUseAccountPaymentMethods(req, user) || req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
+  if (!canManagePlateauSandboxBilling(req, user) || req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
     return res.status(403).send("Forbidden");
   }
   const config = productionPaymentConfig();
@@ -21897,7 +21890,7 @@ router.post("/billing/subscribe", async (req, res) => {
 router.get("/billing/organization-history", async (req, res) => {
   res.set("Cache-Control", "private, no-store");
   const user = await resolveSessionUser(req);
-  if (!canUseAccountPaymentMethods(req, user)) return res.status(403).json({ error: "Forbidden" });
+  if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
   const config = productionPaymentConfig();
   if (!config) return res.status(503).json({ error: "Production billing is unavailable." });
   const organizationId = Number(req.query.organization);

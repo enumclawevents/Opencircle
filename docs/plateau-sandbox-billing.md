@@ -43,7 +43,7 @@ card replacement, and cancellation.
 
 ## Production payment methods
 
-Signed-in OpenCircle accounts with an email can add a card in **Admin → Billing**.
+During the pilot, only the designated billing admin can open **Admin → Billing** and add a card.
 This uses the existing production Square Application ID, Location ID, and access
 token. No customer-specific settings are required. OpenCircle creates and links
 a Square customer profile to the signed-in OpenCircle user ID on the first card
