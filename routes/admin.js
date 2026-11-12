@@ -18774,7 +18774,8 @@ return `
           refreshCalendar(link.href, false);
         });
         window.addEventListener("popstate", function(){
-          if (window.location.pathname.replace(/\/$/, "") === "/admin") {
+          var path = window.location.pathname;
+          if (path === "/admin" || path === "/admin/") {
             refreshCalendar(window.location.href, true);
           }
         });
