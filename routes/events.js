@@ -1344,7 +1344,7 @@ async function publicEventRelationships(eventId) {
   const parent = rows.find(row => row.relationship === "parent");
   return {
     parentEventId: parent?.id ?? null,
-    parentEvent: parent ? eventRelationshipSummary(parent) : null,
+    parentEvent: parent ? { ...eventRelationshipSummary(parent), imageUrl: parent.imageUrl || null } : null,
     linkedEvents: rows.filter(row => row.relationship === "child").map(eventRelationshipSummary),
   };
 }
