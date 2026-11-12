@@ -11997,7 +11997,6 @@ return `
         padding: 14px;
       }
       .event-insights-mini{
-        height: 100%;
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
@@ -12020,7 +12019,8 @@ return `
         overflow:visible;
       }
       .event-insights-engagement{
-        display:grid;
+        display:flex;
+        flex-direction:column;
         gap:6px;
         margin-top:4px;
         padding:8px 10px;
@@ -12035,6 +12035,15 @@ return `
         font-weight:650;
         font-variant-numeric:tabular-nums;
         text-align:end;
+      }
+      @media (width > 1100px){
+        .event-insights-card{
+          display:flex;
+          flex-direction:column;
+        }
+        .event-insights-mini,
+        .event-insights-engagement{ flex:1 1 auto; }
+        .event-insights-engagement{ justify-content:space-around; }
       }
       /* spacing tweaks only for specific widgets */
       .mini-organizers{
@@ -14937,7 +14946,7 @@ return `
           </div>
 
           ${(!isOrganizerUser || selectedEventAnalytics) ? `
-          <div class="card">
+          <div class="card${selectedEventAnalytics ? " event-insights-card" : ""}">
             <div class="sectionTitle">
               <div>
                 <h2>${selectedEventAnalytics ? "Event insights" : esc(analyticsSideTitle)}</h2>
