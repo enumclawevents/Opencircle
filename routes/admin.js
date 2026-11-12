@@ -7540,8 +7540,10 @@ return `
             ${selectedEventAnalytics.location ? `<div class="muted" style="margin-bottom:6px;">${esc(selectedEventAnalytics.location)}</div>` : ``}
             ${selectedEventAnalytics.organizer ? `<div class="muted" style="margin-bottom:12px;">Organizer: ${esc(selectedEventAnalytics.organizer)}</div>` : ``}
             <div class="kv"><div class="k">Scheduled dates in this period</div><div class="v">${fmt(selectedEventAnalytics.occurrences)}</div></div>
-            <div class="kv"><div class="k">${analyticsMetricLabel("Going", "Total going responses for this event across all dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.goingCount)}</div></div>
-            <div class="kv"><div class="k">${analyticsMetricLabel("Interested", "Total interested responses for this event across all dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.interestedCount)}</div></div>
+            <div class="event-insights-engagement">
+              <div class="kv"><div class="k">${analyticsMetricLabel("Going", "Total going responses for this event across all dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.goingCount)}</div></div>
+              <div class="kv"><div class="k">${analyticsMetricLabel("Interested", "Total interested responses for this event across all dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.interestedCount)}</div></div>
+            </div>
           </div>
         `;
       }
@@ -12016,6 +12018,23 @@ return `
       .event-insights-mini .kv .k{
         white-space:normal;
         overflow:visible;
+      }
+      .event-insights-engagement{
+        display:grid;
+        gap:6px;
+        margin-top:4px;
+        padding:8px 10px;
+        border:1px solid var(--line);
+        border-radius:var(--radius-mid);
+        background:var(--panel);
+      }
+      .event-insights-engagement .kv{ margin:0; }
+      .event-insights-engagement .metricInfo{ margin-inline-start:6px; }
+      .event-insights-engagement .v{
+        color:var(--text);
+        font-weight:650;
+        font-variant-numeric:tabular-nums;
+        text-align:end;
       }
       /* spacing tweaks only for specific widgets */
       .mini-organizers{
