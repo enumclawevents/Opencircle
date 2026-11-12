@@ -17,7 +17,7 @@ const { execSync, execFileSync } = require("child_process");
 const { sendEmail, PASSWORD_RESET_FROM, PASSWORD_RESET_FROM_ADDRESS, PASSWORD_RESET_REPLY_TO } = require("../mailer");
 const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const crypto = require("crypto");
-const packageMeta = require("../package.json");
+const { appVersion, categories: releaseCategories, filters: releaseFilters, publishCurrentRelease, readReleaseNotes, renderReleaseEntries } = require("../lib/release-notes");
 const { hashPassword, hashToken, verifyPassword } = require("../lib/auth");
 const { DateTime } = require("luxon");
 const { esc } = require("../lib/html");
@@ -6399,19 +6399,6 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const packageVersion = String(packageMeta?.version || "").trim();
-    const appVersion = String(process.env.APP_VERSION || (packageVersion ? `v${packageVersion}` : "v0.0.0"));
-    let releaseUpdatedAt = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
-    try {
-      const st = fs.statSync(__filename);
-      if (st && st.mtime) {
-        releaseUpdatedAt = new Date(st.mtime).toISOString().replace("T", " ").slice(0, 19) + "Z";
-      }
-    } catch (_) {}
-
-    const hasVenueTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='venues'"));
-    const hasJobsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'"));
-    const hasApplicantsTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='job_applicants'"));
     const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
     const isEventsAnalyticsView = view === "events-analytics" || view === "analytics";
     const eventsPeriod = isEventsAnalyticsView || view === "events-organizers" ? analyticsPeriod : null;
@@ -6473,210 +6460,6 @@ return `
       sourceCampaign = 0;
       sourceUnknown = periodSources.other;
     }
-    const releaseLogItems = [];
-    releaseLogItems.push({ date: "2026-05-05", text: "Events analytics charts now pull view-series activity from tracked event view data again and show a clear empty state when there is no recent activity" });
-    releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now submit as a real GET form so sort options like Newest ID first reliably reach the server" });
-    releaseLogItems.push({ date: "2026-04-30", text: "All Events filters now preserve and apply the selected sort option again, including Newest ID first" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Multi-day event schedules now build correctly even when the start and end fields are using localized 12-hour date/time values" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Top event dashboard cards now use Pacific-time day, week, month, and year boundaries so today and this month no longer flip early on UTC" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Individual event insights now include a ticket-click counter, and events expose tracked ticket click endpoints for ticket button analytics" });
-    releaseLogItems.push({ date: "2026-04-30", text: "Top event dashboard cards now rank all events by view activity during today, this week, this month, and this year instead of filtering by the event date itself" });
-    releaseLogItems.push({ date: "2026-04-30", text: "All admin form fields now use the same sans-serif typeface, including the SEO inputs and textareas" });
-    releaseLogItems.push({ date: "2026-04-16", text: "Organizer venue access is now limited to each organizer's own venues, and the dashboard app version now follows package.json automatically" });
-    releaseLogItems.push({ date: "2026-04-14", text: "Profile status badge now hangs outside the avatar circle instead of sitting inside the crop" });
-    releaseLogItems.push({ date: "2026-04-14", text: "Insights tabs now use the same rounded pill style as the calendar scope toggle" });
-    releaseLogItems.push({ date: "2026-04-14", text: "Account dropdown action icons now use inline SVG and status rows no longer show helper text" });
-    releaseLogItems.push({ date: "2026-04-14", text: "Account dropdown status rows now show only the label and the menu icons use stronger icon glyphs" });
-    releaseLogItems.push({ date: "2026-04-13", text: "The header profile avatar now matches the other top-bar circles and the account dropdown opens reliably" });
-    releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now uses a true circular trigger with a cleaner account dropdown layer for Preferences, status controls, and logout" });
-    releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now opens an account menu with Preferences, availability status controls, and a logout shortcut" });
-    releaseLogItems.push({ date: "2026-04-13", text: "The header profile photo now includes a small online-status badge anchored to the bottom-left of the avatar" });
-    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar scope links and month arrows now fully override the generic anchor styling so both active and inactive states keep the intended neutral control colors" });
-    releaseLogItems.push({ date: "2026-04-13", text: "Live role management now only exposes Developer and Organizer while leaving older role records intact" });
-    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now uses a single server-rendered navigation path so month arrows and selected-day details stay in sync" });
-    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar scope toggle now uses the same neutral and green color language as the rest of the UI" });
-    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar header is now simplified into a cleaner month, scope, and popularity layout" });
-    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now lets organizers and developers compare My Events against All Events in one place" });
-    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar heat-scale contrast is now stronger so busy days stand out more clearly" });
-    releaseLogItems.push({ date: "2026-04-13", text: "Dashboard calendar now uses a color intensity scale to show which days are busiest, with a legend for quick scanning" });
-    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar day detail now uses the selected date itself as the header without the extra Selected day label" });
-    releaseLogItems.push({ date: "2026-04-12", text: "Calendar day selection now restores your scroll position after reload instead of jumping back to the top" });
-    releaseLogItems.push({ date: "2026-04-12", text: "Pagination now restores your scroll position after reload so paged views do not jump back to the top" });
-    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar month arrows and selected-day list now stay synchronized through server-rendered navigation" });
-    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar month navigation now safely falls back to the current month instead of zeroing out the grid" });
-    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now has previous and next month arrows for browsing different months" });
-    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now greys out past days while keeping them selectable" });
-    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar now shows the selected month total in the header for a quicker at-a-glance count" });
-    releaseLogItems.push({ date: "2026-04-12", text: "Dashboard calendar day counts now follow the actual event occurrence date instead of spreading one event across every day in its date range" });
-    releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics now uses matching vertical gap spacing across both columns" });
-    releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics row spacing is now tuned a little looser between the chart and leaderboard" });
-    releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics now has a little more breathing room between the chart row and leaderboard row" });
-    releaseLogItems.push({ date: "2026-04-11", text: "Developer organizer analytics now lets the chart card fill the top row so the empty gap under the chart is removed" });
-    releaseLogItems.push({ date: "2026-04-11", text: "Dashboard calendar now carries real event titles into the selected-day list instead of falling back to untitled placeholders" });
-    releaseLogItems.push({ date: "2026-04-11", text: "Dashboard calendar now gives the month view more room by moving selected-day events underneath it and paging long event days" });
-    releaseLogItems.push({ date: "2026-04-11", text: "Dashboard now includes a calendar tile so you can preview what events are happening on a selected day and across that week at a glance" });
-    releaseLogItems.push({ date: "2026-04-11", text: "Dashboard activity now always keeps recent event posts represented in the 5-item feed, including your own latest event when available" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Fixed an event-save server error caused by duplicate-save checks reading normalized event values before they were initialized" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Dashboard activity now keeps your most recent published event visible in the 5-item feed instead of letting mixed content push it out" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Organizer event analytics tooltips now show both My events and City events so citywide daily counts are visible alongside organizer-specific totals" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Events analytics now counts same-day events correctly even when older rows use simpler stored date/time formats" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Duplicate event warnings now include a direct Save Anyway action so you can confirm and continue without going back to re-check the form" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Messages now show a live typing indicator while another person is actively composing in the same conversation" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Fixed an event-save server error and organizer accounts can now submit recurring events without the save flow forcing recurrence back off" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Organizer accounts can now create recurring events again alongside single and multi-day event types" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Multi-Day Event setup now supports optional per-day time ranges while keeping the existing event start/end fields and API responses compatible with current event data and WordPress integrations" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Recurring event setup now uses the top Start and End fields as the only date inputs while preserving the same stored recurrence data for existing events and WordPress integrations" });
-    releaseLogItems.push({ date: "2026-04-10", text: "Create Event now begins with Single Event, Multi-Day Event, and Recurring Event choices so the matching form stays hidden until an event type is selected" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Dashboard activity cards now show only the 5 most recent items instead of growing taller with a longer mixed feed" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Organizer event submission now auto-generates SEO fields and temporarily removes recurring-event controls from organizer workflows" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Messages now show a simple checkmark and Read label once a sent message has been opened" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Support Circle now appears in messages as a built-in troubleshooting chat that routes directly to support without exposing a personal name" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Uploaded images now keep the full frame with a neutral grey background instead of being cropped to fill" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Organizer dashboard quick links now use a single full-width events column" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now land on their dashboard instead of being redirected straight into My Events" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Organizer dashboards now focus on event-only quick links, messages, activity, release notes, and event insights scoped to that organizer" });
-    releaseLogItems.push({ date: "2026-04-09", text: "The organizer-only events analytics page now uses the same row gap below the chart card as the gap above it" });
-    releaseLogItems.push({ date: "2026-04-09", text: "The API root URL now redirects directly to /admin" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Organizer event analytics now uses the same card spacing below the chart row as the spacing above it" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Organizer event analytics now uses the same visual gap below the chart row as the gap above it" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Organizer event analytics now collapses to the chart's natural height instead of leaving a large gap before the top-events row" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Admin header search now fills the available left-side space without leaving a large gap before the icon buttons" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now see a full-width events analytics chart without the top organizers side card" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Organizer users no longer see organizer analytics in the sidebar or have direct access to that page" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Organizer users now see only Dashboard, Events, Analytics, and Admin in the sidebar" });
-    releaseLogItems.push({ date: "2026-04-09", text: "Event and organizer charts now always show Events as the main line with Views as the blue dotted comparison, without a metric toggle" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Header search now stretches fully toward the icon cluster instead of leaving a large empty gap" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Header username label removed so the top-right controls stay cleaner and more compact" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Header messages now uses the same icon-button style as notifications and sits beside it" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Admin header search now replaces the old title and helper block on the left across pages" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart now expands to match the organizer overview card height so the left panel no longer ends with a blank gap" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart no longer stretches to match the taller overview card, removing the large blank space below it" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Organizer chart row cards now top-align instead of stretching to the tallest column, removing the large gap below the chart" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Organizer spacing now only pulls the Top 10 organizers card upward without shifting the right-side card" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Organizer lower sections now sit much closer to the chart row with the extra gap removed" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Organizer leaderboard sections now sit tighter to the content above them without affecting the main analytics row" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Reverted the organizer spacing tweak that had leaked into the main analytics row" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Organizer analytics no longer shows a redundant standalone views summary card" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Dashboard activity now uses the shared role permissions early so the feed no longer blanks before rendering" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Dashboard activity now loads each content type independently so one bad query cannot blank the whole feed" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Message panes now top-align contacts and conversation bubbles instead of stretching them vertically" });
-    releaseLogItems.push({ date: "2026-04-08", text: "Messages now use a fixed-height full-screen layout with scrolling panes instead of growing taller with each message" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now fails safely so one schema mismatch cannot break the whole admin home page" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now keeps a balanced mix of content types so recent events do not get crowded out" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now falls back cleanly so published events still appear even on older event schemas" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now includes recent pending event submissions alongside published content" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard activity now shows events alongside venues, jobs, and ads with posted-by usernames" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick-link groups now pin shorter link stacks to the top for cleaner alignment" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard now includes an Activity feed for recently posted events, venues, jobs, and ads" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard insights now live in one switchable card, and new messages trigger live notification dings" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Added city-scoped messaging with online status, header access, and dashboard inbox preview" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick links now show only the three most important actions per section" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Dashboard quick links are back to a simpler module-based layout without a separate Analytics section" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Content tabs now default cleanly to their main pages so analytics no longer shows a double-active sidebar state" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Analytics menu now uses simpler labels, a better icon, and the order Events, Organizers, Venues, Jobs, Ads" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Moved analytics into a dedicated Analytics tab and tailored dashboard sections by role" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Renamed Admin to Developer and added Area Manager role with a five-invite cap" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Added organizer user role with organizer-only event access and analytics" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Selected organizer insights now swap the top-10 table for linked top events" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Single-event insight grey panels now stretch to fit the card space better" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Removed the extra helper note from single-event insight panels" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Single-event insight panels now show Going and Interested counts" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Event stats panels can now grow slightly so the analytics button stays fully inside the grey box" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Event card analytics button height reduced to fit cleanly inside the stats panel" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Single-event analytics now shows only event-specific source stats in the top metric row" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Event card analytics button now stays contained inside the stats panel" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Event list cards now include a See Analytics button under the stats panel" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Top event cards now link into individual event analytics insights" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Header spacing now only increases between the search bar and account name, not between account icons" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Header search bar now stays visible across all admin tabs" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Header search now uses Enter to submit and has more spacing before the account name" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Organizer analytics now defaults to overall performance with linked organizer drill-down insights" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Increased the events chart card height again to line up with top organizers" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Moved the chart range text inline with the legend and restored the chart card height to match organizers" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Fixed total events overcounting by using real recurrence end dates instead of a 10-year fallback" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Moved the events chart legend inline with the metric toggle to free up chart height" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now uses the same recurrence window rules as the public event feed" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now uses the same legacy timezone normalization as the public event feed" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now counts recurring rows from actual recurrence data even when flags are inconsistent" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Events analytics now counts recurring events even when legacy rows are missing end times" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Reduced the main analytics card and chart height to match the organizer card" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Matched top organizers card height and spacing to the top events cards" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Fixed top events cards so short lists stack normally instead of stretching" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Fixed admin login crash caused by dashboard event view timestamp query" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Top events today now ranks all events by today's view activity" });
-    releaseLogItems.push({ date: "2026-04-07", text: "Top event cards now use the same vertical spacing as top organizers" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows total events before unique events" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Removed label badges from events analytics summary cards" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows unique events in the first row and all views in the second row" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Removed duplicate total views card from events analytics" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Total events card now uses recurrence-aware occurrence totals" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Events source cards now start with all views instead of campaign views" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Headline event totals now include recurring instances" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Source view cards now include archived and past events in lifetime totals" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now counts recurring event instances by occurrence date" });
-    releaseLogItems.push({ date: "2026-04-06", text: "All chart headlines now stay on one line" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Venue and ad charts now match the main events chart style" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics range label now stays on one line" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now uses a line legend instead of past and upcoming counts" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Analytics row height increased so top organizers fits without scrolling" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Top organizers list now shows only the top 5" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Top organizers card height now capped with internal scroll" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Main analytics row height reduced again" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Top organizers card now matches analytics chart height" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Main events analytics section set closer to 500px tall" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Main events analytics chart height reduced further" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Main events analytics chart height reduced" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics tooltip now labels the highlighted time period" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Events analytics now shows events and views together with solid and dashed lines" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Analytics highlight dots now sit directly on the chart line" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Analytics line charts now show point dots only on highlight" });
-    releaseLogItems.push({ date: "2026-04-06", text: "Analytics charts now use a cleaner line-chart style" });
-    releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard headers now use even vertical padding" });
-    releaseLogItems.push({ date: "2026-04-04", text: "Collapsed dashboard cards now shrink to content height" });
-    releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note removed duplicate date label" });
-    releaseLogItems.push({ date: "2026-04-04", text: "Dashboard release note text left aligned" });
-    releaseLogItems.push({ date: "2026-04-04", text: "Login password field now shows placeholder text" });
-    releaseLogItems.push({ date: "2026-03-25", text: "Dashboard ad insights now load live ad metrics" });
-    releaseLogItems.push({ date: "2026-03-25", text: "Dashboard job insights replaced with ad insights" });
-    releaseLogItems.push({ date: "2026-03-25", text: "Ads support multiple placement selections" });
-    releaseLogItems.push({ date: "2026-03-25", text: "Ads placement dropdown with standard placement options" });
-    releaseLogItems.push({ date: "2026-03-25", text: "Global nested corner radius system across admin pages" });
-    releaseLogItems.push({ date: "2026-03-25", text: "Three-layer quick-link corner radius math fix" });
-    releaseLogItems.push({ date: "2026-03-25", text: "Release Notes menu and dated release history" });
-    releaseLogItems.push({ date: "2026-03-25", text: "Dashboard release notes now show only the latest update" });
-    releaseLogItems.push({ date: "2026-03-24", text: "Mobile admin list layout cleanup" });
-    releaseLogItems.push({ date: "2026-03-24", text: "Upload review panel" });
-    releaseLogItems.push({ date: "2026-03-24", text: "Event import template download" });
-    releaseLogItems.push({ date: "2026-03-24", text: "CSV fields aligned to event form" });
-    releaseLogItems.push({ date: "2026-03-24", text: "Dedicated upload events page" });
-    releaseLogItems.push({ date: "2026-03-24", text: "CSV + ZIP event image import" });
-    releaseLogItems.push({ date: "2026-03-24", text: "CSV event bulk import" });
-    releaseLogItems.push({ date: "2026-03-24", text: "Canonical job employment types" });
-    releaseLogItems.push({ date: "2026-03-24", text: "Multi-type job postings" });
-    releaseLogItems.push({ date: "2026-03-24", text: "Website job applications" });
-    releaseLogItems.push({ date: "2026-03-24", text: "Configurable job application fields" });
-    releaseLogItems.push({ date: "2026-03-24", text: "Public jobs JSON feed" });
-    releaseLogItems.push({ date: "2026-03-24", text: "Jobs JSON link" });
-    releaseLogItems.push({ date: "2026-03-23", text: "Ads module" });
-    releaseLogItems.push({ date: "2026-03-23", text: "Mobile sidebar" });
-    releaseLogItems.push({ date: "2026-03-23", text: "Duplicate event detection" });
-    releaseLogItems.push({ date: "2026-03-23", text: "Venue analytics graph" });
-    if (hasVenueTable) {
-      releaseLogItems.push({ date: "2026-03-18", text: "Venues module" });
-    }
-    if (hasJobsTable) {
-      releaseLogItems.push({ date: "2026-03-18", text: "Jobs module" });
-    }
-    if (hasApplicantsTable) {
-      releaseLogItems.push({ date: "2026-03-18", text: "Applicants" });
-    }
-    if (hasSourceTrackingTable) {
-      releaseLogItems.push({ date: "2026-03-18", text: "Source tracking" });
-    }
-    releaseLogItems.push({ date: "2026-03-18", text: "Dashboard release notes" });
-    const latestRelease = releaseLogItems[0] || { date: releaseUpdatedAt.slice(0, 10), text: "Dashboard release notes" };
-    const releaseSummary = String(process.env.RELEASE_NOTES || latestRelease.text);
-
     const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
       ? req.app.locals.reqTimes.length
       : 0;
@@ -6718,8 +6501,6 @@ return `
       diskFree,
       diskTotal,
       appVersion,
-      releaseSummary,
-      releaseUpdatedAt,
       dbSize,
       reqCount5m: fmt(reqCount5m),
       autoArchive: cols.has("archived") ? "On" : "Off",
@@ -7766,6 +7547,7 @@ return `
       } catch (_) {}
     }
     if (showUpdatesLog && !(hasDeveloperAccess || isOrganizerUser)) return res.status(403).send("Forbidden");
+    const releaseNotes = showUpdatesLog ? await readReleaseNotes(req.query) : null;
     if (showApprove && !canApproveEvents) return res.status(403).send("Forbidden");
     if (showEventReports && !canManageEventReports) return res.status(403).send("Forbidden");
     if (showCreate && !canManageEvents) return res.status(403).send("Forbidden");
@@ -10487,6 +10269,7 @@ return `
     <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
     <title>${pageTitle}</title>
     ${pageLoadingAssets}
+    ${showUpdatesLog ? '<link rel="stylesheet" href="/assets/release-notes.css"><script defer src="/assets/release-notes.js"></script>' : ""}
     ${showBilling ? '<link rel="stylesheet" href="/assets/premium-billing.css?v=2">' : ""}
     <style>
       :root{
@@ -16470,25 +16253,24 @@ return `
 
         ${showUpdatesLog ? `
         <section class="gridMain single" id="updates-log">
-          <div class="card">
-            <div class="sectionTitle">
+          <div class="card release-notes">
+            <div class="sectionTitle release-header">
               <div>
-                <h2>Release notes</h2>
-                <p class="sub">Full running log of dashboard and API updates, newest first.</p>
+                <h2>Release Notes</h2>
+                <p class="sub">See what's new, improved, and fixed in OpenCircle.</p>
               </div>
+              <span class="pill">Current version ${esc(stats.appVersion)}</span>
             </div>
-            <div class="mini">
-              <div class="release-meta" style="margin-bottom:14px;">
-                <div class="release-row"><div class="label">App version</div><div class="value">${esc(stats.appVersion)}</div></div>
-                <div class="release-row"><div class="label">Most recent update</div><div class="value">${esc(latestRelease.text)}</div></div>
-              </div>
-              ${releaseLogItems.map((item) => `
-                <div class="insight-row" style="padding:12px 0;">
-                  <div class="label">${esc(item.date)}</div>
-                  <div class="value">${esc(item.text)}</div>
-                </div>
-              `).join("")}
-            </div>
+            <nav class="release-filters" aria-label="Filter release notes">
+              ${releaseFilters.map(category => `<a href="${esc(buildScopedAdminHref("/admin/updates-log", { category }))}"
+                data-release-filter="${category}"${releaseNotes.category === category ? ' aria-current="true"' : ""}>${releaseCategories[category]}</a>`).join("")}
+            </nav>
+            <p class="release-status muted" data-release-status role="status"></p>
+            <div data-release-entries>${renderReleaseEntries(releaseNotes)}</div>
+            <nav class="release-pagination" aria-label="Release history pages">
+              ${releaseNotes.page > 1 ? `<a class="btn" data-release-previous href="${esc(buildScopedAdminHref("/admin/updates-log", { category: releaseNotes.category, page: releaseNotes.page - 1 }))}">Newer releases</a>` : ""}
+              <a class="btn" data-release-more href="${esc(buildScopedAdminHref("/admin/updates-log", { category: releaseNotes.category, page: releaseNotes.page + 1 }))}"${releaseNotes.hasMore ? "" : " hidden"}>Load more</a>
+            </nav>
           </div>
         </section>
         ` : ``}
@@ -21861,6 +21643,11 @@ router.use(async (req, res, next) => {
     if (role === "organizer" && !isOrganizerAllowedAdminPath(req.path)) {
       return res.status(403).send("Forbidden");
     }
+    if (sessionUser?.id && req.method === "GET") {
+      res.once("finish", () => {
+        if (res.statusCode === 200) publishCurrentRelease().catch(error => console.error("[release notes] Publication failed", error.message));
+      });
+    }
     return next();
   } catch (error) {
     return next(error);
@@ -22110,7 +21897,19 @@ router.get("/newsletter/preview", async (req, res) => renderAdmin(req, res, "new
 router.get("/newsletter/audience", async (req, res) => renderAdmin(req, res, "newsletter-audience"));
 router.get("/messages", async (req, res) => renderAdmin(req, res, "messages"));
 router.get("/preferences", async (req, res) => renderAdmin(req, res, "preferences"));
-router.get("/updates-log", async (req, res) => renderAdmin(req, res, "updates-log"));
+router.get("/updates-log", async (req, res) => {
+  const user = await resolveSessionUser(req);
+  const role = normalizeRoleValue(req.user?.role || user?.role || "");
+  if (!user?.id || !(hasDeveloperAccessRole(role) || role === "organizer")) return res.sendStatus(403);
+  res.vary("Accept");
+  res.set("Cache-Control", "private, no-store");
+  await publishCurrentRelease();
+  if (req.get("accept") === "application/json") {
+    const notes = await readReleaseNotes(req.query);
+    return res.json({ html: renderReleaseEntries(notes), category: notes.category, page: notes.page, hasMore: notes.hasMore });
+  }
+  return renderAdmin(req, res, "updates-log");
+});
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 

@@ -125,6 +125,11 @@ function createAddColumnHelper(table) {
 // initDB (server.js expects this name)
 // --------------------
 async function initDB() {
+  await run(`CREATE TABLE IF NOT EXISTS published_releases (
+    version TEXT PRIMARY KEY,
+    date TEXT NOT NULL
+  )`);
+
   // WAL for better concurrency
   await tryExec(`PRAGMA journal_mode=WAL;`);
   await tryExec(`PRAGMA synchronous=NORMAL;`);

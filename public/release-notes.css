@@ -1,0 +1,108 @@
+.release-notes .release-header {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+}
+.release-filters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  margin-block: 6px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-mid);
+  background: var(--panel2);
+}
+.release-filters a {
+  padding: 6px 10px;
+  border-radius: var(--radius-inner);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+.release-filters a[aria-current],
+.release-filters a:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+.release-filters a[aria-current] {
+  box-shadow: 0 0 0 1px var(--line);
+}
+.release-filters a:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+.release-status:empty {
+  margin: 0;
+}
+.release-entry {
+  display: grid;
+  grid-template-columns: minmax(140px, 190px) minmax(0, 1fr);
+  gap: 16px 26px;
+  border-top: 1px solid var(--line);
+  padding-block: 22px;
+}
+.release-entry-meta h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.release-entry-meta time,
+.release-latest {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+.release-latest {
+  margin-top: 6px;
+  font-weight: 650;
+}
+.release-summary {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+.release-change-group + .release-change-group {
+  margin-top: 16px;
+}
+.release-category {
+  display: inline-block;
+  margin: 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--release-tint);
+  color: var(--release-color);
+}
+.release-category--new { --release-tint: #d9f6e9; --release-color: #146043; }
+.release-category--improved { --release-tint: #e2efff; --release-color: #225795; }
+.release-category--fixed { --release-tint: #fff0d5; --release-color: #784900; }
+.release-category--security { --release-tint: #eee8ff; --release-color: #553994; }
+.release-change-group ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.release-change-group li + li {
+  margin-top: 10px;
+}
+.release-change-group p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.release-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.release-pagination a[hidden] {
+  display: none;
+}
+@media (max-width: 640px) {
+  .release-entry {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding-block: 16px;
+  }
+}

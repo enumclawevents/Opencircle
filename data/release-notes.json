@@ -1,0 +1,59 @@
+{
+  "releases": {
+    "1.0.2": {
+      "summary": "More ways to organize events, with clearer reporting and release history.",
+      "changes": [
+        { "category": "new", "title": "Link related events", "description": "Connect an event to a larger festival or series and show the relationship on supported event pages." },
+        { "category": "improved", "title": "Choose an existing venue", "description": "Select an optional venue from your community when creating or editing an event." },
+        { "category": "improved", "title": "Flexible analytics reports", "description": "Choose a reporting period and chart grouping, then download the current report as PDF, Excel, or CSV." },
+        { "category": "improved", "title": "Easier to scan release notes", "description": "Browse significant changes by release or filter the timeline by update type." }
+      ]
+    }
+  },
+  "history": [
+    { "date": "2026-05-05", "changes": [
+      { "category": "fixed", "title": "Event views in analytics", "description": "Event charts display recorded views again and explain when no recent activity is available." }
+    ] },
+    { "date": "2026-04-30", "changes": [
+      { "category": "fixed", "title": "Reliable event sorting", "description": "The All Events list preserves and applies the selected sort order." },
+      { "category": "fixed", "title": "Multi-day schedules save correctly", "description": "Schedules now accept localized 12-hour time values." },
+      { "category": "new", "title": "Ticket link insights", "description": "Individual event analytics now show recorded ticket link clicks." }
+    ] },
+    { "date": "2026-04-16", "changes": [
+      { "category": "security", "title": "Organizer venue access", "description": "Organizers can manage the venues associated with their own account." }
+    ] },
+    { "date": "2026-04-13", "changes": [
+      { "category": "improved", "title": "Compare events on the dashboard calendar", "description": "Switch between your events and all events, and spot busier dates by their shading." }
+    ] },
+    { "date": "2026-04-11", "changes": [
+      { "category": "new", "title": "Dashboard calendar", "description": "Preview scheduled events by day and browse longer lists of events from the dashboard." }
+    ] },
+    { "date": "2026-04-10", "changes": [
+      { "category": "improved", "title": "Flexible event schedules", "description": "Choose a single, multi-day, or recurring event. Multi-day events can have different hours each day." },
+      { "category": "fixed", "title": "Recurring events for organizers", "description": "Organizer accounts can save recurring events alongside single and multi-day listings." },
+      { "category": "improved", "title": "Review duplicate warnings", "description": "Confirm a separate event directly from its duplicate warning." }
+    ] },
+    { "date": "2026-04-09", "changes": [
+      { "category": "new", "title": "Support Circle in Messages", "description": "Reach OpenCircle support from Messages and see when a sent message has been read." },
+      { "category": "improved", "title": "Organizer dashboard", "description": "Organizers land on a dashboard with shortcuts and insights for their own events." }
+    ] },
+    { "date": "2026-04-07", "changes": [
+      { "category": "new", "title": "Messages and recent activity", "description": "Message people in your community and see recent content and pending event submissions on the dashboard." },
+      { "category": "new", "title": "Dedicated analytics", "description": "Find analytics for events, organizers, venues, jobs, and ads in one place." }
+    ] },
+    { "date": "2026-03-25", "changes": [
+      { "category": "new", "title": "Live ad insights", "description": "The dashboard shows recorded activity for ads." }
+    ] },
+    { "date": "2026-03-24", "changes": [
+      { "category": "new", "title": "Bulk event import", "description": "Import events from a CSV, attach images from a ZIP, and review submissions in the upload workspace." },
+      { "category": "new", "title": "Website job applications", "description": "Configure application fields and choose multiple employment types for a job posting." }
+    ] },
+    { "date": "2026-03-23", "changes": [
+      { "category": "new", "title": "Manage ads and review possible duplicates", "description": "Manage ad listings and get a warning when a new event resembles an existing listing." }
+    ] },
+    { "date": "2026-03-18", "changes": [
+      { "category": "new", "title": "Venues, jobs, and applicants", "description": "Manage venue listings, job postings, and applicants from the dashboard." },
+      { "category": "new", "title": "Event traffic sources", "description": "See where recorded event traffic comes from." }
+    ] }
+  ]
+}

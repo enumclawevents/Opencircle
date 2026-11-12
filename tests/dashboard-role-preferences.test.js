@@ -69,7 +69,7 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
   const baseUrl = `http://127.0.0.1:${port}`;
   const server = spawn(process.execPath, ["server.js"], {
     cwd: path.resolve(__dirname, ".."),
-    env: { ...process.env, DB_PATH: dbPath, PORT: String(port), SQUARE_SANDBOX_BILLING_ADMIN_EMAIL: "billing-owner@example.test", SQUARE_PRODUCTION_APPLICATION_ID: "" },
+    env: { ...process.env, DB_PATH: dbPath, PORT: String(port), SQUARE_SANDBOX_BILLING_ADMIN_EMAIL: "billing-owner@example.test", SQUARE_PRODUCTION_APPLICATION_ID: "", APP_VERSION: "" },
     stdio: "ignore",
   });
 
@@ -130,6 +130,23 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
   assert.equal(developerSummary.communities.reduce((total, community) => total + community.publishedEvents, 0), 2);
 
   const organizerCookie = await signIn(baseUrl, "organizer@example.test", password);
+  const releasePage = await fetch(baseUrl + "/admin/updates-log", { headers: { cookie: organizerCookie } });
+  assert.equal(releasePage.status, 200);
+  const releaseHtml = await releasePage.text();
+  const { version } = require("../package.json");
+  assert.match(releaseHtml, new RegExp("Current version v" + version.replaceAll(".", "\\.")));
+  assert.match(releaseHtml, /Latest release/);
+  assert.equal((releaseHtml.match(/<article class="release-entry">/g) || []).length, 4);
+  assert.doesNotMatch(releaseHtml, /Website job applications/);
+  const fixedReleases = await fetch(baseUrl + "/admin/updates-log?category=fixed", {
+    headers: { cookie: organizerCookie, accept: "application/json" },
+  });
+  assert.equal(fixedReleases.status, 200);
+  const filtered = await fixedReleases.json();
+  assert.equal(filtered.category, "fixed");
+  assert.match(filtered.html, /release-category--fixed/);
+  assert.doesNotMatch(filtered.html, /release-category--new|release-category--security/);
+
   await execSql(
     dbPath,
     "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)",
