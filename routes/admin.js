@@ -10456,7 +10456,6 @@ return `
       .nav-title-btn:visited,
       .nav-title-btn:active,
       .nav-title-btn:focus{
-        color:#ffffff !important;
         text-decoration:none;
       }
       .nav-title-btn .nav-title-icon{
@@ -10467,12 +10466,10 @@ return `
         opacity:.95;
       }
       .nav-title-btn:hover{
-        color:#ffffff;
         background: rgba(255,255,255,.04);
       }
       .nav-group.is-open > .nav-title-btn{
         background:var(--brand);
-        color:#ffffff;
         position:relative;
         border-radius:0;
         margin:0;
@@ -13835,6 +13832,9 @@ return `
       /* Keep the label column aligned with the city selector and submenu labels. */
       .nav-title-btn .nav-title-icon{ display:block; width:21px; height:21px; margin-right:6px; flex:none; color:#aebbd0; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
       .nav-title-btn:hover{ background:rgba(148,163,184,.12); }
+      .nav-title-btn:hover,
+      .nav-title-btn:focus,
+      .nav-title-btn:active{ color:#ffffff !important; }
       .nav-group.is-open > .nav-title-btn{ background:rgba(0,192,139,.16); color:#f8fffd !important; border:1px solid rgba(0,192,139,.16); }
       .nav-group.is-open > .nav-title-btn .nav-title-icon{ color:#36ddb1; }
       .nav-group > .nav-title-btn::after{ content:"\\f104"; display:block; margin-left:auto; width:auto; height:auto; border:0; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:11px; color:#93a3ba; transform:none; }
