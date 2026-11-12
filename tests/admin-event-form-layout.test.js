@@ -20,7 +20,7 @@ test("event form groups the existing controls without changing their bindings", 
     "hasRecurrence", "recurrenceType", "recurrenceUntilDate",
     "recurrenceDatesJson", "imageFile", "imageUrl", "ticketLabel",
     "ticketUrl", "location", "organizer", "seoTitle", "metaDescription",
-    "focusKeyphrase", "imageAlt", "featured", "eddiesPick", "forceDuplicateSave",
+    "focusKeyphrase", "imageAlt", "featured", "eddiesPick",
   ]) {
     assert.match(source, new RegExp(`name="${name}"`));
   }

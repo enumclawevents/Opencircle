@@ -12971,7 +12971,6 @@ return `
       .event-form-advanced-group > summary::-webkit-details-marker{ display:none; }
       .event-form-advanced-group > summary:hover{ background:var(--panel2); }
       .event-form-advanced-group > summary:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; }
-      .event-form-advanced-heading-label{ display:flex; align-items:center; gap:8px; }
       .event-form-advanced-group[open] > summary > svg{ transform:rotate(90deg); }
       .event-form-advanced-controls{ display:grid; gap:8px; padding-top:6px; }
       form[action="/admin/events"] .event-form-advanced-controls > .note{ margin:0; }
@@ -13009,7 +13008,8 @@ return `
       .event-parent-child-link{ display:inline-block; margin-top:8px; }
 
       .event-form-savebar{ position:static; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:0; padding:18px 0 0; border-top:1px solid var(--line); background:var(--panel); box-shadow:none; }
-      .event-form-savebar .actions{ margin:0; order:2; }
+      .event-form-savebar .actions{ margin:0 0 0 auto; order:2; justify-content:flex-end; }
+      .event-form-savebar [data-parent-save-anyway][hidden]{ display:none; }
       .event-form-savebar .note{ margin:0; order:1; }
       .event-form-savebar [data-parent-save-status]:empty{ position:absolute; }
       .event-form-area{ margin-top:0 !important; padding:0 0 16px !important; border:0 !important; background:transparent !important; box-shadow:none !important; }
@@ -17286,7 +17286,7 @@ return `
                     <div class="event-form-advanced-group" data-oc-event-parent data-parent-endpoint="/events/parent-options"
                          data-event-id="${esc(editEvent && !fromPending ? editEvent.id : "")}"
                          data-initial-label="${esc(parentLabel)}">
-                      <h4 class="event-form-advanced-heading"><i data-lucide="link-2" aria-hidden="true"></i>Event Relationships</h4>
+                      <h4 class="event-form-advanced-heading">Event Relationships</h4>
                       <label class="checkbox event-form-advanced-check">
                         <input type="checkbox" data-parent-toggle ${parentId ? "checked" : ""} aria-controls="event-parent-panel" />
                         <span>Part of a larger event</span>
@@ -17317,7 +17317,7 @@ return `
                     </div>
                     ${canFeatureEvents ? `
                       <div class="event-form-advanced-group">
-                        <h4 class="event-form-advanced-heading"><i data-lucide="eye" aria-hidden="true"></i>Editorial &amp; Visibility</h4>
+                        <h4 class="event-form-advanced-heading">Editorial &amp; Visibility</h4>
                         <div class="event-form-advanced-controls">
                           <label class="checkbox event-form-advanced-check">
                             <input type="checkbox" id="featured" name="featured" value="1" ${isFeatured ? "checked" : ""} />
@@ -17334,7 +17334,7 @@ return `
                     ` : ""}
                     <details class="event-form-advanced-group">
                       <summary class="event-form-advanced-heading">
-                        <span class="event-form-advanced-heading-label"><i data-lucide="search" aria-hidden="true"></i>Search Engine Optimization (SEO)</span>
+                        <span>Search Engine Optimization (SEO)</span>
                         <i data-lucide="chevron-right" aria-hidden="true"></i>
                       </summary>
                       <div class="event-form-advanced-controls">
@@ -17354,29 +17354,16 @@ return `
                         `}
                       </div>
                     </details>
-                    <details class="event-form-advanced-group">
-                      <summary class="event-form-advanced-heading">
-                        <span class="event-form-advanced-heading-label"><i data-lucide="list-checks" aria-hidden="true"></i>Submission Controls</span>
-                        <i data-lucide="chevron-right" aria-hidden="true"></i>
-                      </summary>
-                      <div class="event-form-advanced-controls">
-                        <label class="checkbox event-form-advanced-check">
-                          <input type="checkbox" id="forceDuplicateSave" name="forceDuplicateSave" value="1" aria-describedby="forceDuplicateHelp" />
-                          <span>Save anyway if a possible duplicate is found</span>
-                        </label>
-                        <p class="note" id="forceDuplicateHelp">Use only when you are sure this is a separate event.</p>
-                      </div>
-                    </details>
                   </div>
                 </details>
               </section>
 
               <div class="event-form-savebar">
                 <p class="note" data-parent-save-status role="status"></p>
-                <button class="btn" type="button" data-parent-save-anyway hidden>Save anyway</button>
                 <div class="actions">
-                <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
-              ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
+                  ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
+                  <button class="btn" type="button" data-parent-save-anyway hidden>Save despite duplicate warning</button>
+                  <button type="submit" class="btn btn-primary">${editEvent ? "Update Event" : "Save Event"}</button>
                 </div>
               </div>
               </div>
