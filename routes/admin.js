@@ -3,7 +3,6 @@
 const pageLoadingAssets = require("../lib/page-loading");
 
 const express = require("express");
-const { billingAdminEmail, billingConfig, checkProductionBilling, BillingError, enrollBilling, nextBillingDate, readBilling, refreshBilling, replaceBillingCard, changeBillingDay, readBillingHistory, productionPaymentConfig, listAccountPaymentMethods, saveAccountPaymentMethod, organizationFirstCharge, listOrganizationBillingAccounts, getOrganizationBillingAccount, createOrganizationBillingAccount, setOrganizationEnrollment, organizationBillingStatus, readOrganizationBillingHistory, enrollOrganizationBilling } = require("../lib/plateau-billing");
 const { buildReportDownload } = require("../lib/report-download");
 const router = express.Router();
 const CHART_SERIES_STROKE_WIDTH = 2;
@@ -5012,43 +5011,6 @@ async function renderAdmin(req, res, view) {
     await ensureVenueSchema();
     await ensureNewsletterSchema();
     const sessionUser = await resolveSessionUser(req);
-    const showBilling = view === "billing";
-    const canSeeSandboxBilling = canManagePlateauSandboxBilling(req, sessionUser);
-    const canSeeBilling = canSeeSandboxBilling;
-    if (showBilling && !canSeeBilling) return res.status(403).send("Forbidden");
-    const showProductionPreview = showBilling && canSeeSandboxBilling && req.query.previewProduction === "1";
-    const showSandboxBilling = showBilling && canSeeSandboxBilling && !showProductionPreview
-      && (req.query.sandbox === "1" || req.query.checkProduction === "1");
-    const showAccountPaymentMethods = showBilling && !showProductionPreview && !showSandboxBilling;
-    const billing = showSandboxBilling ? await renderPlateauBilling(sessionUser) : null;
-    const paymentConfig = showAccountPaymentMethods ? productionPaymentConfig() : null;
-    const paymentMethods = paymentConfig ? await listAccountPaymentMethods(paymentConfig, sessionUser.id) : [];
-    const organizations = paymentConfig ? await listOrganizationBillingAccounts(sessionUser.id) : [];
-    const selectedOrganizationId = Number(req.billingOrganizationId || req.query.organization);
-    const selectedOrganization = organizations.find(account => account.id === selectedOrganizationId) || organizations[0];
-    const organization = selectedOrganization
-      ? await getOrganizationBillingAccount(selectedOrganization.id, sessionUser.id) : null;
-    let organizationStatus;
-    if (organization?.subscriptionId) {
-      try { organizationStatus = await organizationBillingStatus(paymentConfig, organization); }
-      catch (_) { organizationStatus = null; }
-    }
-    const organizationNextDate = organizationStatus?.schedule.nextDate;
-    const enrollmentRequest = organization?.subscriptionRequest ? JSON.parse(organization.subscriptionRequest) : null;
-    const organizationStart = enrollmentRequest?.start_date || organizationFirstCharge();
-    const adminOrganizations = paymentConfig && canSeeSandboxBilling ? await listOrganizationBillingAccounts() : [];
-    const organizationContacts = paymentConfig && canSeeSandboxBilling
-      ? await all("SELECT id, email, displayName FROM users WHERE email IS NOT NULL AND trim(email) <> '' ORDER BY lower(email)") : [];
-
-    const productionAppId = showProductionPreview ? String(process.env.SQUARE_PRODUCTION_APPLICATION_ID || "").trim() : "";
-    const productionLocationId = showProductionPreview ? String(process.env.SQUARE_PRODUCTION_LOCATION_ID || "").trim() : "";
-    const loadProductionCard = /^[A-Za-z0-9_-]+$/.test(productionAppId)
-      && !productionAppId.startsWith("sandbox-") && /^[A-Za-z0-9]+$/.test(productionLocationId);
-    const productionBillingStatus = showBilling && canSeeSandboxBilling
-      ? await (req.query.checkProduction === "1" ? runProductionBillingCheck() : checkProductionBilling())
-      : "";
-    const billingStatus = billing?.status || (showProductionPreview ? "Not subscribed" : "Unavailable");
-    const billingStatusTone = { Active: "positive", Pending: "pending", Paused: "pending", Canceled: "ended", Deactivated: "ended" }[billingStatus] || "neutral";
     await ensureJobSchema();
     await ensureAdSchema();
     await ensureJobApplicantSchema();
@@ -10178,8 +10140,6 @@ return `
       ? "Updates Dashboard"
       : showUpdates
       ? "All Updates"
-      : showBilling
-      ? "Billing & Subscription"
       : showPreferences
       ? "Preferences"
       : showUsers
@@ -10225,26 +10185,8 @@ return `
     const jobsMenuOpen = showJobsExisting || showJobsCreate || showJobsApplicants;
     const adsMenuOpen = showAdsExisting || showAdsCreate;
     const analyticsMenuOpen = showAnalytics || showVenueAnalytics || showJobsAnalytics || showAdsAnalytics || showNewsletterAnalytics || showOrganizers;
-    const adminMenuOpen = showUsers || showInvites || showPreferences || showBilling;
-    const pageTitle = `OpenCircle | ${showBilling ? esc(pageTitleBase) : pageTitleBase}`;
-
-    // The shared admin layout uses inline scripts for navigation and theme.
-    const billingNonce = showBilling ? crypto.randomBytes(18).toString("base64") : "";
-    const scriptNonce = billingNonce ? ` nonce="${billingNonce}"` : "";
-    if (showBilling) {
-      const squareWebOrigin = showProductionPreview || showAccountPaymentMethods ? "https://web.squarecdn.com" : "https://sandbox.web.squarecdn.com";
-      const squarePciOrigin = showProductionPreview || showAccountPaymentMethods ? "https://pci-connect.squareup.com" : "https://pci-connect.squareupsandbox.com";
-      res.set("Content-Security-Policy", [
-        "default-src 'self'",
-        `script-src 'self' 'nonce-${billingNonce}' ${squareWebOrigin} https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js`,
-        `frame-src ${squareWebOrigin}${paymentConfig ? " https:" : ""}`,
-        `connect-src 'self' ${squareWebOrigin} ${squarePciOrigin} https://o160250.ingest.sentry.io`,
-        `style-src 'self' 'unsafe-inline' ${squareWebOrigin} https://cdnjs.cloudflare.com`,
-        "font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://cdnjs.cloudflare.com",
-        "img-src 'self' data: https:",
-        "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'",
-      ].join("; "));
-    }
+    const adminMenuOpen = showUsers || showInvites || showPreferences;
+    const pageTitle = `OpenCircle | ${pageTitleBase}`;
 
     res.send(`<!doctype html>
 <html lang="en">
@@ -10257,7 +10199,6 @@ return `
     <title>${pageTitle}</title>
     ${pageLoadingAssets}
     ${showUpdatesLog ? '<link rel="stylesheet" href="/assets/release-notes.css"><script defer src="/assets/release-notes.js"></script>' : ""}
-    ${showBilling ? '<link rel="stylesheet" href="/assets/premium-billing.css?v=2">' : ""}
     <style>
       :root{
         /* Main (light, WordPress-like) */
@@ -14210,7 +14151,7 @@ return `
   </head>
   <body>
     <a class="admin-skip-link" href="#admin-content">Skip to content</a>
-    <script${scriptNonce}>try{if(localStorage.getItem("oc-admin-theme") === "dark")document.body.classList.add("theme-dark");}catch(_){}</script>
+    <script>try{if(localStorage.getItem("oc-admin-theme") === "dark")document.body.classList.add("theme-dark");}catch(_){}</script>
     <div class="app">
       <button type="button" class="sidebar-backdrop" id="sidebarBackdrop" aria-label="Close sidebar"></button>
 
@@ -14335,7 +14276,6 @@ return `
             <a class="nav-title-btn" href="${hasDeveloperAccess ? buildScopedAdminHref("/admin/users") : buildScopedAdminHref("/admin/preferences")}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="user-round" aria-hidden="true"></i><span>Admin</span></a>
             <div class="nav-sub" data-nav-sub>
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="${buildScopedAdminHref("/admin/preferences")}">Preferences</a>
-              ${canSeeBilling ? `<a class="subnav-link ${showBilling ? "active" : ""}" href="/admin/billing"${showBilling ? ' aria-current="page"' : ""}>Billing</a>` : ""}
               ${hasAdminAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="${buildScopedAdminHref("/admin/users")}">Users</a>` : ``}
               ${hasAdminAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="${buildScopedAdminHref("/admin/invites")}">Invites</a>` : ``}
             </div>
@@ -14433,7 +14373,7 @@ return `
           </div>
         </div>
 
-        <script${scriptNonce}>
+        <script>
         (function(){
           var lastCount = ${pendingCount};
           var lastReportCount = ${openEventReportCount};
@@ -14522,7 +14462,7 @@ return `
         ` : ``}
 
         ${analyticsPeriodHtml}
-        <script${scriptNonce}>
+        <script>
           (function(){
             var form = document.getElementById('analyticsPeriodForm');
             if (!form) return;
@@ -15869,246 +15809,6 @@ return `
             `;
             })()}
           </div>
-        </section>
-        ` : ``}
-
-        ${showAccountPaymentMethods ? `
-        <section class="dashboard-command premium-billing" id="billing" aria-labelledby="billingTitle">
-          <header class="dashboard-command-head">
-            <div>
-              <h1 id="billingTitle">Payment Methods</h1>
-              <p class="sub">Manage cards saved to your OpenCircle account.</p>
-            </div>
-          </header>
-          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="savedPaymentMethodsTitle">
-            <div class="sectionTitle"><h2 id="savedPaymentMethodsTitle">Saved Cards</h2></div>
-            ${paymentMethods.length ? `
-              <div class="mini premium-billing__table" role="region" aria-labelledby="savedPaymentMethodsTitle" tabindex="0">
-                <table class="analytics-table premium-billing__methods" aria-labelledby="savedPaymentMethodsTitle">
-                  <thead><tr><th scope="col">Payment Method</th><th scope="col">Card Number</th><th scope="col">Expiration</th></tr></thead>
-                  <tbody>${paymentMethods.map(card => `<tr>
-                    <td data-label="Payment Method">${esc(card.brand?.replaceAll("_", " ") || "Card")}</td>
-                    <td data-label="Card Number">${card.last4 ? `•••• ${esc(card.last4)}` : "Unavailable"}</td>
-                    <td data-label="Expiration">${card.expMonth && card.expYear ? `${esc(card.expMonth)}/${esc(card.expYear)}` : "Unavailable"}</td>
-                  </tr>`).join("")}</tbody>
-                </table>
-              </div>` : '<p class="sub">You haven’t added a payment method yet.</p>'}
-          </section>
-          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="addPaymentMethodTitle">
-            <div class="sectionTitle"><h2 id="addPaymentMethodTitle">Add a Card</h2></div>
-            ${paymentConfig ? `
-              <form id="accountPaymentMethodForm" data-email="${esc(sessionUser.email)}" method="post" action="/admin/billing/payment-methods">
-                <div class="premium-billing__authorization">
-                  <label>First name <input class="ctrl" name="givenName" autocomplete="given-name" maxlength="100" required></label>
-                  <label>Last name <input class="ctrl" name="familyName" autocomplete="family-name" maxlength="100" required></label>
-                  <label>Billing address <input class="ctrl" name="address" autocomplete="address-line1" maxlength="150" required></label>
-                  <label>City <input class="ctrl" name="city" autocomplete="address-level2" maxlength="100" required></label>
-                  <label>State <input class="ctrl" name="region" autocomplete="address-level1" pattern="[A-Za-z]{2}" maxlength="2" required></label>
-                  <label>ZIP code <input class="ctrl" name="postalCode" autocomplete="postal-code" maxlength="10" required></label>
-                </div>
-                <div class="premium-billing__fields" id="productionSquareCard" data-application-id="${esc(paymentConfig.appId)}" data-location-id="${esc(paymentConfig.locationId)}"></div>
-                <p class="premium-billing__secure">Square securely handles your card details. Saving a card does not charge it or start a subscription.</p>
-                <div class="mini premium-billing__authorization">
-                  <label class="checkbox"><input type="checkbox" name="authorized" required><span>I authorize Square to securely save this card to my OpenCircle account.</span></label>
-                  <button class="btn btn-primary" type="submit" disabled>Save payment method</button>
-                  <p class="premium-billing__feedback" id="productionCardStatus" role="status">Loading the Square card form…</p>
-                </div>
-              </form>` : '<p class="sub" role="status">Payment method setup is currently unavailable.</p>'}
-          </section>
-          ${organization ? `
-          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="organizationSubscriptionTitle">
-            <div class="sectionTitle"><div><h2 id="organizationSubscriptionTitle">Organization Subscription</h2><p class="sub">OpenCircle Premium for your organization.</p></div></div>
-            ${organizations.length > 1 ? `
-              <nav class="premium-billing__organization-links" aria-label="Billing organizations">
-                ${organizations.map(account => `<a class="btn" href="/admin/billing?organization=${account.id}"${account.id === organization.id ? ' aria-current="page"' : ""}>${esc(account.name)}</a>`).join("")}
-              </nav>` : ""}
-            <dl class="premium-billing__schedule">
-              <div><dt class="dashboard-kpi-label">Organization</dt><dd>${esc(organization.name)}</dd></div>
-              <div><dt class="dashboard-kpi-label">Plan</dt><dd>$100.00 monthly on the 1st</dd></div>
-              <div><dt class="dashboard-kpi-label">Status</dt><dd>${esc(organization.subscriptionId ? ({ PENDING: "Pending", ACTIVE: "Active", CANCELED: "Canceled", DEACTIVATED: "Deactivated", PAUSED: "Paused", COMPLETED: "Completed" }[organizationStatus?.status] || "Unavailable") : "Not subscribed")}</dd></div>
-            </dl>
-            ${req.billingEnrollmentError ? `<p role="alert">${esc(req.billingEnrollmentError)}</p>` : ""}
-            ${organization.subscriptionId ? `
-              ${req.query.subscription === "confirmed" ? '<p role="status">Square confirmed your subscription.</p>' : ""}
-              <p class="sub">Next payment ${esc(organizationNextDate ? DateTime.fromISO(organizationNextDate, { zone: organizationStatus.schedule.zone }).toFormat("MMMM d, yyyy") : "unconfirmed")}.</p>
-              <p class="sub">Contact <a href="mailto:admin@opencircleapi.com">OpenCircle support</a> to cancel future renewals.</p>
-            ` : paymentMethods.length ? `
-              <form class="mini premium-billing__authorization" id="organizationEnrollmentForm" method="post" action="/admin/billing/subscribe">
-                <input type="hidden" name="organizationId" value="${organization.id}">
-                <input type="hidden" name="acceptedStart" value="${esc(organizationStart)}">
-                <label>Card for autopay
-                  <select class="ctrl" name="cardId" required>
-                    <option value="">Choose a saved card</option>
-                    ${paymentMethods.filter(card => !enrollmentRequest || enrollmentRequest.card_id === card.id).map(card => `
-                      <option value="${esc(card.id)}">${esc(card.brand || "Card")}${card.last4 ? ` ending in ${esc(card.last4)}` : ""}${card.expMonth && card.expYear ? ` · ${esc(card.expMonth)}/${esc(card.expYear)}` : ""}</option>
-                    `).join("")}
-                  </select>
-                </label>
-                <p>First charge <strong>${esc(DateTime.fromISO(organizationStart, { zone: DEFAULT_TZ }).toFormat("MMMM d, yyyy"))}</strong> (Pacific time). Contact OpenCircle support to cancel future renewals.</p>
-                <label class="checkbox"><input type="checkbox" name="authorized" value="1" required><span>I authorize Square to charge this card $100.00 for ${esc(organization.name)} on the first charge date shown above and on the 1st of each month after that until canceled.</span></label>
-                <button class="btn btn-primary" type="submit">Authorize &amp; Start Subscription</button>
-                <p id="organizationEnrollmentStatus" class="sub" role="status"></p>
-              </form>
-            ` : '<p class="sub">Add a card above to enroll this organization in autopay.</p>'}
-          </section>
-          ${organization.subscriptionId ? `
-          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="billingHistoryTitle">
-            <div class="sectionTitle"><h2 id="billingHistoryTitle">Billing History</h2></div>
-            <div class="mini premium-billing__table" role="region" aria-labelledby="billingHistoryTitle" tabindex="0">
-              <table class="analytics-table" aria-labelledby="billingHistoryTitle">
-                <thead><tr><th scope="col">Invoice or Transaction ID</th><th scope="col">Date</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Payment Status</th><th scope="col">Receipt</th></tr></thead>
-                <tbody id="billingHistoryRows" data-endpoint="/admin/billing/organization-history" data-organization="${organization.id}"><tr><td colspan="6" class="premium-billing__empty">Loading billing history…</td></tr></tbody>
-              </table>
-            </div>
-            <p id="billingHistoryStatus" class="sub" role="status"></p>
-            <button id="billingHistoryMore" class="btn" type="button" hidden>Load More</button>
-          </section>` : ""}
-          ` : ""}
-
-          ${paymentConfig && canSeeSandboxBilling ? `
-          <details class="card dashboard-command-card dashboard-card premium-billing__section"${req.billingAdminError || req.query.organizationSetup === "saved" ? " open" : ""}>
-            <summary class="sectionTitle card-toggle"><span>Organization Billing Setup</span><i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i></summary>
-            <p class="sub">Create one billing account per organization and select the OpenCircle login that can authorize its subscription.</p>
-            ${req.billingAdminError ? `<p role="alert">${esc(req.billingAdminError)}</p>` : ""}
-            ${req.query.organizationSetup === "saved" ? '<p role="status">Organization billing settings saved.</p>' : ""}
-            <form class="mini premium-billing__authorization" method="post" action="/admin/billing/organizations">
-              <label>Organization name <input class="ctrl" name="name" maxlength="120" required></label>
-              <label>Billing contact <select class="ctrl" name="contactUserId" required>
-                <option value="">Select an OpenCircle account</option>
-                ${organizationContacts.map(contact => `<option value="${contact.id}">${esc(contact.displayName ? contact.displayName + " · " + contact.email : contact.email)}</option>`).join("")}
-              </select></label>
-              <label>Square monthly plan variation ID <input class="ctrl" name="variationId" maxlength="100" value="${esc(adminOrganizations[0]?.variationId || process.env.SQUARE_PRODUCTION_BILLING_VARIATION_ID || "")}" required></label>
-              <label>Square item variation ID (for item-priced plans) <input class="ctrl" name="itemVariationId" maxlength="100" value="${esc(adminOrganizations[0]?.itemVariationId || process.env.SQUARE_PRODUCTION_BILLING_ITEM_VARIATION_ID || "")}"></label>
-              <button class="btn" name="action" value="create" type="submit">Create billing account</button>
-            </form>
-            ${adminOrganizations.map(account => `
-              <div class="mini premium-billing__authorization">
-                <p><strong>${esc(account.name)}</strong> · ${esc(account.email || "Contact unavailable")}</p>
-                ${account.subscriptionId ? '<p class="sub">Subscription linked in Square.</p>' : `
-                  <form method="post" action="/admin/billing/organizations">
-                    <input type="hidden" name="organizationId" value="${account.id}">
-                    <button class="btn" type="submit" name="action" value="${account.enabled ? "close" : "open"}">${account.enabled ? "Close enrollment" : "Open enrollment"}</button>
-                  </form>`}
-              </div>`).join("")}
-          </details>` : ""}
-          ${canSeeSandboxBilling ? '<p><a class="btn" href="/admin/billing?sandbox=1">Sandbox billing and diagnostics</a></p>' : ""}
-        </section>
-        ` : ``}
-
-        ${showSandboxBilling || showProductionPreview ? `
-        <section class="dashboard-command premium-billing" id="billing" aria-labelledby="billingTitle">
-          <header class="dashboard-command-head">
-            <div>
-              <h1 id="billingTitle">${esc(pageTitleBase)}</h1>
-              <p class="sub">Manage your OpenCircle Premium subscription, payment method, and billing details.</p>
-            </div>
-          </header>
-
-          <div class="dashboard-highlight">
-            <div class="dashboard-attention-copy">
-              <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-              <span>
-            ${showProductionPreview
-              ? "<strong>Preview Mode</strong> · Payment collection and enrollment are disabled. Leave the card fields blank."
-              : "<strong>Sandbox</strong> · Use test cards only. All charges are simulated."}
-              </span>
-            </div>
-          </div>
-
-          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="subscriptionOverviewTitle">
-            <div class="sectionTitle"><h2 id="subscriptionOverviewTitle">Subscription Overview</h2></div>
-            <dl class="premium-billing__summary">
-              <div><dt class="dashboard-kpi-label">Plan</dt><dd class="premium-billing__plan">OpenCircle Premium</dd></div>
-              <div><dt class="dashboard-kpi-label">Amount</dt><dd>$100.00 / month</dd></div>
-              <div><dt class="dashboard-kpi-label">Billing Cycle</dt><dd>Monthly</dd></div>
-              <div><dt class="dashboard-kpi-label">Next Payment</dt><dd>${esc(billing?.nextPaymentLabel || "Unconfirmed")}</dd></div>
-              <div><dt class="dashboard-kpi-label">Status</dt><dd><span class="pill premium-billing__badge" data-tone="${billingStatusTone}">${esc(billingStatus)}</span></dd></div>
-            </dl>
-            ${billing?.canEnroll ? '<a class="btn" href="#paymentMethod">Activate Premium in Sandbox</a>' : ""}
-          </section>
-
-          <section class="card dashboard-command-card premium-billing__section" id="paymentMethod" aria-labelledby="paymentMethodTitle">
-            <div class="sectionTitle premium-billing__section-head">
-              <div><h2 id="paymentMethodTitle">Payment Methods</h2><p class="sub">Manage the payment method used for your OpenCircle Premium subscription.</p></div>
-              <button class="btn" type="button" disabled ${billing?.canReplaceCard ? 'aria-expanded="false" aria-controls="plateauBillingForm" data-billing-toggle' : 'aria-describedby="changeCardAvailability"'}>Change Card</button>
-            </div>
-            ${billing?.canReplaceCard ? "" : `<p class="sub" id="changeCardAvailability">${showProductionPreview
-              ? "Card changes are disabled in preview mode."
-              : "Card changes are available once Square confirms the subscription is active."}</p>`}
-            ${showProductionPreview ? `
-              <p>A card on file is required for automatic billing.</p>
-              ${loadProductionCard ? `
-                <div class="premium-billing__fields" id="productionSquareCard" data-application-id="${esc(productionAppId)}" data-location-id="${esc(productionLocationId)}"></div>
-                <p class="premium-billing__feedback" id="productionCardStatus" role="status">Loading the Square card form…</p>
-              ` : '<p role="status">The payment form is unavailable. Check the setup in Billing Diagnostics.</p>'}
-              <p class="premium-billing__secure">Card details are handled securely by Square.</p>
-            ` : billing.html}
-          </section>
-
-          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="billingScheduleTitle">
-            <div class="sectionTitle premium-billing__section-head">
-              <h2 id="billingScheduleTitle">Billing Schedule</h2>
-              <button class="btn" type="button" disabled ${billing?.schedule?.canChangeDay ? 'aria-expanded="false" aria-controls="billingDayForm" data-billing-toggle' : 'aria-describedby="changeDayAvailability"'}>Change Billing Day</button>
-            </div>
-            <dl class="premium-billing__schedule">
-              <div><dt class="dashboard-kpi-label">Monthly Billing Day</dt><dd>${esc(billing?.billingDayLabel || "Unconfirmed")}</dd></div>
-              <div><dt class="dashboard-kpi-label">Next Scheduled Payment</dt><dd>${esc(billing?.nextPaymentLabel || "Unconfirmed")}</dd></div>
-              <div><dt class="dashboard-kpi-label">Monthly Amount</dt><dd>$100.00</dd></div>
-            </dl>
-            ${billing?.schedule?.canChangeDay ? "" : `<p class="sub" id="changeDayAvailability">${showProductionPreview
-              ? "Billing day changes are disabled in preview mode."
-              : billing?.pendingDayLabel && billing.pendingDateLabel
-                ? `Your billing date is scheduled to change to the ${esc(billing.pendingDayLabel)} of each month starting ${esc(billing.pendingDateLabel)}.`
-                : billing?.pendingUnconfirmed
-                  ? "Square is still confirming your billing schedule."
-                  : "Billing day changes require an active subscription with a confirmed billing cycle."}</p>`}
-            ${billing?.schedule?.canChangeDay ? `
-              <form class="mini premium-billing__authorization" id="billingDayForm" hidden data-current-day="${billing.schedule.day}" data-next-date="${esc(billing.schedule.nextDate)}">
-                <p>Current billing day <strong>${billing.schedule.day}</strong>. Expected next payment under the current schedule <strong>${esc(billing.nextPaymentLabel)}</strong>.</p>
-                <label for="requestedBillingDay">Requested billing day</label>
-                <select class="ctrl" id="requestedBillingDay" name="day" required>
-                  <option value="">Select a day</option>
-                  ${Array.from({ length: 28 }, (_, index) => index + 1).filter(day => day !== billing.schedule.day).map(day => `<option value="${day}">${day}</option>`).join("")}
-                </select>
-                <p>OpenCircle requests a future effective date. Square does not confirm the new payment date in advance. This plan does not prorate, so another full $100 test charge may follow the previous charge sooner than a month.</p>
-                <label class="checkbox"><input type="checkbox" name="authorized" required><span>I confirm the requested day and understand the next full test charge may follow a shortened billing cycle.</span></label>
-                <button class="btn btn-primary" type="submit" disabled>Confirm billing day</button>
-                <p class="premium-billing__feedback" role="status"></p>
-              </form>
-            ` : ""}
-          </section>
-
-          <section class="card dashboard-command-card premium-billing__section" aria-labelledby="billingHistoryTitle">
-            <div class="sectionTitle">
-              <div><h2 id="billingHistoryTitle">Billing History</h2><p class="sub">View your previous subscription payments and receipts.</p></div>
-            </div>
-            <div class="mini premium-billing__table" role="region" aria-labelledby="billingHistoryTitle" tabindex="0">
-              <table class="analytics-table" aria-labelledby="billingHistoryTitle">
-                <thead><tr><th scope="col">Invoice or Transaction ID</th><th scope="col">Date</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Payment Status</th><th scope="col">Receipt</th></tr></thead>
-                <tbody id="billingHistoryRows"><tr><td colspan="6" class="premium-billing__empty">${showProductionPreview
-                  ? "Billing history is unavailable in preview mode."
-                  : "Loading billing history…"}</td></tr></tbody>
-              </table>
-            </div>
-            ${showProductionPreview ? "" : `
-              <p id="billingHistoryStatus" class="sub" role="status"></p>
-              <button id="billingHistoryMore" class="btn" type="button" hidden>Load More</button>
-            `}
-          </section>
-
-          <details class="card dashboard-command-card dashboard-card premium-billing__diagnostics"${req.query.checkProduction === "1" ? " open" : ""}>
-            <summary class="sectionTitle card-toggle"><span>Developer &amp; Billing Diagnostics <span class="pill premium-billing__badge">${showProductionPreview ? "Production" : "Sandbox"}</span></span><i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i></summary>
-            <p>Production enrollment is disabled.</p>
-            <p id="productionBillingStatus" role="status">${esc(productionBillingStatus)}</p>
-            <form method="get" action="/admin/billing" id="productionBillingCheck">
-              ${showProductionPreview ? '<input type="hidden" name="previewProduction" value="1">' : '<input type="hidden" name="sandbox" value="1">'}
-              <button class="btn" type="submit" name="checkProduction" value="1">Check Square connection</button>
-              ${showProductionPreview
-                ? '<a class="btn" href="/admin/billing?sandbox=1">Back to Sandbox billing</a>'
-                : '<a class="btn" href="/admin/billing?previewProduction=1">Preview live card form</a>'}
-            </form>
-            <p><a href="/admin/billing">Back to account payment methods</a></p>
-          </details>
         </section>
         ` : ``}
 
@@ -18390,7 +18090,7 @@ return `
       </main>
     </div>
 
-    <script${scriptNonce}>
+    <script>
       (function(){
         var root = document.getElementById('dashboardCommand');
         if (!root || !window.fetch) return;
@@ -21478,127 +21178,12 @@ return `
   })();
 })();</script>
     ${showDashboard || analyticsPeriodHtml ? `<script src="/assets/report-download.js" defer></script>` : ""}
-    ${showProductionPreview ? (loadProductionCard ? `
-      <script defer src="https://web.squarecdn.com/v1/square.js"></script>
-      <script defer src="/assets/production-card-preview.js"></script>
-    ` : "") : (billing?.scripts || "")}
-    ${paymentConfig ? '<script defer src="https://web.squarecdn.com/v1/square.js"></script><script defer src="/assets/account-payment-methods.js"></script>' : ""}
-    ${showSandboxBilling || showProductionPreview ? '<script defer src="/assets/production-billing-check.js"></script>' : ""}
-    ${showSandboxBilling || organization?.subscriptionId ? '<script defer src="/assets/billing-history.js?v=2"></script>' : ""}
   </body>
 </html>`);
   } catch (err) {
-    if (view === "billing" && err instanceof BillingError) return res.status(err.status).send(err.message);
     console.error(err);
     res.status(500).send("Internal server error");
   }
-}
-
-// Keep organizer access enforced for direct URLs and form posts as well as in
-// the sidebar. Developers and admins retain their existing route access.
-function canManagePlateauSandboxBilling(req, user) {
-  const ownerEmail = billingAdminEmail();
-  if (!ownerEmail || !user?.id || !isAdminRole(user.role) || String(user.email || "").trim().toLowerCase() !== ownerEmail) return false;
-  const sessionIdentity = String(req.user?.user || "").trim().toLowerCase();
-  return [user.email, user.username].some((value) => value && String(value).toLowerCase() === sessionIdentity);
-}
-
-async function runProductionBillingCheck() {
-  console.info("[square production] Connection check started");
-  const status = await checkProductionBilling({ verify: true });
-  console.info("[square production]", status);
-  return status;
-}
-
-async function renderPlateauBilling(user) {
-  const config = billingConfig();
-  if (!config) {
-    return {
-      html: '<p role="status">Square Sandbox setup is incomplete. Add the Sandbox credentials and enable billing in your server settings to test autopay.</p>',
-      scripts: "",
-    };
-  }
-  let row = await readBilling(config, user.id);
-  let statusUnavailable = false;
-  if (row?.subscriptionId) {
-    try { row = await refreshBilling(config, row); }
-    catch (_) { statusUnavailable = true; }
-  }
-  const start = row?.startDate || nextBillingDate();
-  const startLabel = DateTime.fromISO(start, { zone: DEFAULT_TZ }).toFormat("MMMM d, yyyy");
-  const needsCard = !row?.cardId;
-  const canEnroll = !row?.subscriptionId && start >= nextBillingDate();
-  const statusLabels = { ACTIVE: "Active", PENDING: "Pending", PAUSED: "Paused", CANCELED: "Canceled", DEACTIVATED: "Deactivated", COMPLETED: "Completed" };
-  const status = row?.subscriptionId
-    ? (statusUnavailable ? "Unavailable" : (statusLabels[row.status] || "Unknown"))
-    : "Not subscribed";
-  const schedule = row?.schedule;
-  const canReplaceCard = status === "Active";
-  const dateLabel = (value) => {
-    const date = DateTime.fromISO(value || "", { zone: schedule?.zone || DEFAULT_TZ });
-    return date.isValid ? date.toFormat("MMMM d, yyyy") : "";
-  };
-  const day = schedule?.day;
-  const ordinal = value => value + (value % 100 >= 11 && value % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[value % 10] || "th"));
-  const pending = schedule?.pending;
-  const today = DateTime.now().setZone(schedule?.zone || DEFAULT_TZ).toISODate();
-  const pendingIsUpcoming = pending?.date && pending.date >= today && pending.day !== day;
-  const savedCard = !needsCard ? `
-    <div class="mini premium-billing__table" role="region" aria-labelledby="paymentMethodTitle" tabindex="0">
-      <table class="analytics-table premium-billing__methods" aria-labelledby="paymentMethodTitle" role="table">
-        <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">Payment Method</th><th role="columnheader" scope="col">Card Number</th><th role="columnheader" scope="col">Expiration</th><th role="columnheader" scope="col">Status</th></tr></thead>
-        <tbody role="rowgroup"><tr role="row">
-          <td role="cell" data-label="Payment Method"><span><i class="fa-regular fa-credit-card" aria-hidden="true"></i> <strong>${esc(row.cardBrand ? row.cardBrand.replaceAll("_", " ") : "Test card")}</strong></span></td>
-          <td role="cell" data-label="Card Number">${row.cardLast4 ? `•••• ${esc(row.cardLast4)}` : "Unavailable"}</td>
-          <td role="cell" data-label="Expiration">${row.cardMonth && row.cardYear ? `${esc(row.cardMonth)}/${esc(row.cardYear)}` : "Unavailable"}</td>
-          <td role="cell" data-label="Status">${row.cardEnabled === false ? '<span class="pill premium-billing__badge" data-tone="ended">Disabled</span>' : '<span class="pill premium-billing__badge">On file</span>'}</td>
-        </tr></tbody>
-      </table>
-    </div>` : "";
-  return {
-    status,
-    canEnroll,
-    canReplaceCard,
-    billingDayLabel: day ? `${ordinal(day)} of each month` : "",
-    schedule,
-    nextPaymentLabel: dateLabel(schedule?.nextDate),
-    pendingUnconfirmed: Boolean(pending && pending.day !== day),
-    pendingDayLabel: pendingIsUpcoming && pending.day ? ordinal(pending.day) : "",
-    pendingDateLabel: pendingIsUpcoming ? dateLabel(pending.date) : "",
-    html: `
-      ${savedCard}
-      ${canEnroll ? `
-        ${needsCard ? "<p>Add a test card to set up automatic payments.</p>" : "<p>Your test card is ready. Authorize autopay to finish setup.</p>"}
-        <form id="plateauBillingForm" data-needs-card="${needsCard ? "1" : "0"}"
-          data-start-date="${esc(start)}" data-application-id="${esc(config.appId)}" data-location-id="${esc(config.locationId)}">
-          ${needsCard ? '<div class="premium-billing__fields" id="squareCard"></div><p class="premium-billing__secure">Card details are handled securely by Square.</p>' : ""}
-          <div class="mini premium-billing__authorization">
-            <h3>Automatic payment authorization</h3>
-            <p>Proposed first test charge <strong>${esc(startLabel)}</strong> (Pacific time).</p>
-            <label class="checkbox"><input type="checkbox" name="authorized" required><span>I authorize Square Sandbox to save this test card and simulate a $100 charge on the 8th of each month starting ${esc(startLabel)}.</span></label>
-            <button class="btn btn-primary" type="submit" disabled>Authorize &amp; Activate Subscription</button>
-            <p class="premium-billing__feedback" id="billingStatus" role="status">${needsCard ? "Loading the Square card form…" : ""}</p>
-          </div>
-        </form>
-      ` : canReplaceCard ? `
-        <form id="plateauBillingForm" hidden data-replace-card="1" data-needs-card="1"
-          data-application-id="${esc(config.appId)}" data-location-id="${esc(config.locationId)}">
-          <div class="premium-billing__fields" id="squareCard"></div>
-          <p class="premium-billing__secure">Card details are handled securely by Square.</p>
-          <div class="mini premium-billing__authorization">
-            <label class="checkbox"><input type="checkbox" name="authorized" required><span>I authorize Square Sandbox to save this test card and use it for future scheduled subscription charges.</span></label>
-            <button class="btn btn-primary" type="submit" disabled>Save replacement card</button>
-            <p class="premium-billing__feedback" id="billingStatus" role="status"></p>
-          </div>
-        </form>
-      ` : row?.subscriptionId ? ""
-        : "<p>This setup needs review in Square Sandbox because its original start date has passed.</p>"}
-    `,
-    scripts: `
-      ${((canEnroll && needsCard) || canReplaceCard) ? '<script defer src="https://sandbox.web.squarecdn.com/v1/square.js"></script>' : ""}
-      ${(canEnroll || canReplaceCard) ? '<script defer src="/assets/plateau-billing.js?v=3"></script>' : ""}
-    `,
-  };
 }
 
 function isOrganizerAllowedAdminPath(pathname) {
@@ -21606,10 +21191,6 @@ function isOrganizerAllowedAdminPath(pathname) {
   if ([
     "/",
     "/dashboard-summary",
-    "/billing",
-    "/billing/payment-methods",
-    "/billing/subscribe",
-    "/billing/organization-history",
     "/report-download",
     "/events-analytics",
     "/search",
@@ -21667,171 +21248,6 @@ router.post("/report-download", async (req, res) => {
     return res.status(500).json({ error: "Could not prepare the report" });
   }
 });
-router.get("/billing", async (req, res) => {
-  res.set("Cache-Control", "private, no-store");
-  return renderAdmin(req, res, "billing");
-});
-
-router.post("/billing/payment-methods", async (req, res) => {
-  res.set("Cache-Control", "private, no-store");
-  try {
-    const user = await resolveSessionUser(req);
-    if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
-    const config = productionPaymentConfig();
-    if (!config) return res.status(503).json({ error: "Payment method setup is currently unavailable." });
-    if (!req.is("application/json") || req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
-      return res.status(403).json({ error: "Submit this request from the OpenCircle Billing page." });
-    }
-    await saveAccountPaymentMethod(config, user, req.body || {});
-    return res.json({ ok: true });
-  } catch (error) {
-    if (error instanceof BillingError) return res.status(error.status).json({ error: error.message });
-    console.error("[square production] could not save payment method", error.name);
-    return res.status(502).json({ error: "Could not confirm the saved card. Please try again." });
-  }
-});
-
-router.post("/billing/organizations", async (req, res) => {
-  res.set("Cache-Control", "private, no-store");
-  const user = await resolveSessionUser(req);
-  if (!canManagePlateauSandboxBilling(req, user) || req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
-    return res.status(403).send("Forbidden");
-  }
-  const config = productionPaymentConfig();
-  if (!config) return res.status(503).send("Production billing is unavailable.");
-  try {
-    const { action, name, contactUserId, variationId, itemVariationId, organizationId } = req.body || {};
-    if (action === "create") {
-      await createOrganizationBillingAccount(config, {
-        name, contactUserId: Number(contactUserId),
-        variationId: typeof variationId === "string" ? variationId.trim() : variationId,
-        itemVariationId: typeof itemVariationId === "string" ? itemVariationId.trim() : itemVariationId,
-      });
-    } else if (["open", "close"].includes(action) && Number.isSafeInteger(Number(organizationId))) {
-      await setOrganizationEnrollment(config, Number(organizationId), action === "open");
-    } else {
-      throw new BillingError(400, "Choose a billing account action.");
-    }
-    return res.redirect(303, "/admin/billing?organizationSetup=saved");
-  } catch (error) {
-    if (!(error instanceof BillingError)) console.error("[square production] organization setup failed", error.name);
-    req.billingAdminError = error instanceof BillingError ? error.message : "Could not save the billing account. Try again.";
-    res.status(error instanceof BillingError ? error.status : 500);
-    return renderAdmin(req, res, "billing");
-  }
-});
-
-router.post("/billing/subscribe", async (req, res) => {
-  res.set("Cache-Control", "private, no-store");
-  const user = await resolveSessionUser(req);
-  if (!canManagePlateauSandboxBilling(req, user) || req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
-    return res.status(403).send("Forbidden");
-  }
-  const config = productionPaymentConfig();
-  if (!config) return res.status(503).send("Production billing is unavailable.");
-  const organizationId = Number(req.body?.organizationId);
-  try {
-    await enrollOrganizationBilling(config, user.id, {
-      organizationId, cardId: req.body?.cardId, acceptedStart: req.body?.acceptedStart,
-      authorized: req.body?.authorized === "1",
-    });
-    return res.redirect(303, `/admin/billing?organization=${organizationId}&subscription=confirmed`);
-  } catch (error) {
-    if (!(error instanceof BillingError)) console.error("[square production] organization enrollment failed", error.name);
-    req.billingOrganizationId = organizationId;
-    req.billingEnrollmentError = error instanceof BillingError ? error.message : "Could not confirm the subscription. Reload Billing before trying again.";
-    res.status(error instanceof BillingError ? error.status : 502);
-    return renderAdmin(req, res, "billing");
-  }
-});
-
-router.get("/billing/organization-history", async (req, res) => {
-  res.set("Cache-Control", "private, no-store");
-  const user = await resolveSessionUser(req);
-  if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
-  const config = productionPaymentConfig();
-  if (!config) return res.status(503).json({ error: "Production billing is unavailable." });
-  const organizationId = Number(req.query.organization);
-  const cursor = req.query.cursor;
-  if (!Number.isSafeInteger(organizationId) || (cursor !== undefined && (typeof cursor !== "string" || !cursor || cursor.length > 255))) {
-    return res.status(400).json({ error: "Invalid billing history request." });
-  }
-  try {
-    return res.json(await readOrganizationBillingHistory(config, organizationId, user.id, cursor));
-  } catch (error) {
-    if (error instanceof BillingError && [404, 409].includes(error.status)) return res.status(error.status).json({ error: error.message });
-    console.error("[square production] billing history unavailable", error.name);
-    return res.status(502).json({ error: "Billing history is temporarily unavailable." });
-  }
-});
-
-router.get("/billing/history", async (req, res) => {
-  res.set("Cache-Control", "private, no-store");
-  try {
-    const user = await resolveSessionUser(req);
-    if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
-    const config = billingConfig();
-    if (!config) return res.status(503).json({ error: "Sandbox billing setup is incomplete." });
-    const cursor = req.query.cursor;
-    if (cursor !== undefined && (typeof cursor !== "string" || !cursor || cursor.length > 255)) {
-      return res.status(400).json({ error: "Invalid billing history cursor." });
-    }
-    return res.json(await readBillingHistory(config, user.id, cursor));
-  } catch (error) {
-    if (error instanceof BillingError && error.status === 409) return res.status(409).json({ error: error.message });
-    console.error("[square sandbox] billing history unavailable", error.name);
-    return res.status(502).json({ error: "Billing history is temporarily unavailable." });
-  }
-});
-
-router.get("/billing/production-connection", async (req, res) => {
-  res.set("Cache-Control", "private, no-store");
-  const user = await resolveSessionUser(req);
-  if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
-  const status = await runProductionBillingCheck();
-  return res.json({ status });
-});
-
-router.post("/billing/enroll", async (req, res) => {
-  res.set("Cache-Control", "private, no-store");
-  try {
-    const user = await resolveSessionUser(req);
-    if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
-    const config = billingConfig();
-    if (!config) return res.status(503).json({ error: "Sandbox billing setup is incomplete." });
-    if (!req.is("application/json") || req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
-      return res.status(403).json({ error: "Submit this request from the OpenCircle Billing page." });
-    }
-    if (req.body?.authorized !== true) return res.status(400).json({ error: "Confirm the monthly billing terms first." });
-    await enrollBilling(config, user.id, req.body);
-    return res.json({ ok: true });
-  } catch (error) {
-    if (error instanceof BillingError) return res.status(error.status).json({ error: error.message });
-    console.error("[plateau sandbox billing enrollment]", error.name);
-    return res.status(502).json({ error: "Could not finish test autopay. Reload Billing and try again." });
-  }
-});
-
-router.post(["/billing/change-card", "/billing/change-day"], async (req, res) => {
-  res.set("Cache-Control", "private, no-store");
-  try {
-    const user = await resolveSessionUser(req);
-    if (!canManagePlateauSandboxBilling(req, user)) return res.status(403).json({ error: "Forbidden" });
-    const config = billingConfig();
-    if (!config) return res.status(503).json({ error: "Sandbox billing setup is incomplete." });
-    if (!req.is("application/json") || req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
-      return res.status(403).json({ error: "Submit this request from the OpenCircle Billing page." });
-    }
-    const change = req.path === "/billing/change-card" ? replaceBillingCard : changeBillingDay;
-    await change(config, user.id, req.body || {});
-    return res.json({ ok: true });
-  } catch (error) {
-    if (error instanceof BillingError) return res.status(error.status).json({ error: error.message });
-    console.error("[square sandbox] subscription change could not be confirmed", error.name);
-    return res.status(502).json({ error: "Could not confirm the change. Reload Billing to check the subscription before retrying." });
-  }
-});
-
 router.get("/dashboard-summary", async (req, res) => {
   try {
     const user = await resolveSessionUser(req);

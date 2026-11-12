@@ -80,6 +80,8 @@ test("events API uses date-range overlap and keeps ongoing events out of past re
   await execSql(dbPath, `
     INSERT INTO events (city, slug, title, startDateTime, endDateTime, featured, organizer, location, categories)
     VALUES ${rows};
+    UPDATE events SET featured = 1, featuredUntil = '${isoAt(now, -1)}'
+    WHERE slug = 'future-tie';
     INSERT INTO events (city, slug, title, startDateTime, endDateTime, categories)
     VALUES ('Community B', 'other-community', 'Other Community Music', '${isoAt(now, 10)}', '${isoAt(now, 11)}', '["Music"]');
   `);
