@@ -19,6 +19,7 @@ const adminRouter = require("./routes/admin");
 const venuesRouter = require("./routes/venues");
 const adsRouter = require("./routes/ads");
 const jobsRouter = require("./routes/jobs");
+const communitySiteRouter = require("./routes/community-site");
 
 const app = express();
 app.locals.reqTimes = [];
@@ -1177,6 +1178,8 @@ app.post("/newsletter/subscribe", async (req, res) => {
 });
 
 // Routes
+// The standalone community preview shares the existing API process and data.
+app.use("/preview/enumclaw", communitySiteRouter);
 app.use(requireLogin);
 app.get("/newsletter/open/:token.gif", async (req, res) => {
   const token = String(req.params.token || "").trim();
