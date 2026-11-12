@@ -7493,8 +7493,11 @@ return `
     if (isEventsAnalyticsView && requestedEventId) {
       const selectedEventCreatedAtSql = cols.has("createdAt") ? "createdAt" : "NULL AS createdAt";
       const selectedEventSubmittedAtSql = cols.has("submittedAt") ? "submittedAt" : "NULL AS submittedAt";
+      const selectedEventGoingSql = cols.has("goingCount") ? "goingCount" : "0 AS goingCount";
+      const selectedEventInterestedSql = cols.has("interestedCount") ? "interestedCount" : "0 AS interestedCount";
       const selectedEventRow = await get(
-        `SELECT id, title, location, organizer, ${selectedEventCreatedAtSql}, ${selectedEventSubmittedAtSql}
+        `SELECT id, title, location, organizer, ${selectedEventCreatedAtSql}, ${selectedEventSubmittedAtSql},
+                ${selectedEventGoingSql}, ${selectedEventInterestedSql}
            FROM events ${dashAnd} id = ?`,
         [...dashParams, requestedEventId]
       );
@@ -7523,6 +7526,8 @@ return `
           referralViews: activity.referral,
           internalViews: activity.internal,
           otherViews: activity.other,
+          goingCount: Number(eventRow.goingCount || 0),
+          interestedCount: Number(eventRow.interestedCount || 0),
         };
 
         analyticsSideTitle = selectedEventAnalytics.title;
@@ -14810,6 +14815,18 @@ return `
               <div class="v">${esc(selectedEventAnalytics.otherViews.toLocaleString("en-US"))}</div>
             </div>
             <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.otherViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Going", "Total going responses for this event across all dates, regardless of the reporting period.")}</div>
+              <div class="v">${fmt(selectedEventAnalytics.goingCount)}</div>
+            </div>
+          </div>
+          <div class="metric">
+            <div>
+              <div class="k">${analyticsMetricLabel("Interested", "Total interested responses for this event across all dates, regardless of the reporting period.")}</div>
+              <div class="v">${fmt(selectedEventAnalytics.interestedCount)}</div>
+            </div>
           </div>
           ` : `
           <div class="metric">
