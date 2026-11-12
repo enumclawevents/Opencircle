@@ -1,5 +1,7 @@
 "use strict";
 
+const pageLoadingAssets = require("../lib/page-loading");
+
 const express = require("express");
 const { DateTime } = require("luxon");
 const { esc } = require("../lib/html");
@@ -111,6 +113,7 @@ function layout(title, body, { description = "Events, places, and local happenin
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${esc(title)} | Enumclaw Events</title><meta name="description" content="${esc(description)}">
     <meta name="robots" content="noindex,nofollow">
+    ${pageLoadingAssets}
     <link rel="stylesheet" href="/assets/enumclaw-site/site.css?v=3">
     <script src="/assets/enumclaw-site/site.js?v=2" defer></script>
   </head><body><a class="skip-link" href="#content">Skip to content</a>
@@ -121,7 +124,7 @@ function layout(title, body, { description = "Events, places, and local happenin
       <nav id="siteNavigation" aria-label="Main navigation">${nav.map(([name, href]) => `<a href="${BASE + href}"${active === href ? ' aria-current="page"' : ""}>${name}</a>`).join("")}</nav>
       <a class="button button-dark" href="${BASE}/submit-event">Add your event</a>
     </div></header>
-    <main id="content">${body}</main>
+    <main id="content" data-page-loading-content>${body}</main>
     <div class="site-width">${newsletter()}</div>
     <footer class="site-footer"><div class="site-width footer-grid"><div><a class="footer-brand" href="${BASE}">EnumclawEvents<span>.org</span></a><h2>Discover local happenings</h2>
       <p>A locally run events calendar for Enumclaw and the Plateau. Find festivals, markets, music, family activities, and community events.</p></div>

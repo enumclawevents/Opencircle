@@ -1,5 +1,7 @@
 "use strict";
 
+const pageLoadingAssets = require("./lib/page-loading");
+
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
@@ -406,6 +408,7 @@ app.get("/login", (req, res) => {
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <link rel="icon" href="/assets/brand/favicon.ico" />
+      ${pageLoadingAssets}
       <title>Login</title>
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
@@ -697,6 +700,7 @@ function renderLegalDocument(res, title, content) {
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <link rel="icon" href="/assets/brand/favicon.ico" />
+      ${pageLoadingAssets}
       <title>${title} | OpenCircle</title>
       <style>
         body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f8fafc;color:#0f172a;margin:0;line-height:1.55;}
@@ -714,7 +718,7 @@ function renderLegalDocument(res, title, content) {
       </style>
     </head>
     <body>
-      <main>
+      <main data-page-loading-content>
         <h1>${title}</h1>
         ${content}
       </main>
@@ -732,6 +736,7 @@ app.get("/signup", (req, res) => {
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <link rel="icon" href="/assets/brand/favicon.ico" />
+      ${pageLoadingAssets}
       <title>Sign up</title>
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
@@ -802,6 +807,7 @@ app.get("/invite", async (req, res) => {
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <link rel="icon" href="/assets/brand/favicon.ico" />
+      ${pageLoadingAssets}
       <title>Accept invite</title>
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
@@ -946,6 +952,7 @@ app.get("/forgot", (_req, res) => {
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <link rel="icon" href="/assets/brand/favicon.ico" />
+      ${pageLoadingAssets}
       <title>Forgot password</title>
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}
@@ -1018,6 +1025,7 @@ app.get("/reset", async (req, res) => {
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <link rel="icon" href="/assets/brand/favicon.ico" />
+      ${pageLoadingAssets}
       <title>Reset password</title>
       <style>
         body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1220; color:#e5e7eb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;}

@@ -1,5 +1,7 @@
 "use strict";
 
+const pageLoadingAssets = require("../lib/page-loading");
+
 const express = require("express");
 const { billingAdminEmail, billingConfig, checkProductionBilling, BillingError, enrollBilling, nextBillingDate, readBilling, refreshBilling, replaceBillingCard, changeBillingDay, readBillingHistory, productionPaymentConfig, listAccountPaymentMethods, saveAccountPaymentMethod, organizationFirstCharge, listOrganizationBillingAccounts, getOrganizationBillingAccount, createOrganizationBillingAccount, setOrganizationEnrollment, organizationBillingStatus, readOrganizationBillingHistory, enrollOrganizationBilling } = require("../lib/plateau-billing");
 const { buildReportDownload } = require("../lib/report-download");
@@ -10484,6 +10486,7 @@ return `
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
     <title>${pageTitle}</title>
+    ${pageLoadingAssets}
     ${showBilling ? '<link rel="stylesheet" href="/assets/premium-billing.css?v=2">' : ""}
     <style>
       :root{
@@ -14578,8 +14581,8 @@ return `
       </aside>
 
       <!-- Main content -->
-      <main class="main">
-        <div class="header">
+      <main class="main" data-page-loading-content>
+        <div class="header" data-page-loading-header>
           <div class="h-left">
             <button type="button" class="mobile-sidebar-toggle" id="mobileSidebarToggle" aria-label="Open sidebar" aria-expanded="false" aria-controls="adminSidebar">
               <i class="fa-solid fa-bars" aria-hidden="true"></i>
@@ -14806,31 +14809,31 @@ return `
             <div class="dashboard-command-left">
               <section class="card dashboard-command-card dashboard-command-activity" aria-labelledby="dashboardActivityTitle">
                 <div class="sectionTitle"><div class="dashboard-activity-copy"><h2 id="dashboardActivityTitle">${isOrganizerUser ? "My event activity" : hasAdminAccess ? "Platform activity" : "Community activity"}</h2><div class="chartLegend" aria-label="Chart legend"><div class="chartLegendItem is-events"><span class="chartLegendLine"></span><span>Events</span></div><div class="chartLegendItem is-views"><span class="chartLegendLine is-dashed"></span><span>Views</span></div><p class="sub" id="dashboardActivitySubtitle">Selected reporting period</p></div></div><div class="dashboard-chart-controls"><div class="dashboard-series-controls" aria-label="Activity chart series"><button type="button" class="dashboard-series-control" data-dashboard-series="both" aria-pressed="true">Both</button><button type="button" class="dashboard-series-control" data-dashboard-series="events" aria-pressed="false">Events</button><button type="button" class="dashboard-series-control" data-dashboard-series="views" aria-pressed="false">Views</button></div>${renderChartGroupingControl("day", true)}</div></div>
-                <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="muted">Loading activity…</div></div>
+                <div class="dashboard-activity-chart" id="dashboardActivityChart" role="img" aria-label="Event occurrences and views over time"><div class="oc-section-loading" role="status"><span class="oc-page-loading__status">Loading activity…</span><span class="oc-page-loading__bar oc-page-loading__bar--wide" aria-hidden="true"></span><span class="oc-page-loading__bar oc-page-loading__bar--short" aria-hidden="true"></span></div></div>
               </section>
               <div class="dashboard-command-insights">
                 <section class="card dashboard-command-card dashboard-insight-card dashboard-command-category" aria-labelledby="dashboardCategoryTitle">
                   <div class="sectionTitle"><div><h2 id="dashboardCategoryTitle">Event categories</h2><p class="sub">Distribution of event category assignments.</p></div></div>
-                  <div class="dashboard-category-chart" id="dashboardCategoryChart" role="img" aria-label="Event category distribution"><div class="muted">Loading categories…</div></div>
+                  <div class="dashboard-category-chart" id="dashboardCategoryChart" role="img" aria-label="Event category distribution"><div class="oc-section-loading" role="status"><span class="oc-page-loading__status">Loading categories…</span><span class="oc-page-loading__bar oc-page-loading__bar--wide" aria-hidden="true"></span><span class="oc-page-loading__bar oc-page-loading__bar--short" aria-hidden="true"></span></div></div>
                 </section>
                 <section class="card dashboard-command-card dashboard-insight-card dashboard-command-weekdays" aria-labelledby="dashboardWeekdayTitle">
                   <div class="sectionTitle"><div><h2 id="dashboardWeekdayTitle">Top performing days</h2><p class="sub">Measured event views by day of week.</p></div></div>
-                  <div class="dashboard-weekday-chart" id="dashboardWeekdayChart" role="img" aria-label="Measured event views by day of week"><div class="muted">Loading daily views…</div></div>
+                  <div class="dashboard-weekday-chart" id="dashboardWeekdayChart" role="img" aria-label="Measured event views by day of week"><div class="oc-section-loading" role="status"><span class="oc-page-loading__status">Loading daily views…</span><span class="oc-page-loading__bar oc-page-loading__bar--wide" aria-hidden="true"></span><span class="oc-page-loading__bar oc-page-loading__bar--short" aria-hidden="true"></span></div></div>
                 </section>
               </div>
             </div>
             <div class="dashboard-command-right">
             ${dashboardPreferences.visible.attention ? `<section class="card dashboard-command-card dashboard-command-attention" data-dashboard-card="attention" style="order:${dashboardPreferences.order.indexOf("attention") + 1}" aria-labelledby="dashboardAttentionTitle">
               <div class="sectionTitle"><div><h2 id="dashboardAttentionTitle">${isOrganizerUser ? "SupportCircle messages" : hasAdminAccess ? "Platform priorities" : "Needs your attention"}</h2><p class="sub">${isOrganizerUser ? "Messages and support requests for your organizer account." : hasAdminAccess ? "Platform-wide operational tasks, not limited by the reporting period." : "Current operational tasks, not limited by the reporting period."}</p></div></div>
-              <div class="dashboard-attention-list" id="dashboardAttention"><div class="muted">Checking current tasks…</div></div>
+              <div class="dashboard-attention-list" id="dashboardAttention"><div class="oc-section-loading" role="status"><span class="oc-page-loading__status">Checking current tasks…</span><span class="oc-page-loading__bar oc-page-loading__bar--wide" aria-hidden="true"></span><span class="oc-page-loading__bar oc-page-loading__bar--short" aria-hidden="true"></span></div></div>
             </section>` : ``}
             ${dashboardPreferences.visible.highlights ? `<section class="card dashboard-command-card dashboard-command-highlights" data-dashboard-card="highlights" style="order:${dashboardPreferences.order.indexOf("highlights") + 1}" aria-labelledby="dashboardHighlightsTitle">
               <div class="sectionTitle"><div><h2 id="dashboardHighlightsTitle">${isOrganizerUser ? "My event insights" : "Insights"}</h2><p class="sub">Actionable observations based only on recorded OpenCircle data.</p></div></div>
-              <div class="dashboard-highlights" id="dashboardHighlights"><div class="muted">Loading highlights…</div></div>
+              <div class="dashboard-highlights" id="dashboardHighlights"><div class="oc-section-loading" role="status"><span class="oc-page-loading__status">Loading highlights…</span><span class="oc-page-loading__bar oc-page-loading__bar--wide" aria-hidden="true"></span><span class="oc-page-loading__bar oc-page-loading__bar--short" aria-hidden="true"></span></div></div>
             </section>` : ``}
             ${dashboardPreferences.visible.performance ? `<section class="card dashboard-command-card dashboard-command-performance" data-dashboard-card="performance" style="order:${dashboardPreferences.order.indexOf("performance") + 1}" aria-labelledby="dashboardCommunityTitle">
               <div class="sectionTitle"><div><h2 id="dashboardCommunityTitle">${isOrganizerUser ? "My event performance" : hasAdminAccess ? "Community comparison" : "Community performance"}</h2><p class="sub">${isOrganizerUser ? "Scheduled occurrences and measured views for your events during the selected period." : hasAdminAccess ? "Scheduled occurrences and measured views across communities during the selected period." : "Scheduled occurrences and measured views for your assigned communities during the selected period."}</p></div></div>
-              <div class="dashboard-community-list" id="dashboardCommunityList"><div class="muted">Loading community performance…</div></div>
+              <div class="dashboard-community-list" id="dashboardCommunityList"><div class="oc-section-loading" role="status"><span class="oc-page-loading__status">Loading community performance…</span><span class="oc-page-loading__bar oc-page-loading__bar--wide" aria-hidden="true"></span><span class="oc-page-loading__bar oc-page-loading__bar--short" aria-hidden="true"></span></div></div>
             </section>` : ``}
             </div>
           </div>
@@ -18986,7 +18989,7 @@ return `
           if (chartGroup) url.searchParams.set('chartGroup', chartGroup.value);
           if (communityScope && communityScope.value && communityScope.value !== 'all') url.searchParams.set('dashboardScope', communityScope.value);
           if (selected === 'custom') { url.searchParams.set('start', start.value); url.searchParams.set('end', end.value); }
-          fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'Dashboard data is not available for this account.' : 'Dashboard data is temporarily unavailable.'); return response.json(); }).then(function(summary){ if (requestId !== dashboardRequestId) return; root.reportLoading = false; render(summary); }).catch(function(error){ if (requestId !== dashboardRequestId) return; var message = error && error.message ? error.message : 'Dashboard data is temporarily unavailable.'; set('dashboardContext', message + ' Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">' + message + '</div>'; ['dashboardActivityChart','dashboardCategoryChart','dashboardWeekdayChart'].forEach(function(id){ var chart = document.getElementById(id); if (chart) chart.innerHTML = '<div class="dashboard-chart-empty">' + message + '</div>'; }); var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
+          fetch(url.toString(), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(function(response){ if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'Dashboard data is not available for this account.' : 'Dashboard data is temporarily unavailable.'); return response.json(); }).then(function(summary){ if (requestId !== dashboardRequestId) return; root.reportLoading = false; render(summary); }).catch(function(error){ if (requestId !== dashboardRequestId) return; root.reportLoading = false; var message = error && error.message ? error.message : 'Dashboard data is temporarily unavailable.'; set('dashboardContext', message + ' Existing tools remain available.'); var host = document.getElementById('dashboardAttention'); if (host) host.innerHTML = '<div class="dashboard-positive-empty">' + message + '</div>'; ['dashboardActivityChart','dashboardCategoryChart','dashboardWeekdayChart','dashboardHighlights','dashboardCommunityList'].forEach(function(id){ var chart = document.getElementById(id); if (chart) chart.innerHTML = '<div class="dashboard-chart-empty">' + message + '</div>'; }); var kpiHost = document.getElementById('dashboardKpis'); if (kpiHost) kpiHost.setAttribute('aria-busy', 'false'); });
         }
         Array.prototype.forEach.call(document.querySelectorAll('[data-dashboard-series]'), function(control){ control.addEventListener('click', function(){ activitySeriesMode = control.getAttribute('data-dashboard-series') || 'both'; if (latestDashboardSummary) render(latestDashboardSummary); }); });
         range.addEventListener('change', load); if (chartGroup) chartGroup.addEventListener('change', load); if (communityScope) communityScope.addEventListener('change', load); if (apply) apply.addEventListener('click', load); load();
