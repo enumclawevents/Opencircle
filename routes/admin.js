@@ -1928,10 +1928,10 @@ function buildAdminDuplicateResponse(submitted, matches, originalPayload) {
             <a class="btn" href="javascript:history.back()">Go Back</a>
             <form method="POST" action="/admin/events" style="display:inline;">
               ${replayInputs}
-              <button class="btn btn-primary" type="submit">Save Anyway</button>
+              <button class="btn btn-primary" type="submit">Save despite duplicate warning</button>
             </form>
           </div>
-          <div class="note">Use Save Anyway only when you are sure this is a separate event and not an accidental duplicate.</div>
+          <div class="note">Only continue if you’ve checked that this is a separate event.</div>
         </div>
       </div>
     </body>
@@ -8366,7 +8366,7 @@ return `
       : eventReportsNotice === "updated_email_sent"
       ? `<div class="mini admin-notice admin-notice--success" role="status">Event report updated and the reporter was emailed.</div>`
       : eventReportsNotice === "updated_email_not_sent"
-      ? `<div class="mini admin-notice admin-notice--warning" role="status">Event report updated, but the reporter email could not be sent. Check SMTP configuration and logs.</div>`
+      ? `<div class="mini admin-notice admin-notice--warning" role="alert">Report saved. We couldn’t email the person who reported it.</div>`
       : eventReportsNotice === "invalid"
       ? `<div class="mini admin-notice admin-notice--error" role="alert">Choose a valid status and keep the resolution note to 3000 characters or fewer.</div>`
       : eventReportsNotice === "not_found"
@@ -15495,15 +15495,15 @@ return `
                 </div>
 
                 <div data-newsletter-search-item>
-                <label style="margin-top:14px;">Days ahead to start showcasing</label>
+                <label style="margin-top:14px;">Days after sending to start the event list</label>
                 <input class="ctrl" type="number" min="0" max="30" name="daysAhead" value="${esc(String(newsletterSettings.daysAhead || 0))}" />
-                <div class="note">Use <strong style="color:var(--text);">0</strong> to include same-day events. Use <strong style="color:var(--text);">1</strong> if a Thursday newsletter should start with Friday events.</div>
+                <div class="note">Enter <strong style="color:var(--text);">0</strong> to start on the send day or <strong style="color:var(--text);">1</strong> to start the next day.</div>
                 </div>
 
                 <div data-newsletter-search-item>
                 <label style="margin-top:14px;">How many days of events to include</label>
                 <input class="ctrl" type="number" min="1" max="30" name="daysToShow" value="${esc(String(newsletterSettings.daysToShow || 7))}" />
-                <div class="note">Use <strong style="color:var(--text);">3</strong> if you want a Thursday newsletter to only show Friday, Saturday, and Sunday events.</div>
+                <div class="note">Count from the first day above. If the list starts Friday, <strong style="color:var(--text);">3</strong> covers Friday through Sunday.</div>
                 </div>
 
                 <div data-newsletter-search-item>
@@ -16350,7 +16350,7 @@ return `
                 ${recurrenceRuleNeedsFallback ? `<input type="hidden" name="preserveRecurrenceRule" value="1" /><input type="hidden" name="originalRecurrenceRule" value="${esc(String(editEvent?.recurrenceRule || ""))}" /><input type="hidden" name="originalRecurrenceDates" value="${esc(String(editEvent?.recurrenceDates || ""))}" />` : ``}
                 ${hasRecurrence ? `<input type="hidden" name="originalRecurrenceType" id="originalRecurrenceType" value="${esc(ruleType)}" /><input type="hidden" name="recurrenceRuleChanged" id="recurrenceRuleChanged" value="0" />` : ``}
                 <div id="repeatControls" style="margin-top:12px;${hasRecurrence ? "" : "display:none;"}">
-                <div class="note" style="margin:0 0 12px;">The event end time and repeat-until date are separate. Leave repeat until empty to keep the schedule open-ended.</div>
+                <div class="note" style="margin:0 0 12px;">End time is when each event ends. Repeat until is when the series stops. Leave Repeat until blank to keep the series going.</div>
                 ${recurrenceRuleNeedsFallback ? `<div class="note" style="margin:0 0 12px;color:#9a6700;">This existing ${esc(ruleType)} schedule is not editable in this form yet. Saving without changing it preserves the stored recurrence rule.</div>` : ``}
 
                 <div class="rec-grid" style="margin-top:12px;">
