@@ -8,6 +8,8 @@
   --ui-danger: #991b1b;
   --ui-danger-surface: #fff1f2;
   --ui-danger-hover: #ffe4e6;
+  --ui-warning: #92400e;
+  --ui-warning-surface: #fffbeb;
 }
 
 body.theme-dark {
@@ -19,6 +21,8 @@ body.theme-dark {
   --ui-danger: #fecaca;
   --ui-danger-surface: #381f2a;
   --ui-danger-hover: #492533;
+  --ui-warning: #fde68a;
+  --ui-warning-surface: #382a18;
 }
 
 .admin-skip-link {
@@ -75,6 +79,11 @@ body .search input::placeholder { color: var(--muted); opacity: 1; }
 .admin-notice--error {
   color: var(--ui-danger);
   background: var(--ui-danger-surface);
+}
+
+.admin-notice--warning {
+  color: var(--ui-warning);
+  background: var(--ui-warning-surface);
 }
 
 .gridMain { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }

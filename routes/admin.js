@@ -7627,17 +7627,17 @@ return `
           : prefNotice === "password_saved"
           ? `<div class="mini admin-notice admin-notice--success" role="status">Password updated.</div>`
           : prefNotice === "password_mismatch"
-          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">New passwords do not match.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">New passwords do not match.</div>`
           : prefNotice === "password_short"
-          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">New password must be at least 8 characters.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">New password must be at least 8 characters.</div>`
           : prefNotice === "password_invalid"
-          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">Current password is incorrect.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">Current password is incorrect.</div>`
           : prefNotice === "user_not_found"
-          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">User record not found.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">User record not found.</div>`
           : prefNotice === "report_preview_sent"
           ? `<div class="mini admin-notice admin-notice--success" role="status">Weekly report preview sent to your email.</div>`
           : prefNotice === "report_preview_failed"
-          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">The preview could not be sent. Check email delivery configuration.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">The preview could not be sent. Check email delivery configuration.</div>`
           : "")
       : "";
 
@@ -7650,13 +7650,13 @@ return `
           : newsletterNotice === "test_sent"
           ? `<div class="mini admin-notice admin-notice--success" role="status">Test email sent.</div>`
           : newsletterNotice === "test_failed"
-          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">Test email could not be sent. Check your SMTP settings.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">Test email could not be sent. Check your SMTP settings.</div>`
           : newsletterNotice === "audience_added"
           ? `<div class="mini admin-notice admin-notice--success" role="status">Audience updated.</div>`
           : newsletterNotice === "audience_removed"
           ? `<div class="mini admin-notice admin-notice--success" role="status">Email removed from this audience.</div>`
           : newsletterNotice === "invalid_email"
-          ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">One or more email addresses were invalid.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">One or more email addresses were invalid.</div>`
           : "")
       : "";
     // The audience list is intentionally limited to the two subscriber pools we maintain.
@@ -8350,11 +8350,11 @@ return `
       : eventReportsNotice === "updated_email_sent"
       ? `<div class="mini admin-notice admin-notice--success" role="status">Event report updated and the reporter was emailed.</div>`
       : eventReportsNotice === "updated_email_not_sent"
-      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(245,158,11,.45); background:rgba(245,158,11,.08); color:#92400e;">Event report updated, but the reporter email could not be sent. Check SMTP configuration and logs.</div>`
+      ? `<div class="mini admin-notice admin-notice--warning" role="status">Event report updated, but the reporter email could not be sent. Check SMTP configuration and logs.</div>`
       : eventReportsNotice === "invalid"
-      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d;">Choose a valid status and keep the resolution note to 3000 characters or fewer.</div>`
+      ? `<div class="mini admin-notice admin-notice--error" role="alert">Choose a valid status and keep the resolution note to 3000 characters or fewer.</div>`
       : eventReportsNotice === "not_found"
-      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d;">That event report is unavailable in this area.</div>`
+      ? `<div class="mini admin-notice admin-notice--error" role="alert">That event report is unavailable in this area.</div>`
       : "";
     const eventReportsHtml = eventReportRows.length
       ? eventReportRows.map((report) => {
@@ -15965,8 +15965,23 @@ return `
         ${(showUpdates || showUpdatesCreate || showUpdatesAnalytics) ? `
         <section class="gridMain single" id="updates">
           ${showUpdates ? `<div class="card"><div class="sectionTitle"><div><h2>All Updates</h2><p class="sub">Community articles, announcements, and local stories for ${esc(selectedCity)}.</p></div><a class="btn btn-primary" href="${buildScopedAdminHref("/admin/updates/create")}">+ Create Update</a></div>
-            <form method="GET" action="/admin/updates" class="filters" style="margin-bottom:16px;"><input type="hidden" name="city" value="${esc(selectedCity)}" /><input class="ctrl" name="updateQ" aria-label="Search updates" value="${esc(String(req.query.updateQ || ""))}" placeholder="Search updates" /><select class="ctrl" name="updateStatus" aria-label="Update status"><option value="all">All statuses</option>${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(req.query.updateStatus || "all") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select><select class="ctrl" name="updateCategory" aria-label="Update category"><option value="">All categories</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(req.query.updateCategory || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">Apply</button></form>
-            ${updateRows.length ? `<div class="tableWrap" role="region" aria-label="Updates table" tabindex="0"><table><thead><tr><th scope="col">Update</th><th scope="col">Category</th><th scope="col">Author</th><th scope="col">Status</th><th scope="col">Published</th><th scope="col">Views</th><th scope="col">Actions</th></tr></thead><tbody>${updateRows.map((row) => `<tr><td class="update-table-title">${row.featuredImageUrl ? `<img src="${esc(row.featuredImageUrl)}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:10px;" />` : ``}<strong>${esc(row.title)}</strong><div class="muted small">${esc(row.city)}</div></td><td>${esc(row.categoryName || "Uncategorized")}</td><td>${esc(row.authorName || "OpenCircle")}</td><td><span class="pill">${esc(row.status)}</span></td><td>${esc(row.publishedAt || row.scheduledFor || "—")}</td><td>${Number(row.views || 0).toLocaleString("en-US")}</td><td><div class="actions"><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}">Edit</a><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}&preview=1">Preview</a><form method="POST" action="/admin/updates/${row.id}/archive?city=${encodeURIComponent(selectedCity)}"><button class="btn" type="submit">Archive</button></form><form method="POST" action="/admin/updates/${row.id}/delete?city=${encodeURIComponent(selectedCity)}" onsubmit="return confirm('Delete this update permanently?');"><button class="btn" type="submit">Delete</button></form></div></td></tr>`).join("")}</tbody></table></div>` : `<p class="mini admin-table-empty">No updates match these filters.</p>`}
+            <form method="GET" action="/admin/updates" class="filters" style="margin-bottom:16px;">
+              <input type="hidden" name="city" value="${esc(selectedCity)}" />
+              <div class="filterField">
+                <label for="updatesSearch">Search updates</label>
+                <input class="ctrl" name="updateQ" id="updatesSearch" value="${esc(String(req.query.updateQ || ""))}" placeholder="Search updates" />
+              </div>
+              <div class="filterField">
+                <label for="updatesStatus">Update status</label>
+                <select class="ctrl" name="updateStatus" id="updatesStatus"><option value="all">All statuses</option>${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(req.query.updateStatus || "all") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select>
+              </div>
+              <div class="filterField">
+                <label for="updatesCategory">Update category</label>
+                <select class="ctrl" name="updateCategory" id="updatesCategory"><option value="">All categories</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(req.query.updateCategory || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select>
+              </div>
+              <div class="filterActions"><button class="btn btn-primary" type="submit">Apply</button></div>
+            </form>
+            ${updateRows.length ? `<div class="tableWrap" role="region" aria-label="Updates table" tabindex="0"><table><thead><tr><th scope="col">Update</th><th scope="col">Category</th><th scope="col">Author</th><th scope="col">Status</th><th scope="col">Published</th><th scope="col">Views</th><th scope="col">Actions</th></tr></thead><tbody>${updateRows.map((row) => `<tr><td class="update-table-title">${row.featuredImageUrl ? `<img src="${esc(row.featuredImageUrl)}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:10px;" />` : ``}<strong>${esc(row.title)}</strong><div class="muted small">${esc(row.city)}</div></td><td>${esc(row.categoryName || "Uncategorized")}</td><td>${esc(row.authorName || "OpenCircle")}</td><td><span class="pill">${esc(row.status)}</span></td><td>${esc(row.publishedAt || row.scheduledFor || "—")}</td><td>${Number(row.views || 0).toLocaleString("en-US")}</td><td><div class="actions"><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}">Edit</a><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}&preview=1">Preview</a><form method="POST" action="/admin/updates/${row.id}/archive?city=${encodeURIComponent(selectedCity)}"><button class="btn" type="submit">Archive</button></form><form method="POST" action="/admin/updates/${row.id}/delete?city=${encodeURIComponent(selectedCity)}" onsubmit="return confirm('Delete this update permanently?');"><button class="btn btn-danger" type="submit">Delete</button></form></div></td></tr>`).join("")}</tbody></table></div>` : `<p class="mini admin-table-empty">No updates match these filters.</p>`}
           </div>` : ``}
           ${showUpdatesCreate ? `<div class="card"><div class="sectionTitle"><div><h2>${editUpdate ? "Edit update" : "Create update"}</h2><p class="sub">Publication times are entered in the community’s local timezone and stored in UTC.</p></div></div>
             ${String(req.query.preview || "") === "1" && editUpdate ? `<div class="mini" style="margin-bottom:16px;"><div class="eyebrow">Authorized preview</div><h2>${esc(editUpdate.title)}</h2>${editUpdate.featuredImageUrl ? `<img src="${esc(editUpdate.featuredImageUrl)}" alt="${esc(editUpdate.imageAlt || "")}" style="max-width:520px;border-radius:var(--radius-mid);" />` : ``}<p>${esc(editUpdate.summary || "")}</p><div style="white-space:pre-wrap;">${esc(editUpdate.bodyHtml || "")}</div></div>` : ``}
