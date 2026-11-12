@@ -6755,10 +6755,11 @@ return `
               ${calendarDaysWithHeat.map((day) => `
                 <a
                   href="${esc(buildCalendarHref({ calMonth: `${String(day.ymd).slice(0, 7)}-01`, calDay: day.ymd, calPage: null }))}"
+                  aria-label="${esc(day.ymd)}, ${day.count} event${day.count === 1 ? "" : "s"}"
                   class="dashboard-calendar-day${day.inMonth ? "" : " is-outside"}${day.isToday ? " is-today" : ""}${day.isPast ? " is-past" : ""}${day.ymd === selectedDayYmd ? " is-selected" : ""}${day.heatLevel ? ` heat-${day.heatLevel}` : ""}"
                 >
                   <span class="dashboard-calendar-daynum">${esc(day.day)}</span>
-                  <span class="dashboard-calendar-daycount">${day.count ? `${esc(day.count)} event${day.count === 1 ? "" : "s"}` : "No events"}</span>
+                  <span class="dashboard-calendar-daycount">${day.count ? esc(day.count) : `<span class="dashboard-calendar-daycount-label">No</span><span class="dashboard-calendar-empty-count">—</span>`}<span class="dashboard-calendar-daycount-label"> ${day.count === 1 ? "event" : "events"}</span></span>
                 </a>
               `).join("")}
             </div>
@@ -7656,13 +7657,13 @@ return `
     const prefNotice = String(req.query.notice || "").trim().toLowerCase();
     const prefNoticeHtml = prefNotice
       ? (prefNotice === "profile_saved"
-          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Profile updated.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Profile updated.</div>`
           : prefNotice === "dashboard_saved"
-          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Dashboard layout updated.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Dashboard layout updated.</div>`
           : prefNotice === "status_saved"
-          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Status updated.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Status updated.</div>`
           : prefNotice === "password_saved"
-          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Password updated.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Password updated.</div>`
           : prefNotice === "password_mismatch"
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">New passwords do not match.</div>`
           : prefNotice === "password_short"
@@ -7672,7 +7673,7 @@ return `
           : prefNotice === "user_not_found"
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">User record not found.</div>`
           : prefNotice === "report_preview_sent"
-          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Weekly report preview sent to your email.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Weekly report preview sent to your email.</div>`
           : prefNotice === "report_preview_failed"
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">The preview could not be sent. Check email delivery configuration.</div>`
           : "")
@@ -7681,17 +7682,17 @@ return `
     const newsletterNotice = String(req.query.newsletterNotice || "").trim().toLowerCase();
     const newsletterNoticeHtml = newsletterNotice
       ? (newsletterNotice === "saved"
-          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Newsletter settings saved.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Newsletter settings saved.</div>`
           : newsletterNotice === "header_image_removed"
-          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Newsletter header image removed.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Newsletter header image removed.</div>`
           : newsletterNotice === "test_sent"
-          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Test email sent.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Test email sent.</div>`
           : newsletterNotice === "test_failed"
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">Test email could not be sent. Check your SMTP settings.</div>`
           : newsletterNotice === "audience_added"
-          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Audience updated.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Audience updated.</div>`
           : newsletterNotice === "audience_removed"
-          ? `<div class="mini" style="border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46; margin-bottom:12px;">Email removed from this audience.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Email removed from this audience.</div>`
           : newsletterNotice === "invalid_email"
           ? `<div class="mini" style="border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.08); color:#7f1d1d; margin-bottom:12px;">One or more email addresses were invalid.</div>`
           : "")
@@ -8369,10 +8370,10 @@ return `
                 <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
                   <a class="btn" href="/admin/create-events?pending=${encodeURIComponent(p.id)}${String(p.city || "") === PLATEAU_SUBMISSION_AREA ? "&workspace=Plateau%20Regional" : ""}">Edit</a>
                   <form method="POST" action="/admin/approve-events/${encodeURIComponent(p.id)}/approve">
-                    <button class="btn primary" type="submit">Approve</button>
+                    <button class="btn btn-primary" type="submit">Approve</button>
                   </form>
                   <form method="POST" action="/admin/approve-events/${encodeURIComponent(p.id)}/deny" onsubmit="return confirm('Deny this submission?');">
-                    <button class="btn danger" type="submit">Deny</button>
+                    <button class="btn btn-danger" type="submit">Deny</button>
                   </form>
                 </div>
               </div>
@@ -8383,9 +8384,9 @@ return `
 
     const eventReportsNotice = String(req.query.reportNotice || "").trim().toLowerCase();
     const eventReportsNoticeHtml = eventReportsNotice === "updated"
-      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46;">Event report updated.</div>`
+      ? `<div class="mini admin-notice admin-notice--success" role="status">Event report updated.</div>`
       : eventReportsNotice === "updated_email_sent"
-      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(0,192,139,.35); background:rgba(0,192,139,.08); color:#065f46;">Event report updated and the reporter was emailed.</div>`
+      ? `<div class="mini admin-notice admin-notice--success" role="status">Event report updated and the reporter was emailed.</div>`
       : eventReportsNotice === "updated_email_not_sent"
       ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(245,158,11,.45); background:rgba(245,158,11,.08); color:#92400e;">Event report updated, but the reporter email could not be sent. Check SMTP configuration and logs.</div>`
       : eventReportsNotice === "invalid"
@@ -8444,7 +8445,7 @@ return `
                   ${report.reporterEmail ? `<label style="display:flex; align-items:center; gap:8px; width:max-content; max-width:100%; cursor:pointer;"><input type="checkbox" name="notifyReporter" value="1" /> Email ${esc(report.reporterEmail)} about this update</label>` : `<div class="muted">No reporter email was provided.</div>`}
                   <div style="display:flex; gap:8px; flex-wrap:wrap;">
                     <button class="btn btn-primary" type="submit" name="status" value="resolved">Resolve</button>
-                    <button class="btn danger" type="submit" name="status" value="dismissed" onclick="return confirm('Dismiss this event report?');">Dismiss</button>
+                    <button class="btn btn-danger" type="submit" name="status" value="dismissed" onclick="return confirm('Dismiss this event report?');">Dismiss</button>
                   </div>
                 </form>` : ""}
             </article>
@@ -8478,7 +8479,7 @@ return `
                       <div>Status: ${esc(status)}</div>
                     </div>
                     <form method="POST" action="/admin/invites/${encodeURIComponent(inv.id)}/delete" onsubmit="return confirm('Delete this invite?');">
-                      <button class="btn danger" type="submit">Delete</button>
+                      <button class="btn btn-danger" type="submit">Delete</button>
                     </form>
                   </div>
                 </div>
@@ -8496,19 +8497,19 @@ return `
       const notice = String(req.query.notice || "");
       const noticeHtml =
         notice === "sent"
-          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(16,185,129,.35); color:#065f46;">Invite email sent.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">Invite email sent.</div>`
           : notice === "saved"
-          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(16,185,129,.35); color:#065f46;">User permissions updated.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status">User permissions updated.</div>`
           : notice === "no_email"
-          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">User has no email on file.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">User has no email on file.</div>`
           : notice === "email_taken"
-          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">That email is already assigned to another user.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">That email is already assigned to another user.</div>`
           : notice === "admin_restricted"
-          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">Only ${esc(SOLE_ADMIN_EMAIL)} can have the Admin role.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">Only ${esc(SOLE_ADMIN_EMAIL)} can have the Admin role.</div>`
           : notice === "city_required"
-          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">Select at least one area for the user.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">Select at least one area for the user.</div>`
           : notice === "send_failed"
-          ? `<div class="mini" style="margin-bottom:10px; border-color:rgba(239,68,68,.35); color:#991b1b;">Failed to send email. Check SMTP logs.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">Failed to send email. Check SMTP logs.</div>`
           : "";
       usersHtml = rows.length
         ? noticeHtml +
@@ -8525,15 +8526,15 @@ return `
               .users-filter-button.is-active{ background:#fff; color:var(--text); box-shadow:0 1px 2px rgba(15,23,42,.08); }
               .users-search{ position:relative; display:flex; align-items:center; min-width:min(100%, 360px); }
               .users-search > i{ position:absolute; left:14px; color:#94a3b8; pointer-events:none; }
-              .users-search input{ width:100%; min-height:44px; padding:0 42px 0 48px !important; border:1px solid var(--line); border-radius:var(--radius-mid); background:#fff; color:var(--text); font:inherit; }
+              .users-search input{ width:100%; min-height:44px; padding:0 42px 0 48px !important; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel); color:var(--text); font:inherit; }
               .users-search input:focus{ outline:2px solid rgba(14,165,233,.28); outline-offset:1px; border-color:#38bdf8; }
-              .users-search-clear{ position:absolute; right:9px; width:26px; height:26px; border:0; border-radius:999px; background:#d1d5db; color:#fff; display:none; place-items:center; cursor:pointer; }
+              .users-search-clear{ position:absolute; right:9px; width:26px; height:26px; border:0; border-radius:999px; background:var(--panel2); color:var(--muted); display:none; place-items:center; cursor:pointer; }
               .users-search.has-value .users-search-clear{ display:grid; }
               .user-add-button{ display:inline-flex; align-items:center; gap:8px; }
               .users-panel{
                 border:1px solid var(--line);
                 border-radius:var(--radius);
-                background:#fff;
+                background:var(--panel);
                 overflow:hidden;
               }
               .users-list{
@@ -8544,7 +8545,7 @@ return `
                 display:grid;
                 gap:12px;
                 padding:18px 20px;
-                background:#fff;
+                background:var(--panel);
               }
               .users-row + .users-row{
                 border-top:1px solid var(--line);
@@ -8565,7 +8566,7 @@ return `
               .users-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
               .users-copy{ min-width:0; }
               .users-primary{ font-weight:800; color:var(--text); line-height:1.2; display:flex; align-items:center; gap:8px; font-size:18px; }
-              .users-secondary{ color:#6b7280; margin-top:4px; word-break:break-word; font-size:14px; }
+              .users-secondary{ color:var(--muted); margin-top:4px; word-break:break-word; font-size:14px; }
               .users-meta{
                 display:flex;
                 flex-wrap:wrap;
@@ -8576,7 +8577,7 @@ return `
                 display:inline-flex;
                 align-items:center;
                 gap:8px;
-                color:#50627b;
+                color:var(--muted);
                 font-weight:700;
                 font-size:14px;
               }
@@ -8603,21 +8604,21 @@ return `
               }
               .users-actions-trigger{
                 display:inline-flex; align-items:center; justify-content:center;
-                min-height:38px; border:1px solid var(--line); border-radius:var(--radius-mid); background:#fff;
-                color:#29557a; font-weight:800; text-decoration:none; cursor:pointer; padding:0 14px;
+                min-height:38px; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel);
+                color:var(--ui-link); font-weight:800; text-decoration:none; cursor:pointer; padding:0 14px;
               }
-              .users-actions-trigger:hover{ background:#f3f7fb; border-color:rgba(41,85,122,.18); }
+              .users-actions-trigger:hover{ background:var(--panel2); border-color:rgba(41,85,122,.18); }
               .users-modal{
-                position:fixed; inset:0; z-index:80; display:none; align-items:center; justify-content:center;
-                padding:24px;
+                position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+                box-sizing:border-box; width:100%; height:100%; max-width:none; max-height:none;
+                margin:0; border:0; padding:clamp(12px, 3vw, 24px); background:transparent; color:var(--text);
               }
-              .users-modal.open{ display:flex; }
-              .users-modal-backdrop{
-                position:absolute; inset:0; background:rgba(15,23,42,.42); backdrop-filter:blur(3px);
-              }
+              .users-modal[open]{ display:flex; }
+              .users-modal::backdrop{ background:rgba(15,23,42,.55); }
+              body:has(.users-modal[open]){ overflow:hidden; }
               .users-modal-panel{
-                position:relative; z-index:1; width:min(760px, calc(100vw - 32px));
-                border:1px solid var(--line); border-radius:var(--radius); background:#fff;
+                width:min(760px, 100%); max-height:100%; overflow:auto; overscroll-behavior:contain;
+                border:1px solid var(--line); border-radius:var(--radius); background:var(--panel);
                 box-shadow:0 24px 60px rgba(15,23,42,.18); padding:18px;
                 display:grid; gap:18px;
               }
@@ -8628,7 +8629,7 @@ return `
               .users-modal-sub{ color:var(--muted); margin-top:6px; }
               .users-modal-close{
                 width:42px; height:42px; border-radius:999px; border:1px solid var(--line);
-                background:#fff; cursor:pointer; font-size:24px; line-height:1; color:var(--muted);
+                background:var(--panel); cursor:pointer; font-size:24px; line-height:1; color:var(--muted);
               }
               .users-modal-grid{
                 display:grid; grid-template-columns:minmax(0,1fr) minmax(210px, 240px); gap:18px;
@@ -8636,7 +8637,7 @@ return `
               }
               .users-modal-main{ display:grid; gap:18px; align-self:stretch; }
               .users-modal-card{
-                border:1px solid var(--line); border-radius:var(--radius); background:#fff; padding:16px;
+                border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); padding:16px;
               }
               .users-modal-label{ color:var(--muted); font-weight:700; margin-bottom:8px; }
               .users-field-row{ display:grid; grid-template-columns:minmax(0,1fr) 140px; gap:14px; align-items:end; }
@@ -8666,7 +8667,7 @@ return `
               .users-empty{
                 border:1px solid var(--line);
                 border-radius:var(--radius);
-                background:#fff;
+                background:var(--panel);
                 padding:24px;
                 color:#6b7280;
               }
@@ -8744,15 +8745,14 @@ return `
                     <div class="users-meta-item"><span>Access:</span><strong>${esc(accessSummary)}</strong></div>
                   </div>
 
-                  <div class="users-modal" id="${modalId}" aria-hidden="true">
-                    <div class="users-modal-backdrop" data-close-user-modal="${modalId}"></div>
-                    <div class="users-modal-panel" role="dialog" aria-modal="true" aria-labelledby="${modalId}-title">
+                  <dialog class="users-modal" id="${modalId}" aria-labelledby="${modalId}-title">
+                    <div class="users-modal-panel">
                       <div class="users-modal-top">
                         <div>
                           <h3 class="users-modal-title" id="${modalId}-title">${displayName}</h3>
                           <div class="users-modal-sub">${emailLabel}</div>
                         </div>
-                        <button class="users-modal-close" type="button" aria-label="Close" data-close-user-modal="${modalId}">&times;</button>
+                        <button class="users-modal-close" type="button" aria-label="Close" data-close-user-modal autofocus>&times;</button>
                       </div>
                       <div class="users-modal-grid">
                         <div class="users-modal-main">
@@ -8811,12 +8811,12 @@ return `
                             <button class="btn" type="submit">Reset Password</button>
                           </form>
                           <form method="POST" action="/admin/users/${encodeURIComponent(u.id)}/delete" onsubmit="return confirm('Delete this user?');">
-                            <button class="btn danger" type="submit">Delete</button>
+                            <button class="btn btn-danger" type="submit">Delete</button>
                           </form>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </dialog>
                 </div>
               `;
             })
@@ -8857,30 +8857,17 @@ return `
           applyFilters();
         })();
         document.querySelectorAll('[data-open-user-modal]').forEach(function(button){
+          var modal = document.getElementById(button.getAttribute('data-open-user-modal'));
+          if (!modal) return;
           button.addEventListener('click', function(){
-            var modal = document.getElementById(button.getAttribute('data-open-user-modal'));
-            if (!modal) return;
-            modal.classList.add('open');
-            modal.setAttribute('aria-hidden', 'false');
-            document.body.style.overflow = 'hidden';
+            if (!modal.open) modal.showModal();
           });
-        });
-        document.querySelectorAll('[data-close-user-modal]').forEach(function(button){
-          button.addEventListener('click', function(){
-            var modal = document.getElementById(button.getAttribute('data-close-user-modal'));
-            if (!modal) return;
-            modal.classList.remove('open');
-            modal.setAttribute('aria-hidden', 'true');
-            document.body.style.overflow = '';
+          modal.addEventListener('click', function(event){
+            if (event.target === modal || event.target.closest('[data-close-user-modal]')) modal.close();
           });
-        });
-        document.addEventListener('keydown', function(event){
-          if (event.key !== 'Escape') return;
-          var openModal = document.querySelector('.users-modal.open');
-          if (!openModal) return;
-          openModal.classList.remove('open');
-          openModal.setAttribute('aria-hidden', 'true');
-          document.body.style.overflow = '';
+          modal.addEventListener('close', function(){
+            if (button.isConnected) button.focus();
+          });
         });
         document.querySelectorAll('[data-organizer-role-select]').forEach(function(select){
           function sync(){
@@ -8910,13 +8897,13 @@ return `
 
     const messagesNotice = String(req.query.notice || "").trim().toLowerCase();
     const messagesNoticeHtml = messagesNotice === "sent"
-      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(16,185,129,.35); color:#065f46;">Message sent.</div>`
+      ? `<div class="mini admin-notice admin-notice--success" role="status">Message sent.</div>`
       : messagesNotice === "empty"
-      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); color:#991b1b;">Message cannot be empty.</div>`
+      ? `<div class="mini admin-notice admin-notice--error" role="alert">Message cannot be empty.</div>`
       : messagesNotice === "recipient"
-      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(239,68,68,.35); color:#991b1b;">Choose a valid user in your city.</div>`
+      ? `<div class="mini admin-notice admin-notice--error" role="alert">Choose a valid user in your city.</div>`
       : messagesNotice === "orphaned_cleared"
-      ? `<div class="mini" style="margin-bottom:12px; border-color:rgba(16,185,129,.35); color:#065f46;">Unavailable messages were removed.</div>`
+      ? `<div class="mini admin-notice admin-notice--success" role="status">Unavailable messages were removed.</div>`
       : "";
 
     const messageContactsHtml = messageContacts.length
@@ -10260,7 +10247,7 @@ return `
     }
 
     res.send(`<!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -10281,7 +10268,6 @@ return `
         --muted:#526377;
         --line:rgba(15,23,42,.10);
         --brand:#00c08b;
-        --brand2:#0ea5e9;
         --danger:#ef4444;
         --shadow:none;
         /* Shared radius scale: panels, standard controls, compact controls. */
@@ -11919,7 +11905,7 @@ return `
       .inline{ display:inline; margin:0; }
       .muted{ color: var(--muted); }
 
-      a:not(.btn):not(.nav-title-btn):not(.subnav-link){ color: var(--brand2); text-decoration:none; font-weight:600; font-size:14px; }
+      a:not(.btn):not(.nav-title-btn):not(.subnav-link){ color: var(--ui-link); text-decoration:none; font-weight:600; font-size:14px; }
       a:not(.btn):hover{ text-decoration:underline; }
       .event-actions a:not(.btn){ font-size:14px; }
 
@@ -13847,7 +13833,6 @@ return `
       }
       #updates .card > form.filters .ctrl{ margin:0; width:100%; }
       #updates .card > form.filters .btn{ min-height:var(--ctrl-h); white-space:nowrap; }
-      #updates .tableWrap tbody > tr > td[colspan]{ padding:30px; text-align:center; color:var(--muted); }
       @media (max-width: 900px){ .updates-filters{ grid-template-columns:1fr 1fr; } }
       @media (max-width: 560px){ .updates-filters{ grid-template-columns:1fr; } .updates-filters .btn{ width:100%; } }
       @media (max-width: 900px){ #updates .card > form.filters{ grid-template-columns:1fr 1fr; } }
@@ -14005,7 +13990,7 @@ return `
       body.theme-dark .header,
       body.theme-dark .card,
       body.theme-dark .metric,
-      body.theme-dark .mini,
+      body.theme-dark .mini:not(.admin-notice),
       body.theme-dark .tableWrap,
       body.theme-dark .message-user-link,
       body.theme-dark .message-bubble,
@@ -14221,8 +14206,10 @@ return `
         }
       ` : ""}
 </style>
+    <link rel="stylesheet" href="/assets/admin-ui.css" />
   </head>
   <body>
+    <a class="admin-skip-link" href="#admin-content">Skip to content</a>
     <script${scriptNonce}>try{if(localStorage.getItem("oc-admin-theme") === "dark")document.body.classList.add("theme-dark");}catch(_){}</script>
     <div class="app">
       <button type="button" class="sidebar-backdrop" id="sidebarBackdrop" aria-label="Close sidebar"></button>
@@ -14364,7 +14351,7 @@ return `
       </aside>
 
       <!-- Main content -->
-      <main class="main" data-page-loading-content>
+      <main class="main" id="admin-content" tabindex="-1" data-page-loading-content>
         <div class="header" data-page-loading-header>
           <div class="h-left">
             <button type="button" class="mobile-sidebar-toggle" id="mobileSidebarToggle" aria-label="Open sidebar" aria-expanded="false" aria-controls="adminSidebar">
@@ -14373,7 +14360,7 @@ return `
             ${showSearch ? `
             <div class="h-left-search">
               <form class="search" method="GET" action="${searchAction}" ${isNewsletterTab ? `data-newsletter-header-search="1"` : ``}>
-                <input id="globalSearch" name="globalQ" value="" placeholder="Search OpenCircle..." autocomplete="off" ${isNewsletterTab ? `data-newsletter-search-input` : ``} />
+                <input id="globalSearch" aria-label="Search OpenCircle" name="globalQ" value="" placeholder="Search" autocomplete="off" ${isNewsletterTab ? `data-newsletter-search-input` : ``} />
 	              <span class="search-enter-key" aria-hidden="true" title="Press Enter to search">↵</span>
 	              <button id="globalSearchClear" class="global-search-clear" type="button" aria-label="Clear global search" title="Clear search">×</button>
 	              <div id="globalSearchResults" class="global-search-results" role="listbox"></div>
@@ -15122,7 +15109,7 @@ return `
               <label>Expires in (days)</label>
               <input type="number" name="days" value="7" min="1" max="30" />
             </div>
-            <button class="btn primary" type="submit">Create invite</button>
+            <button class="btn btn-primary" type="submit">Create invite</button>
           </form>
           ${req.query.invite ? `
             <div class="mini" style="margin-top:14px;">
@@ -15577,7 +15564,7 @@ return `
                     <img src="${esc(newsletterSettings.headerImageUrl)}" alt="Newsletter header preview" style="display:block; width:100%; max-height:180px; object-fit:cover; border-radius:var(--radius-mid); border:1px solid var(--line); background:#eef4f8;" />
                   </div>
                   <div style="margin-top:10px;">
-                    <button class="btn danger" type="submit" formaction="/admin/newsletter/header-image/remove" formmethod="post" onclick="return confirm('Remove this header image from the ${esc(selectedNewsletterScope)} newsletter?');">Remove header image</button>
+                    <button class="btn btn-danger" type="submit" formaction="/admin/newsletter/header-image/remove" formmethod="post" onclick="return confirm('Remove this header image from the ${esc(selectedNewsletterScope)} newsletter?');">Remove header image</button>
                   </div>
                 ` : ``}
                 </div>
@@ -16278,8 +16265,8 @@ return `
         ${(showUpdates || showUpdatesCreate || showUpdatesAnalytics) ? `
         <section class="gridMain single" id="updates">
           ${showUpdates ? `<div class="card"><div class="sectionTitle"><div><h2>All Updates</h2><p class="sub">Community articles, announcements, and local stories for ${esc(selectedCity)}.</p></div><a class="btn btn-primary" href="${buildScopedAdminHref("/admin/updates/create")}">+ Create Update</a></div>
-            <form method="GET" action="/admin/updates" class="filters" style="margin-bottom:16px;"><input type="hidden" name="city" value="${esc(selectedCity)}" /><input class="ctrl" name="updateQ" value="${esc(String(req.query.updateQ || ""))}" placeholder="Search updates" /><select class="ctrl" name="updateStatus"><option value="all">All statuses</option>${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(req.query.updateStatus || "all") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select><select class="ctrl" name="updateCategory"><option value="">All categories</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(req.query.updateCategory || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">Apply</button></form>
-            <div class="tableWrap"><table><thead><tr><th>Update</th><th>Category</th><th>Author</th><th>Status</th><th>Published</th><th>Views</th><th>Actions</th></tr></thead><tbody>${updateRows.length ? updateRows.map((row) => `<tr><td style="min-width:230px;">${row.featuredImageUrl ? `<img src="${esc(row.featuredImageUrl)}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:10px;" />` : ``}<strong>${esc(row.title)}</strong><div class="muted small">${esc(row.city)}</div></td><td>${esc(row.categoryName || "Uncategorized")}</td><td>${esc(row.authorName || "OpenCircle")}</td><td><span class="pill">${esc(row.status)}</span></td><td>${esc(row.publishedAt || row.scheduledFor || "—")}</td><td>${Number(row.views || 0).toLocaleString("en-US")}</td><td><div class="actions"><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}">Edit</a><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}&preview=1">Preview</a><form method="POST" action="/admin/updates/${row.id}/archive?city=${encodeURIComponent(selectedCity)}"><button class="btn" type="submit">Archive</button></form><form method="POST" action="/admin/updates/${row.id}/delete?city=${encodeURIComponent(selectedCity)}" onsubmit="return confirm('Delete this update permanently?');"><button class="btn" type="submit">Delete</button></form></div></td></tr>`).join("") : `<tr><td colspan="7" class="muted">No updates match these filters.</td></tr>`}</tbody></table></div>
+            <form method="GET" action="/admin/updates" class="filters" style="margin-bottom:16px;"><input type="hidden" name="city" value="${esc(selectedCity)}" /><input class="ctrl" name="updateQ" aria-label="Search updates" value="${esc(String(req.query.updateQ || ""))}" placeholder="Search updates" /><select class="ctrl" name="updateStatus" aria-label="Update status"><option value="all">All statuses</option>${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(req.query.updateStatus || "all") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select><select class="ctrl" name="updateCategory" aria-label="Update category"><option value="">All categories</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(req.query.updateCategory || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">Apply</button></form>
+            ${updateRows.length ? `<div class="tableWrap" role="region" aria-label="Updates table" tabindex="0"><table><thead><tr><th scope="col">Update</th><th scope="col">Category</th><th scope="col">Author</th><th scope="col">Status</th><th scope="col">Published</th><th scope="col">Views</th><th scope="col">Actions</th></tr></thead><tbody>${updateRows.map((row) => `<tr><td class="update-table-title">${row.featuredImageUrl ? `<img src="${esc(row.featuredImageUrl)}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:10px;" />` : ``}<strong>${esc(row.title)}</strong><div class="muted small">${esc(row.city)}</div></td><td>${esc(row.categoryName || "Uncategorized")}</td><td>${esc(row.authorName || "OpenCircle")}</td><td><span class="pill">${esc(row.status)}</span></td><td>${esc(row.publishedAt || row.scheduledFor || "—")}</td><td>${Number(row.views || 0).toLocaleString("en-US")}</td><td><div class="actions"><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}">Edit</a><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}&preview=1">Preview</a><form method="POST" action="/admin/updates/${row.id}/archive?city=${encodeURIComponent(selectedCity)}"><button class="btn" type="submit">Archive</button></form><form method="POST" action="/admin/updates/${row.id}/delete?city=${encodeURIComponent(selectedCity)}" onsubmit="return confirm('Delete this update permanently?');"><button class="btn" type="submit">Delete</button></form></div></td></tr>`).join("")}</tbody></table></div>` : `<p class="mini admin-table-empty">No updates match these filters.</p>`}
           </div>` : ``}
           ${showUpdatesCreate ? `<div class="card"><div class="sectionTitle"><div><h2>${editUpdate ? "Edit update" : "Create update"}</h2><p class="sub">Publication times are entered in the community’s local timezone and stored in UTC.</p></div></div>
             ${String(req.query.preview || "") === "1" && editUpdate ? `<div class="mini" style="margin-bottom:16px;"><div class="eyebrow">Authorized preview</div><h2>${esc(editUpdate.title)}</h2>${editUpdate.featuredImageUrl ? `<img src="${esc(editUpdate.featuredImageUrl)}" alt="${esc(editUpdate.imageAlt || "")}" style="max-width:520px;border-radius:var(--radius-mid);" />` : ``}<p>${esc(editUpdate.summary || "")}</p><div style="white-space:pre-wrap;">${esc(editUpdate.bodyHtml || "")}</div></div>` : ``}
@@ -17357,11 +17344,11 @@ return `
                 </div>
               </div>
 
-              <label>Address</label>
-              <input class="ctrl" name="address" value="${esc(editVenue?.address || "")}" />
+              <label for="venueAddress">Address</label>
+              <input class="ctrl" id="venueAddress" name="address" value="${esc(editVenue?.address || "")}" />
 
-              <label>Description</label>
-              <textarea class="ctrl" name="description" rows="5">${esc(editVenue?.description || "")}</textarea>
+              <label for="venueDescription">Description</label>
+              <textarea class="ctrl" id="venueDescription" name="description" rows="5">${esc(editVenue?.description || "")}</textarea>
 
               <label>Hours (Sun-Sat)</label>
               <div class="mini" style="display:grid; gap:8px; margin-top:8px;">
@@ -17371,10 +17358,10 @@ return `
                   return `
                     <div style="display:grid; grid-template-columns:70px 1fr 1fr auto; gap:10px; align-items:center;">
                       <div class="muted">${labels[d]}</div>
-                      <input class="ctrl" type="time" name="venueHours_${d}_open" value="${esc(h.open || "")}" />
-                      <input class="ctrl" type="time" name="venueHours_${d}_close" value="${esc(h.close || "")}" />
+                      <input class="ctrl" type="time" name="venueHours_${d}_open" aria-label="${labels[d]} opening time" value="${esc(h.open || "")}" />
+                      <input class="ctrl" type="time" name="venueHours_${d}_close" aria-label="${labels[d]} closing time" value="${esc(h.close || "")}" />
                       <label style="display:flex; gap:6px; align-items:center; margin:0;">
-                        <input type="checkbox" name="venueHours_${d}_closed" value="1" ${h.closed ? "checked" : ""} />
+                        <input type="checkbox" name="venueHours_${d}_closed" aria-label="${labels[d]} closed" value="1" ${h.closed ? "checked" : ""} />
                         <span class="muted">Closed</span>
                       </label>
                     </div>
@@ -18814,12 +18801,20 @@ return `
           toggle.setAttribute("aria-expanded", open ? "true" : "false");
         }
 
-        toggle.addEventListener("click", function(){
-          sync(!body.classList.contains("sidebar-open"));
-        });
-        backdrop.addEventListener("click", function(){
+        function closeSidebar(){
           sync(false);
+          toggle.focus();
+        }
+
+        toggle.addEventListener("click", function(){
+          if (body.classList.contains("sidebar-open")) {
+            closeSidebar();
+          } else {
+            sync(true);
+            sidebar.querySelector("nav a")?.focus();
+          }
         });
+        backdrop.addEventListener("click", closeSidebar);
         sidebar.addEventListener("click", function(e){
           if (window.innerWidth > 1100) return;
           var link = e.target.closest("a");
@@ -18829,7 +18824,7 @@ return `
           if (window.innerWidth > 1100) sync(false);
         });
         document.addEventListener("keydown", function(e){
-          if (e.key === "Escape") sync(false);
+          if (e.key === "Escape" && !e.defaultPrevented && body.classList.contains("sidebar-open")) closeSidebar();
         });
       })();
 
@@ -21476,7 +21471,9 @@ return `
     });
 
     document.addEventListener('keydown', function(event){
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key !== 'Escape' || !menu.classList.contains('is-open')) return;
+      if (menu.contains(document.activeElement)) trigger.focus();
+      setOpen(false);
     });
   })();
 })();</script>
