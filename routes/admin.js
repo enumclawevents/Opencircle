@@ -3089,7 +3089,7 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
       rows.push(`
         <tr>
           <td class="oc-grid-cell" valign="top" width="50%" style="width:50%; padding:0 10px 20px 0;">${left}</td>
-          <td class="oc-grid-cell" valign="top" width="50%" style="width:50%; padding:0 0 20px 10px;">${right || "&nbsp;"}</td>
+          <td class="oc-grid-cell${right ? "" : " oc-grid-empty"}" valign="top" width="50%" style="width:50%; padding:0 0 20px 10px;">${right || "&nbsp;"}</td>
         </tr>
       `);
     }
@@ -3099,7 +3099,7 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
       </table>
     `;
     pieces.push(`
-      <div style="border:1px solid #dbe4ee; border-radius:16px; background:#ffffff; padding:20px;">
+      <div class="oc-grid-section" style="border:1px solid #dbe4ee; border-radius:16px; background:#ffffff; padding:20px;">
         <div style="font-size:22px; line-height:1.2; font-weight:800; color:#0f172a; margin-bottom:4px;">More events coming up</div>
         <div style="font-size:14px; color:#526377; margin-bottom:10px;">${esc(normalizedCity)} newsletter picks</div>
         ${itemsHtml}
@@ -3125,6 +3125,12 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
   return {
     subject,
     html: `
+      <!doctype html>
+      <html lang="en">
+      <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>${esc(subject)}</title>
       <style>
         @media only screen and (max-width: 600px) {
           .oc-wrap { padding: 12px !important; }
@@ -3132,20 +3138,24 @@ function buildNewsletterEmail({ city, settings, featuredEvent, editorialPickEven
           .oc-header-img { max-height: 180px !important; }
           .oc-title { font-size: 26px !important; line-height: 1.12 !important; }
           .oc-preview { font-size: 15px !important; line-height: 1.5 !important; }
-          .oc-feature-img { max-height: 180px !important; }
+          .oc-feature-img, .oc-grid-img { height: auto !important; max-height: none !important; }
           .oc-feature-body { padding: 14px !important; }
           .oc-feature-title { font-size: 20px !important; line-height: 1.2 !important; }
           .oc-feature-copy { font-size: 14px !important; line-height: 1.5 !important; }
+          .oc-grid-section { padding: 12px !important; }
           .oc-grid-wrap { margin-top: 12px !important; }
-          .oc-grid-cell { padding: 0 4px 12px !important; }
-          .oc-grid-img { max-height: 120px !important; }
+          .oc-grid-cell { display: block !important; width: auto !important; padding: 0 0 12px !important; }
+          .oc-grid-empty { display: none !important; }
           .oc-grid-body { padding: 12px !important; }
-          .oc-grid-title { font-size: 15px !important; line-height: 1.28 !important; }
-          .oc-grid-meta { font-size: 12px !important; line-height: 1.45 !important; }
-          .oc-grid-link { font-size: 13px !important; }
+          .oc-grid-title { font-size: 18px !important; line-height: 1.3 !important; }
+          .oc-grid-meta { font-size: 14px !important; line-height: 1.4 !important; margin-bottom: 4px !important; }
+          .oc-grid-title, .oc-grid-meta, .oc-feature-body { word-wrap: break-word; overflow-wrap: break-word; }
+          .oc-grid-link { display: inline-block !important; font-size: 14px !important; margin-top: 4px !important; }
           .oc-footer-btn { padding: 11px 16px !important; font-size: 14px !important; }
         }
       </style>
+      </head>
+      <body style="margin:0;">
       <div class="oc-wrap" style="margin:0; padding:24px; background:#edf2f7; font-family:Arial, sans-serif;">
         <div class="oc-shell" style="max-width:720px; margin:0 auto;">
           <div style="display:none!important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden;">${esc(previewText)}</div>
@@ -7810,7 +7820,7 @@ return `
           newsletterPreviewText = normalizeNewsletterPreviewText(newsletterSettings.previewText, newsletterContextCity);
           newsletterPreviewHtml = String(previewMessage?.html || "").trim();
           newsletterPreviewFrameHtml = newsletterPreviewHtml
-            ? `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${esc(newsletterPreviewSubject || buildDefaultNewsletterSubject(newsletterContextCity))}</title></head><body style="margin:0;">${newsletterPreviewHtml.replace("max-width:720px; margin:0 auto;", "max-width:1100px; margin:0 auto;")}</body></html>`
+            ? newsletterPreviewHtml.replace("max-width:720px; margin:0 auto;", "max-width:1100px; margin:0 auto;")
             : "";
         }
       }
