@@ -174,7 +174,7 @@
     });
     // WordPress uses novalidate to run its existing submission flow.
     form.addEventListener('submit', event => {
-      if (toggle.checked && !value.value) {
+      if (event.submitter?.name !== "saveDraft" && toggle.checked && !value.value) {
         event.preventDefault();
         event.stopImmediatePropagation();
         input.reportValidity();
@@ -192,7 +192,7 @@ document.querySelectorAll('[data-parent-save-status]').forEach(status => {
   let force = false;
   retry.addEventListener('click', () => {
     force = true;
-    form.requestSubmit();
+    form.requestSubmit(form.querySelector("[data-event-publish]") || undefined);
     force = false;
   });
   form.addEventListener('submit', async event => {
@@ -201,8 +201,9 @@ document.querySelectorAll('[data-parent-save-status]').forEach(status => {
     if (busy) return;
     busy = true;
     retry.hidden = true;
-    status.textContent = 'Saving…';
-    const body = new FormData(form);
+    const savingDraft = event.submitter?.name === 'saveDraft';
+    status.textContent = savingDraft ? 'Saving draft…' : 'Saving…';
+    const body = new FormData(form, event.submitter);
     if (force) body.set('forceDuplicateSave', '1');
     try {
       const response = await fetch(form.action, {

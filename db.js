@@ -125,6 +125,17 @@ function createAddColumnHelper(table) {
 // initDB (server.js expects this name)
 // --------------------
 async function initDB() {
+  await run(`CREATE TABLE IF NOT EXISTS event_drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ownerUserId INTEGER NOT NULL,
+    city TEXT NOT NULL,
+    payloadJson TEXT NOT NULL,
+    image BLOB,
+    publishedEventId INTEGER,
+    updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  await run("CREATE INDEX IF NOT EXISTS idx_event_drafts_owner ON event_drafts(ownerUserId, city)");
+
   await run(`CREATE TABLE IF NOT EXISTS published_releases (
     version TEXT PRIMARY KEY,
     date TEXT NOT NULL
