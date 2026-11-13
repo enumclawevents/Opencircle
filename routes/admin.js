@@ -46,7 +46,7 @@ const {
   normalizeJobEmploymentTypes,
 } = require("../lib/job-utils");
 const { bulkImportUpload, persistImportedImage, persistUploadedAdImage, persistUploadedImage, upload } = require("../lib/uploads");
-const { UPDATE_STATUSES, categoriesForCity, ensureUniqueUpdateSlug, ensureUpdatesSchema, normalizeTags, parseScheduleLocal, sanitizeUpdateHtml } = require("../lib/updates");
+const { UPDATE_STATUSES, categoriesForCity, ensureUniqueUpdateSlug, ensureUpdatesSchema, communityTimezone, normalizeTags, parseScheduleLocal, sanitizeUpdateHtml } = require("../lib/updates");
 const { generateOccurrences } = require("./events");
 const {
   canTransitionLifecycle,
@@ -7732,7 +7732,15 @@ return `
       updateTotal = Number((await get(`SELECT COUNT(*) AS total FROM updates u WHERE ${updateClause}`, updateParams))?.total || 0);
       updateRows = await all(`SELECT u.*, c.name AS categoryName, COALESCE((SELECT COUNT(*) FROM update_metric_events m WHERE m.updateId = u.id), 0) AS views, COALESCE(author.displayName, author.username, author.email, 'OpenCircle') AS authorName FROM updates u LEFT JOIN update_categories c ON c.id = u.categoryId LEFT JOIN users author ON author.id = u.authorId WHERE ${updateClause} ORDER BY COALESCE(u.publishedAt, u.scheduledFor, u.updatedAt) DESC, u.id DESC LIMIT ? OFFSET ?`, [...updateParams, limit, offset]);
       const editId = Number(req.query.editUpdate || 0);
-      if (showUpdatesCreate && Number.isSafeInteger(editId) && editId > 0) editUpdate = await get("SELECT * FROM updates WHERE id = ? AND city = ? LIMIT 1", [editId, updateCity]);
+      if (showUpdatesCreate && Number.isSafeInteger(editId) && editId > 0) {
+        editUpdate = await get(
+          `SELECT u.*,
+                  (SELECT group_concat(eventId, ', ') FROM update_event_links WHERE updateId = u.id) AS relatedEventIds,
+                  (SELECT group_concat(venueId, ', ') FROM update_venue_links WHERE updateId = u.id) AS relatedVenueIds
+             FROM updates u WHERE u.id = ? AND u.city = ? LIMIT 1`,
+          [editId, updateCity]
+        );
+      }
       const analyticsId = Number(req.query.update || 0);
       if (showUpdatesAnalytics) {
         if (Number.isSafeInteger(analyticsId) && analyticsId > 0) {
@@ -16162,7 +16170,7 @@ return `
           </div>` : ``}
           ${showUpdatesCreate ? `<div class="card"><div class="sectionTitle"><div><h2>${editUpdate ? "Edit update" : "Create update"}</h2><p class="sub">Publication times are entered in the community’s local timezone and stored in UTC.</p></div></div>
             ${String(req.query.preview || "") === "1" && editUpdate ? `<div class="mini" style="margin-bottom:16px;"><div class="eyebrow">Authorized preview</div><h2>${esc(editUpdate.title)}</h2>${editUpdate.featuredImageUrl ? `<img src="${esc(editUpdate.featuredImageUrl)}" alt="${esc(editUpdate.imageAlt || "")}" style="max-width:520px;border-radius:var(--radius-mid);" />` : ``}<p>${esc(editUpdate.summary || "")}</p><div style="white-space:pre-wrap;">${esc(editUpdate.bodyHtml || "")}</div></div>` : ``}
-            <form method="POST" action="/admin/updates" enctype="multipart/form-data"><input type="hidden" name="id" value="${esc(editUpdate?.id || "")}" /><div class="formGrid"><label>Title<input class="ctrl" name="title" required maxlength="180" value="${esc(editUpdate?.title || "")}" /></label>${editUpdate ? `<label>URL slug <input class="ctrl" name="slug" maxlength="180" value="${esc(editUpdate.slug || "")}" /><span class="note">Leave unchanged to keep the published URL stable.</span></label>` : ``}<label>Community<select class="ctrl" name="city">${cityOptions}</select></label><label>Category<select class="ctrl" name="categoryId"><option value="">Uncategorized</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(editUpdate?.categoryId || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></label><label>Status<select class="ctrl" name="status">${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(editUpdate?.status || "draft") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select></label><label>Publication date/time<input class="ctrl" type="datetime-local" name="scheduledFor" value="${esc(String(editUpdate?.scheduledFor || "").replace(/Z$/, "").slice(0,16))}" /></label><label>Tags<input class="ctrl" name="tags" maxlength="900" value="${esc((safeParseJson(editUpdate?.tagsJson, []) || []).join(", "))}" placeholder="Comma-separated" /></label></div><label>Summary<textarea class="ctrl" name="summary" maxlength="600" rows="3">${esc(editUpdate?.summary || "")}</textarea></label><label>Main content<textarea class="ctrl" name="bodyHtml" required rows="14" maxlength="100000" placeholder="Use paragraphs, headings, lists, bold, italic, and safe links.">${esc(editUpdate?.bodyHtml || "")}</textarea></label><div class="formGrid"><label>Featured image<input class="ctrl" type="file" name="updateImageFile" accept="image/*" /></label><label>Image alt text<input class="ctrl" name="imageAlt" maxlength="220" value="${esc(editUpdate?.imageAlt || "")}" /></label><label>Related event IDs<input class="ctrl" name="relatedEventIds" value="" placeholder="Example: 12, 34" /></label><label>Related venue IDs<input class="ctrl" name="relatedVenueIds" value="" placeholder="Example: 8, 19" /></label></div>${editUpdate?.featuredImageUrl ? `<label class="checkbox"><input type="checkbox" name="removeImage" value="1" /> Remove current image</label>` : ``}<div class="actions"><button class="btn btn-primary" type="submit">${editUpdate ? "Save update" : "Create update"}</button><a class="btn" href="${buildScopedAdminHref("/admin/updates")}">Cancel</a></div></form>
+            <form method="POST" action="/admin/updates" enctype="multipart/form-data"><input type="hidden" name="id" value="${esc(editUpdate?.id || "")}" /><div class="formGrid"><label>Title<input class="ctrl" name="title" required maxlength="180" value="${esc(editUpdate?.title || "")}" /></label>${editUpdate ? `<label>URL slug <input class="ctrl" name="slug" maxlength="180" value="${esc(editUpdate.slug || "")}" /><span class="note">Leave unchanged to keep the published URL stable.</span></label>` : ``}<label>Community<select class="ctrl" name="city">${cityOptions}</select></label><label>Category<select class="ctrl" name="categoryId"><option value="">Uncategorized</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(editUpdate?.categoryId || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></label><label>Status<select class="ctrl" name="status">${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(editUpdate?.status || "draft") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select></label><label>Publication date/time<input class="ctrl" type="datetime-local" name="scheduledFor" value="${esc(formatUpdateScheduleInput(editUpdate?.scheduledFor, editUpdate?.city))}" /></label><label>Tags<input class="ctrl" name="tags" maxlength="900" value="${esc((safeParseJson(editUpdate?.tagsJson, []) || []).join(", "))}" placeholder="Comma-separated" /></label></div><label>Summary<textarea class="ctrl" name="summary" maxlength="600" rows="3">${esc(editUpdate?.summary || "")}</textarea></label><label>Main content<textarea class="ctrl" name="bodyHtml" required rows="14" maxlength="100000" placeholder="Use paragraphs, headings, lists, bold, italic, and safe links.">${esc(editUpdate?.bodyHtml || "")}</textarea></label><div class="formGrid"><label>Featured image<input class="ctrl" type="file" name="updateImageFile" accept="image/*" /></label><label>Image alt text<input class="ctrl" name="imageAlt" maxlength="220" value="${esc(editUpdate?.imageAlt || "")}" /></label><label>Related event IDs<input class="ctrl" name="relatedEventIds" value="${esc(editUpdate?.relatedEventIds || "")}" placeholder="Example: 12, 34" /></label><label>Related venue IDs<input class="ctrl" name="relatedVenueIds" value="${esc(editUpdate?.relatedVenueIds || "")}" placeholder="Example: 8, 19" /></label></div>${editUpdate?.featuredImageUrl ? `<label class="checkbox"><input type="checkbox" name="removeImage" value="1" /> Remove current image</label>` : ``}<div class="actions"><button class="btn btn-primary" type="submit">${editUpdate ? "Save update" : "Create update"}</button><a class="btn" href="${buildScopedAdminHref("/admin/updates")}">Cancel</a></div></form>
             <form method="POST" action="/admin/updates/categories?city=${encodeURIComponent(selectedCity)}" class="mini" style="margin-top:22px;"><strong>Add a category for ${esc(selectedCity)}</strong><div class="actions" style="margin-top:8px;"><input class="ctrl" name="name" maxlength="80" required placeholder="Category name" /><button class="btn" type="submit">Add category</button></div></form>
           </div>` : ``}
           ${showUpdatesAnalytics ? `<div class="card"><div class="sectionTitle"><div><h2>Update Analytics</h2><p class="sub">Public page views in the selected reporting period.</p></div></div><form method="GET" action="/admin/updates/analytics" class="filters">${analyticsPeriodFields}<input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" /><input type="hidden" name="city" value="${esc(selectedCity)}" /><select class="ctrl" name="update"><option value="">All updates</option>${updateRows.map((row) => `<option value="${row.id}" ${Number(req.query.update || 0) === row.id ? "selected" : ""}>${esc(row.title)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">View analytics</button></form><div class="mini" style="margin-top:16px;"><h3>${esc(editUpdate?.title || "Update views")}</h3><div class="stats"><div class="stat"><div class="k">Total views</div><div class="v">${updateViewTotal.toLocaleString("en-US")}</div></div>${editUpdate ? `<div class="stat"><div class="k">Published</div><div class="v">${esc(editUpdate.publishedAt || "Not published")}</div></div>` : ""}</div></div></div>` : ``}
@@ -21723,6 +21731,11 @@ router.get("/updates-log", async (req, res) => {
 router.get("/invites", async (req, res) => renderAdmin(req, res, "invites"));
 router.get("/users", async (req, res) => renderAdmin(req, res, "users"));
 
+function formatUpdateScheduleInput(storedTime, city) {
+  const local = DateTime.fromISO(String(storedTime || ""), { zone: "utc" }).setZone(communityTimezone(city));
+  return local.isValid ? local.toFormat("yyyy-MM-dd'T'HH:mm") : "";
+}
+
 function parseUpdateIdList(value) {
   return [...new Set(String(value || "").split(",").map((item) => Number.parseInt(item.trim(), 10)).filter((item) => Number.isSafeInteger(item) && item > 0))].slice(0, 50);
 }
@@ -21765,7 +21778,15 @@ router.post("/updates", upload.single("updateImageFile"), async (req, res) => {
     const imageAlt = String(req.body?.imageAlt || "").trim().slice(0, 220);
     const requestedSlug = String(req.body?.slug || "").trim();
     const slug = existing && !requestedSlug ? existing.slug : await ensureUniqueUpdateSlug(city, requestedSlug || title, existing?.id || null);
-    const scheduledFor = status === "scheduled" ? parseScheduleLocal(req.body?.scheduledFor, city) : null;
+    const scheduleInput = String(req.body?.scheduledFor || "").trim();
+    // Keep the stored instant when the displayed minute is unchanged, including
+    // the repeated hour at the end of daylight saving time.
+    const existingScheduleInput = formatUpdateScheduleInput(existing?.scheduledFor, city);
+    const scheduledFor = status === "scheduled"
+      ? (existingScheduleInput && scheduleInput === existingScheduleInput
+        ? existing.scheduledFor
+        : parseScheduleLocal(scheduleInput, city))
+      : null;
     if (status === "scheduled" && !scheduledFor) return res.status(400).send("A valid future publication date and time is required.");
     if (scheduledFor && Date.parse(scheduledFor) <= Date.now()) return res.status(400).send("Scheduled publication must be in the future.");
     const publishedAt = status === "published" ? (existing?.publishedAt || new Date().toISOString()) : (status === "scheduled" ? null : existing?.publishedAt || null);
