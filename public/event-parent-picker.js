@@ -188,8 +188,34 @@
 document.querySelectorAll('[data-parent-save-status]').forEach(status => {
   const form = status.closest('form');
   const retry = form.querySelector('[data-parent-save-anyway]');
+  const deleteDraft = form.querySelector('[data-delete-event-draft]');
+  const deleteError = form.querySelector('[data-draft-delete-error]');
   let busy = false;
   let force = false;
+  deleteDraft?.addEventListener('click', async () => {
+    if (busy || !window.confirm('Permanently delete this draft?')) return;
+    busy = true;
+    deleteDraft.disabled = true;
+    deleteError.hidden = true;
+    try {
+      const response = await fetch(deleteDraft.dataset.deleteEventDraft, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+      });
+      const result = await response.json().catch(() => null);
+      if (response.ok && result?.ok === true) {
+        window.location.assign(deleteDraft.dataset.afterDelete);
+        return;
+      }
+      deleteError.textContent = result?.error || 'Could not delete the draft. Try again.';
+    } catch {
+      deleteError.textContent = 'Could not delete the draft. Check your connection and try again.';
+    }
+    deleteError.hidden = false;
+    deleteDraft.disabled = false;
+    deleteDraft.focus();
+    busy = false;
+  });
   retry.addEventListener('click', () => {
     force = true;
     form.requestSubmit(form.querySelector("[data-event-publish]") || undefined);
@@ -200,6 +226,7 @@ document.querySelectorAll('[data-parent-save-status]').forEach(status => {
     event.preventDefault();
     if (busy) return;
     busy = true;
+    if (deleteDraft) deleteDraft.disabled = true;
     retry.hidden = true;
     const savingDraft = event.submitter?.name === 'saveDraft';
     status.textContent = savingDraft ? 'Saving draft…' : 'Saving…';
@@ -230,6 +257,7 @@ document.querySelectorAll('[data-parent-save-status]').forEach(status => {
       status.textContent = 'Save could not be confirmed. Check your connection and try again.';
     } finally {
       busy = false;
+      if (deleteDraft) deleteDraft.disabled = false;
     }
   });
 });

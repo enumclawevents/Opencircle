@@ -12941,6 +12941,7 @@ return `
       .event-form-savebar [data-parent-save-anyway][hidden]{ display:none; }
       .event-form-savebar .note{ margin:0; order:1; }
       .event-form-savebar [data-parent-save-status]:empty{ position:absolute; }
+      .event-form-savebar [data-draft-delete-error]{ order:3; flex-basis:100%; }
       .event-form-area{ margin-top:0 !important; padding:0 0 16px !important; border:0 !important; background:transparent !important; box-shadow:none !important; }
       .event-form-area .event-form-area-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }
       .event-form-area .ctrl{ font-size:16px !important; font-weight:650; border-width:1px !important; }
@@ -17080,6 +17081,11 @@ return `
 
               <div class="event-form-savebar">
                 <p class="note" data-parent-save-status role="status"></p>
+                ${eventDraft ? `
+                  <button type="button" class="btn btn-danger" data-delete-event-draft="/admin/event-drafts/${esc(eventDraft.id)}/delete"
+                    data-after-delete="${esc(buildScopedAdminHref("/admin/existing-events", { city: eventDraft.city, draftDeleted: "1" }))}">Delete Draft</button>
+                  <div class="mini admin-notice admin-notice--error" data-draft-delete-error role="alert" hidden></div>
+                ` : ""}
                 <div class="actions">
                   ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
                   <button class="btn" type="button" data-parent-save-anyway hidden>Save despite duplicate warning</button>
@@ -17088,7 +17094,7 @@ return `
                 </div>
               </div>
               </div>
-              <script defer src="/assets/event-parent-picker.js?v=4"></script>
+              <script defer src="/assets/event-parent-picker.js?v=5"></script>
             </form>
           </div>
           ` : ``}
