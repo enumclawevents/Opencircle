@@ -8,7 +8,7 @@ const router = express.Router();
 const CHART_SERIES_STROKE_WIDTH = 2;
 const CHART_AXIS_TITLE_BASELINE = 14;
 const CHART_TITLED_AXIS_TOP = 30;
-const { run, all, get, slugify, ensureUniqueSlug, DB_PATH } = require("../db");
+const { run, all, get, transaction, slugify, ensureUniqueSlug, DB_PATH } = require("../db");
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
@@ -12387,6 +12387,22 @@ return `
       .pager-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; }
 
       /* Existing events: keep Clear inline with search (wrap only on small screens) */
+      .event-draft-list{ margin-bottom:var(--gap); }
+      .event-draft-list summary{ cursor:pointer; font-weight:650; }
+      .event-draft-list ul{ list-style:none; margin:10px 0 0; padding:0; }
+      .event-draft-list li{
+        display:flex;
+        flex-wrap:wrap;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        padding:10px 0;
+        border-top:1px solid var(--line);
+      }
+      .event-draft-details{ flex:1 1 12rem; min-width:0; overflow-wrap:anywhere; }
+      .event-draft-details .muted{ margin-top:4px; }
+      .event-draft-details .pill{ margin-inline-start:4px; }
+      .event-draft-list .actions{ margin:0; }
 	      .eventsFilters{
 	        border: 1px solid var(--line);
 	        background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%);
@@ -17160,13 +17176,29 @@ return `
                 </div>
 	            </div>
 
+                ${req.query.draftDeleted === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Draft deleted.</div>' : ""}
                 ${eventDrafts.length ? `
-                  <details class="mini">
-                    <summary>Drafts (${eventDrafts.length})</summary>
+                  <details class="mini event-draft-list" data-event-draft-list>
+                    <summary>Drafts (<span data-draft-count>${eventDrafts.length}</span>)</summary>
+                    <div class="mini admin-notice admin-notice--success" data-draft-success role="status" hidden></div>
+                    <div class="mini admin-notice admin-notice--error" data-draft-error role="alert" hidden></div>
                     <ul>
-                      ${eventDrafts.map(draft => `<li><a href="${esc(buildScopedAdminHref("/admin/create-events", { city: draft.city, draft: draft.id }))}">${esc(draft.title || "Untitled event")}</a> <span class="muted">· ${esc(draft.city)}</span></li>`).join("")}
+                      ${eventDrafts.map(draft => `<li data-draft-row>
+                        <div class="event-draft-details">
+                          <strong>${esc(String(draft.title || "").trim() || "Untitled event")}</strong>
+                          <div class="muted">${esc(draft.city)} <span class="pill">Draft</span></div>
+                        </div>
+                        <div class="actions">
+                          <a class="btn" href="${esc(buildScopedAdminHref("/admin/create-events", { city: draft.city, draft: draft.id }))}">Edit</a>
+                          <form method="POST" action="/admin/event-drafts/${esc(draft.id)}/delete" onsubmit="return confirm('Permanently delete this draft?');">
+                            <button class="btn btn-danger" type="submit">Delete</button>
+                          </form>
+                        </div>
+                      </li>`).join("")}
                     </ul>
+                    <p class="muted" data-draft-empty hidden>No saved drafts.</p>
                   </details>
+                  <script defer src="/assets/event-drafts.js"></script>
                 ` : ""}
 	            <div class="eventsFilters">
                 <form class="listSearchRow eventSearchForm" method="GET" action="/admin/existing-events">
@@ -21653,7 +21685,7 @@ function isOrganizerAllowedAdminPath(pathname) {
     "/events",
     "/events/quick-add",
   ].includes(path)) return true;
-  if (/^\/event-drafts\/\d+\/image$/.test(path)) return true;
+  if (/^\/event-drafts\/\d+\/(image|delete)$/.test(path)) return true;
   if (/^\/events\/\d+\/(delete|archive|unarchive|lifecycle)$/.test(path)) return true;
   return /^\/event-reports\/\d+\/status$/.test(path);
 }
@@ -23362,6 +23394,26 @@ router.get("/event-drafts/:id/image", async (req, res) => {
   if (!draft?.image || draft.publishedEventId) return res.sendStatus(404);
   res.set("Cache-Control", "private, no-store");
   return res.type("image/webp").send(draft.image);
+});
+
+router.post("/event-drafts/:id/delete", async (req, res) => {
+  const wantsJson = req.get("accept")?.includes("application/json");
+  const fail = (status, error) => wantsJson ? res.status(status).json({ error }) : res.status(status).send(error);
+  try {
+    const user = await resolveSessionUser(req);
+    const draft = await getOwnedEventDraft(parseEventId(req.params.id), user);
+    if (!draft || draft.publishedEventId) return fail(404, "Draft not found or no longer available.");
+    const result = await transaction(tx => tx.run(
+      "DELETE FROM event_drafts WHERE id = ? AND ownerUserId = ? AND city = ? AND publishedEventId IS NULL",
+      [draft.id, user.id, draft.city]
+    ));
+    if (!result.changes) return fail(409, "The draft changed. Refresh and try again.");
+    if (wantsJson) return res.json({ ok: true });
+    return res.redirect(303, "/admin/existing-events?" + new URLSearchParams({ city: draft.city, draftDeleted: "1" }));
+  } catch (error) {
+    console.error("[event draft delete]", error);
+    return fail(500, "Could not delete the draft. Try again.");
+  }
 });
 
 async function saveNewEventDraft(req, res, user) {
