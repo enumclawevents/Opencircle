@@ -190,6 +190,31 @@ document.querySelectorAll('[data-parent-save-status]').forEach(status => {
   const retry = form.querySelector('[data-parent-save-anyway]');
   const deleteDraft = form.querySelector('[data-delete-event-draft]');
   const deleteError = form.querySelector('[data-draft-delete-error]');
+  const unsaved = form.closest('#create')?.querySelector('[data-event-unsaved]');
+  const generatedFields = new Set(['startDateTimeISO', 'endDateTimeISO', 'recurrenceDatesJson',
+    'multiDayScheduleJson', 'recurrenceRuleChanged', 'lifecycleAction', 'lifecycleReason',
+    'confirmRecurringLifecycle', 'recurrenceChoice']);
+  const snapshot = () => JSON.stringify(Array.from(new FormData(form))
+    .filter(([name, value]) => !generatedFields.has(name) && (typeof value === 'string' || value.name))
+    .map(([name, value]) => [name, typeof value === 'string' ? value : [value.name, value.size, value.lastModified]]));
+  let savedForm;
+  if (unsaved) {
+    savedForm = snapshot();
+    const updateUnsaved = () => { unsaved.hidden = snapshot() === savedForm; };
+    const checkUserEdit = event => {
+      if (event.isTrusted) queueMicrotask(updateUnsaved);
+    };
+    form.addEventListener('input', checkUserEdit);
+    form.addEventListener('change', checkUserEdit);
+    // Picker controls also change hidden values or add and remove date rows.
+    form.addEventListener('click', event => {
+      if (event.target.closest('button, [role="button"], #multiDayUseCustomDates')) checkUserEdit(event);
+    });
+    form.addEventListener('event-editor-change', updateUnsaved);
+    form.addEventListener('reset', event => {
+      if (event.isTrusted) queueMicrotask(updateUnsaved);
+    });
+  }
   let busy = false;
   let force = false;
   deleteDraft?.addEventListener('click', async () => {
@@ -229,7 +254,9 @@ document.querySelectorAll('[data-parent-save-status]').forEach(status => {
     if (deleteDraft) deleteDraft.disabled = true;
     retry.hidden = true;
     const savingDraft = ['saveDraft', 'saveChangesDraft'].includes(event.submitter?.name);
-    status.textContent = savingDraft ? 'Saving draft…' : 'Saving…';
+    const publishing = /^Publish /.test((event.submitter || form.querySelector('[data-event-publish]'))?.textContent.trim());
+    const action = savingDraft ? 'Saving draft' : publishing ? 'Publishing' : 'Saving';
+    status.textContent = action + '…';
     const body = new FormData(form, event.submitter);
     if (force) body.set('forceDuplicateSave', '1');
     try {
@@ -240,6 +267,7 @@ document.querySelectorAll('[data-parent-save-status]').forEach(status => {
         headers: { Accept: 'application/json', 'X-OpenCircle-Event-Editor': '1' },
       });
       if (response.redirected && response.ok && new URL(response.url).pathname === '/admin/create-events') {
+        if (unsaved) unsaved.hidden = true;
         window.location.assign(response.url);
         return;
       }
@@ -251,10 +279,12 @@ document.querySelectorAll('[data-parent-save-status]').forEach(status => {
       } else if (!response.redirected && response.status >= 400 && response.status < 500) {
         status.textContent = payload?.error || (await response.text()).slice(0, 400);
       } else {
-        status.textContent = 'Save could not be confirmed. Check your session and try again.';
+        status.textContent = publishing ? 'Publication could not be confirmed. Check your session and try again.'
+          : 'Save could not be confirmed. Check your session and try again.';
       }
     } catch {
-      status.textContent = 'Save could not be confirmed. Check your connection and try again.';
+      status.textContent = publishing ? 'Publication could not be confirmed. Check your connection and try again.'
+        : 'Save could not be confirmed. Check your connection and try again.';
     } finally {
       busy = false;
       if (deleteDraft) deleteDraft.disabled = false;

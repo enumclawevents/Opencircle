@@ -12972,6 +12972,8 @@ return `
       .event-form-savebar{ position:static; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:0; padding:18px 0 0; border-top:1px solid var(--line); background:var(--panel); box-shadow:none; }
       .event-form-savebar .actions{ margin:0 0 0 auto; order:2; justify-content:flex-end; }
       .event-form-savebar [data-parent-save-anyway][hidden]{ display:none; }
+      [data-event-unsaved][hidden]{ display:none; }
+      [data-event-editor-status]{ display:contents; }
       .event-form-savebar .note{ margin:0; order:1; }
       .event-form-savebar [data-parent-save-status]:empty{ position:absolute; }
       .event-form-savebar [data-draft-delete-error]{ order:3; flex-basis:100%; }
@@ -16259,19 +16261,20 @@ return `
                 <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                   <h2 style="margin:0;">${eventDraft ? "Edit event draft" : editEvent ? "Edit event" : "Create event"}</h2>
                   ${eventDraft ? '<span class="pill">Draft</span>' : ""}
-                  ${unpublishedChanges ? '<span class="pill">Unpublished Changes</span>' : ""}
+                  ${unpublishedChanges ? '<span class="pill">Unpublished Changes</span>' : liveEditorEvent ? '<span class="pill">Published</span>' : ""}
+                  <span role="status" data-event-editor-status><span class="pill" data-event-unsaved hidden>Unsaved Changes</span></span>
                   <span class="pill">${esc(selectedAdminLabel)}</span>
                 </div>
                 <p class="sub">${editEvent ? "Update the details for this event." : `Add a new event to ${esc(selectedAdminLabel)}.`}</p>
               </div>
             </div>
 
-            ${unpublishedChanges ? '<p class="note">Your public event stays unchanged until you publish these changes.</p>' : ""}
+            ${unpublishedChanges ? "<p class=\"note\">Your published event is still live. Saved changes won't appear publicly until you publish them.</p>" : ""}
             ${unpublishedChanges && req.query.changesSaved === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Changes saved as a draft.</div>' : ""}
             ${canDraftChanges && req.query.changesPublished === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Changes published.</div>' : ""}
             ${eventDraft && req.query.draftSaved === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Draft saved.</div>' : ""}
             ${!editEvent && !fromPending && req.query.eventCreated === "1" ? `
-            <div class="mini admin-notice admin-notice--success" role="status" data-event-created>Event created successfully.</div>
+            <div class="mini admin-notice admin-notice--success" role="status" data-event-created>Event published.</div>
             ` : ""}
             <form method="POST" action="/admin/events" enctype="multipart/form-data">
               ${canDraftChanges ? `<input type="hidden" name="eventBaseRevision" value="${esc(unpublishedChanges?.baseRevision || liveEditorEvent.revision || 1)}" />
@@ -16454,7 +16457,8 @@ return `
 
                           var messages = [];
                           if (Array.isArray(json.warnings) && json.warnings.length) messages = json.warnings.slice();
-                          messages.unshift("Form filled from link. Review it, then save.");
+                          form.dispatchEvent(new Event("event-editor-change"));
+                          messages.unshift("Form filled from link. Review the details before saving.");
                           setStatus(messages.join(" "), "success");
                         } catch (err) {
                           setStatus(String(err && err.message || "Could not fill from that link."), "error");
@@ -17132,7 +17136,7 @@ return `
                 </div>
               </div>
               </div>
-              <script defer src="/assets/event-parent-picker.js?v=6"></script>
+              <script defer src="/assets/event-parent-picker.js?v=7"></script>
             </form>
           </div>
           ` : ``}
@@ -19516,7 +19520,8 @@ return `
 
             var messages = [];
             if (Array.isArray(json.warnings) && json.warnings.length) messages = json.warnings.slice();
-            messages.unshift("Form filled from link. Review it, then save.");
+            form.dispatchEvent(new Event("event-editor-change"));
+            messages.unshift("Form filled from link. Review the details before saving.");
             setStatus(messages.join(" "), json.warnings && json.warnings.length ? "success" : "success");
           } catch (err) {
             setStatus(String(err && err.message || "Could not fill from that link."), "error");
