@@ -135,6 +135,14 @@ async function initDB() {
     updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
   await run("CREATE INDEX IF NOT EXISTS idx_event_drafts_owner ON event_drafts(ownerUserId, city)");
+  await run(`CREATE TABLE IF NOT EXISTS event_unpublished_changes (
+    eventId INTEGER PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    baseRevision INTEGER NOT NULL,
+    editToken TEXT NOT NULL,
+    city TEXT NOT NULL,
+    payloadJson TEXT NOT NULL,
+    image BLOB
+  )`);
 
   await run(`CREATE TABLE IF NOT EXISTS published_releases (
     version TEXT PRIMARY KEY,

@@ -5916,6 +5916,27 @@ try {
       }
     }
     const fromPending = !!pendingEvent && !editId;
+    const liveEditorEvent = view === "create" && editId && !fromPending ? editEvent : null;
+    const canDraftChanges = !!liveEditorEvent && !!currentUser?.id && sectionPermissions.events &&
+      userAllowedCities.includes(liveEditorEvent.city);
+    let unpublishedChanges = null;
+    if (canDraftChanges) {
+      const draft = await getEventUnpublishedChanges(editId);
+      if (draft && userAllowedCities.includes(draft.city)) {
+        res.set("Cache-Control", "private, no-store");
+        unpublishedChanges = draft;
+        const draftValues = eventDraftFormValues(draft);
+        editEvent = { id: liveEditorEvent.id, ...draftValues,
+          featured: liveEditorEvent.featured, eddiesPick: liveEditorEvent.eddiesPick };
+        const draftPayload = safeParseJson(draft.payloadJson, {});
+        editEvent.startDateTime = draftPayload.startDateTimeISO || draftValues.startDateTime;
+        editEvent.endDateTime = draftPayload.endDateTimeISO || draftValues.endDateTime;
+        if (draftValues.preserveRecurrenceRule === "1") {
+          editEvent.recurrenceRule = liveEditorEvent.recurrenceRule;
+          editEvent.recurrenceDates = liveEditorEvent.recurrenceDates;
+        }
+      }
+    }
     const requestedParentId = !editEvent ? parseEventId(req.query.parentEventId) : null;
     const currentParentId = editEvent?.parentEventId || requestedParentId;
     const currentParent = currentParentId ? await get(
@@ -5937,7 +5958,7 @@ try {
       ? (organizerPrimaryName || String(editEvent?.organizer || ""))
       : String(editEvent?.organizer || "");
     const currentEventLifecycleState = editEvent && !fromPending && !eventDraft
-      ? effectiveLifecycleState(editEvent)
+      ? effectiveLifecycleState(liveEditorEvent || editEvent)
       : "scheduled";
 
     // ✅ recurrence values for UI (these existed in your file, UI block was missing)
@@ -5949,7 +5970,7 @@ try {
     const eventEndLocalValue = toDateTimeLocalValue(editEvent?.endDateTime);
     const inferredEventType = (function(){
       if (!editEvent) return "single";
-      if (eventDraft && ["single", "recurring", "multi-day"].includes(editEvent.eventTypeChoice)) return editEvent.eventTypeChoice;
+      if ((eventDraft || unpublishedChanges) && ["single", "recurring", "multi-day"].includes(editEvent.eventTypeChoice)) return editEvent.eventTypeChoice;
       if (hasRecurrence) return "recurring";
       const startDate = String(eventStartLocalValue || "").slice(0, 10);
       const endDate = String(eventEndLocalValue || "").slice(0, 10);
@@ -5959,7 +5980,7 @@ try {
     const storedRecurrenceDates = parseStoredDates(editEvent?.recurrenceDates);
 
     const customDates = (function(){
-      if (eventDraft) return editEvent.draftCustomDates;
+      if (eventDraft || unpublishedChanges) return editEvent.draftCustomDates;
       if (ruleType != "custom") return [];
 
       const items = Array.isArray(rule?.items) ? rule.items : [];
@@ -5997,9 +6018,9 @@ try {
         })
         .filter(Boolean);
     })();
-    const originalCustomItemsJson = ruleType === "custom" && Array.isArray(rule?.items)
-      ? JSON.stringify(rule.items)
-      : "[]";
+    const originalCustomItemsJson = unpublishedChanges && ruleType === "custom"
+      ? JSON.stringify(safeParseJson(editEvent.recurrenceDatesJson, []))
+      : ruleType === "custom" && Array.isArray(rule?.items) ? JSON.stringify(rule.items) : "[]";
     const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
     const savedRepeatUntil = editEvent?.recurrenceUntilDate || "";
     const repeatUntilIso = parseRepeatUntilDate(savedRepeatUntil);
@@ -6051,7 +6072,7 @@ try {
       `;
     };
 
-    const allowedForUser = hasDeveloperAccess && !eventDraft ? ADMIN_AREAS.slice() : userAllowedCities;
+    const allowedForUser = hasDeveloperAccess && !eventDraft && !canDraftChanges ? ADMIN_AREAS.slice() : userAllowedCities;
     const buildAreaOptionsMarkup = (selectedValue) => allowedForUser.map((c) => {
       const sel = String(selectedValue || "") === c ? "selected" : "";
       return `<option value="${esc(c)}" ${sel}>${esc(c)}</option>`;
@@ -6138,7 +6159,7 @@ try {
               if (actionInput) actionInput.value = "";
               if (reasonInput) reasonInput.value = "";
               if (recurringConfirm) recurringConfirm.value = "";
-              if (saveButton) saveButton.textContent = "Update Event";
+              if (saveButton) saveButton.textContent = ${JSON.stringify(canDraftChanges ? "Publish Changes" : "Update Event")};
             }
             function startReschedule(){
               var series = hasRecurrence();
@@ -16238,17 +16259,23 @@ return `
                 <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                   <h2 style="margin:0;">${eventDraft ? "Edit event draft" : editEvent ? "Edit event" : "Create event"}</h2>
                   ${eventDraft ? '<span class="pill">Draft</span>' : ""}
+                  ${unpublishedChanges ? '<span class="pill">Unpublished Changes</span>' : ""}
                   <span class="pill">${esc(selectedAdminLabel)}</span>
                 </div>
                 <p class="sub">${editEvent ? "Update the details for this event." : `Add a new event to ${esc(selectedAdminLabel)}.`}</p>
               </div>
             </div>
 
+            ${unpublishedChanges ? '<p class="note">Your public event stays unchanged until you publish these changes.</p>' : ""}
+            ${unpublishedChanges && req.query.changesSaved === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Changes saved as a draft.</div>' : ""}
+            ${canDraftChanges && req.query.changesPublished === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Changes published.</div>' : ""}
             ${eventDraft && req.query.draftSaved === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Draft saved.</div>' : ""}
             ${!editEvent && !fromPending && req.query.eventCreated === "1" ? `
             <div class="mini admin-notice admin-notice--success" role="status" data-event-created>Event created successfully.</div>
             ` : ""}
             <form method="POST" action="/admin/events" enctype="multipart/form-data">
+              ${canDraftChanges ? `<input type="hidden" name="eventBaseRevision" value="${esc(unpublishedChanges?.baseRevision || liveEditorEvent.revision || 1)}" />
+                <input type="hidden" name="eventEditToken" value="${esc(unpublishedChanges?.editToken || "")}" />` : ""}
               ${eventDraft ? `<input type="hidden" name="draftId" value="${esc(eventDraft.id)}" />` : ""}
               ${editEvent && !fromPending && !eventDraft ? `<input type="hidden" name="id" value="${esc(editEvent.id)}" />` : ""}
               ${fromPending ? `<input type="hidden" name="pendingId" value="${esc(pendingEvent.id)}" />` : ""}
@@ -16937,7 +16964,7 @@ return `
                     <label for="eventVenueId" style="margin-top:0;">Add a Venue (optional)</label>
                     <select id="eventVenueId" class="ctrl" name="venueId">
                       <option value="">No venue</option>
-                      ${eventDraft && editEvent.venueId && !selectedVenueChoice ? `<option value="${esc(editEvent.venueId)}" data-city="${esc(formCity)}" selected>Unavailable venue #${esc(editEvent.venueId)}</option>` : ""}
+                      ${(eventDraft || unpublishedChanges) && editEvent.venueId && !selectedVenueChoice ? `<option value="${esc(editEvent.venueId)}" data-city="${esc(formCity)}" selected>Unavailable venue #${esc(editEvent.venueId)}</option>` : ""}
                       ${!selectedVenueChoice && editEvent?.venueName ? `<option value="keep" data-city="${esc(formCity)}" selected>${esc(editEvent.venueName)} (current)</option>` : ""}
                       ${eventVenueChoices.map(venue => `<option value="${venue.id}" data-city="${esc(venue.city)}"${venue.city !== formCity ? " hidden disabled" : ""}${selectedVenueChoice?.id === venue.id ? " selected" : ""}>${esc(venue.name)}${venue.address ? " — " + esc(venue.address) : ""}</option>`).join("")}
                     </select>
@@ -16971,6 +16998,7 @@ return `
               </div>
               <div class="note">${isOrganizerUser ? "Images are formatted after upload." : "A new upload replaces the image URL below."}</div>
 
+              ${unpublishedChanges?.hasImage ? `<div class="note"><a href="/admin/events/${esc(editEvent.id)}/unpublished-image" target="_blank" rel="noopener">View unpublished flyer</a></div>` : ""}
               ${eventDraft?.hasImage ? `<div class="note"><a href="/admin/event-drafts/${esc(eventDraft.id)}/image" target="_blank" rel="noopener">View saved draft image</a></div>` : ""}
               ${eventDraft && isOrganizerUser && editEvent.imageUrl ? `<input type="hidden" name="imageUrl" value="${esc(editEvent.imageUrl)}" />` : ""}
               <img id="uploadPreview" style="margin-top:10px; width:160px; height:160px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); display:none;" alt="Flyer upload preview" />
@@ -17045,7 +17073,7 @@ return `
                       ${editEvent && !fromPending && !eventDraft && currentEventLifecycleState !== "archived" && !Number(editEvent.archived)
                         ? `<a class="event-parent-child-link" href="/admin/create-events?city=${encodeURIComponent(editEvent.city)}&amp;parentEventId=${encodeURIComponent(editEvent.id)}">Add an event under this event</a>` : ""}
                     </div>
-                    ${canFeatureEvents ? `
+                    ${canFeatureEvents && !unpublishedChanges ? `
                       <div class="event-form-advanced-group">
                         <h4 class="event-form-advanced-heading">Editorial &amp; Visibility</h4>
                         <div class="event-form-advanced-controls">
@@ -17098,12 +17126,13 @@ return `
                 <div class="actions">
                   ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
                   <button class="btn" type="button" data-parent-save-anyway hidden>Save despite duplicate warning</button>
-                  <button type="submit" class="btn btn-primary" data-event-publish>${isNewEventForm ? "Publish Event" : editEvent ? "Update Event" : "Save Event"}</button>
+                  <button type="submit" class="btn btn-primary" data-event-publish>${isNewEventForm ? "Publish Event" : canDraftChanges ? "Publish Changes" : editEvent ? "Update Event" : "Save Event"}</button>
+                  ${canDraftChanges ? '<button type="submit" class="btn" name="saveChangesDraft" value="1" formnovalidate>Save Changes as Draft</button>' : ""}
                   ${isNewEventForm ? '<button type="submit" class="btn" name="saveDraft" value="1" formnovalidate>Save Draft</button>' : ""}
                 </div>
               </div>
               </div>
-              <script defer src="/assets/event-parent-picker.js?v=5"></script>
+              <script defer src="/assets/event-parent-picker.js?v=6"></script>
             </form>
           </div>
           ` : ``}
@@ -19175,7 +19204,7 @@ return `
 
         form.addEventListener("submit", function(ev){
           var eventTypeChoice = String(((document.getElementById("eventTypeChoice") || {}).value) || "").trim();
-          if (!eventTypeChoice && ev.submitter?.name !== "saveDraft") {
+          if (!eventTypeChoice && !["saveDraft", "saveChangesDraft"].includes(ev.submitter?.name)) {
             ev.preventDefault();
             return;
           }
@@ -21701,7 +21730,7 @@ function isOrganizerAllowedAdminPath(pathname) {
     "/events/quick-add",
   ].includes(path)) return true;
   if (/^\/event-drafts\/\d+\/(image|delete)$/.test(path)) return true;
-  if (/^\/events\/\d+\/(delete|archive|unarchive|lifecycle)$/.test(path)) return true;
+  if (/^\/events\/\d+\/(delete|archive|unarchive|lifecycle|unpublished-image)$/.test(path)) return true;
   return /^\/event-reports\/\d+\/status$/.test(path);
 }
 
@@ -23467,6 +23496,71 @@ async function saveNewEventDraft(req, res, user) {
   return res.redirect(303, eventDraftEditorUrl(draftId, city));
 }
 
+async function getEventUnpublishedChanges(eventId, includeImage = false) {
+  return get(
+    `SELECT eventId, city, baseRevision, editToken, payloadJson, image IS NOT NULL AS hasImage${includeImage ? ", image" : ""}
+       FROM event_unpublished_changes WHERE eventId = ?`,
+    [eventId]
+  );
+}
+
+router.get("/events/:id/unpublished-image", async (req, res) => {
+  const user = await resolveSessionUser(req);
+  const id = parseEventId(req.params.id);
+  const live = await get("SELECT city, organizer FROM events WHERE id = ?", [id]);
+  const cities = user ? getUserAllowedCities(user) : [];
+  if (!live || !cities.includes(live.city) || !getUserSectionPermissions(user).events ||
+      (user.role === "organizer" && !organizerOwnsEvent(live, getOrganizerAccessValues(user, req)))) return res.sendStatus(404);
+  const draft = await getEventUnpublishedChanges(id, true);
+  if (!draft?.image || !cities.includes(draft.city)) return res.sendStatus(404);
+  res.set("Cache-Control", "private, no-store");
+  return res.type("image/webp").send(draft.image);
+});
+
+const UNPUBLISHED_CONFLICT = "The public event or its draft changed. Reopen the editor before trying again.";
+
+async function saveEventUnpublishedChanges(req, res, live, publication, city) {
+  const payload = eventDraftFields(req.body);
+  for (const key of ["startDateTimeISO", "endDateTimeISO"]) {
+    if (typeof req.body[key] === "string") payload[key] = req.body[key];
+  }
+  if (payload.imageUrl && !normalizeHttpUrl(payload.imageUrl)) {
+    return res.status(400).send("Enter a valid image URL.");
+  }
+  // The editor only shows this option for a legacy venue name.
+  if (req.body.venueId === "keep" && !live.venueId) payload.venueName = live.venueName;
+  if (req.body.preserveRecurrenceRule === "1" && req.body.recurrenceRuleChanged !== "1") {
+    payload.preserveRecurrenceRule = "1";
+  }
+  const payloadJson = JSON.stringify(payload);
+  if (Buffer.byteLength(payloadJson) > 2 * 1024 * 1024) return res.status(413).send("This draft is too large.");
+  let image = null;
+  if (req.file) {
+    try {
+      image = await formatEventImage(req.file.path);
+    } catch {
+      return res.status(400).send("Choose a valid flyer image and try again.");
+    }
+  }
+  const saved = await transaction(async tx => {
+    const current = await tx.get("SELECT city, organizer, revision FROM events WHERE id = ?", [live.id]);
+    const draft = await tx.get("SELECT editToken FROM event_unpublished_changes WHERE eventId = ?", [live.id]);
+    if (!current || current.city !== live.city || current.organizer !== live.organizer ||
+        (draft?.editToken || "") !== publication.editToken ||
+        (!draft && Number(current.revision || 1) !== publication.baseRevision)) return false;
+    await tx.run(
+      `INSERT INTO event_unpublished_changes (eventId, baseRevision, editToken, city, payloadJson, image)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(eventId) DO UPDATE SET editToken = excluded.editToken, city = excluded.city,
+         payloadJson = excluded.payloadJson, image = COALESCE(excluded.image, event_unpublished_changes.image)`,
+      [live.id, publication.baseRevision, crypto.randomUUID(), city, payloadJson, image]
+    );
+    return true;
+  });
+  if (!saved) return res.status(409).send(UNPUBLISHED_CONFLICT);
+  return res.redirect(303, "/admin/create-events?" + new URLSearchParams({ edit: live.id, city: live.city, changesSaved: "1" }));
+}
+
 router.post("/events", upload.single("imageFile"), async (req, res) => {
   try {
     const role = normalizeRoleValue(req.user?.role || "organizer");
@@ -23567,8 +23661,37 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       organizer = organizerPrimaryName;
     }
 
-    // If a file was uploaded, prefer it over the URL field
-    if (req.file && !publishingDraft) {
+    let publication = null;
+    let liveEvent = null;
+    let unpublished = null;
+    const savingChanges = req.body.saveChangesDraft === "1";
+    if (savingChanges || req.body.eventBaseRevision !== undefined) {
+      const editId = parseEventId(id);
+      const baseRevision = parseEventId(req.body.eventBaseRevision);
+      if (!editId || !baseRevision || pendingId || publishingDraft || (savingChanges && lifecycleAction)) {
+        return res.status(400).send("Invalid unpublished changes request.");
+      }
+      liveEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
+      if (!liveEvent) return res.status(404).send("Event not found.");
+      if (!sessionUser?.id) return res.sendStatus(403);
+      const cities = getUserAllowedCities(sessionUser);
+      if (!cities.includes(liveEvent.city) || !cities.includes(String(req.body.city || "")) ||
+          (role === "organizer" && !organizerOwnsEvent(liveEvent, organizerAccessValues))) return res.sendStatus(403);
+      unpublished = await getEventUnpublishedChanges(editId, !savingChanges);
+      if (unpublished && !cities.includes(unpublished.city)) return res.sendStatus(403);
+      const editToken = String(req.body.eventEditToken || "");
+      if ((unpublished?.editToken || "") !== editToken ||
+          (unpublished && unpublished.baseRevision !== baseRevision) ||
+          ((!savingChanges || !unpublished) && Number(liveEvent.revision || 1) !== baseRevision)) {
+        return res.status(409).send(UNPUBLISHED_CONFLICT);
+      }
+      publication = { editToken, baseRevision, liveCity: liveEvent.city, liveOrganizer: liveEvent.organizer };
+      if (savingChanges) return await saveEventUnpublishedChanges(req, res, liveEvent, publication, city);
+      if (req.body.imageUrl === undefined) imageUrl = liveEvent.imageUrl;
+    }
+
+    // If a file was uploaded, prefer it over the URL field.
+    if (req.file && !publishingDraft && !publication) {
       imageUrl = await persistUploadedImage(req.file, req);
     }
 
@@ -23664,7 +23787,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     // Slug
     const rawSlug = String(req.body.slug || "").trim();
     const baseSlug = rawSlug ? slugify(rawSlug) : slugify(title);
-    const slug = await ensureUniqueSlug(baseSlug, id ? Number(id) : null);
+    const slug = publication ? liveEvent.slug : await ensureUniqueSlug(baseSlug, id ? Number(id) : null);
 
     // Categories (max 3, from allow-list)
     const cats = normalizeCategories(categories);
@@ -23900,7 +24023,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       }
     }
 
-    if (publishingDraft && (hasRec || req.body.eventTypeChoice === "recurring") &&
+    if ((publishingDraft || (publication && req.body.preserveRecurrenceRule !== "1")) && (hasRec || req.body.eventTypeChoice === "recurring") &&
         (!recurrenceRule || (t === "weekly" && !recurrenceRule.byDay.length) ||
          (t === "custom" && (!recurrenceRule.items?.length ||
            recurrenceRule.items.some(item => !hasValidEventDateRange(item.start, item.end)))))) {
@@ -23910,10 +24033,10 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     const preserveRecurrenceRule = String(req.body?.preserveRecurrenceRule || "") === "1";
     const recurrenceRuleChanged = String(req.body?.recurrenceRuleChanged || "") === "1";
     if (hasRec && preserveRecurrenceRule && !recurrenceRuleChanged && id) {
-      const originalRule = safeParseJson(req.body?.originalRecurrenceRule, null);
+      const originalRule = safeParseJson(publication ? liveEvent.recurrenceRule : req.body?.originalRecurrenceRule, null);
       if (originalRule && typeof originalRule === "object" && !Array.isArray(originalRule)) {
         recurrenceRuleJson = JSON.stringify(originalRule);
-        const originalDates = safeParseJson(req.body?.originalRecurrenceDates, null);
+        const originalDates = safeParseJson(publication ? liveEvent.recurrenceDates : req.body?.originalRecurrenceDates, null);
         recurrenceDatesJson = Array.isArray(originalDates) ? JSON.stringify(originalDates) : recurrenceDatesJson;
       }
     }
@@ -23960,8 +24083,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       ["ticketUrl", ticketUrl || null],
       ["ticketLabel", finalTicketLabel],
       ["categories", catsJson],
-      ["featured", featuredFlag],
-      ["eddiesPick", eddiesPickFlag],
+      ...(!unpublished ? [["featured", featuredFlag], ["eddiesPick", eddiesPickFlag]] : []),
     ];
     if (req.body.venueId === "keep") {
       if (pendingSubmission) baseFields.push(["venueName", pendingSubmission.venueName], ["venueId", null]);
@@ -23985,15 +24107,16 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       if (pendingSubmissionCreatedAt) baseFields.push(["submittedAt", pendingSubmissionCreatedAt]);
     }
 
-    if (publishingDraft && parentEventId && !(await get(
+    if ((publishingDraft || publication) && parentEventId && !(await get(
       `SELECT id FROM events p WHERE p.id = ? AND p.city = ? AND ${availableEventSql("p")}`,
       [parentEventId, city]
     ))) return res.status(400).send("Choose an available published parent event in this area.");
 
-    if (publishingDraft && (req.file || publishingDraft.image)) {
+    const savedFlyer = publishingDraft?.image || unpublished?.image;
+    if (publishingDraft && (req.file || savedFlyer)) {
       const publishedImageUrl = req.file
         ? await persistUploadedImage(req.file, req)
-        : await persistFormattedEventImage(publishingDraft.image, "event-flyer", req);
+        : await persistFormattedEventImage(savedFlyer, "event-flyer", req);
       baseFields.find(([key]) => key === "imageUrl")[1] = publishedImageUrl;
     }
 
@@ -24029,13 +24152,18 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       }
       vals.push(Number(id));
 
-await updateEventWithChange({
+const updated = await updateEventWithChange({
   eventId: Number(id),
   fields,
   actorUserId: sessionUser?.id || null,
   changeType: requestedLifecycleAction ? "lifecycle" : "updated",
+  publication,
+  publishImage: publication && (req.file || savedFlyer)
+    ? () => req.file ? persistUploadedImage(req.file, req) : persistFormattedEventImage(savedFlyer, "event-flyer", req)
+    : null,
 });
-if (cols.has("createdByUserId")) {
+if (publication && (updated.conflict || !updated.event)) return res.status(409).send(UNPUBLISHED_CONFLICT);
+if (!publication && cols.has("createdByUserId")) {
   await run("UPDATE events SET createdByUserId = COALESCE(createdByUserId, ?) WHERE id = ?", [sessionUser?.id || null, Number(id)]);
 }
 
@@ -24050,6 +24178,7 @@ const status = req.query.status ? String(req.query.status) : "upcoming";
 const recurring = req.query.recurring ? String(req.query.recurring) : "0";
 
 const sp = new URLSearchParams({ edit: String(id), pg, limit, status });
+if (publication) sp.set("changesPublished", "1");
 if (ADMIN_SIDEBAR_GROUPS["Plateau Regional"].includes(city)) {
   sp.set("workspace", "Plateau Regional");
 } else {
