@@ -1860,6 +1860,14 @@ function toDateValue(isoWithOffset) {
   return String(isoWithOffset).slice(0, 10); // YYYY-MM-DD
 }
 
+function parseRepeatUntilDate(value) {
+  const input = String(value || "").trim();
+  if (!input) return null;
+  const parts = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(input);
+  const iso = parts ? `${parts[3]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}` : input;
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) && DateTime.fromISO(iso).isValid ? iso : null;
+}
+
 function addHoursIso(iso, hours) {
   return sharedAddHoursIso(iso, hours);
 }
@@ -5993,7 +6001,11 @@ try {
       ? JSON.stringify(rule.items)
       : "[]";
     const recurrenceStartDateVal = editEvent?.recurrenceStartDate || toDateValue(editEvent?.startDateTime) || "";
-    const recurrenceUntilDateVal = editEvent?.recurrenceUntilDate || "";
+    const savedRepeatUntil = editEvent?.recurrenceUntilDate || "";
+    const repeatUntilIso = parseRepeatUntilDate(savedRepeatUntil);
+    const recurrenceUntilDateVal = repeatUntilIso
+      ? DateTime.fromISO(repeatUntilIso).toFormat("MM/dd/yyyy")
+      : savedRepeatUntil;
     const recurrenceDurationAmbiguous = (function(){
       if (!hasRecurrence || recurrenceUntilDateVal) return false;
       const start = Date.parse(String(editEvent?.startDateTime || ""));
@@ -16569,9 +16581,9 @@ return `
                 </div>
 
                 <div id="repeatUntilRow" style="margin-top:12px;">
-                  <div class="rec-label">Repeat until <span class="muted" style="font-weight:500;">(optional)</span></div>
-                  <input id="recurrenceUntilDate" class="ctrl" type="date" name="recurrenceUntilDate" min="${esc(String(displayEventStartLocalValue || "").slice(0, 10))}" value="${esc(recurrenceUntilDateVal)}" />
-                  <div class="rec-help">The final calendar date on which an occurrence may start.</div>
+                  <label class="rec-label" for="recurrenceUntilDate">Repeat until <span class="muted" style="font-weight:500;">(optional)</span></label>
+                  <input id="recurrenceUntilDate" class="ctrl" type="text" name="recurrenceUntilDate" aria-describedby="recurrenceUntilHelp" placeholder="MM/DD/YYYY" value="${esc(recurrenceUntilDateVal)}" />
+                  <div class="rec-help" id="recurrenceUntilHelp">Enter the last date an occurrence can start in MM/DD/YYYY format. Leave blank to repeat without an end date.</div>
                 </div>
 
                 <div id="weeklyBox" style="margin-top:14px;${showWeeklyOptions ? "" : "display:none;"}">
@@ -16764,9 +16776,6 @@ return `
                   function schedulePreview(){
                     if (previewTimer) window.clearTimeout(previewTimer);
                     if (!hasRecEl || !hasRecEl.checked || !typeEl || typeEl.value === "none") return;
-                    var startDate = String((document.getElementById("startDateTime") || {}).value || "").slice(0, 10);
-                    var untilEl = document.getElementById("recurrenceUntilDate");
-                    if (untilEl && startDate) untilEl.min = startDate;
                     previewTimer = window.setTimeout(loadPreview, 180);
                   }
                   function recurrenceSummary(payload){
@@ -23308,7 +23317,8 @@ router.post("/events/preview-recurrence", express.json({ limit: "128kb" }), asyn
     if (!rule) return res.status(400).json({ error: "Choose a supported repeat pattern." });
 
     const until = String(body.recurrenceUntilDate || "").trim();
-    const recurrenceUntilDate = /^\d{4}-\d{2}-\d{2}$/.test(until) ? until : null;
+    const recurrenceUntilDate = parseRepeatUntilDate(until);
+    if (until && !recurrenceUntilDate) return res.status(400).json({ error: "Enter a valid Repeat until date in MM/DD/YYYY format." });
     const now = DateTime.now().setZone(DEFAULT_TZ).startOf("day");
     const windowEnd = now.plus({ years: 2 }).endOf("day");
     const template = {
@@ -23671,11 +23681,19 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     const hasRec = String(hasRecurrence || "") === "1" ? 1 : 0;
     const t = String(recurrenceType || "none").toLowerCase();
     const submittedRecurringStartDate = toDateValue(startDateTime);
-    const submittedRecurrenceUntilDate = String(recurrenceUntilDate || "").trim();
+    const keepExistingCutoff = hasRec && eventId > 0 && recurrenceUntilDate === undefined;
+    const existingCutoff = keepExistingCutoff
+      ? (await get("SELECT recurrenceUntilDate FROM events WHERE id = ?", [eventId]))?.recurrenceUntilDate
+      : null;
+    const repeatUntilInput = String((keepExistingCutoff ? existingCutoff : recurrenceUntilDate) || "").trim();
+    const submittedRecurrenceUntilDate = parseRepeatUntilDate(repeatUntilInput);
+    if (hasRec && repeatUntilInput && !submittedRecurrenceUntilDate) {
+      return res.status(400).send("Enter a valid Repeat until date in MM/DD/YYYY format.");
+    }
     if (
       hasRec &&
       t !== "none" &&
-      /^\d{4}-\d{2}-\d{2}$/.test(submittedRecurrenceUntilDate) &&
+      submittedRecurrenceUntilDate &&
       submittedRecurringStartDate &&
       submittedRecurrenceUntilDate < submittedRecurringStartDate
     ) {
@@ -23759,7 +23777,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
       // doing so here would both corrupt the duration and silently alter
       // legacy schedules that do not have an explicit cutoff.
       recurrenceStartDate = submittedRecurringStartDate || recurrenceStartDate;
-      recurrenceUntilDate = String(recurrenceUntilDate || "").trim();
+      recurrenceUntilDate = submittedRecurrenceUntilDate;
 
       if (t === "custom") {
         // Prefer the hidden JSON emitted by the admin UI (keeps per-date start/end)
@@ -23908,7 +23926,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
     };
 
     const recurrenceStartDateClean = normYmd(recurrenceStartDate);
-    const recurrenceUntilDateClean = normYmd(recurrenceUntilDate);
+    const recurrenceUntilDateClean = hasRec && t !== "none" ? normYmd(recurrenceUntilDate) : null;
 
     // ---- Build fields ----
     const isUpdate = id !== undefined && id !== null && String(id).trim() !== "";
