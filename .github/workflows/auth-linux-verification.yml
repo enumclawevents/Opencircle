@@ -57,18 +57,21 @@ jobs:
             python --version
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Install locked dependencies and build SQLite
+      - name: Install locked dependencies
         env:
-          npm_config_build_from_source: 'true'
-        run: npm ci
+          SHARP_IGNORE_GLOBAL_LIBVIPS: '1'
+        run: npm ci --include=optional
 
-      - name: Verify native Linux SQLite
+      - name: Verify native Linux sharp and SQLite
         run: |
           node <<'JS'
           const assert = require('node:assert/strict');
+          const sharp = require('sharp');
           const sqlite = require('sqlite3');
           assert.equal(process.platform, 'linux');
           assert.equal(process.arch, 'x64');
+          assert.ok(sharp.versions.vips);
+          console.log('Native sharp loaded with libvips ' + sharp.versions.vips);
           assert.equal(require('sqlite3/package.json').version, '5.1.7');
           const db = new sqlite.Database(':memory:');
           db.exec("CREATE TABLE fixture (value INTEGER); INSERT INTO fixture VALUES (42);", (error) => {
