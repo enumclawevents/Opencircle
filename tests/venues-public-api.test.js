@@ -85,8 +85,8 @@ test("public venue detail is city scoped, preserves legacy access, and delegates
       ('Enumclaw', 'similar-venue-name', 'Similar venue name', 'Roaring Underground Annex', 'OpenCircle', '${startOne}', '${endOne}');
     INSERT INTO users (id, email, username, role, city)
     VALUES (1, 'developer@example.test', 'developer', 'developer', 'Enumclaw');
-    INSERT INTO auth_sessions (tokenHash, user, role, city, exp)
-    VALUES ('${tokenHash}', 'developer', 'developer', 'Enumclaw', ${Date.now() + 3600000});
+    INSERT INTO auth_sessions (tokenHash, user, role, city, exp, userId, principalType)
+    VALUES ('${tokenHash}', 'developer', 'developer', 'Enumclaw', ${Date.now() + 3600000}, 1, 'account');
   `);
 
   const enumclaw = await fetch(`${baseUrl}/venues/slug/roaring-underground?city=Enumclaw`);

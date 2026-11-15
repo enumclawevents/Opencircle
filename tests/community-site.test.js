@@ -128,7 +128,7 @@ test("the API-hosted Enumclaw preview is public, scoped, escaped, and uses exist
   const password = "Preview reviewer password 1!";
   await sql(database, `
     INSERT INTO users (email, username, passwordHash, role, city)
-    VALUES ('venue-reviewer@example.test', 'venue-reviewer', '${hashPassword(password)}', 'developer', 'Enumclaw');
+    VALUES ('venue-reviewer@example.test', 'venue-reviewer', '${await hashPassword(password)}', 'developer', 'Enumclaw');
   `);
   const login = await fetch(origin + "/login", {
     method: "POST", redirect: "manual",

@@ -104,7 +104,7 @@ test("published parent links survive approval, edits and concurrent requests", a
 
   const password = "Parent test password 1!";
   await sql(database, "INSERT INTO users (email, username, passwordHash, role, city, notificationPreferencesJson) VALUES (?, ?, ?, ?, ?, ?)",
-    ["parent-reviewer@example.test", "parent-reviewer", hashPassword(password), "developer", "Enumclaw", '{"eventSubmissions":false}']);
+    ["parent-reviewer@example.test", "parent-reviewer", await hashPassword(password), "developer", "Enumclaw", '{"eventSubmissions":false}']);
   const login = await fetch(origin + "/login", {
     method: "POST", redirect: "manual",
     body: new URLSearchParams({ username: "parent-reviewer@example.test", password }),

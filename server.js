@@ -8,11 +8,20 @@ const cors = require("cors");
 const compression = require("compression");
 const crypto = require("crypto");
 const { sendEmail, PASSWORD_RESET_FROM, PASSWORD_RESET_REPLY_TO } = require("./mailer");
-const { hashPassword, hashToken, verifyPassword } = require("./lib/auth");
+const {
+  hashPassword, hashToken, verifyPassword, needsPasswordUpgrade, passwordLengthError,
+  MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH,
+} = require("./lib/auth");
+const { createSessionStore, revokeAccountSessions } = require("./lib/auth-sessions");
 const { esc } = require("./lib/html");
+const { recoveryLink, protectTokenPage, TOKEN_UNEXPIRED, withRedemptionTransaction } = require("./lib/auth-recovery");
 const { UPLOAD_DIR } = require("./lib/uploads");
+const {
+  createAuthIpResolver, createAuthRateLimiter, ensureAuthRateLimitSchema,
+  limits: authLimits, normalizeIdentifier, sendAuthRestriction,
+} = require("./lib/auth-rate-limit");
 
-const { initDB, archiveExpiredEvents, get, all, run } = require("./db");
+const { initDB, archiveExpiredEvents, get, all, run, DB_PATH } = require("./db");
 
 const eventsRouter = require("./routes/events");
 const updatesRouter = require("./routes/updates");
@@ -141,6 +150,10 @@ app.use(
     maxAge: 86400,
   })
 );
+app.use(["/invite", "/reset"], (_req, res, next) => {
+  protectTokenPage(res);
+  next();
+});
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -162,8 +175,14 @@ if (!IS_DEVELOPMENT_RUNTIME && (!configuredAdminUser || !configuredAdminPass)) {
 
 const ADMIN_USER = configuredAdminUser || "admin";
 const ADMIN_PASS = configuredAdminPass || "opencircle";
+const authRateLimiter = createAuthRateLimiter(DB_PATH);
+const authIp = createAuthIpResolver({
+  mode: process.env.AUTH_RATE_LIMIT_IP_MODE,
+  trustedProxyCidrs: process.env.AUTH_RATE_LIMIT_TRUSTED_PROXY_CIDRS,
+});
+const bootstrapIdentifier = normalizeIdentifier(ADMIN_USER);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-const sessions = new Map();
+const sessionStore = createSessionStore({ get, filename: DB_PATH, bootstrapUser: ADMIN_USER, ttlMs: SESSION_TTL_MS });
 let lastSessionPruneAt = 0;
 const INVITE_TTL_HOURS = 7 * 24;
 const RESET_TTL_HOURS = 1;
@@ -299,67 +318,13 @@ function parseCookies(cookieHeader) {
   return out;
 }
 
-async function createSession(user, role = "organizer", city = "Enumclaw") {
-  const token = crypto.randomUUID();
-  const exp = Date.now() + SESSION_TTL_MS;
-  const session = { user, role, city, exp };
-  sessions.set(token, session);
-  await run(
-    "INSERT OR REPLACE INTO auth_sessions (tokenHash, user, role, city, exp, createdAt) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-    [hashToken(token), user, role, city, exp]
-  );
-  return token;
-}
-
 async function pruneExpiredSessions(now = Date.now()) {
-  for (const [token, sess] of sessions.entries()) {
-    if (!sess || !Number.isFinite(sess.exp) || now > sess.exp) {
-      sessions.delete(token);
-    }
-  }
+  lastSessionPruneAt = now;
   try {
     await run("DELETE FROM auth_sessions WHERE exp IS NULL OR exp <= ?", [now]);
-  } catch (_) {}
-  lastSessionPruneAt = now;
-}
-
-async function getSession(token) {
-  if (!token) return null;
-  const sess = sessions.get(token);
-  const now = Date.now();
-  if (sess && now <= sess.exp) {
-    return sess;
+  } catch {
+    // Expired rows are also excluded by every session lookup.
   }
-  if (sess) {
-    sessions.delete(token);
-  }
-  const row = await get(
-    "SELECT user, role, city, exp FROM auth_sessions WHERE tokenHash = ? LIMIT 1",
-    [hashToken(token)]
-  );
-  if (!row) return null;
-  if (!Number.isFinite(row.exp) || now > row.exp) {
-    try {
-      await run("DELETE FROM auth_sessions WHERE tokenHash = ?", [hashToken(token)]);
-    } catch (_) {}
-    return null;
-  }
-  const restored = {
-    user: row.user,
-    role: row.role || "organizer",
-    city: row.city || "Enumclaw",
-    exp: row.exp,
-  };
-  sessions.set(token, restored);
-  return restored;
-}
-
-async function destroySession(token) {
-  if (!token) return;
-  sessions.delete(token);
-  try {
-    await run("DELETE FROM auth_sessions WHERE tokenHash = ?", [hashToken(token)]);
-  } catch (_) {}
 }
 
 function isPublicPath(pathname) {
@@ -375,16 +340,10 @@ async function requireLogin(req, res, next) {
   // Parse session first so public endpoints can still see req.user when logged in.
   const cookies = parseCookies(req.headers.cookie || "");
   const token = cookies.oc_auth;
-  const sess = await getSession(token);
+  const sess = await sessionStore.restore(token);
   if (sess) {
     req.user = sess;
-    const sessionKey = String(sess.user || "").trim();
-    if (sessionKey) {
-      run(
-        "UPDATE users SET lastSeenAt = datetime('now') WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?)",
-        [sessionKey, sessionKey]
-      ).catch(() => {});
-    }
+    run("UPDATE users SET lastSeenAt = datetime('now') WHERE id = ?", [sess.userId]).catch(() => {});
   }
 
   // allow login + public endpoints
@@ -433,7 +392,9 @@ app.get("/login", (req, res) => {
       <form class="card" method="POST" action="/login">
         <img class="logo" src="/assets/brand/oc-logo.svg" alt="OpenCircle" />
         <div class="title">Welcome back</div>
-        <div class="subtitle">Welcome back! Please enter your details.</div>
+        <div class="subtitle">${req.query.notice === "password_changed"
+          ? "Password changed. Sign in with your new password."
+          : "Welcome back! Please enter your details."}</div>
         <label>Email</label>
         <input name="username" type="email" placeholder="Enter your email" required />
         <label>Password</label>
@@ -490,26 +451,49 @@ app.post("/login", async (req, res) => {
   const user = String(req.body?.username || "");
   const pass = String(req.body?.password || "");
 
-  if (user && pass) {
-    const row = await get(
-      "SELECT id, username, email, passwordHash, role, city, permissionsJson FROM users WHERE username = ? OR email = ? LIMIT 1",
-      [user, user]
-    );
-    if (row && verifyPassword(pass, row.passwordHash)) {
-      const token = await createSession(row.username || row.email || "user", row.role || "organizer", row.city || "Enumclaw");
-      res.cookie("oc_auth", token, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: !IS_DEVELOPMENT_RUNTIME,
-        maxAge: SESSION_TTL_MS,
-        path: "/",
-      });
-      return res.redirect("/admin");
-    }
-  }
+  const identifier = normalizeIdentifier(user);
+  const row = user && pass ? await get(
+    "SELECT id, username, email, passwordHash, bootstrapIdentity FROM users WHERE username = ? OR email = ? LIMIT 1",
+    [user, user]
+  ) : null;
+  // Normalize the throttle key without broadening which credentials log in.
+  const account = row || (identifier && await get(
+    `SELECT id, username, email FROM users
+     WHERE lower(trim(username)) = ? OR lower(trim(email)) = ? ORDER BY id LIMIT 1`,
+    [identifier, identifier]
+  ));
+  const identity = identifier === bootstrapIdentifier
+    || (account && [account.username, account.email].some((value) => normalizeIdentifier(value) === bootstrapIdentifier))
+    ? ["bootstrap", bootstrapIdentifier]
+    : account ? ["user", account.id] : ["identifier", identifier];
+  const ip = authIp(req);
+  const failures = authLimits.loginFailures(identity, ip);
+  // Reserve an attempt before performing password work. On success, clear only
+  // the account failure buckets. This also bounds parallel failed attempts.
+  const restriction = await authRateLimiter.take(authLimits.loginVolume(ip), failures);
+  if (restriction) return sendAuthRestriction(res, restriction.retryAfter);
 
-  if (user === ADMIN_USER && pass === ADMIN_PASS) {
-    const token = await createSession(user, "developer", "Enumclaw");
+  const verified = await verifyPassword(pass, row?.passwordHash, { balanceFailure: true });
+  const accountLogin = row?.passwordHash && !row.bootstrapIdentity && verified;
+  const bootstrapLogin = user === ADMIN_USER && pass === ADMIN_PASS;
+  if (accountLogin || bootstrapLogin) {
+    let token;
+    if (accountLogin) {
+      const upgradedHash = needsPasswordUpgrade(row.passwordHash) ? await hashPassword(pass) : null;
+      token = await sessionStore.createAccountSession(row, upgradedHash);
+      if (!token) {
+        // Another login may have upgraded this same credential. Verify the
+        // current hash before retrying; a concurrent reset can change it.
+        const current = await get("SELECT id, passwordHash FROM users WHERE id = ? AND bootstrapIdentity IS NULL", [row.id]);
+        if (current && await verifyPassword(pass, current.passwordHash)) {
+          token = await sessionStore.createAccountSession(current);
+        }
+      }
+    } else {
+      token = await sessionStore.createBootstrapSession();
+    }
+    if (!token) return res.status(401).send("Invalid credentials");
+    await authRateLimiter.clearFailures(failures);
     res.cookie("oc_auth", token, {
       httpOnly: true,
       sameSite: "lax",
@@ -786,12 +770,12 @@ app.get("/invite", async (req, res) => {
   if (!token) return res.status(400).send("Missing invite token.");
 
   const invite = await get(
-    "SELECT id, email, role, city, permissionsJson, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
+    `SELECT email, role, usedAt, ${TOKEN_UNEXPIRED} AS unexpired FROM invites WHERE tokenHash = ? LIMIT 1`,
     [hashToken(token)]
   );
   if (!invite) return res.status(404).send("Invite not found.");
   if (invite.usedAt) return res.status(410).send("Invite already used.");
-  if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
+  if (!invite.unexpired) {
     return res.status(410).send("Invite expired.");
   }
 
@@ -819,13 +803,6 @@ app.get("/invite", async (req, res) => {
         .help-text{position:absolute; z-index:2; left:50%; bottom:calc(100% + 8px); width:240px; padding:9px 10px; border-radius:8px; background:#020617; color:#e5e7eb; box-shadow:0 8px 20px rgba(0,0,0,.35); font-size:12px; font-weight:400; line-height:1.4; opacity:0; pointer-events:none; transform:translate(-50%, 4px); transition:opacity .15s ease, transform .15s ease;}
         .help:hover .help-text,.help:focus .help-text{opacity:1; transform:translate(-50%, 0);}
         input{width:100%; box-sizing:border-box; margin:6px 0 20px; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#0f172a; color:#e5e7eb;}
-        .strength-label{font-size:12px; color:#9ca3af;}
-        .strength-label strong{font-weight:500; color:#94a3b8;}
-        .password-requirements{display:grid; gap:5px; margin:7px 0 18px; padding:0; list-style:none; color:#9ca3af; font-size:12px;}
-        .password-requirement{display:flex; align-items:center; gap:8px;}
-        .password-requirement::before{content:""; width:9px; height:9px; flex:0 0 auto; border-radius:50%; background:#64748b; transition:background .15s ease;}
-        .password-requirement.met{color:#86efac;}
-        .password-requirement.met::before{background:#22c55e;}
         .terms{display:flex; align-items:flex-start; gap:8px; margin:2px 0 20px; color:#cbd5e1; font-size:12px; line-height:1.4;}
         .terms input{width:15px; height:15px; flex:0 0 auto; margin:1px 0 0; padding:0;}
         .terms a{color:#60a5fa; font-weight:600; text-decoration:none;}
@@ -843,16 +820,10 @@ app.get("/invite", async (req, res) => {
         <label>${accountNameLabel}</label>
         <input name="username" type="text" autocomplete="username" required />
         <label>Password</label>
-        <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required />
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" maxlength="${MAX_PASSWORD_LENGTH}" required />
         <label>Confirm password</label>
-        <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
-        <div class="strength-label" aria-live="polite">Password strength: <strong id="passwordStrengthLabel">Not entered</strong></div>
-        <ul class="password-requirements" aria-label="Password recommendations">
-          <li class="password-requirement" data-password-rule="length">At least 8 characters</li>
-          <li class="password-requirement" data-password-rule="letterCase">Uppercase and lowercase character</li>
-          <li class="password-requirement" data-password-rule="special">One special character</li>
-          <li class="password-requirement" data-password-rule="number">One number</li>
-        </ul>
+        <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" maxlength="${MAX_PASSWORD_LENGTH}" required />
+        <div class="subtitle">Use ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters. A passphrase works too.</div>
         <label class="terms"><input name="agreeToTerms" type="checkbox" value="yes" required /> <span>I agree to the <a href="/terms-of-service" target="_blank" rel="noopener noreferrer">Terms of Service</a> and <a href="/privacy-policy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.</span></label>
         <button type="submit">+ Create account</button>
       </form>
@@ -860,30 +831,8 @@ app.get("/invite", async (req, res) => {
         (function () {
           var password = document.getElementById("password");
           var confirmation = document.getElementById("confirmPassword");
-          var label = document.getElementById("passwordStrengthLabel");
-          var requirements = {
-            length: document.querySelector('[data-password-rule="length"]'),
-            letterCase: document.querySelector('[data-password-rule="letterCase"]'),
-            special: document.querySelector('[data-password-rule="special"]'),
-            number: document.querySelector('[data-password-rule="number"]')
-          };
           function updatePasswordStatus() {
-            var value = password.value;
-            var met = {
-              length: value.length >= 8,
-              letterCase: /[a-z]/.test(value) && /[A-Z]/.test(value),
-              special: /[^A-Za-z0-9]/.test(value),
-              number: /\\d/.test(value)
-            };
-            var score = Object.keys(met).filter(function (key) { return met[key]; }).length;
-            Object.keys(met).forEach(function (key) {
-              requirements[key].classList.toggle("met", met[key]);
-            });
-            var state = !value ? "Not entered" : (score <= 1 ? "Weak" : score === 2 ? "Fair" : score === 3 ? "Good" : value.length >= 12 ? "Strong" : "Good");
-            var colors = { "Not entered": "#94a3b8", Weak: "#f87171", Fair: "#fb923c", Good: "#facc15", Strong: "#86efac" };
-            label.textContent = state;
-            label.style.color = colors[state];
-            confirmation.setCustomValidity(confirmation.value && confirmation.value !== value ? "Passwords do not match." : "");
+            confirmation.setCustomValidity(confirmation.value && confirmation.value !== password.value ? "Passwords do not match." : "");
           }
           password.addEventListener("input", updatePasswordStatus);
           confirmation.addEventListener("input", updatePasswordStatus);
@@ -898,49 +847,45 @@ app.post("/invite", async (req, res) => {
   const token = String(req.body?.invite || "").trim();
   if (!token) return res.status(400).send("Missing invite token.");
 
-  const invite = await get(
-    "SELECT id, email, role, city, permissionsJson, expiresAt, usedAt FROM invites WHERE tokenHash = ? LIMIT 1",
-    [hashToken(token)]
-  );
-  if (!invite) return res.status(404).send("Invite not found.");
-  if (invite.usedAt) return res.status(410).send("Invite already used.");
-  if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
-    return res.status(410).send("Invite expired.");
-  }
-
   const email = String(req.body?.email || "").trim().toLowerCase();
   const username = String(req.body?.username || "").trim();
   const password = String(req.body?.password || "");
   const confirmPassword = String(req.body?.confirmPassword || "");
   const agreedToTerms = String(req.body?.agreeToTerms || "").toLowerCase() === "yes";
   if (!email || !username || !password || !confirmPassword) return res.status(400).send("All fields are required.");
-  if (password.length < 8) return res.status(400).send("Password must be at least 8 characters.");
+  if (passwordLengthError(password)) return res.status(400).send(`Password must be ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters.`);
   if (password !== confirmPassword) return res.status(400).send("Passwords do not match.");
   if (!agreedToTerms) return res.status(400).send("You must agree to the Terms of Use.");
-  if (invite.email && invite.email.toLowerCase() !== email) {
-    return res.status(400).send("Invite email does not match.");
-  }
-
-  const existing = await get(
-    "SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1",
-    [email, username]
+  const tokenHash = hashToken(token);
+  const invite = await get(
+    `SELECT id, email, role, city, permissionsJson, usedAt, ${TOKEN_UNEXPIRED} AS unexpired
+     FROM invites WHERE tokenHash = ? LIMIT 1`,
+    [tokenHash]
   );
-  if (existing) return res.status(400).send("Email or username already in use.");
+  if (!invite) return res.status(404).send("Invite not found.");
+  if (invite.usedAt) return res.status(410).send("Invite already used.");
+  if (!invite.unexpired) return res.status(410).send("Invite expired.");
+  if (invite.email && invite.email.toLowerCase() !== email) return res.status(400).send("Invite email does not match.");
 
-  const passwordHash = hashPassword(password);
-  await run(
-    "INSERT INTO users (email, username, passwordHash, role, city, permissionsJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-    [
-      email,
-      username,
-      passwordHash,
-      invite.role || "organizer",
-      invite.city || "Enumclaw",
-      invite.permissionsJson ||
-        JSON.stringify({ events: true, venues: false, jobs: false, ads: false }),
-    ]
-  );
-  await run("UPDATE invites SET usedAt = datetime('now') WHERE id = ?", [invite.id]);
+  const passwordHash = await hashPassword(password);
+  const result = await withRedemptionTransaction(DB_PATH, async ({ get, run }) => {
+    const existing = await get("SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1", [email, username]);
+    if (existing) return { status: 400, message: "Email or username already in use." };
+
+    const claimed = await run(
+      `UPDATE invites SET usedAt = datetime('now') WHERE id = ? AND tokenHash = ? AND usedAt IS NULL AND ${TOKEN_UNEXPIRED}`,
+      [invite.id, tokenHash]
+    );
+    if (!claimed) return { status: 410, message: "Invite expired or already used." };
+    const created = await run(
+      "INSERT INTO users (email, username, passwordHash, role, city, permissionsJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+      [email, username, passwordHash, invite.role || "organizer", invite.city || "Enumclaw",
+        invite.permissionsJson || JSON.stringify({ events: true, venues: false, jobs: false, ads: false })]
+    );
+    if (created !== 1) throw new Error("Invite account creation did not complete");
+    return null;
+  });
+  if (result) return res.status(result.status).send(result.message);
 
   return res.redirect("/login");
 });
@@ -982,12 +927,20 @@ app.get("/forgot", (_req, res) => {
 });
 
 app.post("/forgot", async (req, res) => {
-  const email = String(req.body?.email || "").trim().toLowerCase();
+  const email = normalizeIdentifier(req.body?.email);
+  const ip = authIp(req);
+  const restriction = await authRateLimiter.take(authLimits.recoveryVolume(ip), email ? [authLimits.recoveryAddress(email)] : []);
+  if (restriction?.volumeLimited) return sendAuthRestriction(res, restriction.retryAfter);
   if (!email) return res.redirect("/forgot");
+
+  const response = "If the email exists, a reset link has been sent.";
+  const token = crypto.randomBytes(24).toString("hex");
+  const link = recoveryLink("/reset", "token", token);
+  if (!link) return res.status(503).send("Password recovery is temporarily unavailable.");
+  if (restriction) return res.send(response);
 
   const user = await get("SELECT id, email, username FROM users WHERE email = ? LIMIT 1", [email]);
   if (user) {
-    const token = crypto.randomBytes(24).toString("hex");
     const tokenHash = hashToken(token);
     const exp = new Date(Date.now() + RESET_TTL_HOURS * 60 * 60 * 1000).toISOString();
     await run(
@@ -995,15 +948,13 @@ app.post("/forgot", async (req, res) => {
       [user.id, tokenHash, exp]
     );
 
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
-    const link = `${baseUrl}/reset?token=${encodeURIComponent(token)}`;
     const subject = "Reset your OpenCircle password";
     const text = `Reset your password: ${link}`;
     const html = `<p>Reset your password:</p><p><a href="${link}">${link}</a></p>`;
-    try { await sendEmail({ to: user.email, subject, text, html, from: PASSWORD_RESET_FROM, replyTo: PASSWORD_RESET_REPLY_TO }); } catch (e) { console.error("[MAIL] reset failed", e); }
+    try { await sendEmail({ to: user.email, subject, text, html, from: PASSWORD_RESET_FROM, replyTo: PASSWORD_RESET_REPLY_TO }); } catch { console.error("[MAIL] Password reset delivery failed"); }
   }
 
-  return res.send("If the email exists, a reset link has been sent.");
+  return res.send(response);
 });
 
 app.get("/reset", async (req, res) => {
@@ -1012,10 +963,10 @@ app.get("/reset", async (req, res) => {
   let valid = false;
   if (tokenHash) {
     const row = await get(
-      "SELECT id, expiresAt, usedAt FROM password_resets WHERE tokenHash = ? LIMIT 1",
+      `SELECT usedAt, ${TOKEN_UNEXPIRED} AS unexpired FROM password_resets WHERE tokenHash = ? LIMIT 1`,
       [tokenHash]
     );
-    if (row && !row.usedAt && (!row.expiresAt || new Date(row.expiresAt).getTime() > Date.now())) {
+    if (row && !row.usedAt && row.unexpired) {
       valid = true;
     }
   }
@@ -1043,12 +994,12 @@ app.get("/reset", async (req, res) => {
     <body>
       <div class="card">
         <div class="title">Reset password</div>
-        <div class="subtitle">Enter a new password.</div>
+        <div class="subtitle">Use ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters for your new password.</div>
         ${valid ? `
           <form method="POST" action="/reset">
             <input type="hidden" name="token" value="${esc(token)}" />
             <label>New password</label>
-            <input name="password" type="password" required />
+            <input name="password" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD_LENGTH}" maxlength="${MAX_PASSWORD_LENGTH}" required />
             <button type="submit">Update password</button>
           </form>
         ` : `<div style="text-align:center;color:#fca5a5;">Invalid or expired reset link.</div>`}
@@ -1062,27 +1013,39 @@ app.get("/reset", async (req, res) => {
 app.post("/reset", async (req, res) => {
   const token = String(req.body?.token || "");
   const password = String(req.body?.password || "");
-  if (!token || !password || password.length < 8) return res.status(400).send("Invalid request");
+  const restriction = await authRateLimiter.take(authLimits.resetVolume(authIp(req)), token ? [authLimits.resetToken(hashToken(token))] : []);
+  if (restriction) return sendAuthRestriction(res, restriction.retryAfter);
+  if (!token) return res.status(400).send("Invalid request");
+  if (passwordLengthError(password)) return res.status(400).send(`Password must be ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters.`);
 
   const tokenHash = hashToken(token);
   const row = await get(
-    "SELECT id, userId, expiresAt, usedAt FROM password_resets WHERE tokenHash = ? LIMIT 1",
+    `SELECT id, userId FROM password_resets
+     WHERE tokenHash = ? AND usedAt IS NULL AND ${TOKEN_UNEXPIRED} LIMIT 1`,
     [tokenHash]
   );
-  if (!row || row.usedAt || (row.expiresAt && new Date(row.expiresAt).getTime() < Date.now())) {
-    return res.status(400).send("Invalid or expired token");
-  }
-
-  const newHash = hashPassword(password);
-  await run("UPDATE users SET passwordHash = ? WHERE id = ?", [newHash, row.userId]);
-  await run("UPDATE password_resets SET usedAt = datetime('now') WHERE id = ?", [row.id]);
+  if (!row) return res.status(400).send("Invalid or expired token");
+  const newHash = await hashPassword(password);
+  const redeemed = await withRedemptionTransaction(DB_PATH, async ({ run }) => {
+    const claimed = await run(
+      `UPDATE password_resets SET usedAt = datetime('now') WHERE id = ? AND tokenHash = ? AND usedAt IS NULL AND ${TOKEN_UNEXPIRED}`,
+      [row.id, tokenHash]
+    );
+    if (!claimed) return false;
+    const updated = await run("UPDATE users SET passwordHash = ? WHERE id = ?", [newHash, row.userId]);
+    if (updated !== 1) throw new Error("Reset account update did not complete");
+    await revokeAccountSessions(run, row.userId);
+    await run(`UPDATE password_resets SET usedAt = datetime('now') WHERE userId = ? AND usedAt IS NULL AND ${TOKEN_UNEXPIRED}`, [row.userId]);
+    return true;
+  });
+  if (!redeemed) return res.status(400).send("Invalid or expired token");
   return res.redirect("/login");
 });
 
 async function clearAuthAndRedirect(req, res) {
   const cookies = parseCookies(req.headers.cookie || "");
-  await destroySession(cookies.oc_auth);
-  const secure = String(process.env.NODE_ENV || "").toLowerCase() === "production";
+  await sessionStore.destroy(cookies.oc_auth);
+  const secure = !IS_DEVELOPMENT_RUNTIME;
   res.setHeader(
     "Set-Cookie",
     `oc_auth=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`
@@ -1288,7 +1251,13 @@ app.use("/admin", adminRouter);
 
 // Global error handler (so 500s are logged)
 app.use((err, req, res, next) => {
-  console.error("[EXPRESS] Unhandled error:", err);
+  if (/^\/(?:login|signup|forgot|reset|invite|logout|admin\/(?:preferences\/password|invites(?:\/[^/]+\/delete)?|users\/[^/]+\/(?:reset|resend-invite)))\/?$/i.test(req.path)
+      || (typeof err === "object" && err !== null && "body" in err)) {
+    const status = Number.isInteger(err?.status) ? err.status : 500;
+    console.error("[EXPRESS] Request failed", { method: req.method, status });
+  } else {
+    console.error("[EXPRESS] Unhandled error:", err);
+  }
   res.status(500).json({ error: "Server error" });
 });
 
@@ -1298,6 +1267,7 @@ const PORT = Number(process.env.PORT) || 3000;
 initDB()
   .then(async () => {
     await ensureUpdatesSchema();
+    await ensureAuthRateLimitSchema(run);
     // Run once on boot
     try {
       const r = await archiveExpiredEvents();

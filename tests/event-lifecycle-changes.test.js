@@ -53,7 +53,7 @@ test("event revisions, lifecycle transitions, tombstones, and city cursor feeds 
   await waitForHealth(baseUrl);
 
   const password = "lifecycle test password";
-  await sql(dbPath, "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)", ["developer@example.test", "developer", hashPassword(password), "developer", "Enumclaw"]);
+  await sql(dbPath, "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)", ["developer@example.test", "developer", await hashPassword(password), "developer", "Enumclaw"]);
   const cookie = await signIn(baseUrl, "developer@example.test", password);
 
   const create = await fetch(`${baseUrl}/admin/events`, {
@@ -131,7 +131,7 @@ test("event revisions, lifecycle transitions, tombstones, and city cursor feeds 
   });
   assert.equal(missingSeriesConfirmation.status, 400);
 
-  await sql(dbPath, "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)", ["organizer@example.test", "Owner Group", hashPassword(password), "organizer", "Enumclaw"]);
+  await sql(dbPath, "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)", ["organizer@example.test", "Owner Group", await hashPassword(password), "organizer", "Enumclaw"]);
   const organizerCookie = await signIn(baseUrl, "organizer@example.test", password);
   await sql(dbPath, "INSERT INTO events (city, slug, title, description, location, organizer, startDateTime, endDateTime) VALUES ('Enumclaw', 'organizer-owned', 'Organizer Owned', 'Description', 'Hall', 'Owner Group', '2027-01-14T18:00:00-08:00', '2027-01-14T20:00:00-08:00')");
   await sql(dbPath, "INSERT INTO events (city, slug, title, description, location, organizer, startDateTime, endDateTime) VALUES ('Enumclaw', 'other-owned', 'Other Owned', 'Description', 'Hall', 'Another Group', '2027-01-14T18:00:00-08:00', '2027-01-14T20:00:00-08:00')");

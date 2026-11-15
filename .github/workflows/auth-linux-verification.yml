@@ -1,0 +1,106 @@
+name: One-time Linux authentication verification
+
+on:
+  push:
+    branches: [codex/auth-linux-verification]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/codex/auth-linux-verification'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      SMTP_HOST: ''
+    steps:
+      - name: Check out verification commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select Node.js 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 20.20.2
+
+      - name: Select Python for SQLite native build
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+
+      - name: Record environment and verify candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=e49947951a9701540f642b8947e9330796170f85
+          test "$(uname -m)" = x86_64
+          test "$(node -v)" = v20.20.2
+          fixture_env=$(mktemp -d "$RUNNER_TEMP/opencircle-auth.XXXXXXXX")
+          printf 'DB_PATH=%s/fixture.db\nUPLOADS_DIR=%s/uploads\n' "$fixture_env" "$fixture_env" >> "$GITHUB_ENV"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --exit-code "$base" -- package.json package-lock.json
+          sha256sum --check .github/auth-linux-verification/release.sha256
+          printf '%s  %s\n' 0673670f4f574bff8cc406ca5e0dc709d3b94cf42a3a2806c443f5244e41cc75 .github/auth-linux-verification/rollback.patch | sha256sum --check
+          {
+            printf 'Verification commit: %s\n' "$(git rev-parse HEAD)"
+            printf 'Release base: %s\n' "$base"
+            printf 'Original release patch SHA-256: %s\n' e07b5ff7c3d73c50a99a80644531872f692befc6f91a4208df1cf243d71e3ef3
+            uname -sm
+            . /etc/os-release
+            printf 'Operating system: %s\n' "$PRETTY_NAME"
+            node --version
+            npm --version
+            python --version
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Install locked dependencies and build SQLite
+        env:
+          npm_config_build_from_source: 'true'
+        run: npm ci
+
+      - name: Verify native Linux SQLite
+        run: |
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const sqlite = require('sqlite3');
+          assert.equal(process.platform, 'linux');
+          assert.equal(process.arch, 'x64');
+          assert.equal(require('sqlite3/package.json').version, '5.1.7');
+          const db = new sqlite.Database(':memory:');
+          db.exec("CREATE TABLE fixture (value INTEGER); INSERT INTO fixture VALUES (42);", (error) => {
+            assert.ifError(error);
+            db.get('SELECT value FROM fixture', (error, row) => {
+              assert.ifError(error);
+              assert.equal(row.value, 42);
+              db.close((error) => assert.ifError(error));
+              console.log('Native SQLite ' + sqlite.VERSION + ' read/write passed');
+            });
+          });
+          JS
+
+      - name: Check application startup, migrations and session cleanup
+        run: node .github/auth-linux-verification/session-cleanup.cjs
+
+      - name: Run focused authentication tests
+        run: |
+          node --test tests/auth-passwords.test.js tests/auth-rate-limit.test.js tests/auth-recovery.test.js tests/dashboard-role-preferences.test.js
+          node --test --test-name-pattern='production refuses implicit bootstrap credentials' tests/event-input-security.test.js
+
+      - name: Switch from release to rollback on one disposable database
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=e49947951a9701540f642b8947e9330796170f85
+          fixture_dir=$(mktemp -d "$RUNNER_TEMP/opencircle-rollback.XXXXXXXX")
+          mkdir "$fixture_dir/reference" "$fixture_dir/rollback"
+          git archive "$base" -- . ':!node_modules' | tar -xf - -C "$fixture_dir/reference"
+          git archive "$base" -- . ':!node_modules' | tar -xf - -C "$fixture_dir/rollback"
+          git -C "$fixture_dir/rollback" apply "$GITHUB_WORKSPACE/.github/auth-linux-verification/rollback.patch"
+          for checkout in reference rollback; do
+            ln -s "$GITHUB_WORKSPACE/node_modules" "$fixture_dir/$checkout/node_modules"
+          done
+          node .github/auth-linux-verification/verify-switch.cjs "$fixture_dir/reference" "$GITHUB_WORKSPACE" "$fixture_dir/rollback"
