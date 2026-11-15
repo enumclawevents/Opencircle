@@ -180,6 +180,22 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
   const analyticsHtml = await analyticsResponse.text();
   assert.match(analyticsHtml, /All views[\s\S]*?<div class="v">1<\/div>/);
   assert.match(analyticsHtml, /Traffic-source details are unavailable/);
+  assert.equal((analyticsHtml.match(/<h1[ >]/g) || []).length, 1);
+  assert.match(analyticsHtml, /<h1>Organizer Event<\/h1>\s*<p class="sub">Analytics and performance<\/p>/);
+  assert.doesNotMatch(analyticsHtml, /id="analyticsPeriodTitle"|Activity during the selected reporting period\./);
+  assert.ok(analyticsHtml.includes(`/admin/create-events?edit=${eventId}`));
+  assert.match(analyticsHtml, /id="analyticsPeriodForm"/);
+  assert.match(analyticsHtml, /data-report-title="Organizer Event report"/);
+  assert.match(analyticsHtml, /Scheduled dates \(1\)/);
+  assert.match(analyticsHtml, /data-event-day-label="[0-9.]+"/);
+  assert.match(analyticsHtml, /src="\/assets\/event-chart-labels\.js"/);
+  for (const group of ["week", "month"]) {
+    const grouped = await fetch(eventAnalyticsUrl + "&chartGroup=" + group, { headers: { cookie: organizerCookie } });
+    assert.equal(grouped.status, 200);
+    const groupedHtml = await grouped.text();
+    assert.match(groupedHtml, /Scheduled dates \(1\)/);
+    assert.match(groupedHtml, /data-event-day-label="[0-9.]+"/);
+  }
 
   await execSql(dbPath, "DELETE FROM event_views");
   const emptySummary = await (await fetch(`${baseUrl}/admin/dashboard-summary?range=30d`, {

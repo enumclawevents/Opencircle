@@ -7260,6 +7260,7 @@ return `
     // deliberately use the event record timestamps rather than view data so
     // an admin can compare when an event was added with its scheduled day.
     let selectedEventChartMarkers = [];
+    const chartEventDays = new Map();
 
     function buildEventsChartSvg() {
       const isIndividualEventChart = !!selectedEventAnalytics;
@@ -7321,11 +7322,11 @@ return `
         const labelKey = `${pointIndex}:${String(marker.label || "")}`;
         const showLabel = !labeledMarkerBuckets.has(labelKey);
         labeledMarkerBuckets.add(labelKey);
-        // Keep scheduled-day labels in the chart's top margin, directly above
-        // their marker, rather than placing them over the data series.
-        const labelY = String(marker.label || "") === "Event day"
-          ? padT - 6
-          : padT + 14 + ((markerIndex % 2) * 16);
+        const isEventDay = marker.label === "Event day";
+        if (isEventDay) {
+          chartEventDays.set(key, DateTime.fromISO(key).toFormat("MMMM d, yyyy"));
+        }
+        const labelY = padT + 14 + ((markerIndex % 2) * 16);
         // The first and last plotted points sit near the SVG edges. Centering
         // a long marker label there clips it, especially for today's point.
         const labelInset = 8;
@@ -7337,7 +7338,9 @@ return `
           : (labelAnchor === "end" ? x - labelInset : x);
         return `
           <line x1="${x.toFixed(2)}" y1="${padT.toFixed(2)}" x2="${x.toFixed(2)}" y2="${(padT + plotH).toFixed(2)}" stroke="rgba(245,158,11,.9)" stroke-width="1.5" stroke-dasharray="4 3"></line>
-          ${showLabel ? `<text x="${labelX.toFixed(2)}" y="${labelY}" text-anchor="${labelAnchor}" fill="rgba(146,64,14,.98)" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(marker.label || ""))}</text>` : ""}
+          ${showLabel ? `<text ${isEventDay
+            ? `data-event-day-label="${x.toFixed(2)}" data-marker-top="${padT}" visibility="hidden"`
+            : `x="${labelX.toFixed(2)}" y="${labelY}" text-anchor="${labelAnchor}"`} fill="rgba(146,64,14,.98)" font-size="11" font-weight="700" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${esc(String(marker.label || ""))}</text>` : ""}
         `;
       }).join("");
       function buildSmoothSvgPath(points) {
@@ -10255,9 +10258,9 @@ return `
         .map(([key, value]) => `<input type="hidden" name="${esc(key)}" value="${esc(value)}" />`).join("");
       const dateValue = (key) => /^\d{4}-\d{2}-\d{2}$/.test(String(req.query[key] || "")) ? String(req.query[key]) : "";
       analyticsPeriodHtml = `
-        <section class="dashboard-command" aria-labelledby="analyticsPeriodTitle">
-          <div class="dashboard-command-head">
-            <div><h1 id="analyticsPeriodTitle">${selectedEventAnalytics ? "Event activity" : esc(pageTitleBase)}</h1><p class="sub">Activity during the selected reporting period.</p></div>
+        <section class="dashboard-command" ${selectedEventAnalytics ? 'aria-label="Reporting period"' : 'aria-labelledby="analyticsPeriodTitle"'}>
+          <div class="dashboard-command-head${selectedEventAnalytics ? " event-analytics-period-head" : ""}">
+            ${selectedEventAnalytics ? "" : `<div><h1 id="analyticsPeriodTitle">${esc(pageTitleBase)}</h1><p class="sub">Activity during the selected reporting period.</p></div>`}
             <form class="dashboard-period-controls" method="GET" id="analyticsPeriodForm"
               data-report-title="${esc(selectedEventAnalytics ? selectedEventAnalytics.title + " report" : pageTitleBase)}"
               data-report-scope="${esc(selectedAdminWorkspace || selectedAdminPrimaryCity || "")}"
@@ -11613,8 +11616,15 @@ return `
         align-items:flex-start;
         justify-content:space-between;
         gap:16px;
-        margin: 0 0 var(--gap);
+        margin: 0 0 8px;
+        flex-wrap:wrap;
       }
+      .event-analytics-period-head{ justify-content:flex-end; }
+      .event-analytics-page-title .btn{ flex-shrink:0; }
+      .event-chart-dates{ margin-top:8px; }
+      .event-chart-dates summary{ cursor:pointer; }
+      .event-chart-dates ul{ padding-inline-start:1.5em; }
+      #eventsChartSvgHost[data-event-days] > svg{ overflow:visible; }
       .event-analytics-page-title h1{
         margin:0;
         font-size:28px;
@@ -14613,7 +14623,7 @@ return `
         <section class="event-analytics-page-title">
           <div>
             <h1>${esc(selectedEventAnalytics.title)}</h1>
-            <p class="sub">Views follow the selected reporting period. The default is the last 30 days.</p>
+            <p class="sub">Analytics and performance</p>
           </div>
           ${canManageEvents ? `<a class="btn btn-primary" href="/admin/create-events?edit=${encodeURIComponent(String(selectedEventAnalytics.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit Event</a>` : ``}
         </section>
@@ -14925,10 +14935,18 @@ return `
               ${chartGroupingControl}
             </div>
             <div class="chart-wrap" id="eventsChartWrap" style="min-height:96px;">
-              <div id="eventsChartSvgHost">${eventsChartSvg}</div>
+              <div id="eventsChartSvgHost"${chartEventDays.size ? ` data-event-days="${chartEventDays.size}"` : ""}>${eventsChartSvg}</div>
               <div id="eventsChartData" data-chart="${esc(JSON.stringify(chartSeries))}" hidden></div>
                 <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
             </div>
+            ${chartEventDays.size ? `
+              <details class="event-chart-dates mini">
+                <summary>Scheduled dates (${chartEventDays.size})</summary>
+                <ul>${[...chartEventDays].sort(([a], [b]) => a.localeCompare(b))
+                  .map(([key, label]) => `<li><time datetime="${key}">${esc(label)}</time></li>`).join("")}</ul>
+              </details>
+              <script defer src="/assets/event-chart-labels.js"></script>
+            ` : ""}
           </div>
 
           ${(!isOrganizerUser || selectedEventAnalytics) ? `
@@ -20609,9 +20627,10 @@ return `
       const scaleX = rect.width / width;
       const scaleY = rect.height / height;
       const x = Number(hit.dataset.pointX) * scaleX;
-      const eventY = Number(hit.dataset.eventY) * scaleY;
-      const viewY = Number(hit.dataset.viewY) * scaleY;
-      const frame = { padT: Number(hit.getAttribute("y")) * scaleY, gh: Number(hit.getAttribute("height")) * scaleY };
+      const topOffset = host.hasAttribute("data-event-days") ? rect.top - wrap.getBoundingClientRect().top : 0;
+      const eventY = Number(hit.dataset.eventY) * scaleY + topOffset;
+      const viewY = Number(hit.dataset.viewY) * scaleY + topOffset;
+      const frame = { padT: Number(hit.getAttribute("y")) * scaleY + topOffset, gh: Number(hit.getAttribute("height")) * scaleY };
       const rows = [];
       if (eventLegend) rows.push({ label: eventLegend.textContent.trim(), value: series.events[index].toLocaleString("en-US") });
       const hasViews = typeof series.views[index] === "number";
