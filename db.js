@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const sqlite3 = require("sqlite3");
 const { normalizeStoredRole } = require("./lib/roles");
+const { ensureSessionIdentitySchema } = require("./lib/auth-sessions");
 const { installParentEventConstraints } = require("./lib/event-parent");
 
 // --------------------
@@ -344,6 +345,7 @@ async function initDB() {
     );
   `);
   await tryExec(`CREATE INDEX IF NOT EXISTS idx_auth_sessions_exp ON auth_sessions(exp);`);
+  await ensureSessionIdentitySchema({ all, run });
 
   await tryExec(`
     CREATE TABLE IF NOT EXISTS notification_email_log (

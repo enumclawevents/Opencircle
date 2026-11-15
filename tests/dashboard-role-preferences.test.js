@@ -88,7 +88,7 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
     await execSql(
       dbPath,
       "INSERT INTO users (email, username, passwordHash, role, city, permissionsJson, notificationPreferencesJson) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [email, username, hashPassword(password), role, city, permissionsJson, notificationPreferencesJson]
+      [email, username, await hashPassword(password), role, city, permissionsJson, notificationPreferencesJson]
     );
   }
 

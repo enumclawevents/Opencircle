@@ -75,7 +75,7 @@ test("admin recurrence saves preserve weekly, custom, annual fallback, and ambig
   await waitForHealth(baseUrl);
 
   const password = "recurrence test password";
-  await execSql(dbPath, "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)", ["developer@example.test", "developer", hashPassword(password), "developer", "Enumclaw"]);
+  await execSql(dbPath, "INSERT INTO users (email, username, passwordHash, role, city) VALUES (?, ?, ?, ?, ?)", ["developer@example.test", "developer", await hashPassword(password), "developer", "Enumclaw"]);
   const customRule = JSON.stringify({ type: "custom", items: [
     { date: "2026-03-03", start: "2026-03-03T18:00:00-08:00", end: "2026-03-03T20:00:00-08:00", label: "Early session", source: "legacy-import" },
     { date: "2026-03-10", start: "2026-03-10T23:00:00-07:00", end: "2026-03-11T01:00:00-07:00", label: "Overnight session", source: "legacy-import" },

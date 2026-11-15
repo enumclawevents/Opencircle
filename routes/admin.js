@@ -17,7 +17,11 @@ const { sendEmail, PASSWORD_RESET_FROM, PASSWORD_RESET_FROM_ADDRESS, PASSWORD_RE
 const { findLikelyEventDuplicates } = require("../lib/event-dedupe");
 const crypto = require("crypto");
 const { appVersion, categories: releaseCategories, filters: releaseFilters, publishCurrentRelease, readReleaseNotes, renderReleaseEntries } = require("../lib/release-notes");
-const { hashPassword, hashToken, verifyPassword } = require("../lib/auth");
+const {
+  hashPassword, hashToken, verifyPassword, passwordLengthError, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH,
+} = require("../lib/auth");
+const { recoveryLink, protectTokenPage, withRedemptionTransaction } = require("../lib/auth-recovery");
+const { revokeAccountSessions } = require("../lib/auth-sessions");
 const { DateTime } = require("luxon");
 const { esc } = require("../lib/html");
 const { resolveEventVenue } = require("../lib/event-venue");
@@ -4407,48 +4411,17 @@ async function processScheduledEmailReports() {
 }
 
 async function resolveSessionUser(req) {
+  if (!req.user?.userId) return null;
   await ensureUserProfileSchema();
-  const rawKey = String(req.user?.user || "").trim();
-  const role = normalizeRoleValue(req.user?.role || "organizer");
-  const city = String(req.user?.city || "Enumclaw").trim() || "Enumclaw";
-  const lowerKey = rawKey.toLowerCase();
-
-  const candidates = Array.from(
-    new Set(
-      [rawKey, req.user?.email, req.user?.username]
-        .map((v) => String(v || "").trim())
-        .filter(Boolean)
-    )
+  return get(
+    `SELECT id, email, username, role, city, permissionsJson, notificationPreferencesJson,
+            displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt
+       FROM users WHERE id = ? AND (
+         (? = 'account' AND bootstrapIdentity IS NULL)
+         OR (? = 'bootstrap' AND bootstrapIdentity IS NOT NULL AND role = 'developer')
+       ) LIMIT 1`,
+    [req.user.userId, req.user.principalType, req.user.principalType]
   );
-
-  for (const key of candidates) {
-    const row = await get(
-      "SELECT id, email, username, role, city, permissionsJson, notificationPreferencesJson, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
-      [key, key]
-    );
-    if (row?.id) return row;
-  }
-
-  if (role === "developer") {
-    let adminRow = await get(
-      "SELECT id, email, username, role, city, permissionsJson, notificationPreferencesJson, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(role,'')) = 'developer' ORDER BY id ASC LIMIT 1"
-    );
-    if (adminRow?.id) return adminRow;
-
-    const username = rawKey && !rawKey.includes("@") ? rawKey : "admin";
-    const email = rawKey.includes("@") ? lowerKey : null;
-    await run(
-      "INSERT INTO users (email, username, passwordHash, role, city, permissionsJson, createdAt, updatedAt) VALUES (?, ?, ?, 'developer', ?, NULL, datetime('now'), datetime('now'))",
-      [email, username, "", city]
-    );
-    adminRow = await get(
-      "SELECT id, email, username, role, city, permissionsJson, notificationPreferencesJson, displayName, phone, photoUrl, bio, presenceStatus, lastSeenAt, createdAt FROM users WHERE lower(COALESCE(username,'')) = lower(?) OR lower(COALESCE(email,'')) = lower(?) LIMIT 1",
-      [username, email || username]
-    );
-    if (adminRow?.id) return adminRow;
-  }
-
-  return null;
 }
 
 async function resolveSupportCircleUser() {
@@ -7824,7 +7797,9 @@ return `
           : prefNotice === "password_mismatch"
           ? `<div class="mini admin-notice admin-notice--error" role="alert">New passwords do not match.</div>`
           : prefNotice === "password_short"
-          ? `<div class="mini admin-notice admin-notice--error" role="alert">New password must be at least 8 characters.</div>`
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">New password must be at least ${MIN_PASSWORD_LENGTH} characters.</div>`
+          : prefNotice === "password_long"
+          ? `<div class="mini admin-notice admin-notice--error" role="alert">New password must be at most ${MAX_PASSWORD_LENGTH} characters.</div>`
           : prefNotice === "password_invalid"
           ? `<div class="mini admin-notice admin-notice--error" role="alert">Current password is incorrect.</div>`
           : prefNotice === "user_not_found"
@@ -10390,7 +10365,7 @@ return `
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/assets/brand/favicon.ico" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    ${res.locals.newInviteLink ? "" : '<script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>'}
     <title>${pageTitle}</title>
     ${pageLoadingAssets}
     ${showUpdatesLog ? '<link rel="stylesheet" href="/assets/release-notes.css"><script defer src="/assets/release-notes.js"></script>' : ""}
@@ -15316,10 +15291,10 @@ return `
             </div>
             <button class="btn btn-primary" type="submit">Create invite</button>
           </form>
-          ${req.query.invite ? `
+          ${res.locals.newInviteLink ? `
             <div class="mini" style="margin-top:14px;">
               <div class="muted">Invite link (copy and share):</div>
-              <div style="font-weight:700; margin-top:6px;">${esc(`${req.protocol}://${req.get("host")}/invite?invite=${req.query.invite}`)}</div>
+              <div style="font-weight:700; margin-top:6px;">${esc(res.locals.newInviteLink)}</div>
             </div>
           ` : ``}
           <div style="height:12px;"></div>
@@ -16188,10 +16163,10 @@ return `
                 <input class="ctrl" type="password" name="currentPassword" required />
 
                 <label>New password</label>
-                <input class="ctrl" type="password" name="newPassword" required minlength="8" />
+                <input class="ctrl" type="password" name="newPassword" required minlength="${MIN_PASSWORD_LENGTH}" maxlength="${MAX_PASSWORD_LENGTH}" />
 
                 <label>Confirm new password</label>
-                <input class="ctrl" type="password" name="confirmPassword" required minlength="8" />
+                <input class="ctrl" type="password" name="confirmPassword" required minlength="${MIN_PASSWORD_LENGTH}" maxlength="${MAX_PASSWORD_LENGTH}" />
 
                 <div class="actions">
                   <button class="btn btn-primary" type="submit">Update password</button>
@@ -21714,7 +21689,8 @@ return `
   </body>
 </html>`);
   } catch (err) {
-    console.error(err);
+    if (res.locals.newInviteLink) console.error("[AUTH] Invite confirmation could not be rendered");
+    else console.error(err);
     res.status(500).send("Internal server error");
   }
 }
@@ -21752,7 +21728,13 @@ function isOrganizerAllowedAdminPath(pathname) {
 router.use(async (req, res, next) => {
   try {
     const sessionUser = await resolveSessionUser(req);
-    const role = normalizeRoleValue(req.user?.role || sessionUser?.role || "organizer");
+    if (!sessionUser) {
+      if ((req.headers.accept || "").includes("text/html")) return res.redirect("/login");
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const role = normalizeRoleValue(sessionUser.role);
+    req.user.role = role;
+    req.user.city = sessionUser.city || "Enumclaw";
     if (role === "organizer" && !isOrganizerAllowedAdminPath(req.path)) {
       return res.status(403).send("Forbidden");
     }
@@ -22594,6 +22576,8 @@ router.post("/invites", async (req, res) => {
       return res.status(400).send("Invalid role.");
     }
     const token = crypto.randomBytes(20).toString("hex");
+    const link = recoveryLink("/invite", "invite", token);
+    if (!link) return res.status(503).send("Invitations are temporarily unavailable.");
     const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
     const permissionsJson = role === "organizer"
@@ -22603,16 +22587,13 @@ router.post("/invites", async (req, res) => {
       "INSERT INTO invites (email, tokenHash, role, city, permissionsJson, expiresAt, createdByUserId) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [email, tokenHash, role, city, permissionsJson, expiresAt, sessionUser?.id || null]
     );
-    const redirectParams = new URLSearchParams({
-      invite: token,
-      city,
-    });
-    if (Object.prototype.hasOwnProperty.call(ADMIN_WORKSPACE_GROUPS, requestedWorkspace) || Object.prototype.hasOwnProperty.call(USER_ACCESS_AREAS, requestedWorkspace)) {
-      redirectParams.set("workspace", requestedWorkspace);
-    }
-    return res.redirect(`/admin/invites?${redirectParams.toString()}`);
-  } catch (err) {
-    console.error(err);
+    // Show the copyable link in the response rather than putting its token
+    // in a dashboard redirect URL, where request logs could capture it.
+    protectTokenPage(res);
+    res.locals.newInviteLink = link;
+    return renderAdmin(req, res, "invites");
+  } catch {
+    console.error("[AUTH] Invite creation failed");
     return res.status(500).send("Failed to create invite.");
   }
 });
@@ -22743,15 +22724,25 @@ router.post("/preferences/password", async (req, res) => {
     const newPassword = String(req.body?.newPassword || "");
     const confirmPassword = String(req.body?.confirmPassword || "");
 
-    if (newPassword.length < 8) return res.redirect("/admin/preferences?notice=password_short");
+    const lengthError = passwordLengthError(newPassword);
+    if (lengthError) return res.redirect(`/admin/preferences?notice=${lengthError}`);
     if (newPassword !== confirmPassword) return res.redirect("/admin/preferences?notice=password_mismatch");
-    if (!verifyPassword(currentPassword, u.passwordHash || "")) return res.redirect("/admin/preferences?notice=password_invalid");
+    if (!(await verifyPassword(currentPassword, u.passwordHash))) return res.redirect("/admin/preferences?notice=password_invalid");
 
-    const nextHash = hashPassword(newPassword);
-    await run("UPDATE users SET passwordHash = ?, updatedAt = datetime('now') WHERE id = ?", [nextHash, u.id]);
-    return res.redirect("/admin/preferences?notice=password_saved");
-  } catch (err) {
-    console.error(err);
+    const nextHash = await hashPassword(newPassword);
+    const updated = await withRedemptionTransaction(DB_PATH, async ({ run }) => {
+      const changed = await run(
+        "UPDATE users SET passwordHash = ?, updatedAt = datetime('now') WHERE id = ? AND passwordHash = ?",
+        [nextHash, u.id, u.passwordHash]
+      );
+      if (!changed) return false;
+      await revokeAccountSessions(run, u.id);
+      return true;
+    });
+    if (!updated) return res.redirect("/admin/preferences?notice=password_invalid");
+    return res.redirect("/login?notice=password_changed");
+  } catch {
+    console.error("[AUTH] Password change failed");
     return res.status(500).send("Failed to update password.");
   }
 });
@@ -22846,7 +22837,10 @@ router.post("/users/:id/delete", async (req, res) => {
     if (!isAdminRole(sessionUser?.role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.redirect("/admin/users");
-    await run("DELETE FROM users WHERE id = ?", [id]);
+    await withRedemptionTransaction(DB_PATH, async ({ run }) => {
+      await revokeAccountSessions(run, id);
+      await run("DELETE FROM users WHERE id = ?", [id]);
+    });
     return res.redirect("/admin/users");
   } catch (err) {
     console.error(err);
@@ -22865,21 +22859,21 @@ router.post("/users/:id/reset", async (req, res) => {
     if (!u || !u.email) return res.redirect("/admin/users");
 
     const token = crypto.randomBytes(24).toString("hex");
+    const link = recoveryLink("/reset", "token", token);
+    if (!link) return res.status(503).send("Password recovery is temporarily unavailable.");
     const tokenHash = hashToken(token);
     const exp = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     await run(
       "INSERT INTO password_resets (userId, tokenHash, expiresAt) VALUES (?, ?, ?)",
       [u.id, tokenHash, exp]
     );
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
-    const link = `${baseUrl}/reset?token=${encodeURIComponent(token)}`;
     const subject = "Reset your OpenCircle password";
     const text = `Reset your password: ${link}`;
     const html = `<p>Reset your password:</p><p><a href="${link}">${link}</a></p>`;
-    try { await sendEmail({ to: u.email, subject, text, html, from: PASSWORD_RESET_FROM, replyTo: PASSWORD_RESET_REPLY_TO }); } catch (_) {}
+    try { await sendEmail({ to: u.email, subject, text, html, from: PASSWORD_RESET_FROM, replyTo: PASSWORD_RESET_REPLY_TO }); } catch { console.error("[MAIL] Administrator password reset delivery failed"); }
     return res.redirect("/admin/users");
-  } catch (err) {
-    console.error(err);
+  } catch {
+    console.error("[AUTH] Administrator password reset failed");
     return res.status(500).send("Failed to send reset.");
   }
 });
@@ -22895,6 +22889,8 @@ router.post("/users/:id/resend-invite", async (req, res) => {
     if (!u || !u.email) return res.redirect("/admin/users?notice=no_email");
 
     const token = crypto.randomBytes(20).toString("hex");
+    const link = recoveryLink("/invite", "invite", token);
+    if (!link) return res.status(503).send("Invitations is temporarily unavailable.");
     const tokenHash = hashToken(token);
     const exp = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     const normalizedInviteRole = normalizeRoleValue(u.role || "organizer");
@@ -22917,21 +22913,19 @@ router.post("/users/:id/resend-invite", async (req, res) => {
       ]
     );
 
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
-    const link = `${baseUrl}/invite?invite=${encodeURIComponent(token)}`;
     const subject = "You're invited to OpenCircle";
     const text = `Use this invite link to access OpenCircle: ${link}`;
     const html = `<p>Use this invite link to access OpenCircle:</p><p><a href="${link}">${link}</a></p>`;
     try {
       await sendEmail({ to: u.email, subject, text, html });
-    } catch (e) {
-      console.error("[MAIL] invite failed", e);
+    } catch {
+      console.error("[MAIL] Invitation delivery failed");
       return res.redirect("/admin/users?notice=send_failed");
     }
 
     return res.redirect("/admin/users?notice=sent");
-  } catch (err) {
-    console.error(err);
+  } catch {
+    console.error("[AUTH] Invitation resend failed");
     return res.status(500).send("Failed to resend invite.");
   }
 });
