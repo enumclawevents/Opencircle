@@ -37,47 +37,6 @@
     const grid = wrap.querySelector(".oc-grid");
     const hasInitialCards = !!grid.querySelector(".oc-card-link");
 
-    // ✅ Track views on event card click (delegated, only set once)
-    grid.addEventListener(
-      "click",
-      (ev) => {
-        const a = ev.target.closest("a.oc-card-link");
-        if (!a) return;
-
-        const API_BASE = (API || "").trim();
-        if (!API_BASE) return;
-
-        const eid = (a.getAttribute("data-oc-eid") || "").trim();
-        const slug = (a.getAttribute("data-oc-slug") || "").trim();
-        const idOrSlug = eid && eid !== "0" ? eid : slug;
-        if (!idOrSlug) return;
-
-        const sid = ocGetSid();
-        const endpoint =
-          API_BASE.replace(/\/$/, "") +
-          "/events/" +
-          encodeURIComponent(idOrSlug) +
-          "/view";
-        const payload = JSON.stringify({ sid });
-
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon(
-            endpoint,
-            new Blob([payload], { type: "application/json" })
-          );
-          return;
-        }
-
-        fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-          keepalive: true
-        }).catch(() => {});
-      },
-      true
-    );
-
     const btnGrid = wrap.querySelector(".oc-view-grid");
     const btnList = wrap.querySelector(".oc-view-list");
 
@@ -160,25 +119,6 @@
         .replace(/"/g, "&quot;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
-    }
-
-    function ocGetSid() {
-      try {
-        let sid = localStorage.getItem("oc_sid");
-        if (!sid) {
-          const hasUUID =
-            typeof crypto !== "undefined" &&
-            crypto &&
-            typeof crypto.randomUUID === "function";
-          sid = hasUUID
-            ? crypto.randomUUID()
-            : "sid_" + Math.random().toString(36).slice(2) + Date.now();
-          localStorage.setItem("oc_sid", sid);
-        }
-        return sid;
-      } catch (e) {
-        return null;
-      }
     }
 
     function normalizeCategory(value) {

@@ -1016,53 +1016,6 @@ class OpenCircle_Multi_Filter_Slider {
   private static function inline_js() {
     return "
 (function(){
-  function ocGetSid(){
-    try{
-      var sid = localStorage.getItem('oc_sid');
-      if(!sid){
-        var hasUUID = typeof crypto !== 'undefined' && crypto && typeof crypto.randomUUID === 'function';
-        sid = hasUUID ? crypto.randomUUID() : ('sid_' + Math.random().toString(36).slice(2) + Date.now());
-        localStorage.setItem('oc_sid', sid);
-      }
-      return sid;
-    }catch(e){ return null; }
-  }
-
-  function trackViewFromLink(link){
-    if(!link) return;
-    var root = link.closest('[data-ocmf=\"1\"]');
-    if(!root) return;
-
-    var api = (root.getAttribute('data-api') || '').trim();
-    if(!api) return;
-
-    var eid = (link.getAttribute('data-oc-eid') || '').trim();
-    var slug = (link.getAttribute('data-oc-slug') || '').trim();
-    var idOrSlug = (eid && eid !== '0') ? eid : slug;
-    if(!idOrSlug) return;
-
-    var endpoint = api.replace(/\\/$/, '') + '/events/' + encodeURIComponent(idOrSlug) + '/view';
-    var payload = JSON.stringify({ sid: ocGetSid() });
-
-    if(navigator.sendBeacon){
-      navigator.sendBeacon(endpoint, new Blob([payload], { type: 'application/json' }));
-      return;
-    }
-
-    fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-      keepalive: true
-    }).catch(function(){});
-  }
-
-  document.addEventListener('click', function(e){
-    var link = e.target.closest('.ocmf-slide');
-    if(!link) return;
-    trackViewFromLink(link);
-  }, true);
-
   function init(root){
     if(!root || root.__ocmfInit) return;
     root.__ocmfInit = true;

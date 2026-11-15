@@ -2,7 +2,7 @@
 /**
  * Plugin Name: OpenCircle Integration
  * Description: Pull events from OpenCircle API and render a theme-style event grid with search/sort filters + API pagination.
- * Version: 0.3.3
+ * Version: 0.6.14
  */
 
 if (!defined('ABSPATH')) exit;
