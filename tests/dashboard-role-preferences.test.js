@@ -170,6 +170,35 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
   assert.equal(organizerSummary.insights.weekdayViews.length, 7);
   assert.equal(organizerSummary.insights.weekdayViews.reduce((total, views) => total + views, 0), 1);
 
+  assert.equal(organizerSummary.kpis.eventViews, 1);
+  assert.equal(organizerSummary.kpis.uniqueViews, 1);
+
+  const { id: eventId } = await getSql(dbPath, "SELECT id FROM events WHERE slug = ?", ["organizer-event"]);
+  const eventAnalyticsUrl = `${baseUrl}/admin/events-analytics?event=${eventId}&range=30d`;
+  const analyticsResponse = await fetch(eventAnalyticsUrl, { headers: { cookie: organizerCookie } });
+  assert.equal(analyticsResponse.status, 200);
+  const analyticsHtml = await analyticsResponse.text();
+  assert.match(analyticsHtml, /All views[\s\S]*?<div class="v">1<\/div>/);
+  assert.match(analyticsHtml, /Traffic-source details are unavailable/);
+
+  await execSql(dbPath, "DELETE FROM event_views");
+  const emptySummary = await (await fetch(`${baseUrl}/admin/dashboard-summary?range=30d`, {
+    headers: { cookie: organizerCookie },
+  })).json();
+  assert.equal(emptySummary.availability.engagement, true);
+  assert.equal(emptySummary.kpis.eventViews, 0);
+  await execSql(dbPath, "DROP TABLE event_views");
+  const unavailableSummary = await (await fetch(`${baseUrl}/admin/dashboard-summary?range=30d`, {
+    headers: { cookie: organizerCookie },
+  })).json();
+  assert.equal(unavailableSummary.availability.engagement, false);
+  assert.equal(unavailableSummary.kpis.eventViews, null);
+  const unavailableDetail = await fetch(eventAnalyticsUrl, { headers: { cookie: organizerCookie } });
+  assert.equal(unavailableDetail.status, 200);
+  const unavailableHtml = await unavailableDetail.text();
+  assert.match(unavailableHtml, /View tracking is unavailable/);
+  assert.match(unavailableHtml, /All views[\s\S]*?<div class="v">—<\/div>/);
+
   const saveResponse = await fetch(`${baseUrl}/admin/preferences/dashboard`, {
     method: "POST",
     redirect: "manual",

@@ -23,6 +23,7 @@ const {
 const { recoveryLink, protectTokenPage, withRedemptionTransaction } = require("../lib/auth-recovery");
 const { revokeAccountSessions } = require("../lib/auth-sessions");
 const { DateTime } = require("luxon");
+const { loadEventViewRows, loadEventViewTotals } = require("../lib/event-view-reporting");
 const { esc } = require("../lib/html");
 const { resolveEventVenue } = require("../lib/event-venue");
 const { availableEventSql, parentEventError, parseEventId, readParentEventId } = require("../lib/event-parent");
@@ -3720,7 +3721,7 @@ function createReportCitySummary(city) {
     upcoming: 0,
     occurred: 0,
     views: 0,
-    uniqueViewerHashes: 0,
+    uniqueViewerHashes: null,
   };
 }
 
@@ -3793,30 +3794,23 @@ async function buildEmailReportAnalytics(user, frequency, now = DateTime.now().s
   }
 
   let engagementAvailable = false;
+  let uniqueViewerHashes = null;
   try {
-    const eventIds = scopedEvents.map((event) => Number(event.id)).filter((id) => Number.isInteger(id) && id > 0);
-    if (eventIds.length) {
-      const eventIdPlaceholders = eventIds.map(() => "?").join(",");
-      const engagementRows = await all(
-        `SELECT e.city, COUNT(*) AS views, COUNT(DISTINCT ev.ipHash) AS uniqueViewerHashes
-           FROM event_views ev
-           JOIN events e ON e.id = ev.eventId
-          WHERE ev.eventId IN (${eventIdPlaceholders})
-            AND datetime(ev.viewedAt) >= datetime(?)
-            AND datetime(ev.viewedAt) < datetime(?)
-          GROUP BY e.city`,
-        [...eventIds, period.start.toUTC().toISO(), period.end.toUTC().toISO()]
-      );
-      for (const row of engagementRows || []) {
-        const summary = getCity(row.city);
-        summary.views = Number(row.views || 0);
-        summary.uniqueViewerHashes = Number(row.uniqueViewerHashes || 0);
-      }
-      engagementAvailable = true;
+    const { rows, uniqueAvailable } = await loadEventViewTotals(all, { eventIds: scopedEvents.map((event) => event.id), period });
+    if (uniqueAvailable) {
+      for (const summary of citySummaries.values()) summary.uniqueViewerHashes = 0;
     }
+    for (const row of rows) {
+      if (row.scope === "all") uniqueViewerHashes = row.uniqueViews;
+      else {
+        const summary = getCity(row.city);
+        summary.views = row.views;
+        summary.uniqueViewerHashes = row.uniqueViews;
+      }
+    }
+    engagementAvailable = true;
   } catch (_) {
-    // Do not substitute lifetime counters for a period metric.
-    engagementAvailable = false;
+    // Period tracking may be unavailable on older installations.
   }
 
   const communities = [...citySummaries.values()].filter((summary) =>
@@ -3828,8 +3822,8 @@ async function buildEmailReportAnalytics(user, frequency, now = DateTime.now().s
     upcoming: acc.upcoming + summary.upcoming,
     occurred: acc.occurred + summary.occurred,
     views: acc.views + summary.views,
-    uniqueViewerHashes: acc.uniqueViewerHashes + summary.uniqueViewerHashes,
   }), createReportCitySummary("All communities"));
+  totals.uniqueViewerHashes = uniqueViewerHashes;
   let platformActivity = null;
   if (role === "admin") {
     platformActivity = { organizersAdded: 0, developersAdded: 0, messages: 0, eventReports: 0 };
@@ -4095,65 +4089,46 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
       }
     }
   }
+  const plateauCities = ADMIN_SIDEBAR_GROUPS["Plateau Regional"].filter((city) => citySummaries.has(city));
+  let uniqueViews = null;
+  let plateauUniqueViews = null;
   try {
-    if (eventIds.length) {
-      for (const summary of citySummaries.values()) {
-        summary.views = 0;
-        summary.previousViews = 0;
-        summary.uniqueViews = 0;
-      }
-      const eventIdPlaceholders = eventIds.map(() => "?").join(",");
-      const engagementRows = await all(
-        `SELECT e.city,
-                SUM(CASE WHEN datetime(ev.viewedAt) >= datetime(?) AND datetime(ev.viewedAt) < datetime(?) THEN 1 ELSE 0 END) AS views,
-                SUM(CASE WHEN datetime(ev.viewedAt) >= datetime(?) AND datetime(ev.viewedAt) < datetime(?) THEN 1 ELSE 0 END) AS previousViews,
-                COUNT(DISTINCT CASE WHEN datetime(ev.viewedAt) >= datetime(?) AND datetime(ev.viewedAt) < datetime(?) THEN ev.ipHash END) AS uniqueViews
-           FROM event_views ev
-           JOIN events e ON e.id = ev.eventId
-          WHERE ev.eventId IN (${eventIdPlaceholders})
-          GROUP BY e.city`,
-        [
-          period.start.toUTC().toISO(), period.end.toUTC().toISO(),
-          DateTime.fromMillis(previousStartMs).toUTC().toISO(), period.start.toUTC().toISO(),
-          period.start.toUTC().toISO(), period.end.toUTC().toISO(),
-          ...eventIds,
-        ]
-      );
-      for (const row of engagementRows || []) {
-        const summary = citySummary(row.city);
-        summary.views = Number(row.views || 0);
-        summary.previousViews = Number(row.previousViews || 0);
-        summary.uniqueViews = Number(row.uniqueViews || 0);
-      }
-      const weekdayRows = await all(
-        `SELECT viewedAt FROM event_views
-          WHERE eventId IN (${eventIdPlaceholders})
-            AND datetime(viewedAt) >= datetime(?)
-            AND datetime(viewedAt) < datetime(?)`,
-        [...eventIds, period.start.toUTC().toISO(), period.end.toUTC().toISO()]
-      );
-      for (const row of weekdayRows || []) {
-        const rawViewedAt = String(row?.viewedAt || "").trim();
-        // SQLite's datetime('now') default is a UTC SQL timestamp such as
-        // "2026-10-16 18:30:00", while some deployments persist ISO strings.
-        // Support both before bucketing in the reporting timezone.
-        let viewedAt = DateTime.fromISO(rawViewedAt, { zone: "utc" });
-        if (!viewedAt.isValid) viewedAt = DateTime.fromSQL(rawViewedAt, { zone: "utc" });
-        viewedAt = viewedAt.setZone(DEFAULT_TZ);
-        if (viewedAt.isValid) {
-          weekdayViews[viewedAt.weekday - 1] += 1;
-          const date = viewedAt.toISODate();
-          dailyViews.set(date, (dailyViews.get(date) || 0) + 1);
-        }
-      }
-      engagementAvailable = true;
-      engagementSeriesAvailable = true;
-      weekdayViewsAvailable = true;
+    const { rows, uniqueAvailable } = await loadEventViewTotals(all, {
+      eventIds, period, previousStart: DateTime.fromMillis(previousStartMs), regionalCities: plateauCities,
+    });
+    for (const summary of citySummaries.values()) {
+      summary.views = 0;
+      summary.previousViews = 0;
+      summary.uniqueViews = uniqueAvailable ? 0 : null;
     }
+    for (const row of rows) {
+      if (row.scope === "all") uniqueViews = row.uniqueViews;
+      else if (row.scope === "region") plateauUniqueViews = row.uniqueViews;
+      else Object.assign(citySummary(row.city), {
+        views: row.views, previousViews: row.previousViews, uniqueViews: row.uniqueViews,
+      });
+    }
+    engagementAvailable = true;
   } catch (_) {
     // Never replace unavailable period-level tracking with lifetime counters.
-    engagementAvailable = false;
-    engagementSeriesAvailable = false;
+  }
+  if (engagementAvailable) {
+    try {
+      const { rows } = await loadEventViewRows(all, {
+        scopeSql: "SELECT value FROM json_each(?)", scopeParams: [JSON.stringify(eventIds)], period,
+      });
+      for (const row of rows) {
+        const viewedAt = DateTime.fromSQL(row.utcTime, { zone: "utc" }).setZone(DEFAULT_TZ);
+        if (!viewedAt.isValid) continue;
+        weekdayViews[viewedAt.weekday - 1] += row.count;
+        const date = viewedAt.toISODate();
+        dailyViews.set(date, (dailyViews.get(date) || 0) + row.count);
+      }
+      engagementSeriesAvailable = true;
+      weekdayViewsAvailable = true;
+    } catch (_) {
+      // Keep available totals if chart data cannot be loaded.
+    }
   }
 
   // Category totals are category assignments per scheduled occurrence. An
@@ -4244,8 +4219,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
     previousEventsAdded: acc.previousEventsAdded + summary.previousEventsAdded,
     views: acc.views === null || summary.views === null ? null : acc.views + summary.views,
     previousViews: acc.previousViews === null || summary.previousViews === null ? null : acc.previousViews + summary.previousViews,
-    uniqueViews: acc.uniqueViews === null || summary.uniqueViews === null ? null : acc.uniqueViews + summary.uniqueViews,
-  }), { publishedEvents: 0, eventsAdded: 0, previousEventsAdded: 0, views: engagementAvailable ? 0 : null, previousViews: engagementAvailable ? 0 : null, uniqueViews: engagementAvailable ? 0 : null });
+  }), { publishedEvents: 0, eventsAdded: 0, previousEventsAdded: 0, views: engagementAvailable ? 0 : null, previousViews: engagementAvailable ? 0 : null });
 
   const activeOrganizers = new Set(scopedEvents.map((event) => normalizeOrganizerIdentity(event.organizer)).filter(Boolean)).size;
   const series = [];
@@ -4269,7 +4243,6 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
   const dashboardCommunities = [];
   const enumclawSummary = citySummaries.get("Enumclaw");
   if (enumclawSummary) dashboardCommunities.push({ ...enumclawSummary });
-  const plateauCities = ADMIN_SIDEBAR_GROUPS["Plateau Regional"].filter((city) => citySummaries.has(city));
   if (plateauCities.length) {
     const plateauSummary = plateauCities.reduce((acc, city) => {
       const summary = citySummaries.get(city);
@@ -4281,7 +4254,6 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
       if (engagementAvailable) {
         acc.views += Number(summary?.views || 0);
         acc.previousViews += Number(summary?.previousViews || 0);
-        acc.uniqueViews += Number(summary?.uniqueViews || 0);
       }
       return acc;
     }, {
@@ -4292,7 +4264,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
       previousEventsAdded: 0,
       views: engagementAvailable ? 0 : null,
       previousViews: engagementAvailable ? 0 : null,
-      uniqueViews: engagementAvailable ? 0 : null,
+      uniqueViews: plateauUniqueViews,
       pendingActions: 0,
     });
     plateauSummary.eventsAddedChangePct = dashboardPercentChange(plateauSummary.eventsAdded, plateauSummary.previousEventsAdded);
@@ -4306,7 +4278,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
     role,
     scope: { cities, organizerOnly: role === "organizer", dashboardScope: requestedDashboardScope },
     period: { key: period.key, start: period.start.toUTC().toISO(), end: period.end.toUTC().toISO(), previousStart: DateTime.fromMillis(previousStartMs).toUTC().toISO(), timezone: DEFAULT_TZ },
-    availability: { engagement: engagementAvailable, uniqueViews: engagementAvailable, eventViewSeries: engagementSeriesAvailable, weekdayViews: weekdayViewsAvailable },
+    availability: { engagement: engagementAvailable, uniqueViews: uniqueViews !== null, eventViewSeries: engagementSeriesAvailable, weekdayViews: weekdayViewsAvailable },
     kpis: {
       upcomingOccurrences,
       publishedEvents: totals.publishedEvents,
@@ -4317,7 +4289,7 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
       previousEventsAdded: totals.previousEventsAdded,
       eventsAddedChangePct: dashboardPercentChange(totals.eventsAdded, totals.previousEventsAdded),
       activeOrganizers,
-      uniqueViews: totals.uniqueViews,
+      uniqueViews,
     },
     attention,
     communities: dashboardCommunities,
@@ -4355,12 +4327,12 @@ function formatEmailReport(report, user, { preview = false } = {}) {
     `Events newly published: ${number(report.totals.published)}`,
     `Upcoming event occurrences: ${number(report.totals.upcoming)}`,
     `Event occurrences during this period: ${number(report.totals.occurred)}`,
-    report.engagementAvailable ? `Measured event views: ${number(report.totals.views)} (${number(report.totals.uniqueViewerHashes)} distinct viewer hashes)` : "Measured engagement: Not available for this period.",
+    report.engagementAvailable ? `Measured event views: ${number(report.totals.views)} ${report.totals.uniqueViewerHashes === null ? "(unique viewers unavailable)" : `(${number(report.totals.uniqueViewerHashes)} distinct viewer identifiers)`}` : "Measured engagement: Not available for this period.",
     platformText,
     "",
     "Submitted and published are separate lifecycle timestamps. Engagement measures tracked page views, not attendance, ticket sales, or unique people. Historical/manual event records may not distinguish a public submission from direct creation.",
   ].join("\n");
-  const html = `<!doctype html><html><body style="margin:0;background:#eef3f8;font-family:Arial,sans-serif;color:#14213d;"><div style="max-width:760px;margin:24px auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #dce5ee;"><div style="padding:26px 30px;background:#0f172a;color:#fff;"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5eead4;">OpenCircle${preview ? " · Preview" : ""}</div><h1 style="margin:8px 0 0;font-size:26px;">${esc(report.period.frequency === "monthly" ? "Monthly" : "Weekly")} report</h1><p style="margin:7px 0 0;color:#cbd5e1;">${esc(periodLabel)} · ${esc(scopeLabel)}</p></div><div style="padding:26px 30px;"><table role="presentation" width="100%" style="border-collapse:collapse;margin-bottom:20px;"><tr><td style="padding:0 0 10px;"><strong>Events newly submitted</strong><br><span style="font-size:24px;">${number(report.totals.submitted)}</span></td><td style="padding:0 0 10px;"><strong>Events newly published</strong><br><span style="font-size:24px;">${number(report.totals.published)}</span></td><td style="padding:0 0 10px;"><strong>Upcoming occurrences</strong><br><span style="font-size:24px;">${number(report.totals.upcoming)}</span></td></tr><tr><td><strong>Occurred this period</strong><br><span style="font-size:24px;">${number(report.totals.occurred)}</span></td><td colspan="2"><strong>Measured engagement</strong><br><span style="font-size:24px;">${report.engagementAvailable ? `${number(report.totals.views)} views` : "Not available"}</span>${report.engagementAvailable ? `<span style="color:#64748b;"> · ${number(report.totals.uniqueViewerHashes)} distinct viewer hashes</span>` : ""}</td></tr></table><h2 style="font-size:17px;">Community breakdown</h2><table width="100%" style="border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:9px;text-align:left;">Community</th><th style="padding:9px;text-align:right;">Submitted</th><th style="padding:9px;text-align:right;">Published</th><th style="padding:9px;text-align:right;">Upcoming</th><th style="padding:9px;text-align:right;">Occurred</th><th style="padding:9px;text-align:right;">Views</th></tr></thead><tbody>${rows || `<tr><td colspan="6" style="padding:12px;color:#64748b;">No reportable activity in this period.</td></tr>`}</tbody></table>${platformHtml}<p style="margin:22px 0 0;color:#64748b;font-size:12px;line-height:1.5;">Submitted and published are separate lifecycle metrics. Engagement is based on tracked event-page views; it does not measure attendance, ticket sales, or unique people. Historical/manual event records may not distinguish a public submission from direct creation.</p></div></div></body></html>`;
+  const html = `<!doctype html><html><body style="margin:0;background:#eef3f8;font-family:Arial,sans-serif;color:#14213d;"><div style="max-width:760px;margin:24px auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #dce5ee;"><div style="padding:26px 30px;background:#0f172a;color:#fff;"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5eead4;">OpenCircle${preview ? " · Preview" : ""}</div><h1 style="margin:8px 0 0;font-size:26px;">${esc(report.period.frequency === "monthly" ? "Monthly" : "Weekly")} report</h1><p style="margin:7px 0 0;color:#cbd5e1;">${esc(periodLabel)} · ${esc(scopeLabel)}</p></div><div style="padding:26px 30px;"><table role="presentation" width="100%" style="border-collapse:collapse;margin-bottom:20px;"><tr><td style="padding:0 0 10px;"><strong>Events newly submitted</strong><br><span style="font-size:24px;">${number(report.totals.submitted)}</span></td><td style="padding:0 0 10px;"><strong>Events newly published</strong><br><span style="font-size:24px;">${number(report.totals.published)}</span></td><td style="padding:0 0 10px;"><strong>Upcoming occurrences</strong><br><span style="font-size:24px;">${number(report.totals.upcoming)}</span></td></tr><tr><td><strong>Occurred this period</strong><br><span style="font-size:24px;">${number(report.totals.occurred)}</span></td><td colspan="2"><strong>Measured engagement</strong><br><span style="font-size:24px;">${report.engagementAvailable ? `${number(report.totals.views)} views` : "Not available"}</span>${report.engagementAvailable ? `<span style="color:#64748b;"> · ${report.totals.uniqueViewerHashes === null ? "Unique viewers unavailable" : `${number(report.totals.uniqueViewerHashes)} distinct viewer identifiers`}</span>` : ""}</td></tr></table><h2 style="font-size:17px;">Community breakdown</h2><table width="100%" style="border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:9px;text-align:left;">Community</th><th style="padding:9px;text-align:right;">Submitted</th><th style="padding:9px;text-align:right;">Published</th><th style="padding:9px;text-align:right;">Upcoming</th><th style="padding:9px;text-align:right;">Occurred</th><th style="padding:9px;text-align:right;">Views</th></tr></thead><tbody>${rows || `<tr><td colspan="6" style="padding:12px;color:#64748b;">No reportable activity in this period.</td></tr>`}</tbody></table>${platformHtml}<p style="margin:22px 0 0;color:#64748b;font-size:12px;line-height:1.5;">Submitted and published are separate lifecycle metrics. Engagement is based on tracked event-page views; it does not measure attendance, ticket sales, or unique people. Historical/manual event records may not distinguish a public submission from direct creation.</p></div></div></body></html>`;
   return { subject, text, html };
 }
 
@@ -5098,16 +5070,16 @@ const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "").trim())
   ? String(req.query.to).trim()
   : "";
 const analyticsMetricHelp = {
-  organizers: "The number of organizers being counted here.",
-  totalEvents: "All scheduled occurrences in this workspace, including recurring dates.",
-  uniqueEvents: "Different event records in this workspace; recurring dates are counted once per event.",
+  organizers: "Organizer names with a scheduled date or tracked view in this period.",
+  totalEvents: "Scheduled dates that start in the reporting period, including recurring dates.",
+  uniqueEvents: "Event listings with at least one scheduled date in the reporting period.",
   upcoming: "Events or event dates that have not ended yet.",
   featured: "Events that are marked as featured.",
   allViews: "All tracked event-page views in this workspace. This does not measure attendance.",
-  directViews: "Views from people who came straight to this page.",
-  referralViews: "Views from people who came from another website or link.",
-  internalViews: "Views from people who first browsed a public website page, then opened this event.",
-  otherViews: "Tracked views from campaign links or sources that could not be classified as direct, referral, or website discovery.",
+  directViews: "Views classified as direct in this period, including those with no recorded referrer.",
+  referralViews: "Views classified as referrals from another website in this period.",
+  internalViews: "Views classified as coming from another page on the same website in this period.",
+  otherViews: "Views from campaigns or other unclassified sources in this period.",
   totalEmailsSent: "How many newsletter emails have been sent.",
   openedEmails: "How many newsletter emails have been opened at least once.",
   reopens: "How many extra opens happened after the first open.",
@@ -6320,14 +6292,14 @@ return `
       </div>
     </div>
 <div class="event-stats">
-  <div class="stat"><span>Views</span><strong class="js-views">${views}</strong></div>
-  <div class="stat"><span>Unique</span><strong class="js-unique">${uniques}</strong></div>
-  <div class="stat"><span>Direct</span><strong>${directViews}</strong></div>
-  <div class="stat"><span>Referral</span><strong>${referralViews}</strong></div>
-  <div class="stat"><span>Going</span><strong class="js-going">${going}</strong></div>
-  <div class="stat"><span>Interested</span><strong class="js-interested">${interested}</strong></div>
+  <div class="stat"><span>${analyticsMetricLabel("Views", "Lifetime tracked event views.")}</span><strong class="js-views">${views}</strong></div>
+  <div class="stat"><span>${analyticsMetricLabel("Unique", "Lifetime visitor count in 12-hour windows. A visitor counts again after 12 hours without a tracked view of this event.")}</span><strong class="js-unique">${uniques}</strong></div>
+  <div class="stat"><span>${analyticsMetricLabel("Direct", "Lifetime views classified as direct, including those with no recorded referrer.")}</span><strong>${directViews}</strong></div>
+  <div class="stat"><span>${analyticsMetricLabel("Referral", "Lifetime views classified as referrals from another website.")}</span><strong>${referralViews}</strong></div>
+  <div class="stat"><span>${analyticsMetricLabel("Going", "Current Going total across all event dates.")}</span><strong class="js-going">${going}</strong></div>
+  <div class="stat"><span>${analyticsMetricLabel("Interested", "Current Interested total across all event dates.")}</span><strong class="js-interested">${interested}</strong></div>
   <div class="event-stats-action">
-    <a class="btn" href="/admin/events-analytics?event=${encodeURIComponent(String(e.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">See Analytics</a>
+    <a class="btn" href="/admin/events-analytics?event=${encodeURIComponent(String(e.id))}${statusMode === "archived" ? "&status=archived" : ""}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">See Analytics</a>
   </div>
 </div>
 
@@ -6342,15 +6314,18 @@ return `
     // ===== Dashboard metrics + widgets =====
     const cols = await getEventsColumns();
 
-    // Apply archive + city filter to dashboard widgets when supported
-    const hasArchiveCols2 = cols.has("isArchived") && cols.has("archivedAt");
+    const isEventsAnalyticsView = view === "events-analytics" || view === "analytics";
+    const eventsPeriod = isEventsAnalyticsView || view === "events-organizers" ? analyticsPeriod : null;
+    // Match the canonical archive flag used by dashboard and email reports.
+    const archiveColumn = eventsPeriod && cols.has("archived")
+      ? "archived"
+      : (cols.has("isArchived") && cols.has("archivedAt") ? "isArchived" : null);
     const dashParts = [];
     const dashParams = [];
-    if (hasArchiveCols2) {
-      if (statusMode === "archived") dashParts.push("isArchived = 1");
-      else dashParts.push("(isArchived IS NULL OR isArchived = 0)");
-    } else {
-      if (statusMode === "archived") dashParts.push("1=0");
+    if (archiveColumn) {
+      dashParts.push(`COALESCE(${archiveColumn}, 0) = ${statusMode === "archived" ? 1 : 0}`);
+    } else if (statusMode === "archived") {
+      dashParts.push("1=0");
     }
     pushCityScopeCondition(dashParts, dashParams, selectedAdminCities);
     if (organizerOwnerClause) {
@@ -6447,48 +6422,6 @@ return `
       pastViews = Number(rvPast?.n || 0);
     }
 
-
-    // Source tracking rollups from event_views (direct/referral/internal/campaign)
-    let sourceTracked = 0;
-    let sourceDirect = 0;
-    let sourceReferral = 0;
-    let sourceInternal = 0;
-    let sourceCampaign = 0;
-    let sourceUnknown = 0;
-    try {
-      const sourceWhereParts = [];
-      const sourceWhereParams = [];
-      if (selectedCity) {
-        sourceWhereParts.push("city = ?");
-        sourceWhereParams.push(selectedCity);
-      }
-      if (organizerOwnerClause) {
-        sourceWhereParts.push(organizerOwnerClause.sql);
-        sourceWhereParams.push(...organizerOwnerClause.params);
-      }
-      const sourceEventWhereSql = sourceWhereParts.length ? `WHERE ${sourceWhereParts.join(" AND ")}` : "";
-      const srcRow = await get(
-        `SELECT
-           COUNT(*) AS tracked,
-           COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:direct%' OR COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 1 ELSE 0 END), 0) AS directCount,
-           COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:referral%' THEN 1 ELSE 0 END), 0) AS referralCount,
-           COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:internal%' THEN 1 ELSE 0 END), 0) AS internalCount,
-           COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:campaign%' THEN 1 ELSE 0 END), 0) AS campaignCount,
-           COALESCE(SUM(CASE WHEN COALESCE(ref,'') LIKE '[src:%' THEN 0 WHEN COALESCE(ref,'') = '__direct__' OR trim(COALESCE(ref,'')) = '' THEN 0 ELSE 1 END), 0) AS unknownCount
-         FROM event_views
-         WHERE eventId IN (SELECT id FROM events ${sourceEventWhereSql})`,
-        sourceWhereParams
-      );
-      sourceTracked = Number(srcRow?.tracked || 0);
-      sourceDirect = Number(srcRow?.directCount || 0);
-      sourceReferral = Number(srcRow?.referralCount || 0);
-      sourceInternal = Number(srcRow?.internalCount || 0);
-      sourceCampaign = Number(srcRow?.campaignCount || 0);
-      sourceUnknown = Number(srcRow?.unknownCount || 0);
-    } catch (_) {
-      // event_views table may not exist in some environments
-    }
-
     const fmt = (n) => Number(n || 0).toLocaleString("en-US");
 
     const diskInfo = getDiskInfo();
@@ -6496,9 +6429,11 @@ return `
     const diskTotal = diskInfo ? bytesToHuman(diskInfo.totalBytes) : "N/A";
     const dbSize = bytesToHuman(getDbSizeBytes());
 
-    const hasSourceTrackingTable = !!(await get("SELECT name FROM sqlite_master WHERE type='table' AND name='event_views'"));
-    const isEventsAnalyticsView = view === "events-analytics" || view === "analytics";
-    const eventsPeriod = isEventsAnalyticsView || view === "events-organizers" ? analyticsPeriod : null;
+    let periodViewsAvailable = false;
+    let periodSourcesAvailable = false;
+    const trackingUnavailable = "View tracking is unavailable.";
+    const periodViewText = (count) => periodViewsAvailable ? fmt(count) : "—";
+    const periodSourceText = (count) => periodSourcesAvailable ? fmt(count) : "—";
     const periodDays = new Map();
     const eventPeriodActivity = new Map();
     const periodSources = { tracked: 0, direct: 0, referral: 0, internal: 0, other: 0 };
@@ -6521,53 +6456,41 @@ return `
           if (day) day.events += 1;
         }
       }
-      if (hasSourceTrackingTable) {
-        const viewColumns = await all("PRAGMA table_info(event_views)");
-        const ref = viewColumns.some((column) => column.name === "ref") ? "COALESCE(ref, '')" : "NULL";
-        const views = await all(
-          `SELECT eventId, datetime(viewedAt) AS utcTime, COUNT(*) AS count,
-                  CASE WHEN ${ref} LIKE '[src:direct%' OR ${ref} = '__direct__' OR trim(${ref}) = '' THEN 'direct'
-                       WHEN ${ref} LIKE '[src:referral%' THEN 'referral'
-                       WHEN ${ref} LIKE '[src:internal%' THEN 'internal'
-                       ELSE 'other' END AS source
-             FROM event_views
-            WHERE eventId IN (SELECT id FROM events ${dashWhereSql})
-              AND julianday(viewedAt) >= julianday(?) AND julianday(viewedAt) < julianday(?)
-            GROUP BY eventId, utcTime, source`,
-          [...dashParams, eventsPeriod.start.toUTC().toISO(), eventsPeriod.end.toUTC().toISO()]
-        );
-        for (const row of views) {
+      try {
+        const { rows, sourcesAvailable } = await loadEventViewRows(all, {
+          scopeSql: `SELECT id FROM events ${dashWhereSql}`,
+          scopeParams: dashParams,
+          period: eventsPeriod,
+          includeSources: true,
+        });
+        for (const row of rows) {
           const activity = eventPeriodActivity.get(row.eventId);
           if (!activity) continue;
           const key = metricDay(row.utcTime);
-          const count = Number(row.count);
+          const count = row.count;
           activity.tracked += count;
-          activity[row.source] += count;
           activity.viewsByDay.set(key, (activity.viewsByDay.get(key) || 0) + count);
           periodSources.tracked += count;
-          periodSources[row.source] += count;
+          if (sourcesAvailable) {
+            activity[row.source] += count;
+            periodSources[row.source] += count;
+          }
           const day = periodDays.get(key);
           if (day) day.views += count;
         }
+        periodViewsAvailable = true;
+        periodSourcesAvailable = sourcesAvailable;
+      } catch (_) {
+        // Scheduled dates are still available when view tracking cannot be read.
       }
-      sourceTracked = periodSources.tracked;
-      sourceDirect = periodSources.direct;
-      sourceReferral = periodSources.referral;
-      sourceInternal = periodSources.internal;
-      sourceCampaign = 0;
-      sourceUnknown = periodSources.other;
     }
     const reqCount5m = Array.isArray(req.app?.locals?.reqTimes)
       ? req.app.locals.reqTimes.length
       : 0;
-    const sourcePct = (n) => {
-      if (!sourceTracked) return "0%";
-      return Math.round((Number(n || 0) / sourceTracked) * 100) + "%";
+    const sourcePct = (count) => {
+      if (!periodSourcesAvailable) return "—";
+      return periodSources.tracked ? Math.round((count / periodSources.tracked) * 100) + "%" : "0%";
     };
-    // These tracked source types are mutually exclusive. Keep campaign and
-    // legacy/unrecognised refs visible as one remainder instead of implying
-    // that the three named sources account for every view.
-    const sourceOther = sourceCampaign + sourceUnknown;
 
     const periodScheduledEvents = eventsPeriod
       ? dashboardEventRows.filter((event) => eventPeriodActivity.get(event.id)?.dates.length)
@@ -6581,19 +6504,15 @@ return `
       views: fmt(viewsSum),
       upcomingViews: fmt(upcomingViews),
       pastViews: fmt(pastViews),
-      sourceTracked: fmt(sourceTracked),
-      sourceDirect: fmt(sourceDirect),
-      sourceReferral: fmt(sourceReferral),
-      sourceInternal: fmt(sourceInternal),
-      sourceCampaign: fmt(sourceCampaign),
-      sourceUnknown: fmt(sourceUnknown),
-      sourceOther: fmt(sourceOther),
-      sourceDirectPct: sourcePct(sourceDirect),
-      sourceReferralPct: sourcePct(sourceReferral),
-      sourceInternalPct: sourcePct(sourceInternal),
-      sourceCampaignPct: sourcePct(sourceCampaign),
-      sourceUnknownPct: sourcePct(sourceUnknown),
-      sourceOtherPct: sourcePct(sourceOther),
+      sourceTracked: periodViewText(periodSources.tracked),
+      sourceDirect: periodSourceText(periodSources.direct),
+      sourceReferral: periodSourceText(periodSources.referral),
+      sourceInternal: periodSourceText(periodSources.internal),
+      sourceOther: periodSourceText(periodSources.other),
+      sourceDirectPct: sourcePct(periodSources.direct),
+      sourceReferralPct: sourcePct(periodSources.referral),
+      sourceInternalPct: sourcePct(periodSources.internal),
+      sourceOtherPct: sourcePct(periodSources.other),
       serverTime: new Date().toISOString().replace("T", " ").slice(0, 19) + "Z",
       diskFree,
       diskTotal,
@@ -7199,7 +7118,7 @@ return `
     const buildEventAnalyticsHref = (id) =>
       buildScopedAdminHref("/admin/events-analytics", { ...analyticsPeriodParams, event: id });
     // Top events by views (today / week / month / year)
-    const topEventsFallback = `<div class="muted">Views not tracked.</div>`;
+    const topEventsFallback = `<div class="muted">${trackingUnavailable}</div>`;
     function renderTopEventsByViewRows(rows, emptyMessage) {
       if (!rows || rows.length === 0) return `<div class="muted">${emptyMessage}</div>`;
       return rows
@@ -7216,7 +7135,7 @@ return `
       .map((event) => ({ ...event, periodViews: eventPeriodActivity.get(event.id)?.tracked || 0 }))
       .filter((event) => event.periodViews > 0)
       .sort((a, b) => b.periodViews - a.periodViews || b.id - a.id);
-    const topPeriodEventsHtml = hasSourceTrackingTable
+    const topPeriodEventsHtml = periodViewsAvailable
       ? renderTopEventsByViewRows(rankedEvents.slice(0, 5), "No views in this reporting period.")
       : topEventsFallback;
     const organizerPeriodViews = new Map();
@@ -7235,7 +7154,7 @@ return `
         const count = Number(r.totalViews || 0);
         return `<div class="kv organizer-ranking-row"><div class="top-event-rank" aria-hidden="true">${index + 1}</div><div class="k">${label}</div><div class="v">${count.toLocaleString("en-US")}</div></div>`;
       })
-      .join("") || `<div class="muted">No organizer views in this reporting period.</div>`;
+      .join("") || `<div class="muted">${periodViewsAvailable ? "No organizer views in this reporting period." : trackingUnavailable}</div>`;
 
     // Include events scheduled or viewed during the reporting period.
     // An event can count toward each category assigned to it.
@@ -7285,12 +7204,12 @@ return `
             <td>${index + 1}</td>
             <td>${esc(row.category)}</td>
             <td>${row.events.toLocaleString("en-US")}</td>
-            <td>${row.views.toLocaleString("en-US")}</td>
-            <td>${row.events ? (row.views / row.events).toFixed(1) : "0.0"}</td>
+            <td>${periodViewText(row.views)}</td>
+            <td>${!periodViewsAvailable ? "—" : row.events ? (row.views / row.events).toFixed(1) : "0.0"}</td>
           </tr>
         `).join("")
       : `<tr><td colspan="5" class="muted">No categorized events in this workspace yet.</td></tr>`;
-    const categoryLeadersHtml = categoryAnalyticsRows.length
+    const categoryLeadersHtml = !periodViewsAvailable ? `<tr><td colspan="4" class="muted">${trackingUnavailable}</td></tr>` : categoryAnalyticsRows.length
       ? categoryAnalyticsRows.slice(0, 10).map((row) => {
           const leader = row.leader;
           const organizerHref = leader && leader.organizer !== "(unknown)"
@@ -7304,12 +7223,12 @@ return `
               <td>${esc(row.category)}</td>
               <td>${organizerLabel}</td>
               <td>${Number(leader?.events || 0).toLocaleString("en-US")}</td>
-              <td>${Number(leader?.views || 0).toLocaleString("en-US")}</td>
+              <td>${periodViewText(leader?.views)}</td>
             </tr>
           `;
         }).join("")
       : `<tr><td colspan="4" class="muted">No category leaders yet.</td></tr>`;
-    const categoryEventLeadersHtml = categoryAnalyticsRows.length
+    const categoryEventLeadersHtml = !periodViewsAvailable ? `<tr><td colspan="4" class="muted">${trackingUnavailable}</td></tr>` : categoryAnalyticsRows.length
       ? categoryAnalyticsRows.slice(0, 10).map((row) => {
           const leader = row.eventLeader;
           const eventHref = leader?.id
@@ -7323,7 +7242,7 @@ return `
               <td>${esc(row.category)}</td>
               <td>${eventLabel}</td>
               <td>1</td>
-              <td>${Number(leader?.views || 0).toLocaleString("en-US")}</td>
+              <td>${periodViewText(leader?.views)}</td>
             </tr>
           `;
         }).join("")
@@ -7335,7 +7254,7 @@ return `
       labels: chartBuckets.map((bucket) => bucket.label),
       ...(chartGroup === "day" ? {} : { tooltips: chartBuckets.map((bucket) => bucket.tooltip) }),
       events: chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => periodDays.get(day)?.events)),
-      views: chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => periodDays.get(day)?.views)),
+      views: periodViewsAvailable ? chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => periodDays.get(day)?.views)) : [],
     };
     // These markers are populated only for an individual event report.  They
     // deliberately use the event record timestamps rather than view data so
@@ -7365,7 +7284,7 @@ return `
         return `
           <svg viewBox="0 0 ${width} ${chartHeight}" width="100%" height="100%" style="display:block; width:100%; height:100%;" preserveAspectRatio="none" role="img" aria-label="Events chart">
             <rect x="0" y="0" width="${width}" height="${chartHeight}" fill="transparent"></rect>
-            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">No activity in this reporting period</text>
+            <text x="18" y="90" fill="${analyticsChartStyle.emptyTextColor}" font-size="14" font-weight="600" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${isIndividualEventChart && !periodViewsAvailable ? trackingUnavailable : "No activity in this reporting period"}</text>
           </svg>
         `;
       }
@@ -7443,7 +7362,7 @@ return `
         return path;
       }
       const eventPath = buildSmoothSvgPath(eventPoints);
-      const viewPath = buildSmoothSvgPath(viewPoints);
+      const viewPath = periodViewsAvailable ? buildSmoothSvgPath(viewPoints) : "";
       const fillPath = eventPoints.length
         ? `M ${eventPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} L ${eventPoints[0].x.toFixed(2)} ${eventPoints[0].y.toFixed(2)} ` +
           eventPath.replace(/^M [^ ]+ [^ ]+ ?/, "") +
@@ -7483,18 +7402,18 @@ return `
               <text x="0" y="${(y + 4).toFixed(2)}" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>
             `;
           }).join("")}
-          ${!isIndividualEventChart ? Array.from({ length: viewScale.tickCount + 1 }).map((_, i) => {
+          ${!isIndividualEventChart && periodViewsAvailable ? Array.from({ length: viewScale.tickCount + 1 }).map((_, i) => {
             const value = i * viewScale.tickStep;
             const y = padT + plotH - ((value / viewScale.yMax) * plotH);
             return `<text x="${width}" y="${(y + 4).toFixed(2)}" text-anchor="end" fill="${textColor}" font-size="12" font-weight="500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">${value}</text>`;
           }).join("") : ""}
-          ${!isIndividualEventChart ? `<text x="0" y="${CHART_AXIS_TITLE_BASELINE}" fill="${lineColor}" font-size="12" font-weight="650" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Events</text><text x="${width}" y="${CHART_AXIS_TITLE_BASELINE}" text-anchor="end" fill="${dashedColor}" font-size="12" font-weight="650" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Views</text>` : ""}
+          ${!isIndividualEventChart ? `<text x="0" y="${CHART_AXIS_TITLE_BASELINE}" fill="${lineColor}" font-size="12" font-weight="650" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Events</text>${periodViewsAvailable ? `<text x="${width}" y="${CHART_AXIS_TITLE_BASELINE}" text-anchor="end" fill="${dashedColor}" font-size="12" font-weight="650" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Views</text>` : ""}` : ""}
           ${!isIndividualEventChart && fillPath ? `<path d="${fillPath}" fill="${analyticsChartStyle.greenFill}"></path>` : ""}
           ${viewPath ? `<path d="${viewPath}" fill="none" stroke="${dashedColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-dasharray="${analyticsChartStyle.secondaryDash}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${!isIndividualEventChart && eventPath ? `<path d="${eventPath}" fill="none" stroke="${lineColor}" stroke-width="${analyticsChartStyle.seriesStrokeWidth}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
           ${labels.length === 1 ? `
             ${!isIndividualEventChart ? `<circle cx="${eventPoints[0].x}" cy="${eventPoints[0].y}" r="3" fill="${lineColor}"></circle>` : ""}
-            <circle cx="${viewPoints[0].x}" cy="${viewPoints[0].y}" r="3" fill="${dashedColor}"></circle>` : ""}
+            ${periodViewsAvailable ? `<circle cx="${viewPoints[0].x}" cy="${viewPoints[0].y}" r="3" fill="${dashedColor}"></circle>` : ""}` : ""}
           ${chartMarkers}
           ${hoverRects}
           ${labels.map((label, index) => {
@@ -7529,7 +7448,7 @@ return `
           occurrenceDays.set(day, (occurrenceDays.get(day) || 0) + 1);
         }
         chartSeries.events = chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => occurrenceDays.get(day)));
-        chartSeries.views = chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => activity.viewsByDay.get(day)));
+        if (periodViewsAvailable) chartSeries.views = chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => activity.viewsByDay.get(day)));
         selectedEventChartMarkers = [
           { label: "Event submitted", dateTime: eventRow.submittedAt || eventRow.createdAt },
           ...activity.dates.map((dateTime) => ({ label: "Event day", dateTime })),
@@ -7560,8 +7479,8 @@ return `
             ${selectedEventAnalytics.organizer ? `<div class="muted" style="margin-bottom:12px;">Organizer: ${esc(selectedEventAnalytics.organizer)}</div>` : ``}
             <div class="kv"><div class="k">Scheduled dates in this period</div><div class="v">${fmt(selectedEventAnalytics.occurrences)}</div></div>
             <div class="event-insights-engagement">
-              <div class="kv"><div class="k">${analyticsMetricLabel("Going", "Total going responses for this event across all dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.goingCount)}</div></div>
-              <div class="kv"><div class="k">${analyticsMetricLabel("Interested", "Total interested responses for this event across all dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.interestedCount)}</div></div>
+              <div class="kv"><div class="k">${analyticsMetricLabel("Going", "Current Going total across all event dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.goingCount)}</div></div>
+              <div class="kv"><div class="k">${analyticsMetricLabel("Interested", "Current Interested total across all event dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.interestedCount)}</div></div>
             </div>
           </div>
         `;
@@ -10119,7 +10038,7 @@ return `
         return path;
       }
       const eventPath = buildSmoothSvgPath(eventPoints);
-      const viewPath = buildSmoothSvgPath(viewPoints);
+      const viewPath = viewValues.length ? buildSmoothSvgPath(viewPoints) : "";
       const fillPath = eventPoints.length
         ? `M ${eventPoints[0].x.toFixed(2)} ${(padT + plotH).toFixed(2)} L ${eventPoints[0].x.toFixed(2)} ${eventPoints[0].y.toFixed(2)} ` +
           eventPath.replace(/^M [^ ]+ [^ ]+ ?/, "") +
@@ -10214,18 +10133,19 @@ return `
           <td>${fmt(row.uniqueEvents)}</td>
           <td>${fmt(row.totalOccurrences)}</td>
           <td>${fmt(row.upcomingOccurrences)}</td>
-          <td>${fmt(row.views)}</td>
+          <td>${periodViewText(row.views)}</td>
         </tr>`).join("") || `<tr><td colspan="6" class="muted">No organizer activity in this reporting period.</td></tr>`;
       organizerChartLabels = chartBuckets.map((bucket) => bucket.label);
       organizerChartEventValues = chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => dates.get(day).events));
-      organizerChartViewValues = chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => dates.get(day).views));
+      organizerChartViewValues = periodViewsAvailable
+        ? chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => dates.get(day).views)) : [];
       organizerChartDataJson = JSON.stringify({
         events: { labels: organizerChartLabels, values: organizerChartEventValues },
         views: { labels: organizerChartLabels, values: organizerChartViewValues },
       });
       organizerTopEventsHtml = renderTopEventsByViewRows(
         rankedEvents.filter((event) => !selectedOrganizer || organizerName(event) === selectedOrganizer).slice(0, 5),
-        "No event views in this reporting period."
+        periodViewsAvailable ? "No event views in this reporting period." : trackingUnavailable
       );
       if (selectedOrganizer) {
         organizerChartTitle = `${selectedOrganizer} performance`;
@@ -14693,7 +14613,7 @@ return `
         <section class="event-analytics-page-title">
           <div>
             <h1>${esc(selectedEventAnalytics.title)}</h1>
-            <p class="sub">Individual event insights</p>
+            <p class="sub">Views follow the selected reporting period. The default is the last 30 days.</p>
           </div>
           ${canManageEvents ? `<a class="btn btn-primary" href="/admin/create-events?edit=${encodeURIComponent(String(selectedEventAnalytics.id))}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}">Edit Event</a>` : ``}
         </section>
@@ -14748,7 +14668,7 @@ return `
 
           <div class="dashboard-kpi-grid" aria-live="polite" aria-busy="true" id="dashboardKpis">
             <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My upcoming events" : "Upcoming events", UPCOMING_EVENTS_HELP)}</span><strong class="v" id="dashboardKpiUpcoming">—</strong></span><span class="dashboard-kpi-detail">From today</span></a>
-            <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/events-analytics")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My unique event views" : "Event views", isOrganizerUser ? "Distinct tracked visitor hashes across your events in the selected reporting period. This is not attendance." : "Tracked event-page views in the selected reporting period. This is not attendance or ticket sales.")}</span><strong class="v" id="dashboardKpiViews">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiViewsChange">Loading measured engagement…</span></a>
+            <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/events-analytics")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My unique view count" : "Event views", isOrganizerUser ? "Counts distinct visitor identifiers across your included communities in this period." : "Tracked event-page views in the selected reporting period. This is not attendance or ticket sales.")}</span><strong class="v" id="dashboardKpiViews">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiViewsChange">Loading measured engagement…</span></a>
             <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel("Events added", "Events created during the selected reporting period. This is separate from whether an event has been published.")}</span><strong class="v" id="dashboardKpiAdded">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiAddedChange">Loading…</span></a>
             <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref(isOrganizerUser ? "/admin/events-analytics" : "/admin/events-organizers")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My event views" : "Active organizers", isOrganizerUser ? "Tracked event-page views across your events in the selected reporting period. This is not attendance." : "Organizers with published events in your authorized communities.")}</span><strong class="v" id="dashboardKpiOrganizers">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiOrganizersDetail">Loading…</span></a>
           </div>
@@ -14761,7 +14681,7 @@ return `
               </section>
               <div class="dashboard-command-insights">
                 <section class="card dashboard-command-card dashboard-insight-card dashboard-command-category" aria-labelledby="dashboardCategoryTitle">
-                  <div class="sectionTitle"><div><h2 id="dashboardCategoryTitle">Event categories</h2><p class="sub">Distribution of event category assignments.</p></div></div>
+                  <div class="sectionTitle"><div><h2 id="dashboardCategoryTitle">Event categories</h2><p class="sub">Category assignments for scheduled dates in this period. A date counts in each assigned category.</p></div></div>
                   <div class="dashboard-category-chart" id="dashboardCategoryChart" role="img" aria-label="Event category distribution"><div class="oc-section-loading" role="status"><span class="oc-page-loading__status">Loading categories…</span><span class="oc-page-loading__bar oc-page-loading__bar--wide" aria-hidden="true"></span><span class="oc-page-loading__bar oc-page-loading__bar--short" aria-hidden="true"></span></div></div>
                 </section>
                 <section class="card dashboard-command-card dashboard-insight-card dashboard-command-weekdays" aria-labelledby="dashboardWeekdayTitle">
@@ -14885,47 +14805,47 @@ return `
           <div class="metric">
             <div>
               <div class="k">${analyticsMetricLabel("All views", "Tracked event-page views during the selected reporting period.")}</div>
-              <div class="v">${esc(selectedEventAnalytics.allViews.toLocaleString("en-US"))}</div>
+              <div class="v">${esc(periodViewText(selectedEventAnalytics.allViews))}</div>
             </div>
           </div>
           <div class="metric">
             <div>
               <div class="k">${analyticsMetricLabel("Direct views", analyticsMetricHelp.directViews)}</div>
-              <div class="v">${esc(selectedEventAnalytics.directViews.toLocaleString("en-US"))}</div>
+              <div class="v">${esc(periodSourceText(selectedEventAnalytics.directViews))}</div>
             </div>
-            <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.directViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
+            <div class="tag">${esc(!periodSourcesAvailable ? "—" : selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.directViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
           </div>
           <div class="metric">
             <div>
               <div class="k">${analyticsMetricLabel("Referral views", analyticsMetricHelp.referralViews)}</div>
-              <div class="v">${esc(selectedEventAnalytics.referralViews.toLocaleString("en-US"))}</div>
+              <div class="v">${esc(periodSourceText(selectedEventAnalytics.referralViews))}</div>
             </div>
-            <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.referralViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
+            <div class="tag">${esc(!periodSourcesAvailable ? "—" : selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.referralViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
           </div>
           <div class="metric">
             <div>
               <div class="k">${analyticsMetricLabel("Website discovery views", analyticsMetricHelp.internalViews)}</div>
-              <div class="v">${esc(selectedEventAnalytics.internalViews.toLocaleString("en-US"))}</div>
+              <div class="v">${esc(periodSourceText(selectedEventAnalytics.internalViews))}</div>
             </div>
-            <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.internalViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
+            <div class="tag">${esc(!periodSourcesAvailable ? "—" : selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.internalViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
           </div>
           <div class="metric">
             <div>
               <div class="k">${analyticsMetricLabel("Other / unattributed", analyticsMetricHelp.otherViews)}</div>
-              <div class="v">${esc(selectedEventAnalytics.otherViews.toLocaleString("en-US"))}</div>
+              <div class="v">${esc(periodSourceText(selectedEventAnalytics.otherViews))}</div>
             </div>
-            <div class="tag">${esc(selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.otherViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
+            <div class="tag">${esc(!periodSourcesAvailable ? "—" : selectedEventAnalytics.allViews > 0 ? `${Math.round((selectedEventAnalytics.otherViews / selectedEventAnalytics.allViews) * 100)}%` : "0%")}</div>
           </div>
           ` : `
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("Total events", "Scheduled occurrences starting during this reporting period, including recurring dates.")}</div>
+              <div class="k">${analyticsMetricLabel("Scheduled dates", "Scheduled occurrences starting during this reporting period, including recurring dates.")}</div>
               <div class="v">${esc(stats.total)}</div>
             </div>
           </div>
           <div class="metric">
             <div>
-              <div class="k">${analyticsMetricLabel("Unique events", "Event records with at least one scheduled date in this reporting period.")}</div>
+              <div class="k">${analyticsMetricLabel("Event listings", "Event records with at least one scheduled date in this reporting period.")}</div>
               <div class="v">${esc(stats.uniqueTotal)}</div>
             </div>
           </div>
@@ -14988,7 +14908,7 @@ return `
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
                 <div class="chartTitle">${selectedEventAnalytics ? "Event views over time" : "Event activity over time"}</div>
-                <p class="sub" id="chartRangeLabel">Selected reporting period · Events use scheduled start dates; views use recorded dates.${hasSourceTrackingTable ? "" : " View tracking is unavailable."}</p>
+                <p class="sub" id="chartRangeLabel">Selected reporting period · Events use scheduled start dates; views use recorded dates.${!periodViewsAvailable ? ` ${trackingUnavailable}` : !periodSourcesAvailable ? " Traffic-source details are unavailable." : ""}</p>
                 <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
                       ${!selectedEventAnalytics ? `
                       <div class="chartLegendItem is-events" data-legend-metric="events">
@@ -14996,7 +14916,7 @@ return `
                         <span>${isOrganizerUser ? "My events" : "Events"}</span>
                       </div>
                       ` : ``}
-                      <div class="chartLegendItem is-views" data-legend-metric="views">
+                      <div class="chartLegendItem is-views" data-legend-metric="views"${periodViewsAvailable ? "" : " hidden"}>
                         <span class="chartLegendLine is-dashed"></span>
                       <span>Views</span>
                     </div>
@@ -15028,8 +14948,8 @@ return `
         ${showOrganizers ? `
         <section class="metrics" id="organizer-analytics-metrics">
           <div class="metric"><div><div class="k">${analyticsMetricLabel("Organizers", analyticsMetricHelp.organizers)}</div><div class="v">${fmt(selectedOrganizer ? Number(organizerLeaderboard.some((row) => row.organizer === selectedOrganizer)) : organizerLeaderboard.length)}</div></div></div>
-          <div class="metric"><div><div class="k">${analyticsMetricLabel("Unique events", analyticsMetricHelp.uniqueEvents)}</div><div class="v">${organizerPageSummary.uniqueEvents.toLocaleString("en-US")}</div></div></div>
-          <div class="metric"><div><div class="k">${analyticsMetricLabel("Total events", analyticsMetricHelp.totalEvents)}</div><div class="v">${organizerPageSummary.totalOccurrences.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">${analyticsMetricLabel("Event listings", analyticsMetricHelp.uniqueEvents)}</div><div class="v">${organizerPageSummary.uniqueEvents.toLocaleString("en-US")}</div></div></div>
+          <div class="metric"><div><div class="k">${analyticsMetricLabel("Scheduled dates", analyticsMetricHelp.totalEvents)}</div><div class="v">${organizerPageSummary.totalOccurrences.toLocaleString("en-US")}</div></div></div>
           <div class="metric"><div><div class="k">${analyticsMetricLabel("Upcoming", UPCOMING_EVENTS_HELP)}</div><div class="v">${organizerPageSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div></div>
         </section>
 
@@ -15043,12 +14963,12 @@ return `
                       <span class="chartLegendLine"></span>
                       <span>Events</span>
                     </div>
-                    <div class="chartLegendItem is-views" data-legend-metric="views">
+                    <div class="chartLegendItem is-views" data-legend-metric="views"${periodViewsAvailable ? "" : " hidden"}>
                       <span class="chartLegendLine is-dashed"></span>
                       <span>Views</span>
                     </div>
                   </div>
-                  <p class="sub" id="organizerChartRangeLabel">Selected reporting period</p>
+                  <p class="sub" id="organizerChartRangeLabel">Selected reporting period${!periodViewsAvailable ? ` · ${trackingUnavailable}` : !periodSourcesAvailable ? " · Traffic-source details are unavailable." : ""}</p>
                 </div>
                 <div class="chartTitle" style="font-weight:700;">${esc(organizerChartTitle)}</div>
               </div>
@@ -15072,14 +14992,14 @@ return `
             ${organizerAnalyticsOptions.length ? `
             ${organizerSelectionHtml}
             <div class="mini" style="margin-top:14px;">
-              <div class="kv"><div class="k">Unique events</div><div class="v">${organizerSummary.uniqueEvents.toLocaleString("en-US")}</div></div>
-              <div class="kv"><div class="k">Total events</div><div class="v">${organizerSummary.totalOccurrences.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Event listings</div><div class="v">${organizerSummary.uniqueEvents.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Scheduled dates</div><div class="v">${organizerSummary.totalOccurrences.toLocaleString("en-US")}</div></div>
               <div class="kv"><div class="k">Upcoming</div><div class="v">${organizerSummary.upcomingOccurrences.toLocaleString("en-US")}</div></div>
               <div class="kv"><div class="k">Featured</div><div class="v">${organizerSummary.featured.toLocaleString("en-US")}</div></div>
-              <div class="kv"><div class="k">All views</div><div class="v">${organizerSummary.allViews.toLocaleString("en-US")}</div></div>
-              <div class="kv"><div class="k">Direct views</div><div class="v">${organizerSummary.directViews.toLocaleString("en-US")}</div></div>
-              <div class="kv"><div class="k">Referral views</div><div class="v">${organizerSummary.referralViews.toLocaleString("en-US")}</div></div>
-              <div class="kv"><div class="k">Website discovery views</div><div class="v">${organizerSummary.internalViews.toLocaleString("en-US")}</div></div>
+              <div class="kv"><div class="k">Views in period</div><div class="v">${periodViewText(organizerSummary.allViews)}</div></div>
+              <div class="kv"><div class="k">Direct views</div><div class="v">${periodSourceText(organizerSummary.directViews)}</div></div>
+              <div class="kv"><div class="k">Referral views</div><div class="v">${periodSourceText(organizerSummary.referralViews)}</div></div>
+              <div class="kv"><div class="k">Website discovery views</div><div class="v">${periodSourceText(organizerSummary.internalViews)}</div></div>
             </div>
             ` : `
             <div class="mini">
@@ -15107,7 +15027,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Top 10 organizers</h2>
-                <p class="sub">Performance ranked by views</p>
+                <p class="sub">Ranked by tracked event views in the selected period.</p>
               </div>
             </div>
             <div class="mini">
@@ -15116,8 +15036,8 @@ return `
                   <tr>
                     <th>#</th>
                     <th>Organizer</th>
-                    <th>Unique</th>
-                    <th>Total</th>
+                    <th>Event listings</th>
+                    <th>Scheduled dates</th>
                     <th>Upcoming</th>
                     <th>Views</th>
                   </tr>
@@ -15147,12 +15067,12 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Most popular categories</h2>
-                <p class="sub">Views by category in the selected reporting period. Events with multiple categories contribute to each assigned category.</p>
+                <p class="sub">Ranked by views in this period. Listings with a scheduled date or tracked view count in each assigned category.</p>
               </div>
             </div>
             <div class="mini">
               <table class="analytics-table">
-                <thead><tr><th>#</th><th>Category</th><th>Events</th><th>Views</th><th>Avg. views <span class="metricInfo" tabindex="0" role="img" aria-label="Average views: category views divided by categorized event records" data-tip="Category views divided by categorized event records. An event assigned to multiple categories contributes to each category.">i</span></th></tr></thead>
+                <thead><tr><th>#</th><th>Category</th><th>Event listings</th><th>Views</th><th>Avg. views <span class="metricInfo" tabindex="0" role="img" aria-label="Average views: category views divided by categorized event records" data-tip="Category views divided by categorized event records. An event assigned to multiple categories contributes to each category.">i</span></th></tr></thead>
                 <tbody>${categoryPopularityHtml}</tbody>
               </table>
             </div>
@@ -15161,7 +15081,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2>Category leaders</h2>
-                <p class="sub" id="categoryLeaderSubtitle">Organizer with the most views in each category</p>
+                <p class="sub" id="categoryLeaderSubtitle">Organizer with the most views in each category during this period.</p>
               </div>
               <div class="seg" data-category-leader-toggle aria-label="Category leader type">
                 <button type="button" class="on" data-category-leader-mode="organizer" aria-pressed="true">Organizer</button>
@@ -15170,13 +15090,13 @@ return `
             </div>
             <div class="mini" data-category-leader-panel="organizer">
               <table class="analytics-table">
-                <thead><tr><th>Category</th><th>Leader</th><th>Events</th><th>Views</th></tr></thead>
+                <thead><tr><th>Category</th><th>Leader</th><th>Event listings</th><th>Views</th></tr></thead>
                 <tbody>${categoryLeadersHtml}</tbody>
               </table>
             </div>
             <div class="mini" data-category-leader-panel="event" hidden>
               <table class="analytics-table">
-                <thead><tr><th>Category</th><th>Top event</th><th>Events</th><th>Views</th></tr></thead>
+                <thead><tr><th>Category</th><th>Top event</th><th>Event listings</th><th>Views</th></tr></thead>
                 <tbody>${categoryEventLeadersHtml}</tbody>
               </table>
             </div>
@@ -16223,7 +16143,7 @@ return `
             </form>
             <p class="mini admin-notice admin-notice--error" role="alert" data-results-filter-error hidden></p>
             <div data-filter-results>
-            ${updateRows.length ? `<div class="tableWrap" role="region" aria-label="Updates table" tabindex="0"><table><thead><tr><th scope="col">Update</th><th scope="col">Category</th><th scope="col">Author</th><th scope="col">Status</th><th scope="col">Published</th><th scope="col">Views</th><th scope="col">Actions</th></tr></thead><tbody>${updateRows.map((row) => `<tr><td class="update-table-title">${row.featuredImageUrl ? `<img src="${esc(row.featuredImageUrl)}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:10px;" />` : ``}<strong>${esc(row.title)}</strong><div class="muted small">${esc(row.city)}</div></td><td>${esc(row.categoryName || "Uncategorized")}</td><td>${esc(row.authorName || "OpenCircle")}</td><td><span class="pill">${esc(row.status)}</span></td><td>${esc(row.publishedAt || row.scheduledFor || "—")}</td><td>${Number(row.views || 0).toLocaleString("en-US")}</td><td><div class="actions"><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}">Edit</a><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}&preview=1">Preview</a><form method="POST" action="/admin/updates/${row.id}/archive?city=${encodeURIComponent(selectedCity)}"><button class="btn" type="submit">Archive</button></form><form method="POST" action="/admin/updates/${row.id}/delete?city=${encodeURIComponent(selectedCity)}" onsubmit="return confirm('Delete this update permanently?');"><button class="btn btn-danger" type="submit">Delete</button></form></div></td></tr>`).join("")}</tbody></table></div>` : `<p class="mini admin-table-empty">No updates match these filters.</p>`}
+            ${updateRows.length ? `<div class="tableWrap" role="region" aria-label="Updates table" tabindex="0"><table><thead><tr><th scope="col">Update</th><th scope="col">Category</th><th scope="col">Author</th><th scope="col">Status</th><th scope="col">Published</th><th scope="col">Lifetime views</th><th scope="col">Actions</th></tr></thead><tbody>${updateRows.map((row) => `<tr><td class="update-table-title">${row.featuredImageUrl ? `<img src="${esc(row.featuredImageUrl)}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:10px;" />` : ``}<strong>${esc(row.title)}</strong><div class="muted small">${esc(row.city)}</div></td><td>${esc(row.categoryName || "Uncategorized")}</td><td>${esc(row.authorName || "OpenCircle")}</td><td><span class="pill">${esc(row.status)}</span></td><td>${esc(row.publishedAt || row.scheduledFor || "—")}</td><td>${Number(row.views || 0).toLocaleString("en-US")}</td><td><div class="actions"><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}">Edit</a><a class="btn" href="/admin/updates/create?city=${encodeURIComponent(selectedCity)}&editUpdate=${row.id}&preview=1">Preview</a><form method="POST" action="/admin/updates/${row.id}/archive?city=${encodeURIComponent(selectedCity)}"><button class="btn" type="submit">Archive</button></form><form method="POST" action="/admin/updates/${row.id}/delete?city=${encodeURIComponent(selectedCity)}" onsubmit="return confirm('Delete this update permanently?');"><button class="btn btn-danger" type="submit">Delete</button></form></div></td></tr>`).join("")}</tbody></table></div>` : `<p class="mini admin-table-empty">No updates match these filters.</p>`}
             </div>
           </div>` : ``}
           ${showUpdatesCreate ? `<div class="card"><div class="sectionTitle"><div><h2>${editUpdate ? "Edit update" : "Create update"}</h2><p class="sub">Publication times are entered in the community’s local timezone and stored in UTC.</p></div></div>
@@ -16231,7 +16151,7 @@ return `
             <form method="POST" action="/admin/updates" enctype="multipart/form-data"><input type="hidden" name="id" value="${esc(editUpdate?.id || "")}" /><div class="formGrid"><label>Title<input class="ctrl" name="title" required maxlength="180" value="${esc(editUpdate?.title || "")}" /></label>${editUpdate ? `<label>URL slug <input class="ctrl" name="slug" maxlength="180" value="${esc(editUpdate.slug || "")}" /><span class="note">Leave unchanged to keep the published URL stable.</span></label>` : ``}<label>Community<select class="ctrl" name="city">${cityOptions}</select></label><label>Category<select class="ctrl" name="categoryId"><option value="">Uncategorized</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(editUpdate?.categoryId || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></label><label>Status<select class="ctrl" name="status">${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(editUpdate?.status || "draft") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select></label><label>Publication date/time<input class="ctrl" type="datetime-local" name="scheduledFor" value="${esc(formatUpdateScheduleInput(editUpdate?.scheduledFor, editUpdate?.city))}" /></label><label>Tags<input class="ctrl" name="tags" maxlength="900" value="${esc((safeParseJson(editUpdate?.tagsJson, []) || []).join(", "))}" placeholder="Comma-separated" /></label></div><label>Summary<textarea class="ctrl" name="summary" maxlength="600" rows="3">${esc(editUpdate?.summary || "")}</textarea></label><label>Main content<textarea class="ctrl" name="bodyHtml" required rows="14" maxlength="100000" placeholder="Use paragraphs, headings, lists, bold, italic, and safe links.">${esc(editUpdate?.bodyHtml || "")}</textarea></label><div class="formGrid"><label>Featured image<input class="ctrl" type="file" name="updateImageFile" accept="image/*" /></label><label>Image alt text<input class="ctrl" name="imageAlt" maxlength="220" value="${esc(editUpdate?.imageAlt || "")}" /></label><label>Related event IDs<input class="ctrl" name="relatedEventIds" value="${esc(editUpdate?.relatedEventIds || "")}" placeholder="Example: 12, 34" /></label><label>Related venue IDs<input class="ctrl" name="relatedVenueIds" value="${esc(editUpdate?.relatedVenueIds || "")}" placeholder="Example: 8, 19" /></label></div>${editUpdate?.featuredImageUrl ? `<label class="checkbox"><input type="checkbox" name="removeImage" value="1" /> Remove current image</label>` : ``}<div class="actions"><button class="btn btn-primary" type="submit">${editUpdate ? "Save update" : "Create update"}</button><a class="btn" href="${buildScopedAdminHref("/admin/updates")}">Cancel</a></div></form>
             <form method="POST" action="/admin/updates/categories?city=${encodeURIComponent(selectedCity)}" class="mini" style="margin-top:22px;"><strong>Add a category for ${esc(selectedCity)}</strong><div class="actions" style="margin-top:8px;"><input class="ctrl" name="name" maxlength="80" required placeholder="Category name" /><button class="btn" type="submit">Add category</button></div></form>
           </div>` : ``}
-          ${showUpdatesAnalytics ? `<div class="card"><div class="sectionTitle"><div><h2>Update Analytics</h2><p class="sub">Public page views in the selected reporting period.</p></div></div><form method="GET" action="/admin/updates/analytics" class="filters">${analyticsPeriodFields}<input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" /><input type="hidden" name="city" value="${esc(selectedCity)}" /><select class="ctrl" name="update"><option value="">All updates</option>${updateRows.map((row) => `<option value="${row.id}" ${Number(req.query.update || 0) === row.id ? "selected" : ""}>${esc(row.title)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">View analytics</button></form><div class="mini" style="margin-top:16px;"><h3>${esc(editUpdate?.title || "Update views")}</h3><div class="stats"><div class="stat"><div class="k">Total views</div><div class="v">${updateViewTotal.toLocaleString("en-US")}</div></div>${editUpdate ? `<div class="stat"><div class="k">Published</div><div class="v">${esc(editUpdate.publishedAt || "Not published")}</div></div>` : ""}</div></div></div>` : ``}
+          ${showUpdatesAnalytics ? `<div class="card"><div class="sectionTitle"><div><h2>Update Analytics</h2><p class="sub">Public page views in the selected reporting period.</p></div></div><form method="GET" action="/admin/updates/analytics" class="filters">${analyticsPeriodFields}<input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" /><input type="hidden" name="city" value="${esc(selectedCity)}" /><select class="ctrl" name="update"><option value="">All updates</option>${updateRows.map((row) => `<option value="${row.id}" ${Number(req.query.update || 0) === row.id ? "selected" : ""}>${esc(row.title)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">View analytics</button></form><div class="mini" style="margin-top:16px;"><h3>${esc(editUpdate?.title || "Update views")}</h3><div class="stats"><div class="stat"><div class="k">Views in period</div><div class="v">${updateViewTotal.toLocaleString("en-US")}</div></div>${editUpdate ? `<div class="stat"><div class="k">Published</div><div class="v">${esc(editUpdate.publishedAt || "Not published")}</div></div>` : ""}</div></div></div>` : ``}
         </section>` : ``}
 
         <!-- Manage -->
@@ -18557,11 +18477,11 @@ return `
           var scope = organizer ? 'your events' : (summary.role === 'admin' ? 'the OpenCircle platform' : (selectedScope || ((summary.scope && summary.scope.cities && summary.scope.cities.length > 1) ? 'your assigned communities' : (summary.scope && summary.scope.cities ? summary.scope.cities[0] : 'your community'))));
           set('dashboardContext', "Here’s what’s happening in " + scope + '.');
           set('dashboardKpiUpcoming', number(kpis.upcomingOccurrences));
-          set('dashboardKpiViews', availability.engagement ? number(organizer ? kpis.uniqueViews : kpis.eventViews) : '—');
+          set('dashboardKpiViews', (organizer ? availability.uniqueViews : availability.engagement) ? number(organizer ? kpis.uniqueViews : kpis.eventViews) : '—');
           set('dashboardKpiAdded', number(kpis.eventsAdded));
           set('dashboardKpiOrganizers', organizer ? (availability.engagement ? number(kpis.eventViews) : '—') : number(kpis.activeOrganizers));
           var viewDetail = document.getElementById('dashboardKpiViewsChange');
-          if (viewDetail) { viewDetail.textContent = availability.engagement ? (organizer ? 'Measured unique visitor hashes; not attendance' : pct(kpis.eventViewsChangePct)) : 'Period-based view tracking is unavailable'; viewDetail.className = 'dashboard-kpi-detail' + (!organizer && Number(kpis.eventViewsChangePct) > 0 ? ' is-positive' : !organizer && Number(kpis.eventViewsChangePct) < 0 ? ' is-negative' : ''); }
+          if (viewDetail) { viewDetail.textContent = (organizer ? availability.uniqueViews : availability.engagement) ? (organizer ? 'Measured unique visitor hashes; not attendance' : pct(kpis.eventViewsChangePct)) : 'Period-based view tracking is unavailable'; viewDetail.className = 'dashboard-kpi-detail' + (!organizer && Number(kpis.eventViewsChangePct) > 0 ? ' is-positive' : !organizer && Number(kpis.eventViewsChangePct) < 0 ? ' is-negative' : ''); }
           var addedDetail = document.getElementById('dashboardKpiAddedChange');
           if (addedDetail) { addedDetail.textContent = pct(kpis.eventsAddedChangePct); addedDetail.className = 'dashboard-kpi-detail' + (Number(kpis.eventsAddedChangePct) > 0 ? ' is-positive' : Number(kpis.eventsAddedChangePct) < 0 ? ' is-negative' : ''); }
           set('dashboardKpiOrganizersDetail', organizer ? 'Measured views across your events' : 'Organizers with published events');
@@ -20694,11 +20614,12 @@ return `
       const frame = { padT: Number(hit.getAttribute("y")) * scaleY, gh: Number(hit.getAttribute("height")) * scaleY };
       const rows = [];
       if (eventLegend) rows.push({ label: eventLegend.textContent.trim(), value: series.events[index].toLocaleString("en-US") });
-      rows.push({ label: "Views", value: series.views[index].toLocaleString("en-US") });
+      const hasViews = typeof series.views[index] === "number";
+      if (hasViews) rows.push({ label: "Views", value: series.views[index].toLocaleString("en-US") });
 
       showChartHoverOverlay(overlay, frame, { x, y: eventLegend ? eventY : viewY },
-        eventLegend ? { x, y: viewY } : null, getChartPalette(eventLegend ? "events" : "clicks"));
-      showChartTipCard(tip, wrap, x, eventLegend ? Math.min(eventY, viewY) : viewY,
+        eventLegend && hasViews ? { x, y: viewY } : null, getChartPalette(eventLegend ? "events" : "clicks"));
+      showChartTipCard(tip, wrap, x, eventLegend ? (hasViews ? Math.min(eventY, viewY) : eventY) : viewY,
         renderChartTipHtml(series.tooltips?.[index] || ("Date: " + series.dates[index]), rows));
     });
     svg.addEventListener("pointerleave", hide);
@@ -20740,6 +20661,9 @@ return `
         }
       }
     } catch (_) {}
+
+    // Keep the server-rendered scheduled-dates chart when views are unavailable.
+    if (!chartSets.views.values.length) return;
 
     let hoverIndex = -1;
 
@@ -21651,8 +21575,8 @@ return `
         panel.hidden = panel.getAttribute('data-category-leader-panel') !== mode;
       });
       if (subtitle) subtitle.textContent = mode === 'event'
-        ? 'Highest-viewed event in each category'
-        : 'Organizer with the most views in each category';
+        ? 'Event with the most views in each category during this period.'
+        : 'Organizer with the most views in each category during this period.';
     });
   })();
 

@@ -1,5 +1,13 @@
 {
   "releases": {
+    "1.0.3": {
+      "summary": "Improved event analytics accuracy and clarity, with more consistent API version information and Release Notes.",
+      "changes": [
+        {"category": "improved", "title": "Clearer analytics", "description": "Event reports now better distinguish lifetime views, selected reporting periods, unique visitor measurements, and current engagement totals."},
+        {"category": "fixed", "title": "More accurate reporting", "description": "Combined-community analytics avoid counting the same tracked visitor more than once. Reporting periods use consistent date boundaries, and unavailable tracking is distinguished from zero recorded activity."},
+        {"category": "fixed", "title": "Consistent release information", "description": "The dashboard's Current Version and Latest Release information remain aligned with the API version and its published Release Notes."}
+      ]
+    },
     "1.0.2": {
       "summary": "More ways to organize events, with clearer reporting and release history.",
       "changes": [
