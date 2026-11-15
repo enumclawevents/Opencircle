@@ -21915,7 +21915,35 @@ router.post("/updates", upload.single("updateImageFile"), async (req, res) => {
 });
 
 router.post("/updates/:id/archive", async (req, res) => { try { const user = await requireUpdatesManager(req, res); if (!user) return; const city = pickAccessibleCity(req.query.city, user, { fallbackCity: user.city || "Enumclaw" }); await ensureUpdatesSchema(); await run("UPDATE updates SET status = 'archived', updatedAt = datetime('now') WHERE id = ? AND city = ?", [Number(req.params.id), city]); res.redirect(`/admin/updates?city=${encodeURIComponent(city)}`); } catch (err) { console.error(err); res.status(500).send("Server error."); } });
-router.post("/updates/:id/delete", async (req, res) => { try { const user = await requireUpdatesManager(req, res); if (!user) return; const city = pickAccessibleCity(req.query.city, user, { fallbackCity: user.city || "Enumclaw" }); await ensureUpdatesSchema(); const id = Number(req.params.id); await run("DELETE FROM update_metric_events WHERE updateId = ?", [id]); await run("DELETE FROM update_event_links WHERE updateId = ?", [id]); await run("DELETE FROM update_venue_links WHERE updateId = ?", [id]); await run("DELETE FROM updates WHERE id = ? AND city = ?", [id, city]); res.redirect(`/admin/updates?city=${encodeURIComponent(city)}`); } catch (err) { console.error(err); res.status(500).send("Server error."); } });
+router.post("/updates/:id/delete", async (req, res) => {
+  try {
+    const user = await requireUpdatesManager(req, res);
+    if (!user) return;
+
+    const id = Number(req.params.id);
+    if (!/^\d+$/.test(req.params.id) || !Number.isSafeInteger(id) || id < 1) {
+      return res.status(404).send("Update not found.");
+    }
+    const city = pickAccessibleCity(req.query.city, user, { fallbackCity: user.city || "Enumclaw" });
+    const deleted = await transaction(async (tx) => {
+      const update = await tx.get("SELECT id FROM updates WHERE id = ? AND city = ?", [id, city]);
+      if (!update) return false;
+
+      await tx.run("DELETE FROM update_metric_events WHERE updateId = ?", [id]);
+      await tx.run("DELETE FROM update_event_links WHERE updateId = ?", [id]);
+      await tx.run("DELETE FROM update_venue_links WHERE updateId = ?", [id]);
+      const result = await tx.run("DELETE FROM updates WHERE id = ? AND city = ?", [id, city]);
+      if (result.changes !== 1) throw new Error("Community Update deletion did not remove the parent row.");
+      return true;
+    });
+
+    if (!deleted) return res.status(404).send("Update not found.");
+    res.redirect(`/admin/updates?city=${encodeURIComponent(city)}`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Server error.");
+  }
+});
 
 router.get("/event-field-suggestions", async (req, res) => {
   res.set("Cache-Control", "private, no-store");
