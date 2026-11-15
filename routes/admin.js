@@ -12957,6 +12957,14 @@ return `
         background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-inner); box-shadow:var(--shadow);
       }
       .event-parent-results{ list-style:none; margin:0; padding:0; }
+      .event-field-suggestion-list{
+        list-style:none; margin:4px 0 0; padding:4px;
+        border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel);
+        max-height:14rem; overflow:auto;
+      }
+      .event-field-suggestion-list li{ padding:8px 10px; cursor:pointer; overflow-wrap:anywhere; }
+      .event-field-suggestion-list li:hover,
+      .event-field-suggestion-list [aria-selected="true"]{ background:var(--panel2); }
       .event-parent-results button{ display:block; width:100%; padding:8px 10px; text-align:left; overflow-wrap:anywhere; }
       .event-parent-change:hover,.event-parent-clear:hover,.event-parent-results button:hover,
       .event-parent-results button:focus-visible{ background:var(--panel2); }
@@ -16956,12 +16964,12 @@ return `
                 <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg><div class="event-form-section-heading-copy"><h3>Location &amp; organizer</h3><p>Use the same venue and organizer names visitors will recognize.</p></div></div>
                 <div class="rec-grid">
                   <div>
-                    <label style="margin-top:0;">Address / location</label>
-                    <input class="ctrl" name="location" value="${esc(editEvent?.location || "")}" required />
+                    <label for="eventLocation" style="margin-top:0;">Address / location</label>
+                    <input class="ctrl" id="eventLocation" name="location" value="${esc(editEvent?.location || "")}" data-event-suggest="location" required />
                   </div>
                   <div>
-                    <label style="margin-top:0;">Organizer</label>
-                    <input class="ctrl" name="organizer" value="${esc(organizerFormValue)}" ${isOrganizerUser ? "readonly" : ""} required />
+                    <label for="eventOrganizer" style="margin-top:0;">Organizer</label>
+                    <input class="ctrl" id="eventOrganizer" name="organizer" value="${esc(organizerFormValue)}" ${isOrganizerUser ? "readonly" : 'data-event-suggest="organizer"'} required />
                     ${isOrganizerUser ? `<div class="note">Your organizer identity is applied automatically.</div>` : ``}
                   </div>
                   <div>
@@ -17137,6 +17145,7 @@ return `
               </div>
               </div>
               <script defer src="/assets/event-parent-picker.js?v=7"></script>
+              <script defer src="/assets/event-field-suggestions.js"></script>
             </form>
           </div>
           ` : ``}
@@ -21733,6 +21742,7 @@ function isOrganizerAllowedAdminPath(pathname) {
     "/updates-log",
     "/events",
     "/events/quick-add",
+    "/event-field-suggestions",
   ].includes(path)) return true;
   if (/^\/event-drafts\/\d+\/(image|delete)$/.test(path)) return true;
   if (/^\/events\/\d+\/(delete|archive|unarchive|lifecycle|unpublished-image)$/.test(path)) return true;
@@ -21924,6 +21934,51 @@ router.post("/updates", upload.single("updateImageFile"), async (req, res) => {
 
 router.post("/updates/:id/archive", async (req, res) => { try { const user = await requireUpdatesManager(req, res); if (!user) return; const city = pickAccessibleCity(req.query.city, user, { fallbackCity: user.city || "Enumclaw" }); await ensureUpdatesSchema(); await run("UPDATE updates SET status = 'archived', updatedAt = datetime('now') WHERE id = ? AND city = ?", [Number(req.params.id), city]); res.redirect(`/admin/updates?city=${encodeURIComponent(city)}`); } catch (err) { console.error(err); res.status(500).send("Server error."); } });
 router.post("/updates/:id/delete", async (req, res) => { try { const user = await requireUpdatesManager(req, res); if (!user) return; const city = pickAccessibleCity(req.query.city, user, { fallbackCity: user.city || "Enumclaw" }); await ensureUpdatesSchema(); const id = Number(req.params.id); await run("DELETE FROM update_metric_events WHERE updateId = ?", [id]); await run("DELETE FROM update_event_links WHERE updateId = ?", [id]); await run("DELETE FROM update_venue_links WHERE updateId = ?", [id]); await run("DELETE FROM updates WHERE id = ? AND city = ?", [id, city]); res.redirect(`/admin/updates?city=${encodeURIComponent(city)}`); } catch (err) { console.error(err); res.status(500).send("Server error."); } });
+
+router.get("/event-field-suggestions", async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+  const user = await resolveSessionUser(req);
+  if (!user?.id) return res.sendStatus(403);
+  const { type, q, city } = req.query;
+  if (!["organizer", "location"].includes(type) || typeof q !== "string" || q.length > 100 || typeof city !== "string") {
+    return res.status(400).json({ error: "Invalid suggestion request." });
+  }
+  const organizerLocation = user.role === "organizer" && type === "location" && getUserSectionPermissions(user).events;
+  if (!hasDeveloperAccessRole(user.role) && !organizerLocation) return res.sendStatus(403);
+  const cities = getUserAllowedCities(user);
+  if (!cities.includes(city)) return res.sendStatus(403);
+  const query = q.trim().replace(/\s+/g, " ").toLowerCase();
+  if (query.length < 2) return res.json({ data: [] });
+  const field = type === "location" ? "e.location" : "e.organizer";
+  const owner = organizerLocation ? buildOrganizerOwnerClause("e.organizer", getOrganizerAccessValues(user, req)) : null;
+  // Insert a separator after each space, then remove separators between
+  // adjacent spaces. Match and deduplicate with the same normalized key.
+  const spaces = [9, 10, 11, 12, 13, 31].reduce(
+    (value, code) => `replace(${value}, char(${code}), ' ')`, field
+  );
+  const data = await all(
+    `WITH candidates AS (
+       SELECT ${field} AS value, e.city,
+              lower(trim(replace(replace(replace(${spaces}, ' ', ' ' || char(31)), char(31) || ' ', ''), char(31), ''))) AS matchKey
+       FROM events e
+       WHERE e.city IN (${cities.map(() => "?").join(", ")})
+         AND ${availableEventSql("e")}
+         ${owner ? `AND ${owner.sql}` : ""}
+     ), ranked AS (
+       SELECT value, city, matchKey, city = ? AS localMatch, instr(matchKey, ?) AS position,
+              matchKey = ? AS exactMatch
+       FROM candidates
+     ), distinctMatches AS (
+       SELECT *, row_number() OVER (PARTITION BY matchKey ORDER BY localMatch DESC, value COLLATE NOCASE, value, city) AS choice
+       FROM ranked WHERE position > 0
+     )
+     SELECT value, city FROM distinctMatches WHERE choice = 1
+     ORDER BY localMatch DESC, exactMatch DESC, position = 1 DESC, matchKey, city
+     LIMIT 8`,
+    [...cities, ...(owner?.params || []), city, query, query]
+  );
+  return res.json({ data });
+});
 
 router.get("/search", async (req, res) => {
   try {
