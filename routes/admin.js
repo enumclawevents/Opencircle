@@ -3889,24 +3889,45 @@ function renderReportingPeriodControl({ range = "30d", start = "", end = "", ana
         <input class="ctrl" id="${prefix}RangeEnd" name="end" type="date" value="${esc(end)}" aria-label="Reporting end date" />
         <button class="btn" type="${analytics ? "submit" : "button"}" id="${prefix}CustomApply">Apply</button>
       </div>
-      <select id="${prefix}Range" name="range" class="ctrl">
-        ${options.map(([value, label]) => `<option value="${value}"${value === range ? " selected" : ""}>${label}</option>`).join("")}
-      </select>
-      <details class="report-share" data-report-share>
-        <summary class="btn" aria-label="Share this report" title="Share this report">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m-4 4 4-4 4 4M5 11H4v9h16v-9h-1"/></svg>
-        </summary>
-        <div class="report-share-options" aria-label="Download report">
-          <button type="button" class="btn" data-report-format="pdf">Download PDF</button>
-          <button type="button" class="btn" data-report-format="xlsx">Download Excel</button>
-          <button type="button" class="btn" data-report-format="csv">Download CSV</button>
-          <div class="sub" role="status"></div>
-        </div>
-      </details>
+      <div class="dashboard-period-actions">
+        <select id="${prefix}Range" name="range" class="ctrl">
+          ${options.map(([value, label]) => `<option value="${value}"${value === range ? " selected" : ""}>${label}</option>`).join("")}
+        </select>
+        <details class="report-share" data-report-share>
+          <summary class="btn" aria-label="Share this report" title="Share this report">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m-4 4 4-4 4 4M5 11H4v9h16v-9h-1"/></svg>
+          </summary>
+          <div class="report-share-options" aria-label="Download report">
+            <button type="button" class="btn" data-report-format="pdf">Download PDF</button>
+            <button type="button" class="btn" data-report-format="xlsx">Download Excel</button>
+            <button type="button" class="btn" data-report-format="csv">Download CSV</button>
+            <div class="sub" role="status"></div>
+          </div>
+        </details>
+      </div>
     </div>`;
 }
 
 const ANALYTICS_CHART_GROUPS = Object.freeze({ day: "Day", week: "Week", month: "Month", year: "Year" });
+
+function renderAnalyticsChartValues(title, periods, series) {
+  const columns = series.filter(([, values]) => values.some(Number.isFinite));
+  if (!periods.length || !columns.length) return "";
+  return `
+    <details class="mini analytics-chart-values">
+      <summary>Chart values</summary>
+      <div class="analytics-chart-values-scroll" role="region" aria-label="${esc(title)} chart values" tabindex="0">
+        <table class="analytics-table" data-chart-values-table>
+          <thead><tr><th scope="col">Period</th>${columns.map(([label]) => `<th scope="col">${esc(label)}</th>`).join("")}</tr></thead>
+          <tbody>${periods.map((period, index) => `
+            <tr><th scope="row">${esc(period)}</th>${columns.map(([, values]) => {
+              const value = values[index];
+              return `<td>${Number.isFinite(value) ? value.toLocaleString("en-US") : "Unavailable"}</td>`;
+            }).join("")}</tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </details>`;
+}
 
 function normalizeAnalyticsChartGroup(value) {
   return Object.hasOwn(ANALYTICS_CHART_GROUPS, value) ? value : "day";
@@ -7923,6 +7944,7 @@ return `
     let newsletterAudienceAnalyticsListHtml = `<div class="muted">No audience members yet.</div>`;
     let newsletterChartDataJson = esc(JSON.stringify({ events: {}, views: {} }));
     let newsletterChartSvg = "";
+    let newsletterChartValues = "";
     const buildNewsletterAudienceAnalyticsHref = (email, extraParams = {}) =>
       buildNewsletterHref("/admin/newsletter/analytics", {
         campaignId: "",
@@ -8052,8 +8074,8 @@ return `
           <div class="card" style="margin-bottom:var(--gap);" data-newsletter-search-item>
             <div class="sectionTitle" style="margin-bottom:10px;">
               <div>
-                <h2>Viewing one audience member</h2>
-                <p class="sub">The cards and chart below are filtered to this subscriber.</p>
+                <h2>Selected subscriber</h2>
+                <p class="sub">Metrics and chart values below are for this email address.</p>
               </div>
               <div class="right">
                 <a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { campaignPage: String(requestedNewsletterCampaignPage || 1) })}">Clear filter</a>
@@ -8075,8 +8097,8 @@ return `
           <div class="card" style="margin-bottom:var(--gap);" data-newsletter-search-item>
             <div class="sectionTitle" style="margin-bottom:10px;">
               <div>
-                <h2>Viewing one campaign</h2>
-                <p class="sub">The cards and chart below are filtered to this send only.</p>
+                <h2>Selected campaign</h2>
+                <p class="sub">Metrics and chart values below are for this send.</p>
               </div>
               <div class="right">
                 <a class="btn" href="${buildNewsletterHref("/admin/newsletter/analytics", { campaignPage: String(requestedNewsletterCampaignPage || 1) })}">Clear filter</a>
@@ -8199,6 +8221,9 @@ return `
       const sentSet = { labels: labelsByDate, values: chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => daily.get(day).sent)) };
       const openSet = { labels: labelsByDate, values: chartBuckets.map((bucket) => sumAnalyticsChartBucket(bucket, (day) => daily.get(day).opened)) };
       newsletterChartDataJson = esc(JSON.stringify({ events: sentSet, views: openSet }));
+      if (showNewsletterAnalytics) newsletterChartValues = renderAnalyticsChartValues("Newsletter performance",
+        chartBuckets.map((bucket) => bucket.tooltip),
+        [["Emails sent", sentSet.values], ["Opens", openSet.values]]);
 
       function buildNewsletterChartSvg() {
         const labels = Array.isArray(sentSet.labels) ? sentSet.labels : [];
@@ -12082,6 +12107,37 @@ return `
         letter-spacing:.03em;
         text-transform:uppercase;
       }
+      .event-source-metrics .metric{
+        display:grid;
+        grid-template-columns:minmax(0,1fr) auto;
+        grid-template-rows:1fr auto;
+        align-items:end;
+        gap:6px;
+      }
+      .event-source-metrics .metric > div:first-child{ display:contents; }
+      .event-source-metrics .k{ grid-column:1 / -1; align-self:start; overflow-wrap:anywhere; }
+      .event-source-metrics .v{ min-width:0; margin:0; overflow-wrap:anywhere; }
+      :is(.event-overview-metrics, .event-source-metrics, #organizer-analytics-metrics, .analytics-ranking-scroll) .metricInfo::before{
+        display:none;
+      }
+      :is(.event-overview-metrics, .event-source-metrics, #organizer-analytics-metrics, .analytics-ranking-scroll) .metricInfo::after{
+        position:fixed;
+        inset:auto 16px 16px;
+        min-width:0;
+        max-width:36ch;
+        margin-inline:auto;
+        transform:none;
+        background:var(--panel);
+        color:var(--text);
+        border:1px solid var(--line);
+        z-index:90;
+      }
+      .analytics-ranking-scroll{
+        min-width:0;
+        max-width:100%;
+        overflow-x:auto;
+      }
+      .analytics-ranking-scroll:focus-visible{ outline-offset:-2px; }
       .analytics-table{
         width:100%;
         border-collapse:collapse;
@@ -13098,6 +13154,45 @@ return `
         flex-direction:column;
         gap:8px;
         min-width:0;
+      }
+      .sectionTitle--chart h2.chartTitle{ margin:0; font-size:20px; line-height:1.25; overflow-wrap:anywhere; }
+      .analytics-chart-values{ min-width:0; margin-top:var(--gap); }
+      .analytics-chart-values summary{ cursor:pointer; font-weight:600; }
+      .analytics-chart-values-scroll{ max-width:100%; max-height:18rem; overflow:auto; margin-top:8px; }
+      .analytics-chart-values-scroll:focus-visible{ outline-offset:-2px; }
+      .analytics-chart-values .analytics-table th{ color:var(--muted); }
+      .analytics-chart-values .analytics-table th:first-child{ text-align:left; }
+      .analytics-chart-values .analytics-table :not(:first-child){ white-space:nowrap; }
+      .analytics-chart-tooltip{
+        box-sizing:border-box;
+        width:max-content;
+        padding:10px 12px;
+        border:1px solid var(--line);
+        border-radius:var(--radius-inner);
+        background:var(--panel);
+        color:var(--text);
+        box-shadow:var(--shadow);
+        z-index:9;
+        overflow-wrap:anywhere;
+      }
+      .analytics-chart-tooltip strong{ display:block; font-size:14px; }
+      .analytics-chart-tooltip-row{ display:flex; justify-content:space-between; gap:12px; margin-top:4px; font-size:13px; }
+      #newsletter-analytics-root .kv .v{ min-width:0; overflow-wrap:anywhere; }
+      #newsletter-analytics-metrics{ margin-bottom:var(--gap); }
+      #newsletter-analytics-metrics .metric{ min-width:0; padding:14px; align-items:flex-start; }
+      #newsletter-analytics-metrics .k{ overflow-wrap:anywhere; }
+      #newsletter-analytics-metrics .metricInfo::before{ display:none; }
+      #newsletter-analytics-metrics .metricInfo::after{
+        position:fixed;
+        inset:auto 16px 16px;
+        min-width:0;
+        max-width:36ch;
+        margin-inline:auto;
+        transform:none;
+        background:var(--panel);
+        color:var(--text);
+        border:1px solid var(--line);
+        z-index:90;
       }
       .chartTopRow{
         display:flex;
@@ -14138,11 +14233,12 @@ return `
       .dashboard-command-head h1{ margin:0 0 4px; font-size:28px; font-weight:700; letter-spacing:-.01em; line-height:1.2; }
       .dashboard-command-head .sub{ margin:0; }
       .eyebrow{ font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:var(--accent); }
-      .dashboard-period-controls{ min-width:220px; display:grid; gap:5px; }
+      .dashboard-period-controls{ min-width:min(220px, 100%); max-width:100%; display:grid; grid-template-columns:minmax(0,1fr); gap:5px; }
       .dashboard-period-controls label{ margin:0; font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
       .dashboard-community-scope{ display:grid; gap:5px; }
-      .dashboard-period-row{ display:flex; gap:8px; align-items:center; justify-content:flex-end; }
-      .dashboard-period-row .ctrl{ min-width:142px; margin:0; padding:8px 10px; font-size:14px; }
+      .dashboard-period-row{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:flex-end; }
+      .dashboard-period-actions{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; flex:1 1 190px; gap:8px; min-width:0; }
+      .dashboard-period-actions .ctrl{ min-width:0; margin:0; padding:8px 44px 8px 10px; font-size:14px; }
       .report-share{ position:relative; flex:none; }
       .report-share > summary.btn{ display:grid; place-items:center; width:var(--ctrl-h); height:var(--ctrl-h); padding:0; list-style:none; cursor:pointer; }
       .report-share > summary::-webkit-details-marker{ display:none; }
@@ -14150,11 +14246,10 @@ return `
       .report-share:not([open]) .report-share-options{ display:none; }
       .report-share-options .btn{ display:block; width:100%; text-align:left; margin:0; border-color:transparent; background:transparent; }
       .report-share-options [role="status"]:empty{ display:none; }
-      .dashboard-period-row select.ctrl{ padding-right:44px; }
       .dashboard-create-event{ white-space:nowrap; }
-      .dashboard-custom-range{ display:flex; gap:6px; align-items:center; }
+      .dashboard-custom-range{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; max-width:100%; }
       .dashboard-custom-range[hidden]{ display:none !important; }
-      .dashboard-custom-range .ctrl{ min-width:0; margin:0; padding:8px; font-size:12px; }
+      .dashboard-custom-range .ctrl{ flex:1 1 auto; width:auto; min-width:0; max-width:100%; margin:0; padding:8px; font-size:12px; }
       .dashboard-kpi-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--gap); }
       .dashboard-kpi-card{ display:flex; align-items:flex-end; justify-content:space-between; gap:10px; padding:16px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); color:var(--text) !important; text-decoration:none; transition:border-color .14s ease, background-color .14s ease; }
       .dashboard-kpi-card:hover{ border-color:rgba(15,23,42,.18); background:#f8fafc; }
@@ -14271,7 +14366,7 @@ return `
       @media (max-width:1100px){ .dashboard-command-columns{ grid-template-columns:1fr; } .dashboard-category-donut{ width:min(100%,184px); } .dashboard-activity-chart{ height:210px; } }
       @media (max-width:850px){ .dashboard-command-insights{ grid-template-columns:1fr; } }
       @media (max-width:1050px){ .dashboard-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
-      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-period-row{ flex-wrap:wrap; } .dashboard-period-row .ctrl{ flex:1 1 150px; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:26px; } .dashboard-command-columns,.dashboard-command-insights{ grid-template-columns:1fr; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-donut{ width:min(100%,200px); } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
+      @media (max-width:650px){ .dashboard-command-head{ align-items:stretch; flex-direction:column; } .dashboard-period-controls{ min-width:0; width:100%; } .dashboard-kpi-grid{ grid-template-columns:1fr 1fr; gap:10px; } .dashboard-kpi-card{ padding:14px; } .dashboard-kpi-card strong{ font-size:26px; } .dashboard-command-columns,.dashboard-command-insights{ grid-template-columns:1fr; } .dashboard-command-card{ padding:18px; } .dashboard-activity-chart{ height:195px; } .dashboard-category-donut{ width:min(100%,200px); } .dashboard-community-metrics{ gap:5px; } .dashboard-layout-preference{ align-items:flex-start; flex-direction:column; } .dashboard-layout-order{ width:100%; justify-content:space-between; } }
       @media (max-width:420px){ .dashboard-category-legend{ max-width:280px; } .dashboard-category-row{ grid-template-columns:10px 36px minmax(0,1fr) auto; gap:7px; font-size:10px; } }
       /* Keep selection feedback consistent across the admin's option controls. */
       :root{
@@ -14810,7 +14905,7 @@ return `
 
         <!-- Metrics -->
         ${showAnalytics ? `
-        <section class="metrics ${selectedEventAnalytics ? "analytics-engagement-metrics" : ""}" id="analytics">
+        <section class="metrics ${selectedEventAnalytics ? "analytics-engagement-metrics" : "event-overview-metrics"}" id="analytics">
           ${selectedEventAnalytics ? `
           <div class="metric">
             <div>
@@ -14872,7 +14967,7 @@ return `
             </div>
           </div>
         </section>
-        <section class="metrics analytics-engagement-metrics" aria-label="Event view sources">
+        <section class="metrics analytics-engagement-metrics event-source-metrics" aria-label="Event view sources">
           <div class="metric">
             <div>
               <div class="k">${analyticsMetricLabel("All views", "Tracked event-page views during the selected reporting period.")}</div>
@@ -14917,8 +15012,8 @@ return `
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
-                <div class="chartTitle">${selectedEventAnalytics ? "Event views over time" : "Event activity over time"}</div>
-                <p class="sub" id="chartRangeLabel">Selected reporting period · Events use scheduled start dates; views use recorded dates.${!periodViewsAvailable ? ` ${trackingUnavailable}` : !periodSourcesAvailable ? " Traffic-source details are unavailable." : ""}</p>
+                <h2 class="chartTitle">${selectedEventAnalytics ? "Event views over time" : "Event activity over time"}</h2>
+                <p class="sub" id="chartRangeLabel">${selectedEventAnalytics ? "Tracked event-page views in the selected reporting period." : "Scheduled event dates and tracked views in the selected reporting period."}${!periodViewsAvailable ? ` ${trackingUnavailable}` : !periodSourcesAvailable ? " Traffic-source details are unavailable." : ""}</p>
                 <div class="chartLegend" id="eventsChartLegend" aria-label="Chart legend">
                       ${!selectedEventAnalytics ? `
                       <div class="chartLegendItem is-events" data-legend-metric="events">
@@ -14937,7 +15032,7 @@ return `
             <div class="chart-wrap" id="eventsChartWrap" style="min-height:96px;">
               <div id="eventsChartSvgHost"${chartEventDays.size ? ` data-event-days="${chartEventDays.size}"` : ""}>${eventsChartSvg}</div>
               <div id="eventsChartData" data-chart="${esc(JSON.stringify(chartSeries))}" hidden></div>
-                <div id="eventsChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
+                <div id="eventsChartTip" class="analytics-chart-tooltip" style="position:absolute; display:none; pointer-events:none;"></div>
             </div>
             ${chartEventDays.size ? `
               <details class="event-chart-dates mini">
@@ -14947,6 +15042,9 @@ return `
               </details>
               <script defer src="/assets/event-chart-labels.js"></script>
             ` : ""}
+            ${renderAnalyticsChartValues(selectedEventAnalytics ? "Event views over time" : "Event activity over time",
+              chartBuckets.map((bucket) => bucket.tooltip),
+              [...(selectedEventAnalytics ? [] : [["Scheduled dates", chartSeries.events]]), ["Views", chartSeries.views]])}
           </div>
 
           ${(!isOrganizerUser || selectedEventAnalytics) ? `
@@ -14975,6 +15073,7 @@ return `
           <div class="card">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
+                <h2 class="chartTitle">${esc(organizerChartTitle)}</h2>
                 <div class="chartTopRow">
                   <div class="chartLegend" id="organizerChartLegend" aria-label="Organizer chart legend">
                     <div class="chartLegendItem is-events" data-legend-metric="events">
@@ -14988,7 +15087,6 @@ return `
                   </div>
                   <p class="sub" id="organizerChartRangeLabel">Selected reporting period${!periodViewsAvailable ? ` · ${trackingUnavailable}` : !periodSourcesAvailable ? " · Traffic-source details are unavailable." : ""}</p>
                 </div>
-                <div class="chartTitle" style="font-weight:700;">${esc(organizerChartTitle)}</div>
               </div>
               ${chartGroupingControl}
             </div>
@@ -14996,8 +15094,10 @@ return `
               <div id="organizerChartSvgHost">${organizerChartSvg}</div>
               <div id="organizerChartData" data-chart="${esc(organizerChartDataJson)}" hidden></div>
               <canvas id="organizerChart" style="position:absolute; inset:0; width:100%; height:100%; display:none;"></canvas>
-              <div id="organizerChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
+              <div id="organizerChartTip" class="analytics-chart-tooltip" style="position:absolute; display:none; pointer-events:none;"></div>
             </div>
+            ${renderAnalyticsChartValues("Organizer performance",
+              chartBuckets.map((bucket) => bucket.tooltip), [["Scheduled dates", organizerChartEventValues], ["Views", organizerChartViewValues]])}
           </div>
 
           <div class="card">
@@ -15044,11 +15144,11 @@ return `
           <div class="card organizer-leaderboard-card">
             <div class="sectionTitle">
               <div>
-                <h2>Top 10 organizers</h2>
+                <h2 id="organizerRankingTitle">Top 10 organizers</h2>
                 <p class="sub">Ranked by tracked event views in the selected period.</p>
               </div>
             </div>
-            <div class="mini">
+            <div class="mini analytics-ranking-scroll" role="region" aria-labelledby="organizerRankingTitle" tabindex="0">
               <table class="analytics-table">
                 <thead>
                   <tr>
@@ -15084,11 +15184,11 @@ return `
           <div class="card">
             <div class="sectionTitle">
               <div>
-                <h2>Most popular categories</h2>
+                <h2 id="categoryPopularityTitle">Most popular categories</h2>
                 <p class="sub">Ranked by views in this period. Listings with a scheduled date or tracked view count in each assigned category.</p>
               </div>
             </div>
-            <div class="mini">
+            <div class="mini analytics-ranking-scroll" role="region" aria-labelledby="categoryPopularityTitle" tabindex="0">
               <table class="analytics-table">
                 <thead><tr><th>#</th><th>Category</th><th>Event listings</th><th>Views</th><th>Avg. views <span class="metricInfo" tabindex="0" role="img" aria-label="Average views: category views divided by categorized event records" data-tip="Category views divided by categorized event records. An event assigned to multiple categories contributes to each category.">i</span></th></tr></thead>
                 <tbody>${categoryPopularityHtml}</tbody>
@@ -15098,7 +15198,7 @@ return `
           <div class="card">
             <div class="sectionTitle">
               <div>
-                <h2>Category leaders</h2>
+                <h2 id="categoryLeadersTitle">Category leaders</h2>
                 <p class="sub" id="categoryLeaderSubtitle">Organizer with the most views in each category during this period.</p>
               </div>
               <div class="seg" data-category-leader-toggle aria-label="Category leader type">
@@ -15106,13 +15206,13 @@ return `
                 <button type="button" data-category-leader-mode="event" aria-pressed="false">Event</button>
               </div>
             </div>
-            <div class="mini" data-category-leader-panel="organizer">
+            <div class="mini analytics-ranking-scroll" role="region" aria-labelledby="categoryLeadersTitle" tabindex="0" data-category-leader-panel="organizer">
               <table class="analytics-table">
                 <thead><tr><th>Category</th><th>Leader</th><th>Event listings</th><th>Views</th></tr></thead>
                 <tbody>${categoryLeadersHtml}</tbody>
               </table>
             </div>
-            <div class="mini" data-category-leader-panel="event" hidden>
+            <div class="mini analytics-ranking-scroll" role="region" aria-labelledby="categoryLeadersTitle" tabindex="0" data-category-leader-panel="event" hidden>
               <table class="analytics-table">
                 <thead><tr><th>Category</th><th>Top event</th><th>Event listings</th><th>Views</th></tr></thead>
                 <tbody>${categoryEventLeadersHtml}</tbody>
@@ -15451,7 +15551,7 @@ return `
         ${newsletterScopeSwitcherHtml}
         ${newsletterSelectedAudienceNoticeHtml}
         ${newsletterSelectedCampaignNoticeHtml}
-        <section class="metrics" id="newsletter-analytics-metrics">
+        <section class="dashboard-kpi-grid" id="newsletter-analytics-metrics" aria-label="Newsletter metrics">
           <div class="metric" data-newsletter-search-item>
             <div>
               <div class="k">${analyticsMetricLabel("Total emails sent", analyticsMetricHelp.totalEmailsSent)}</div>
@@ -15506,6 +15606,7 @@ return `
           <div class="card" data-newsletter-search-item data-newsletter-search-text="chart emails sent opens daily weekly monthly yearly newsletter analytics">
             <div class="sectionTitle sectionTitle--chart">
               <div class="left">
+                <h2 class="chartTitle">Newsletter performance</h2>
                 <div class="chartTopRow">
                   <div class="chartLegend" aria-label="Newsletter chart legend">
                     <div class="chartLegendItem is-events">
@@ -15517,17 +15618,19 @@ return `
                       <span>Opens</span>
                     </div>
                   </div>
-                  <p class="sub">Campaigns sent in the selected reporting period</p>
+                  <p class="sub">Emails sent and opened for campaigns in the selected reporting period.</p>
                 </div>
               </div>
               ${chartGroupingControl}
             </div>
             <div class="chart-wrap" id="newsletterChartWrap" style="min-height:220px;">
               <div id="newsletterChartSvgHost">${newsletterChartSvg}</div>
+              <p class="muted" id="newsletterChartEmpty" hidden>No newsletter send activity in this reporting period.</p>
               <div id="newsletterChartData" data-chart="${newsletterChartDataJson}" hidden></div>
-              <canvas id="newsletterChart" style="position:absolute; inset:0; width:100%; height:100%; display:none;"></canvas>
-              <div id="newsletterChartTip" style="position:absolute; display:none; pointer-events:none;"></div>
+              <canvas id="newsletterChart" role="img" aria-label="Newsletter performance chart" style="position:absolute; inset:0; width:100%; height:100%; display:none;"></canvas>
+              <div id="newsletterChartTip" class="analytics-chart-tooltip" style="position:absolute; display:none; pointer-events:none;"></div>
             </div>
+            ${newsletterChartValues}
           </div>
 
           <div class="card" data-newsletter-search-item>
@@ -16169,7 +16272,32 @@ return `
             <form method="POST" action="/admin/updates" enctype="multipart/form-data"><input type="hidden" name="id" value="${esc(editUpdate?.id || "")}" /><div class="formGrid"><label>Title<input class="ctrl" name="title" required maxlength="180" value="${esc(editUpdate?.title || "")}" /></label>${editUpdate ? `<label>URL slug <input class="ctrl" name="slug" maxlength="180" value="${esc(editUpdate.slug || "")}" /><span class="note">Leave unchanged to keep the published URL stable.</span></label>` : ``}<label>Community<select class="ctrl" name="city">${cityOptions}</select></label><label>Category<select class="ctrl" name="categoryId"><option value="">Uncategorized</option>${updateCategories.map((category) => `<option value="${category.id}" ${Number(editUpdate?.categoryId || 0) === category.id ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></label><label>Status<select class="ctrl" name="status">${[...UPDATE_STATUSES].map((status) => `<option value="${status}" ${String(editUpdate?.status || "draft") === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select></label><label>Publication date/time<input class="ctrl" type="datetime-local" name="scheduledFor" value="${esc(formatUpdateScheduleInput(editUpdate?.scheduledFor, editUpdate?.city))}" /></label><label>Tags<input class="ctrl" name="tags" maxlength="900" value="${esc((safeParseJson(editUpdate?.tagsJson, []) || []).join(", "))}" placeholder="Comma-separated" /></label></div><label>Summary<textarea class="ctrl" name="summary" maxlength="600" rows="3">${esc(editUpdate?.summary || "")}</textarea></label><label>Main content<textarea class="ctrl" name="bodyHtml" required rows="14" maxlength="100000" placeholder="Use paragraphs, headings, lists, bold, italic, and safe links.">${esc(editUpdate?.bodyHtml || "")}</textarea></label><div class="formGrid"><label>Featured image<input class="ctrl" type="file" name="updateImageFile" accept="image/*" /></label><label>Image alt text<input class="ctrl" name="imageAlt" maxlength="220" value="${esc(editUpdate?.imageAlt || "")}" /></label><label>Related event IDs<input class="ctrl" name="relatedEventIds" value="${esc(editUpdate?.relatedEventIds || "")}" placeholder="Example: 12, 34" /></label><label>Related venue IDs<input class="ctrl" name="relatedVenueIds" value="${esc(editUpdate?.relatedVenueIds || "")}" placeholder="Example: 8, 19" /></label></div>${editUpdate?.featuredImageUrl ? `<label class="checkbox"><input type="checkbox" name="removeImage" value="1" /> Remove current image</label>` : ``}<div class="actions"><button class="btn btn-primary" type="submit">${editUpdate ? "Save update" : "Create update"}</button><a class="btn" href="${buildScopedAdminHref("/admin/updates")}">Cancel</a></div></form>
             <form method="POST" action="/admin/updates/categories?city=${encodeURIComponent(selectedCity)}" class="mini" style="margin-top:22px;"><strong>Add a category for ${esc(selectedCity)}</strong><div class="actions" style="margin-top:8px;"><input class="ctrl" name="name" maxlength="80" required placeholder="Category name" /><button class="btn" type="submit">Add category</button></div></form>
           </div>` : ``}
-          ${showUpdatesAnalytics ? `<div class="card"><div class="sectionTitle"><div><h2>Update Analytics</h2><p class="sub">Public page views in the selected reporting period.</p></div></div><form method="GET" action="/admin/updates/analytics" class="filters">${analyticsPeriodFields}<input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" /><input type="hidden" name="city" value="${esc(selectedCity)}" /><select class="ctrl" name="update"><option value="">All updates</option>${updateRows.map((row) => `<option value="${row.id}" ${Number(req.query.update || 0) === row.id ? "selected" : ""}>${esc(row.title)}</option>`).join("")}</select><button class="btn btn-primary" type="submit">View analytics</button></form><div class="mini" style="margin-top:16px;"><h3>${esc(editUpdate?.title || "Update views")}</h3><div class="stats"><div class="stat"><div class="k">Views in period</div><div class="v">${updateViewTotal.toLocaleString("en-US")}</div></div>${editUpdate ? `<div class="stat"><div class="k">Published</div><div class="v">${esc(editUpdate.publishedAt || "Not published")}</div></div>` : ""}</div></div></div>` : ``}
+          ${showUpdatesAnalytics ? `
+          <div class="card">
+            <form method="GET" action="/admin/updates/analytics" class="analytics-toolbar">
+              ${analyticsPeriodFields}
+              <input type="hidden" name="workspace" value="${esc(selectedAdminWorkspace)}" />
+              <input type="hidden" name="city" value="${esc(selectedCity)}" />
+              <div class="filterField" style="min-width:0; flex:1 1 260px;">
+                <label for="updateAnalyticsSelect">Update</label>
+                <select class="ctrl" id="updateAnalyticsSelect" name="update">
+                  <option value="">All updates</option>
+                  ${updateRows.map((row) => `<option value="${row.id}" ${Number(req.query.update || 0) === row.id ? "selected" : ""}>${esc(row.title)}</option>`).join("")}
+                </select>
+              </div>
+              <button class="btn btn-primary" type="submit">View analytics</button>
+            </form>
+            <div class="sectionTitle" style="margin-top:var(--gap);">
+              <div>
+                <h2>${esc(editUpdate?.title || "Update views")}</h2>
+                <p class="sub">Public page views in the selected reporting period.</p>
+              </div>
+            </div>
+            <div class="dashboard-kpi-grid">
+              <div class="metric"><div><div class="k">Views in period</div><div class="v">${updateViewTotal.toLocaleString("en-US")}</div></div></div>
+            </div>
+            ${editUpdate ? `<div class="mini" style="margin-top:var(--gap);"><div class="kv"><span class="k">Published</span><strong class="v">${esc(editUpdate.publishedAt || "Not published")}</strong></div></div>` : ""}
+          </div>` : ``}
         </section>` : ``}
 
         <!-- Manage -->
@@ -17517,14 +17645,8 @@ return `
           ` : ``}
 
           ${showVenueAnalytics ? `
-	          <div class="card" id="venue-analytics">
-	            <div class="sectionTitle">
-	              <div>
-	                <h2>Venue analytics</h2>
-	                <p class="sub">Performance and data quality for venues</p>
-              </div>
-            </div>
-	            <div class="venue-analytics-grid2" style="margin-top:14px;">
+	          <div class="gridMain single" id="venue-analytics">
+	            <div class="venue-analytics-grid2">
               <div class="card">
                 <div class="sectionTitle">
                   <div>
@@ -17560,7 +17682,7 @@ return `
               </div>
             </div>
 
-	            <div class="card" style="margin-top:14px;">
+	            <div class="card">
 	              <div class="sectionTitle">
 	                <div>
 	                  <h2>Venue performance</h2>
@@ -17590,7 +17712,7 @@ return `
 		                  <div class="mini">
 		                    <div class="sectionTitle sectionTitle--chart" style="margin-bottom:10px;">
 		                      <div class="left">
-		                        <div class="chartTitle" style="font-weight:700;">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)} performance</div>
+		                        <h2 class="chartTitle">${esc(selectedVenue.name || `Venue #${selectedVenue.id}`)} performance</h2>
 		                        <p class="sub" id="venueChartRangeLabel">Selected reporting period</p>
 		                        <div class="chartLegend" id="venueChartLegend" aria-label="Chart legend">
 		                          <div class="chartLegendItem is-events" data-legend-metric="views">
@@ -17617,8 +17739,10 @@ return `
 		                      <div id="venueChartSvgViews" hidden>${venueChartSvgViews}</div>
 		                      <div id="venueChartSvgClicks" hidden>${venueChartSvgClicks}</div>
 		                      <canvas id="venueChart" style="position:absolute; inset:0; width:100%; height:260px; display:block;"></canvas>
-		                      <div id="venueChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
+		                      <div id="venueChartTip" class="analytics-chart-tooltip" style="position:absolute; display:none; pointer-events:none;"></div>
 		                    </div>
+		                    ${renderAnalyticsChartValues("Venue performance", chartBuckets.map((bucket) => bucket.tooltip),
+		                      [["Views", venuePeriodHistory.map((row) => row.views)], ["Total clicks", venuePeriodHistory.map((row) => row.totalClicks)]])}
 		                  </div>
 		                </div>
 		              ` : `<div class="muted" style="margin-top:12px;">Add a venue first to see performance.</div>`}
@@ -17937,24 +18061,18 @@ return `
           ` : ``}
 
           ${showJobsAnalytics ? `
-          <div class="card" id="jobs-analytics">
-            <div class="sectionTitle">
-              <div>
-                <h2>Job analytics</h2>
-                <p class="sub">Current status of listings posted in the reporting period and applications received during it.</p>
-              </div>
+          <div class="gridMain single" id="jobs-analytics">
+            <p class="sub">Current status of listings posted in the reporting period and applications received during it.</p>
+            <div class="dashboard-kpi-grid" aria-label="Job metrics">
+              <div class="metric"><div><div class="k">Jobs posted</div><div class="v">${Number(jobAnalyticsStats.total || 0).toLocaleString("en-US")}</div></div></div>
+              <div class="metric"><div><div class="k">Active</div><div class="v">${Number(jobAnalyticsStats.active || 0).toLocaleString("en-US")}</div></div></div>
+              <div class="metric"><div><div class="k">Paused</div><div class="v">${Number(jobAnalyticsStats.paused || 0).toLocaleString("en-US")}</div></div></div>
+              <div class="metric"><div><div class="k">Filled</div><div class="v">${Number(jobAnalyticsStats.filled || 0).toLocaleString("en-US")}</div></div></div>
+              <div class="metric"><div><div class="k">Applications received</div><div class="v">${fmt(jobApplicantStats.total)}</div></div></div>
+              <div class="metric"><div><div class="k">Listings with an apply link</div><div class="v">${fmt(jobAnalyticsStats.withApplyUrl)}</div></div></div>
             </div>
 
-            <div class="kpis">
-              <div class="kpi"><div class="label">Jobs posted</div><div class="value">${Number(jobAnalyticsStats.total || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Active</div><div class="value">${Number(jobAnalyticsStats.active || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Paused</div><div class="value">${Number(jobAnalyticsStats.paused || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Filled</div><div class="value">${Number(jobAnalyticsStats.filled || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Applications received</div><div class="value">${fmt(jobApplicantStats.total)}</div></div>
-              <div class="kpi"><div class="label">Listings with an apply link</div><div class="value">${fmt(jobAnalyticsStats.withApplyUrl)}</div></div>
-            </div>
-
-            <div class="venue-analytics-grid2" style="margin-top:14px;">
+            <div class="venue-analytics-grid2">
               <div class="card">
                 <div class="sectionTitle">
                   <div>
@@ -17987,7 +18105,7 @@ return `
               </div>
             </div>
 
-            <div class="card" style="margin-top:14px;">
+            <div class="card">
               <div class="sectionTitle">
                 <div>
                   <h2>Employment type breakdown</h2>
@@ -18185,24 +18303,17 @@ return `
           ` : ``}
 
           ${showAdsAnalytics ? `
-          <div class="card" id="ads-analytics">
-            <div class="sectionTitle">
-              <div>
-                <h2>Ads analytics</h2>
-                <p class="sub">Track visibility and clicks for rotating ads</p>
-              </div>
+          <div class="gridMain single" id="ads-analytics">
+            <div class="dashboard-kpi-grid" aria-label="Ad metrics">
+              <div class="metric"><div><div class="k">Total Ads</div><div class="v">${Number(adAnalyticsStats.total || 0).toLocaleString("en-US")}</div></div></div>
+              <div class="metric"><div><div class="k">Active</div><div class="v">${Number(adAnalyticsStats.active || 0).toLocaleString("en-US")}</div></div></div>
+              <div class="metric"><div><div class="k">Paused</div><div class="v">${Number(adAnalyticsStats.paused || 0).toLocaleString("en-US")}</div></div></div>
+              <div class="metric"><div><div class="k">Total Views</div><div class="v">${Number(adAnalyticsStats.views || 0).toLocaleString("en-US")}</div></div></div>
+              <div class="metric"><div><div class="k">Total Clicks</div><div class="v">${Number(adAnalyticsStats.clicks || 0).toLocaleString("en-US")}</div></div></div>
+              <div class="metric"><div><div class="k">Avg CTR</div><div class="v">${adAnalyticsStats.views ? `${Math.round((Number(adAnalyticsStats.clicks || 0) / Number(adAnalyticsStats.views || 1)) * 100)}%` : "0%"}</div></div></div>
             </div>
 
-            <div class="kpis">
-              <div class="kpi"><div class="label">Total Ads</div><div class="value">${Number(adAnalyticsStats.total || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Active</div><div class="value">${Number(adAnalyticsStats.active || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Paused</div><div class="value">${Number(adAnalyticsStats.paused || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Total Views</div><div class="value">${Number(adAnalyticsStats.views || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Total Clicks</div><div class="value">${Number(adAnalyticsStats.clicks || 0).toLocaleString("en-US")}</div></div>
-              <div class="kpi"><div class="label">Avg CTR</div><div class="value">${adAnalyticsStats.views ? `${Math.round((Number(adAnalyticsStats.clicks || 0) / Number(adAnalyticsStats.views || 1)) * 100)}%` : "0%"}</div></div>
-            </div>
-
-            <div class="venue-analytics-grid2" style="margin-top:14px;">
+            <div class="venue-analytics-grid2">
               <div class="card">
                 <div class="sectionTitle">
                   <div>
@@ -18238,7 +18349,21 @@ return `
               </div>
             </div>
 
-            <div class="card" style="margin-top:14px;">
+            <div class="card">
+              <div class="sectionTitle">
+                <div>
+                  <h2>Placement breakdown</h2>
+                  <p class="sub">Placements for ads in the selected period</p>
+                </div>
+              </div>
+              <div class="mini">
+                ${adPlacementRows.length ? adPlacementRows.map((row) => `
+                  <div class="kv"><span class="k">${esc(row.placement || "default")}</span><strong class="v">${Number(row.n || 0).toLocaleString("en-US")}</strong></div>
+                `).join("") : `<div class="muted">No ads yet.</div>`}
+              </div>
+            </div>
+
+            <div class="card">
               <div class="sectionTitle">
                 <div>
                   <h2>Ad performance</h2>
@@ -18262,38 +18387,20 @@ return `
                 <button class="btn btn-primary" type="submit" ${adAnalyticsOptions.length ? "" : "disabled"}>View ad</button>
               </form>
 
-              <div class="venue-analytics-grid2" style="margin-top:14px;">
-                <div class="card">
-                  <div class="sectionTitle">
-                    <div>
-                      <h2>Placement breakdown</h2>
-                      <p class="sub">Placements for ads in the selected period</p>
-                    </div>
-                  </div>
-                  <div class="mini">
-                    ${adPlacementRows.length ? adPlacementRows.map((row) => `
-                      <div class="kv"><span class="k">${esc(row.placement || "default")}</span><strong class="v">${Number(row.n || 0).toLocaleString("en-US")}</strong></div>
-                    `).join("") : `<div class="muted">No ads yet.</div>`}
-                  </div>
-                </div>
-
-                <div class="card">
-                  ${selectedAd ? `
-                  <div class="mini">
-                    <div class="kv"><span class="k">Placements</span><strong class="v">${esc((selectedAd.placements || []).join(", ") || selectedAd.placement || "default")}</strong></div>
-                    <div class="kv"><span class="k">Views in period</span><strong class="v">${Number(selectedAd.viewCount || 0).toLocaleString("en-US")}</strong></div>
-                    <div class="kv"><span class="k">Clicks in period</span><strong class="v">${Number(selectedAd.clickCount || 0).toLocaleString("en-US")}</strong></div>
-                  </div>
-                  ` : `<div class="muted">Select an ad to view details.</div>`}
-                </div>
+              ${selectedAd ? `
+              <div class="mini" style="margin-top:14px;">
+                <div class="kv"><span class="k">Placements</span><strong class="v">${esc((selectedAd.placements || []).join(", ") || selectedAd.placement || "default")}</strong></div>
+                <div class="kv"><span class="k">Views in period</span><strong class="v">${Number(selectedAd.viewCount || 0).toLocaleString("en-US")}</strong></div>
+                <div class="kv"><span class="k">Clicks in period</span><strong class="v">${Number(selectedAd.clickCount || 0).toLocaleString("en-US")}</strong></div>
               </div>
+              ` : `<div class="muted">Select an ad to view details.</div>`}
 
               ${selectedAd ? `
               <div class="venue-monthly-grid" style="margin-top:14px;">
                 <div class="mini">
                   <div class="sectionTitle sectionTitle--chart" style="margin-bottom:10px;">
                     <div class="left">
-                      <div class="chartTitle" style="font-weight:700;">${esc(selectedAd.name || `Ad #${selectedAd.id}`)} performance</div>
+                      <h2 class="chartTitle">${esc(selectedAd.name || `Ad #${selectedAd.id}`)} performance</h2>
                       <p class="sub" id="adChartRangeLabel">Selected reporting period</p>
                       <div class="chartLegend" id="adChartLegend" aria-label="Chart legend">
                         <div class="chartLegendItem is-events" data-legend-metric="views">
@@ -18320,8 +18427,10 @@ return `
                     <div id="adChartSvgViews" hidden>${adChartSvgViews}</div>
                     <div id="adChartSvgClicks" hidden>${adChartSvgClicks}</div>
                     <canvas id="adChart" style="position:absolute; inset:0; width:100%; height:260px; display:none;"></canvas>
-                    <div id="adChartTip" style="position:absolute; display:none; pointer-events:none; padding:6px 8px; border-radius:6px; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.98); color:rgba(15,23,42,.95); font-size:12px; line-height:1.2; box-shadow:none;"></div>
+                    <div id="adChartTip" class="analytics-chart-tooltip" style="position:absolute; display:none; pointer-events:none;"></div>
                   </div>
+                  ${renderAnalyticsChartValues("Ad performance", chartBuckets.map((bucket) => bucket.tooltip),
+                    [["Views", adPeriodHistory.map((row) => row.views)], ["Clicks", adPeriodHistory.map((row) => row.clicks)]])}
                 </div>
               </div>
               ` : `<div class="muted" style="margin-top:12px;">Create an ad first to see performance.</div>`}
@@ -20419,40 +20528,34 @@ return `
     if (overlay.secondary) overlay.secondary.style.display = "none";
   }
 
-  function renderChartTipHtml(title, rows){
-    const titleHtml = '<div style="font-size:18px; line-height:1.25; font-weight:500; color:var(--text); margin-bottom:14px;">' + String(title || "") + '</div>';
-    const rowsHtml = (rows || []).map((row) => {
-      return '<div style="display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:8px;">' +
-        '<span style="font-size:16px; color:var(--text); white-space:nowrap;">' + String(row.label || "") + '</span>' +
-        '<span style="font-size:18px; font-weight:700; color:var(--text); white-space:nowrap;">' + String(row.value || "") + '</span>' +
-      '</div>';
-    }).join("");
-    return titleHtml + rowsHtml;
+  function renderChartTipContent(title, rows){
+    const content = document.createDocumentFragment();
+    const heading = document.createElement("strong");
+    heading.textContent = title;
+    content.append(heading);
+    for (const { label, value } of rows) {
+      const row = document.createElement("div");
+      row.className = "analytics-chart-tooltip-row";
+      const name = document.createElement("span");
+      const amount = document.createElement("b");
+      name.textContent = label;
+      amount.textContent = value;
+      row.append(name, amount);
+      content.append(row);
+    }
+    return content;
   }
 
-  function showChartTipCard($tip, $wrap, anchorX, anchorY, html){
+  function showChartTipCard($tip, $wrap, anchorX, anchorY, content){
     if (!$tip || !$wrap) return;
-    const isDark = document.body.classList.contains("theme-dark");
     $tip.style.display = "block";
-    $tip.style.position = "absolute";
-    $tip.style.pointerEvents = "none";
-    $tip.style.zIndex = "9";
-    $tip.style.padding = "18px 22px";
-    $tip.style.borderRadius = "18px";
-    $tip.style.border = "2px solid rgba(148,163,184,.55)";
-    $tip.style.background = isDark ? "rgba(17,26,43,.98)" : "rgba(255,255,255,.98)";
-    $tip.style.color = isDark ? "#e5edf9" : "#0f172a";
-    $tip.style.fontSize = "14px";
-    $tip.style.lineHeight = "1.25";
-    $tip.style.boxShadow = "0 18px 44px rgba(15,23,42,.12)";
-    $tip.style.backdropFilter = "blur(8px)";
-    $tip.style.minWidth = "280px";
-    $tip.style.maxWidth = "360px";
-    $tip.innerHTML = html;
     const wrapRect = $wrap.getBoundingClientRect();
+    const width = Math.min(wrapRect.width, window.innerWidth - wrapRect.left);
+    $tip.style.maxWidth = Math.max(0, Math.min(280, width - 16)) + "px";
+    $tip.replaceChildren(content);
     const tipRect = $tip.getBoundingClientRect();
-    const left = clamp(anchorX - (tipRect.width / 2), 14, Math.max(14, wrapRect.width - tipRect.width - 14));
-    const top = clamp(anchorY - tipRect.height - 24, 12, Math.max(12, wrapRect.height - tipRect.height - 12));
+    const left = clamp(anchorX - tipRect.width / 2, 8, Math.max(8, width - tipRect.width - 8));
+    const top = clamp(anchorY - tipRect.height - 12, 8, Math.max(8, wrapRect.height - tipRect.height - 8));
     $tip.style.left = Math.round(left) + "px";
     $tip.style.top = Math.round(top) + "px";
   }
@@ -20573,12 +20676,17 @@ return `
     const labels = Array.isArray(primary.labels) ? primary.labels : [];
     const sent = Array.isArray(primary.values) ? primary.values.map(Number) : [];
     const opened = Array.isArray(secondary.values) ? secondary.values.map(Number) : [];
+    if (!labels.length || !sent.concat(opened).some((value) => value > 0)) {
+      if (host) host.hidden = true;
+      document.getElementById("newsletterChartEmpty").hidden = false;
+      return;
+    }
     const overlay = ensureChartHoverOverlay(wrap, "newsletter"); let hover = -1;
     function size(){ const dpr = Math.max(1, window.devicePixelRatio || 1), w = Math.round(wrap.clientWidth || 280), h = Math.max(220, Math.round(wrap.clientHeight || 260)); canvas.style.width=w+"px"; canvas.style.height=h+"px"; canvas.width=Math.floor(w*dpr); canvas.height=Math.floor(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); return {w,h}; }
     function points(frame, values){ return labels.map((_, i) => ({ x:frame.padL+(labels.length <= 1 ? frame.gw/2 : (frame.gw/(labels.length-1))*i), y:clamp(frame.padT+frame.gh-((Number(values[i]||0)/getYScale(sent.concat(opened)).yMax)*frame.gh),frame.padT,frame.padT+frame.gh) })); }
-    function draw(){ const {w,h}=size(); ctx.clearRect(0,0,w,h); if(!labels.length || !sent.concat(opened).some((v)=>Number(v||0)>0)){ctx.fillStyle=chartTheme.emptyTextColor;ctx.font="600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";ctx.fillText("No newsletter send activity yet",18,90);return;} const frame=getChartFrame(w,h), scale=getYScale(sent.concat(opened)), p1=points(frame,sent), p2=points(frame,opened);ctx.strokeStyle=chartTheme.gridColor;ctx.fillStyle=chartTheme.textColorMuted;ctx.font="500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";for(let i=0;i<=scale.yTicks;i++){const v=i*scale.tickStep,y=frame.padT+frame.gh-(v/scale.yMax)*frame.gh;ctx.beginPath();ctx.moveTo(frame.padL,y);ctx.lineTo(frame.padL+frame.gw,y);ctx.stroke();ctx.fillText(String(v),0,y+4);}const step=labels.length<=4?1:Math.ceil(labels.length/4);labels.forEach((label,i)=>{if(i!==labels.length-1&&i%step)return;ctx.textAlign=i===labels.length-1?"right":i===0?"left":"center";ctx.fillStyle=chartTheme.textColor;ctx.fillText(String(label||""),p1[i].x,frame.padT+frame.gh+30);});ctx.save();ctx.fillStyle=chartTheme.greenFill;drawSmoothAreaFill(ctx,p1,frame.padT+frame.gh);ctx.restore();ctx.save();ctx.strokeStyle=chartTheme.blueStroke;ctx.lineWidth=chartTheme.seriesStrokeWidth;ctx.setLineDash(chartTheme.secondaryDash);ctx.lineCap="round";drawSmoothLine(ctx,p2);ctx.restore();ctx.save();ctx.strokeStyle=chartTheme.greenStroke;ctx.lineWidth=chartTheme.seriesStrokeWidth;ctx.lineCap="round";drawSmoothLine(ctx,p1);ctx.restore();if(hover>=0&&p1[hover])showChartHoverOverlay(overlay,frame,p1[hover],p2[hover],getChartPalette("events"));}
+    function draw(){ const {w,h}=size(); ctx.clearRect(0,0,w,h); const frame=getChartFrame(w,h), scale=getYScale(sent.concat(opened)), p1=points(frame,sent), p2=points(frame,opened);ctx.strokeStyle=chartTheme.gridColor;ctx.fillStyle=chartTheme.textColorMuted;ctx.font="500 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";for(let i=0;i<=scale.yTicks;i++){const v=i*scale.tickStep,y=frame.padT+frame.gh-(v/scale.yMax)*frame.gh;ctx.beginPath();ctx.moveTo(frame.padL,y);ctx.lineTo(frame.padL+frame.gw,y);ctx.stroke();ctx.fillText(String(v),0,y+4);}const step=labels.length<=4?1:Math.ceil(labels.length/4);labels.forEach((label,i)=>{if(i!==labels.length-1&&i%step)return;ctx.textAlign=i===labels.length-1?"right":i===0?"left":"center";ctx.fillStyle=chartTheme.textColor;ctx.fillText(String(label||""),p1[i].x,frame.padT+frame.gh+30);});ctx.save();ctx.fillStyle=chartTheme.greenFill;drawSmoothAreaFill(ctx,p1,frame.padT+frame.gh);ctx.restore();ctx.save();ctx.strokeStyle=chartTheme.blueStroke;ctx.lineWidth=chartTheme.seriesStrokeWidth;ctx.setLineDash(chartTheme.secondaryDash);ctx.lineCap="round";drawSmoothLine(ctx,p2);ctx.restore();ctx.save();ctx.strokeStyle=chartTheme.greenStroke;ctx.lineWidth=chartTheme.seriesStrokeWidth;ctx.lineCap="round";drawSmoothLine(ctx,p1);ctx.restore();if(hover>=0&&p1[hover])showChartHoverOverlay(overlay,frame,p1[hover],p2[hover],getChartPalette("events"));}
     function hide(){hover=-1;if(tip)tip.style.display="none";hideChartHoverOverlay(overlay);draw();}
-    canvas.addEventListener("mousemove",(event)=>{const rect=canvas.getBoundingClientRect(),frame=getChartFrame(rect.width,rect.height), index=getNearestPointIndex(labels.map((_,i)=>({x:frame.padL+(labels.length<=1?frame.gw/2:(frame.gw/(labels.length-1))*i)})),event.clientX-rect.left,event.clientY-rect.top,frame);if(index<0)return hide();hover=index;draw();const y=frame.padT+frame.gh-((Math.max(Number(sent[index]||0),Number(opened[index]||0))/getYScale(sent.concat(opened)).yMax)*frame.gh);showChartTipCard(tip,wrap,frame.padL+(labels.length<=1?frame.gw/2:(frame.gw/(labels.length-1))*index),y,renderChartTipHtml("Period: "+String(labels[index]||""),[{label:"Emails sent",value:Number(sent[index]||0).toLocaleString("en-US"),color:"#0f172a"},{label:"Opens",value:Number(opened[index]||0).toLocaleString("en-US"),color:"#0f172a"}]));});
+    canvas.addEventListener("mousemove",(event)=>{const rect=canvas.getBoundingClientRect(),frame=getChartFrame(rect.width,rect.height), index=getNearestPointIndex(labels.map((_,i)=>({x:frame.padL+(labels.length<=1?frame.gw/2:(frame.gw/(labels.length-1))*i)})),event.clientX-rect.left,event.clientY-rect.top,frame);if(index<0)return hide();hover=index;draw();const y=frame.padT+frame.gh-((Math.max(Number(sent[index]||0),Number(opened[index]||0))/getYScale(sent.concat(opened)).yMax)*frame.gh);showChartTipCard(tip,wrap,frame.padL+(labels.length<=1?frame.gw/2:(frame.gw/(labels.length-1))*index),y,renderChartTipContent("Period: "+String(labels[index]||""),[{label:"Emails sent",value:Number(sent[index]||0).toLocaleString("en-US"),color:"#0f172a"},{label:"Opens",value:Number(opened[index]||0).toLocaleString("en-US"),color:"#0f172a"}]));});
     canvas.addEventListener("mouseleave",hide); if(host)host.style.display="none";canvas.style.display="block";draw();window.addEventListener("resize",()=>window.requestAnimationFrame(draw));observeChartResize(wrap,draw);
   }
 
@@ -20639,7 +20747,7 @@ return `
       showChartHoverOverlay(overlay, frame, { x, y: eventLegend ? eventY : viewY },
         eventLegend && hasViews ? { x, y: viewY } : null, getChartPalette(eventLegend ? "events" : "clicks"));
       showChartTipCard(tip, wrap, x, eventLegend ? (hasViews ? Math.min(eventY, viewY) : eventY) : viewY,
-        renderChartTipHtml(series.tooltips?.[index] || ("Date: " + series.dates[index]), rows));
+        renderChartTipContent(series.tooltips?.[index] || ("Date: " + series.dates[index]), rows));
     });
     svg.addEventListener("pointerleave", hide);
   }
@@ -20699,7 +20807,7 @@ return `
         const geometry = getSvgChartHoverGeometry($svgHost, labels, safeIndex, eventValues, viewValues);
         if (!geometry) return;
         showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, getChartPalette("events"));
-        showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipHtml(
+        showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipContent(
           "Month: " + String(labels[safeIndex] || ""),
           [
             { label: "Events", value: Number(eventValues[safeIndex] || 0).toLocaleString("en-US"), color: "#0f172a" },
@@ -20898,7 +21006,7 @@ return `
       const primaryY = clamp(frame.padT + frame.gh - ((eventValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
       const secondaryY = clamp(frame.padT + frame.gh - ((viewValue / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
       showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, getChartPalette("events"));
-      showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
+      showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipContent(
         "Month: " + String(labels[idx] || ""),
         [
           { label: "Events", value: eventValue.toLocaleString("en-US"), color: "#0f172a" },
@@ -21147,7 +21255,7 @@ return `
       const secondaryMetricValues = (chartSets[getSecondaryMetric()] || { values: [] }).values || [];
       const secondaryY = clamp(frame.padT + frame.gh - ((Number(secondaryMetricValues[idx] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
       showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, getChartPalette(metric));
-      showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
+      showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipContent(
         "Month: " + String(labels[idx] || ""),
         [
           { label: "Views", value: viewsValue.toLocaleString("en-US"), color: "#0f172a" },
@@ -21177,7 +21285,7 @@ return `
       const viewsValue = Number((viewsSet.values || [])[idx] || 0);
       const clicksValue = Number((clicksSet.values || [])[idx] || 0);
       showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, getChartPalette(metric));
-      showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipHtml(
+      showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipContent(
         "Month: " + String(labels[idx] || ""),
         [
           { label: "Views", value: viewsValue.toLocaleString("en-US"), color: "#0f172a" },
@@ -21469,7 +21577,7 @@ return `
       const secondaryMetricValues = (chartSets[getSecondaryMetric()] || { values: [] }).values || [];
       const secondaryY = clamp(frame.padT + frame.gh - ((Number(secondaryMetricValues[idx] || 0) / scale.yMax) * frame.gh), frame.padT, frame.padT + frame.gh);
       showChartHoverOverlay(hoverOverlay, frame, { x: pointX, y: primaryY }, { x: pointX, y: secondaryY }, getChartPalette(metric));
-      showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipHtml(
+      showChartTipCard($tip, $wrap, pointX, Math.min(primaryY, secondaryY), renderChartTipContent(
         "Month: " + String(labels[idx] || ""),
         [
           { label: "Views", value: viewsValue.toLocaleString("en-US"), color: "#0f172a" },
@@ -21499,7 +21607,7 @@ return `
       const viewsValue = Number((viewsSet.values || [])[idx] || 0);
       const clicksValue = Number((clicksSet.values || [])[idx] || 0);
       showChartHoverOverlay(hoverOverlay, geometry.frame, { x: geometry.pointX, y: geometry.primaryY }, { x: geometry.pointX, y: geometry.secondaryY }, getChartPalette(metric));
-      showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipHtml(
+      showChartTipCard($tip, $wrap, geometry.pointX, Math.min(geometry.primaryY, geometry.secondaryY), renderChartTipContent(
         "Month: " + String(labels[idx] || ""),
         [
           { label: "Views", value: viewsValue.toLocaleString("en-US"), color: "#0f172a" },

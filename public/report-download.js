@@ -55,7 +55,7 @@
       return name && value ? [[name, number(value), text(metric.querySelector(".dashboard-kpi-detail, .tag"))]] : [];
     })]);
 
-    for (const table of reportArea.querySelectorAll("table")) {
+    for (const table of reportArea.querySelectorAll("table:not([data-chart-values-table])")) {
       if (!visible(table)) continue;
       const rows = [...table.rows].filter(visible).map((row) =>
         [...row.cells].map((cell) => cell.tagName === "TH" ? text(cell).replace(/\s+i$/, "") : number(text(cell))));
