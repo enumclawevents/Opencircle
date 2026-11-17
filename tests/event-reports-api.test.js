@@ -177,6 +177,36 @@ test("event reports are validated, persisted, and rate limited without changing 
     message: "Too many reports were submitted. Please try again later.",
   });
 
+  const newReasons = [
+    ["date_time_changed", "Date or time changed"],
+    ["location_changed", "Location changed"],
+    ["incorrect_information", "Incorrect event information"],
+    ["prohibited_content", "Inappropriate or prohibited content"],
+  ];
+  const submitReason = (reportType, message, ip) => fetch(`${baseUrl}/events/1/reports`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forwarded-for": ip },
+    body: JSON.stringify({ reportType, message }),
+  });
+  const invalidReason = await submitReason("unknown", "Unknown reason", "192.0.2.10");
+  assert.equal(invalidReason.status, 400);
+  assert.equal((await invalidReason.json()).error, "validation_error");
+  const reports = [
+    ["changed_details", "Event details changed", payload.message],
+    ["cancelled", "Event canceled", "One"],
+    ["other", "Other", "Two"],
+  ];
+  for (const [index, [type, label]] of newReasons.entries()) {
+    const message = `Reason fixture ${index}`;
+    const response = await submitReason(type, message, `192.0.2.${20 + index}`);
+    assert.equal(response.status, 201, await response.clone().text());
+    const { report } = await response.json();
+    assert.deepEqual(await getSql(dbPath, "SELECT reportType, status, reporterEmail FROM event_reports WHERE id = ?", [report.id]), {
+      reportType: type, status: "open", reporterEmail: null,
+    });
+    reports.push([type, label, message]);
+  }
+
   const login = await fetch(`${baseUrl}/login`, {
     method: "POST", redirect: "manual",
     body: new URLSearchParams({ username: "report-reviewer", password: "disposable report test password" }),
@@ -186,6 +216,29 @@ test("event reports are validated, persisted, and rate limited without changing 
   const admin = (route, options = {}) => fetch(`${baseUrl}${route}`, {
     redirect: "manual", ...options, headers: { cookie },
   });
+  for (const [type, label, message] of reports) {
+    const page = await fetch(`${baseUrl}/admin/event-reports?city=Enumclaw&reportType=${type}`, { headers: { cookie } });
+    assert.equal(page.status, 200);
+    const markup = await page.text();
+    assert.ok(markup.includes(`<option value="${type}" selected>${label}</option>`));
+    const results = markup.split("<div data-filter-results>")[1]?.split("</section>")[0] || "";
+    assert.ok(results.includes(`>${label}</span>`));
+    assert.ok(results.includes(`>${message}</div>`));
+    assert.equal((results.match(/<article class="mini"/g) || []).length, 1);
+    const row = await getSql(dbPath, "SELECT id FROM event_reports WHERE reportType = ?", [type]);
+    const editor = await admin(`/admin/create-events?edit=1&reviewReport=${row.id}&reportType=${type}`);
+    const editorMarkup = await editor.text();
+    assert.equal(editor.status, 200);
+    assert.ok(editorMarkup.includes(`Reported issue: ${label}`));
+    const expectedSections = {
+      cancelled: ["lifecycle", "schedule"],
+      date_time_changed: ["schedule"],
+      location_changed: ["location"],
+      incorrect_information: ["basics"],
+    };
+    const highlighted = [...editorMarkup.matchAll(/event-form-(\w+)"[^>]* data-report-review-area>/g)].map(match => match[1]);
+    assert.deepEqual(highlighted.sort(), (expectedSections[type] || []).sort());
+  }
   const cancellationRow = await getSql(dbPath, "SELECT id FROM event_reports WHERE reportType = 'cancelled'");
   const reviewUrl = `/admin/create-events?edit=1&city=Enumclaw&reviewReport=${cancellationRow.id}&reportType=cancelled`;
   const queue = await admin("/admin/event-reports?city=Enumclaw&reportType=cancelled");
@@ -197,7 +250,7 @@ test("event reports are validated, persisted, and rate limited without changing 
   assert.equal(review.status, 200);
   assert.equal(review.headers.get("cache-control"), "private, no-store");
   const markup = await review.text();
-  assert.match(markup, /Reported issue: Cancelled/);
+  assert.match(markup, /Reported issue: Event canceled/);
   assert.match(markup, /event-report-review-message">One</);
   assert.match(markup, /event-form-schedule" data-report-review-area/);
   assert.match(markup, /id="eventLifecycleSection" data-report-review-area/);
@@ -206,7 +259,7 @@ test("event reports are validated, persisted, and rate limited without changing 
 
   const general = await admin(`/admin/create-events?edit=1&reviewReport=${created.report.id}`);
   const generalMarkup = await general.text();
-  assert.match(generalMarkup, /Reported issue: Changed details/);
+  assert.match(generalMarkup, /Reported issue: Event details changed/);
   assert.doesNotMatch(generalMarkup, / data-report-review-area>/);
   assert.doesNotMatch(generalMarkup, /reporter@example.com/);
 
@@ -227,7 +280,7 @@ test("event reports are validated, persisted, and rate limited without changing 
   assert.equal(save.status, 302, await save.clone().text());
   assert.match(save.headers.get("location"), new RegExp(`reviewReport=${cancellationRow.id}`));
   assert.equal((await getSql(dbPath, "SELECT status FROM event_reports WHERE id = ?", [cancellationRow.id])).status, "open");
-  assert.match(await (await admin(save.headers.get("location"))).text(), /Reported issue: Cancelled/);
+  assert.match(await (await admin(save.headers.get("location"))).text(), /Reported issue: Event canceled/);
 
   const password = "disposable organizer password";
   const passwordHash = await hashPassword(password);
@@ -253,7 +306,7 @@ test("event reports are validated, persisted, and rate limited without changing 
     });
     if (username === "Fixture Organizer") {
       assert.equal(memberReview.status, 200);
-      assert.match(await memberReview.text(), /Reported issue: Cancelled/);
+      assert.match(await memberReview.text(), /Reported issue: Event canceled/);
     } else {
       assert.equal(memberReview.status, 302);
       assert.match(memberReview.headers.get("location"), /reportNotice=review_unavailable/);
@@ -283,4 +336,44 @@ test("event reports are validated, persisted, and rate limited without changing 
   assert.match(await (await admin(reviewUrl)).text(), /Report #.*Resolved/);
   await execSql(dbPath, "DELETE FROM events WHERE id = 1");
   assert.match((await admin(reviewUrl)).headers.get("location"), /reportNotice=review_unavailable/);
+});
+
+test("legacy report migration preserves historical rows, indexes, and IDs", async (t) => {
+  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencircle-event-report-migration-"));
+  t.after(() => fs.rmSync(testDir, { recursive: true, force: true }));
+  const dbPath = path.join(testDir, "opencircle.db");
+  await execSql(dbPath, `
+    CREATE TABLE event_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      eventId INTEGER NOT NULL, reportType TEXT NOT NULL, message TEXT NOT NULL,
+      reporterEmail TEXT, source TEXT NOT NULL DEFAULT 'event_page', eventUrl TEXT, changesJson TEXT,
+      status TEXT NOT NULL DEFAULT 'open', createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      resolvedAt TEXT, resolvedBy INTEGER, resolutionNote TEXT,
+      CHECK (reportType IN ('changed_details', 'cancelled', 'other')),
+      CHECK (status IN ('open', 'resolved', 'dismissed'))
+    );
+    CREATE INDEX idx_event_reports_status_created ON event_reports(status, createdAt DESC);
+    CREATE INDEX idx_event_reports_event_created ON event_reports(eventId, createdAt DESC);
+    INSERT INTO event_reports VALUES
+      (41, 1, 'changed_details', 'Existing report', 'reporter@example.test', 'event_page',
+       'https://example.test/event', '[{"field":"location"}]', 'resolved',
+       '2026-10-01 12:00:00', '2026-10-02 12:00:00', 7, 'Existing note');
+    INSERT INTO event_reports (id, eventId, reportType, message) VALUES (90, 1, 'other', 'Deleted report');
+    DELETE FROM event_reports WHERE id = 90;
+  `);
+  const before = await getSql(dbPath, "SELECT * FROM event_reports WHERE id = 41");
+  const { execFileSync } = require("node:child_process");
+  for (let start = 0; start < 2; start++) {
+    execFileSync(process.execPath, ["-e", "require('./db').initDB().catch(error => { console.error(error); process.exitCode = 1; })"], {
+      cwd: path.resolve(__dirname, ".."), env: { ...process.env, DB_PATH: dbPath },
+    });
+    assert.deepEqual(await getSql(dbPath, "SELECT * FROM event_reports WHERE id = 41"), before);
+  }
+  assert.deepEqual(await getSql(dbPath, "PRAGMA integrity_check"), { integrity_check: "ok" });
+  assert.equal((await getSql(dbPath, "SELECT count(*) AS n FROM sqlite_master WHERE type = 'index' AND tbl_name = 'event_reports'")).n, 2);
+  await execSql(dbPath, "INSERT INTO event_reports (eventId, reportType, message) VALUES (1, 'location_changed', 'New report')");
+  assert.deepEqual(await getSql(dbPath, "SELECT id, reportType FROM event_reports ORDER BY id DESC LIMIT 1"), {
+    id: 91, reportType: "location_changed",
+  });
+  await assert.rejects(execSql(dbPath, "INSERT INTO event_reports (eventId, reportType, message) VALUES (1, 'unknown', 'Invalid report')"), /CHECK constraint failed/);
 });

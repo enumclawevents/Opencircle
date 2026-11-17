@@ -5,6 +5,7 @@ const fs = require("fs");
 const sqlite3 = require("sqlite3");
 const { normalizeStoredRole } = require("./lib/roles");
 const { ensureSessionIdentitySchema } = require("./lib/auth-sessions");
+const { EVENT_REPORT_TYPES } = require("./lib/event-report-reasons");
 const { installParentEventConstraints } = require("./lib/event-parent");
 
 // --------------------
@@ -122,6 +123,60 @@ function createAddColumnHelper(table) {
   };
 }
 
+async function ensureEventReportsSchema() {
+  await transaction(async tx => {
+    const existing = await tx.get("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'event_reports'");
+    const legacy = /CHECK\s*\(\s*reportType\s+IN\s*\(\s*'changed_details'\s*,\s*'cancelled'\s*,\s*'other'\s*\)/i.test(existing?.sql || "");
+    if (legacy) {
+      await tx.run("ALTER TABLE event_reports RENAME TO event_reports_legacy");
+    }
+    await tx.run(`
+      CREATE TABLE IF NOT EXISTS event_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        eventId INTEGER NOT NULL,
+        reportType TEXT NOT NULL,
+        message TEXT NOT NULL,
+        reporterEmail TEXT,
+        source TEXT NOT NULL DEFAULT 'event_page',
+        eventUrl TEXT,
+        changesJson TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        resolvedAt TEXT,
+        resolvedBy INTEGER,
+        resolutionNote TEXT,
+        CHECK (reportType IN (${EVENT_REPORT_TYPES.map(type => `'${type}'`).join(", ")})),
+        CHECK (status IN ('open', 'resolved', 'dismissed'))
+      );
+    `);
+    if (legacy) {
+      const columns = await tx.all("PRAGMA table_info(event_reports_legacy)");
+      const changes = columns.some(column => column.name === "changesJson") ? "changesJson" : "NULL";
+      await tx.run(`
+        INSERT INTO event_reports (id, eventId, reportType, message, reporterEmail, source, eventUrl,
+                                  changesJson, status, createdAt, resolvedAt, resolvedBy, resolutionNote)
+        SELECT id, eventId, reportType, message, reporterEmail, source, eventUrl,
+               ${changes}, status, createdAt, resolvedAt, resolvedBy, resolutionNote
+        FROM event_reports_legacy
+      `);
+      // Keep IDs above the historical high-water mark even if the latest report was deleted.
+      const sequence = await tx.get("SELECT seq FROM sqlite_sequence WHERE name = 'event_reports_legacy'");
+      if (sequence) {
+        const updated = await tx.run("UPDATE sqlite_sequence SET seq = max(seq, ?) WHERE name = 'event_reports'", [sequence.seq]);
+        if (!updated.changes) await tx.run("INSERT INTO sqlite_sequence (name, seq) VALUES ('event_reports', ?)", [sequence.seq]);
+      }
+      await tx.run("DROP TABLE event_reports_legacy");
+    } else if (existing) {
+      const columns = await tx.all("PRAGMA table_info(event_reports)");
+      if (!columns.some(column => column.name === "changesJson")) {
+        await tx.run("ALTER TABLE event_reports ADD COLUMN changesJson TEXT");
+      }
+    }
+    await tx.run("CREATE INDEX IF NOT EXISTS idx_event_reports_status_created ON event_reports(status, createdAt DESC)");
+    await tx.run("CREATE INDEX IF NOT EXISTS idx_event_reports_event_created ON event_reports(eventId, createdAt DESC)");
+  });
+}
+
 // --------------------
 // initDB (server.js expects this name)
 // --------------------
@@ -231,29 +286,7 @@ async function initDB() {
 
   // Public event-page update reports are deliberately separate from events so
   // reports never change published event data or public event responses.
-  await tryExec(`
-    CREATE TABLE IF NOT EXISTS event_reports (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      eventId INTEGER NOT NULL,
-      reportType TEXT NOT NULL,
-      message TEXT NOT NULL,
-      reporterEmail TEXT,
-      source TEXT NOT NULL DEFAULT 'event_page',
-      eventUrl TEXT,
-      changesJson TEXT,
-      status TEXT NOT NULL DEFAULT 'open',
-      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-      resolvedAt TEXT,
-      resolvedBy INTEGER,
-      resolutionNote TEXT,
-      CHECK (reportType IN ('changed_details', 'cancelled', 'other')),
-      CHECK (status IN ('open', 'resolved', 'dismissed'))
-    );
-  `);
-  const addEventReportCol = createAddColumnHelper("event_reports");
-  await addEventReportCol("changesJson", `ALTER TABLE event_reports ADD COLUMN changesJson TEXT;`);
-  await tryExec(`CREATE INDEX IF NOT EXISTS idx_event_reports_status_created ON event_reports(status, createdAt DESC);`);
-  await tryExec(`CREATE INDEX IF NOT EXISTS idx_event_reports_event_created ON event_reports(eventId, createdAt DESC);`);
+  await ensureEventReportsSchema();
 
   // Pending submissions (frontend form -> approve workflow)
   await tryExec(`

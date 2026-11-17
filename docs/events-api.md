@@ -163,3 +163,60 @@ additional organizer by normalized exact name. An organizer association
 adds attribution without creating another event or granting account
 permissions. Recurrence expansion still follows the collection's `expand`
 parameter.
+
+## Report an event issue
+
+Send JSON to `POST /events/:eventId/reports` using the event's positive
+numeric ID. Authentication is optional. Use these six labels and values
+in the public form:
+
+| Label | `reportType` |
+| --- | --- |
+| Event canceled | `cancelled` |
+| Date or time changed | `date_time_changed` |
+| Location changed | `location_changed` |
+| Incorrect event information | `incorrect_information` |
+| Inappropriate or prohibited content | `prohibited_content` |
+| Other | `other` |
+
+The legacy value `changed_details` remains accepted and appears in the
+moderation dashboard as **Event details changed**. Saved reasons retain
+their original classification. Every submission starts open for review.
+
+```json
+{
+  "reportType": "location_changed",
+  "message": "The organizer moved the event to the community center.",
+  "reporterEmail": "reporter@example.com",
+  "source": "event_page",
+  "eventUrl": "https://example.com/events/community-meeting"
+}
+```
+
+The trimmed `message` must be 1–3,000 characters. Omit
+`reporterEmail` for anonymous contact. If supplied, it must be a valid
+email string of at most 320 characters and is normalized to lowercase.
+Moderators can optionally email that address after review.
+`source` defaults to `event_page`. The optional HTTP(S) `eventUrl`
+provides context. The path ID identifies the event. Existing clients may
+continue sending the optional validated `changes` array.
+
+The endpoint returns `201` with
+`{"ok":true,"report":{"id":123,"eventId":42,"status":"open","createdAt":"..."}}`.
+Errors include `400` for invalid input, `404` for a missing event, and
+`429` when throttled. Error bodies use `{"ok":false,"error":"...","message":"..."}`.
+The existing limit is 12 reports per client IP and three per event per
+client IP, per 15 minutes. Honor the `Retry-After` response header.
+Use the existing allowed-origin or server-to-server integration and
+keep any WordPress form anti-spam controls in place.
+
+### Rollout and rollback
+
+Deploy the API before enabling the new reasons in WordPress. On startup,
+the API widens the SQLite reason constraint in a transaction while
+preserving existing reports and IDs. Older API code can read and update
+the status of rows in the widened table. It rejects public submissions
+using the four newly introduced values, displays their badges as
+**Other**, and cannot filter them individually. If reverting application
+code, keep the widened database and switch the WordPress form back to the
+three legacy values until the upgraded API is live again.

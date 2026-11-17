@@ -7,6 +7,7 @@ const crypto = require("crypto");
 const { safeParseJson } = require("../lib/json");
 const { toPublicEventListItem } = require("../lib/public-event-list");
 const { matchesVenueLocation, normalizeVenueIdentifier } = require("../lib/venue-matching");
+const { EVENT_REPORT_REASON_LABELS, EVENT_REPORT_TYPES } = require("../lib/event-report-reasons");
 const { normalizeEventReportChanges } = require("../lib/event-report-changes");
 const { notifyAreaApprovers } = require("../lib/admin-notification-email");
 const { esc } = require("../lib/html");
@@ -36,7 +37,6 @@ const EVENT_LIST_CACHE_MS = 30 * 1000;
 const EVENT_LIST_CACHE_MAX_ENTRIES = 100;
 const eventListCache = new Map();
 let eventListCacheGeneration = 0;
-const EVENT_REPORT_TYPES = new Set(["changed_details", "cancelled", "other"]);
 const EVENT_REPORT_SOURCES = new Set(["event_page"]);
 const EVENT_REPORT_RATE_WINDOW_MS = 15 * 60 * 1000;
 const EVENT_REPORT_MAX_PER_IP = 12;
@@ -2504,8 +2504,8 @@ router.post("/:eventId/reports", async (req, res) => {
     if (!event) return eventReportError(res, 404, "not_found", "Event not found.");
 
     const reportType = String(req.body?.reportType || "").trim().toLowerCase();
-    if (!EVENT_REPORT_TYPES.has(reportType)) {
-      return eventReportError(res, 400, "validation_error", "Report type must be changed_details, cancelled, or other.");
+    if (!EVENT_REPORT_TYPES.includes(reportType)) {
+      return eventReportError(res, 400, "validation_error", `Report type must be one of: ${EVENT_REPORT_TYPES.join(", ")}.`);
     }
 
     if (typeof req.body?.message !== "string") {
@@ -2554,9 +2554,9 @@ router.post("/:eventId/reports", async (req, res) => {
     void notifyAreaApprovers({
       category: "eventReports",
       city: String((await get("SELECT city FROM events WHERE id = ?", [eventId]))?.city || ""),
-      subject: `New event report: ${reportType.replace(/_/g, " ")}`,
+      subject: `New event report: ${EVENT_REPORT_REASON_LABELS[reportType]}`,
       text: `A public event report was submitted for event #${eventId}.\n\n${message}\n\nReview it in OpenCircle: ${ADMIN_APP_URL}/admin/event-reports`,
-      html: `<p>A public event report was submitted for event #${eventId}.</p><p><strong>${esc(reportType.replace(/_/g, " "))}</strong></p><p>${esc(message)}</p><p><a href="${esc(`${ADMIN_APP_URL}/admin/event-reports`)}">Review event report</a></p>`,
+      html: `<p>A public event report was submitted for event #${eventId}.</p><p><strong>${esc(EVENT_REPORT_REASON_LABELS[reportType])}</strong></p><p>${esc(message)}</p><p><a href="${esc(`${ADMIN_APP_URL}/admin/event-reports`)}">Review event report</a></p>`,
     }).catch((error) => console.error("[event report notification]", error));
     const report = await get("SELECT id, eventId, status, createdAt FROM event_reports WHERE id = ?", [result.lastID]);
 

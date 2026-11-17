@@ -27,6 +27,7 @@ const { loadEventViewRows, loadEventViewTotals } = require("../lib/event-view-re
 const { esc } = require("../lib/html");
 const { resolveEventVenue } = require("../lib/event-venue");
 const { availableEventSql, parentEventError, parseEventId, readParentEventId } = require("../lib/event-parent");
+const { EVENT_REPORT_REASON_LABELS, EVENT_REPORT_TYPES } = require("../lib/event-report-reasons");
 const { safeParseJson } = require("../lib/json");
 const { normalizeStoredRole } = require("../lib/roles");
 const { eventReportChangeLabel, eventReportChangeValue, parseEventReportChanges } = require("../lib/event-report-changes");
@@ -71,12 +72,7 @@ const {
 } = require("../lib/event-lifecycle");
 
 const EVENT_REPORT_STATUS_FILTERS = ["all", "open", "resolved", "dismissed"];
-const EVENT_REPORT_TYPE_LABELS = {
-  changed_details: "Changed details",
-  cancelled: "Cancelled",
-  other: "Other",
-};
-const EVENT_REPORT_TYPE_FILTERS = ["all", ...Object.keys(EVENT_REPORT_TYPE_LABELS)];
+const EVENT_REPORT_TYPE_FILTERS = ["all", ...EVENT_REPORT_TYPES];
 
 function eventReportFilters(input) {
   const status = typeof input?.reportStatus === "string" ? input.reportStatus.trim() : "";
@@ -8571,7 +8567,7 @@ return `
       ? eventReportRows.map((report) => {
           const isCancellation = report.reportType === "cancelled";
           const isOpen = report.status === "open";
-          const typeLabel = EVENT_REPORT_TYPE_LABELS[report.reportType] || "Other";
+          const typeLabel = EVENT_REPORT_REASON_LABELS[report.reportType] || "Other";
           const statusLabel = String(report.status || "open").replace(/^./, (letter) => letter.toUpperCase());
           const editorHref = buildScopedAdminHref("/admin/create-events", {
             edit: report.eventId, city: report.eventCity || selectedCity, reviewReport: report.id, ...reviewFilters,
@@ -15393,7 +15389,7 @@ return `
               <label for="eventReportType">Report type</label>
               <select class="ctrl" id="eventReportType" name="reportType">
                 ${EVENT_REPORT_TYPE_FILTERS.map((type) => {
-                  const label = type === "all" ? "All types" : EVENT_REPORT_TYPE_LABELS[type];
+                  const label = type === "all" ? "All types" : EVENT_REPORT_REASON_LABELS[type];
                   return `<option value="${esc(type)}" ${type === requestedEventReportType ? "selected" : ""}>${esc(label)}</option>`;
                 }).join("")}
               </select>
@@ -16444,7 +16440,7 @@ return `
             ${reviewedReport ? `
               <section class="mini event-report-review" aria-labelledby="event-report-review-heading">
                 <div class="sectionTitle">
-                  <h3 id="event-report-review-heading">Reported issue: ${esc(EVENT_REPORT_TYPE_LABELS[reviewedReport.reportType] || "Other")}</h3>
+                  <h3 id="event-report-review-heading">Reported issue: ${esc(EVENT_REPORT_REASON_LABELS[reviewedReport.reportType] || "Other")}</h3>
                   <a class="btn" href="${esc(eventReportReturnHref)}">Back to Event Reports</a>
                 </div>
                 <p class="note">Report #${esc(reviewedReport.id)} · ${esc(reviewedReport.status.replace(/^./, letter => letter.toUpperCase()))}</p>
@@ -16698,7 +16694,7 @@ return `
               </div>
 
               <div class="event-type-shell is-visible" id="eventTypeShell">
-              <section class="event-form-section event-form-basics">
+              <section class="event-form-section event-form-basics"${reviewedReport?.reportType === "incorrect_information" ? " data-report-review-area" : ""}>
                 <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/></svg><div class="event-form-section-heading-copy"><h3>Event basics</h3><p>Start with the information visitors need to understand your event.</p></div></div>
               <label>Title</label>
               <input class="ctrl" name="title" value="${esc(editEvent?.title || "")}" required />
@@ -16727,7 +16723,7 @@ return `
               <div class="note">Share a final helpful note for attendees.</div>
               </section>
 
-              <section class="event-form-section event-form-schedule"${reviewedReport?.reportType === "cancelled" ? " data-report-review-area" : ""}>
+              <section class="event-form-section event-form-schedule"${["cancelled", "date_time_changed"].includes(reviewedReport?.reportType) ? " data-report-review-area" : ""}>
                 <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 2v4M16 2v4M3 10h18"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg><div class="event-form-section-heading-copy"><h3>Date &amp; time</h3><p>Set the first occurrence, then choose whether the event repeats.</p></div></div>
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
@@ -17139,7 +17135,7 @@ return `
               </script>
               </section>
 
-              <section class="event-form-section event-form-location">
+              <section class="event-form-section event-form-location"${reviewedReport?.reportType === "location_changed" ? " data-report-review-area" : ""}>
                 <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg><div class="event-form-section-heading-copy"><h3>Location &amp; organizer</h3><p>Use the same venue and organizer names visitors will recognize.</p></div></div>
                 <div class="rec-grid">
                   <div>
