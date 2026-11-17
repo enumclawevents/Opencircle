@@ -6832,7 +6832,7 @@ return `
         : "No day selected";
 
       dashboardCalendarHtml = `
-        <div class="dashboard-calendar" id="dashboardCalendarTile">
+        <div class="dashboard-calendar" id="dashboardCalendarTile" data-calendar-month="${esc(requestedMonthYmd)}" data-calendar-default-month="${esc(defaultMonthStartYmd)}">
           <div class="dashboard-calendar-main">
             <div class="dashboard-calendar-head">
               <div class="dashboard-calendar-head-top">
@@ -13828,6 +13828,35 @@ return `
         cursor:pointer;
         text-decoration:none;
       }
+      #dashboard-calendar-body[data-calendar-month-loading] .dashboard-calendar-day{
+        background:var(--panel); border-color:var(--line); opacity:1;
+      }
+      [data-calendar-month-loading] :is(.dashboard-calendar-day, .dashboard-calendar-month, .dashboard-calendar-total-value){
+        position:relative;
+      }
+      [data-calendar-month-loading] .dashboard-calendar-day > span{ visibility:hidden; }
+      #dashboard-calendar-body[data-calendar-month-loading] :is(.dashboard-calendar-month, .dashboard-calendar-total-value){
+        color:transparent;
+      }
+      [data-calendar-month-loading] :is(.dashboard-calendar-day, .dashboard-calendar-month, .dashboard-calendar-total-value)::before,
+      [data-calendar-month-loading] .dashboard-calendar-day::after{
+        content:""; position:absolute; border-radius:var(--radius-inner);
+        background:var(--loading-fill, var(--line));
+        animation:oc-page-loading-pulse 1.4s ease-in-out infinite alternate;
+      }
+      [data-calendar-month-loading] :is(.dashboard-calendar-month, .dashboard-calendar-total-value)::before{
+        inset:20% 0;
+      }
+      [data-calendar-month-loading] .dashboard-calendar-day::before{
+        inset-block-start:24%; inset-inline-start:12%; inline-size:26%; block-size:16%;
+      }
+      [data-calendar-month-loading] .dashboard-calendar-day::after{
+        inset-block-start:57%; inset-inline-start:12%; inline-size:60%; block-size:13%;
+      }
+      @media (prefers-reduced-motion:reduce){
+        [data-calendar-month-loading] :is(.dashboard-calendar-day, .dashboard-calendar-month, .dashboard-calendar-total-value)::before,
+        [data-calendar-month-loading] .dashboard-calendar-day::after{ animation:none; }
+      }
       .dashboard-calendar-day:hover{
         border-color:rgba(15,23,42,.18);
         background:#fbfdff;
@@ -15011,6 +15040,7 @@ return `
                   <i class="fa-solid fa-chevron-down card-caret" aria-hidden="true"></i>
                 </span>
               </summary>
+              <span class="oc-page-loading__status" id="dashboard-calendar-loading-status" role="status"></span>
               <div class="card-body" id="dashboard-calendar-body">
                 ${dashboardCalendarHtml}
                 <p class="mini admin-notice admin-notice--error" id="dashboard-calendar-error" role="alert" hidden></p>
@@ -19212,6 +19242,7 @@ return `
         var calendar = document.getElementById("dashboard-calendar-body");
         if (!calendar) return;
         var errorNotice = document.getElementById("dashboard-calendar-error");
+        var loadingStatus = document.getElementById("dashboard-calendar-loading-status");
         var requestId = 0;
 
         async function refreshCalendar(url, fromHistory){
@@ -19219,6 +19250,11 @@ return `
           errorNotice.hidden = true;
           errorNotice.textContent = "";
           calendar.setAttribute("aria-busy", "true");
+          var currentTile = calendar.querySelector("#dashboardCalendarTile");
+          var targetMonth = new URL(url).searchParams.get("calMonth") || currentTile?.dataset.calendarDefaultMonth;
+          var changingMonth = targetMonth !== currentTile?.dataset.calendarMonth;
+          calendar.toggleAttribute("data-calendar-month-loading", changingMonth);
+          loadingStatus.textContent = changingMonth ? "Loading calendar month…" : "";
           try {
             var response = await fetch(url, {
               credentials: "same-origin",
@@ -19253,7 +19289,11 @@ return `
             errorNotice.hidden = false;
             errorNotice.textContent = "Calendar could not be updated. Try again.";
           } finally {
-            if (currentRequest === requestId) calendar.removeAttribute("aria-busy");
+            if (currentRequest === requestId) {
+              calendar.removeAttribute("aria-busy");
+              calendar.removeAttribute("data-calendar-month-loading");
+              loadingStatus.textContent = "";
+            }
           }
         }
 
