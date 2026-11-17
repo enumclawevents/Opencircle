@@ -21,7 +21,9 @@ const {
   requiredEventFields,
 } = require("../lib/event-input");
 const { clientIp, createRateLimiter } = require("../lib/public-rate-limit");
-const { publicLifecycle, updateEventWithChange } = require("../lib/event-lifecycle");
+const {
+  AdditionalOrganizerValidationError, organizerNameKey, publicLifecycle, readAdditionalOrganizersByEvent, updateEventWithChange, validateAdditionalOrganizers,
+} = require("../lib/event-lifecycle");
 const {
   buildEventStructuredData,
   buildSeoDescriptor,
@@ -33,6 +35,7 @@ const pastEventsCache = new Map();
 const EVENT_LIST_CACHE_MS = 30 * 1000;
 const EVENT_LIST_CACHE_MAX_ENTRIES = 100;
 const eventListCache = new Map();
+let eventListCacheGeneration = 0;
 const EVENT_REPORT_TYPES = new Set(["changed_details", "cancelled", "other"]);
 const EVENT_REPORT_SOURCES = new Set(["event_page"]);
 const EVENT_REPORT_RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -74,6 +77,7 @@ function cachePayload(cache, key, payload, ttlMs, maxEntries) {
 // clears both caches through the server middleware below, so this is a speed-up
 // rather than a source of stale event content.
 function clearPublicEventCaches() {
+  eventListCacheGeneration += 1;
   eventListCache.clear();
   pastEventsCache.clear();
 }
@@ -186,6 +190,9 @@ router.post("/submit", async (req, res) => {
     const description = String(body.description || "").trim();
     const location = String(body.location || "").trim();
     const organizer = String(body.organizer || "").trim();
+    const additionalOrganizersJson = body.additionalOrganizers === undefined ? null : JSON.stringify(
+      validateAdditionalOrganizers(body.additionalOrganizers, organizer).map(({ name }) => name)
+    );
     const parentEventId = readParentEventId(body) ?? null;
     const requestedCity = String(body.city || "Enumclaw").trim() || "Enumclaw";
     const city = ["plateau", "plateau area", "plateau regional"].includes(requestedCity.toLowerCase())
@@ -302,14 +309,14 @@ router.post("/submit", async (req, res) => {
         (city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
          startDateTime, endDateTime, location, venueName, venueId, organizer, imageUrl, eventLink, categories,
          submitterEmail, approvalNotes, source, submissionId, hasRecurrence, recurrenceRule,
-         recurrenceDates, recurrenceStartDate, recurrenceUntilDate, multiDaySchedule, parentEventId)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         recurrenceDates, recurrenceStartDate, recurrenceUntilDate, multiDaySchedule, parentEventId, additionalOrganizersJson)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         city, title, description, eventDetails, goodToKnow, ticketUrl, ticketLabel,
         startDateTime, endDateTime, location, venueName, venueId, organizer, imageUrl, eventLink, categories,
         submitterEmail, approvalNotes, source, submissionId, hasRecurrence,
         recurrenceRule ? JSON.stringify(recurrenceRule) : null,
-        recurrenceDatesJson, recurrenceStartDate, recurrenceUntilDate, multiDayScheduleJson, parentEventId
+        recurrenceDatesJson, recurrenceStartDate, recurrenceUntilDate, multiDayScheduleJson, parentEventId, additionalOrganizersJson
       ]
     ));
 
@@ -323,6 +330,7 @@ router.post("/submit", async (req, res) => {
 
     return res.json({ ok: true, id: inserted.lastID, submissionId });
   } catch (err) {
+    if (err instanceof AdditionalOrganizerValidationError) return res.status(400).json({ ok: false, error: err.message });
     const parentError = parentEventError(err);
     if (parentError) return res.status(400).json({ ok: false, error: parentError });
     console.error("[POST /events/submit] error:", err);
@@ -1321,16 +1329,28 @@ function getEventDetailPath(item) {
   return `/events/${encodeURIComponent(key)}`;
 }
 
+async function withPublicOrganizers(events) {
+  const additionalByEvent = await readAdditionalOrganizersByEvent(events.map(({ id }) => id));
+  return events.map(event => {
+    const primaryKey = organizerNameKey(event.organizer);
+    const organizers = primaryKey ? [{ name: event.organizer, role: "primary" }] : [];
+    for (const { name, nameKey } of additionalByEvent.get(event.id) || []) {
+      if (nameKey !== primaryKey) organizers.push({ name, role: "additional" });
+    }
+    return { ...event, organizers };
+  });
+}
+
 function eventRelationshipSummary(row) {
   const { id, slug, city, title, startDateTime, endDateTime, location, venueName, organizer } = normalizeRowTimes(row);
   return {
     id, slug, city, title, startDateTime, endDateTime,
-    location, venueName, organizer,
+    location, venueName, organizer, organizers: row.organizers,
     permalinkPath: getEventDetailPath(row),
   };
 }
 
-async function publicEventRelationships(eventId) {
+async function publicEventRelationships(event) {
   const rows = await all(
     `WITH source AS (SELECT e.id, e.parentEventId FROM events e WHERE e.id = ? AND ${availableEventSql("e")})
      SELECT p.*, 'parent' AS relationship FROM source s JOIN events p ON p.id = s.parentEventId
@@ -1339,13 +1359,15 @@ async function publicEventRelationships(eventId) {
      SELECT c.*, 'child' AS relationship FROM source s JOIN events c ON c.parentEventId = s.id
       WHERE ${availableEventSql("c")}
      ORDER BY startDateTime, id`,
-    [eventId]
+    [event.id]
   );
-  const parent = rows.find(row => row.relationship === "parent");
+  const [source, ...related] = await withPublicOrganizers([event, ...rows]);
+  const parent = related.find(row => row.relationship === "parent");
   return {
+    organizers: source.organizers,
     parentEventId: parent?.id ?? null,
     parentEvent: parent ? { ...eventRelationshipSummary(parent), imageUrl: parent.imageUrl || null } : null,
-    linkedEvents: rows.filter(row => row.relationship === "child").map(eventRelationshipSummary),
+    linkedEvents: related.filter(row => row.relationship === "child").map(eventRelationshipSummary),
   };
 }
 
@@ -1511,11 +1533,11 @@ function includeStoredFirstOccurrence(event, occurrences, windowStartUtc) {
   return list;
 }
 
-function paginate(items, limit, offset, context = null, projectItem = null) {
+async function paginate(items, limit, offset, context = null, projectItem = null) {
   const total = items.length;
   const start = Math.max(0, offset);
   const end = Math.min(total, start + limit);
-  const slice = items.slice(start, end);
+  const slice = await withPublicOrganizers(items.slice(start, end));
   const hasMore = end < total;
   return {
     data: typeof projectItem === "function" ? slice.map(projectItem) : slice,
@@ -1668,9 +1690,10 @@ async function listEventsHandler(req, res) {
 
     // Archived results are permission-sensitive and therefore never cached.
     // All other variants are public and can be reused for a very short window.
+    const cacheGeneration = eventListCacheGeneration;
     const eventListCacheKey = status === "archived" ? "" : JSON.stringify([
       city.toLowerCase(), expand, status, sort, q.toLowerCase(), category ? category.slug : "",
-      organizer.toLowerCase(), venue.toLowerCase(), venueLocationIdentifiers, featuredOnly, limit, offset,
+      organizer, venue.toLowerCase(), venueLocationIdentifiers, featuredOnly, limit, offset, Boolean(publicEventProjection),
       fromISO, toISO, windowDays,
     ]);
     if (eventListCacheKey) {
@@ -1689,8 +1712,10 @@ async function listEventsHandler(req, res) {
       rowParams.push(category.name);
     }
     if (organizer) {
-      rowWhere.push("LOWER(TRIM(COALESCE(organizer, ''))) = LOWER(TRIM(?))");
-      rowParams.push(organizer);
+      rowWhere.push(`(LOWER(TRIM(COALESCE(organizer, ''))) = LOWER(TRIM(?)) OR EXISTS (
+        SELECT 1 FROM event_additional_organizers o WHERE o.eventId = events.id AND o.nameKey = ?
+      ))`);
+      rowParams.push(organizer, organizerNameKey(organizer));
     }
     if (hasInternalVenueFilter) {
       const legacyMatch = venueLocationLabels.map(() => "LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))").join(" OR ");
@@ -1734,7 +1759,6 @@ async function listEventsHandler(req, res) {
           if (featuredOnly && readFeaturedActive(it) !== 1) return false;
           if (!matchesQuery(it, q)) return false;
           if (!matchesCategory(it, category)) return false;
-          if (organizer && !String(it.organizer || "").toLowerCase().includes(organizer.toLowerCase())) return false;
           if (!matchesVenue(it)) return false;
           if (!inIsoRange(it, fromISO, toISO)) return false;
           return true;
@@ -1783,11 +1807,13 @@ async function listEventsHandler(req, res) {
         return compareEventIds(a, b);
       });
 
-      const payload = paginate(items, limit, offset, category ? {
+      const payload = await paginate(items, limit, offset, category ? {
         category: { name: category.name, slug: category.slug },
         community: { city },
       } : null, publicEventProjection);
-      if (eventListCacheKey) cachePayload(eventListCache, eventListCacheKey, payload, EVENT_LIST_CACHE_MS, EVENT_LIST_CACHE_MAX_ENTRIES);
+      if (eventListCacheKey && cacheGeneration === eventListCacheGeneration) {
+        cachePayload(eventListCache, eventListCacheKey, payload, EVENT_LIST_CACHE_MS, EVENT_LIST_CACHE_MAX_ENTRIES);
+      }
       return res.json(payload);
     }
 
@@ -1809,7 +1835,6 @@ async function listEventsHandler(req, res) {
       if (featuredOnly && readFeaturedActive(it) !== 1) return false;
       if (!matchesQuery(it, q)) return false;
       if (!matchesCategory(it, category)) return false;
-      if (organizer && !String(it.organizer || "").toLowerCase().includes(organizer.toLowerCase())) return false;
       if (!matchesVenue(it)) return false;
       if (!inIsoRange(it, fromISO, toISO)) return false;
       return true;
@@ -1859,11 +1884,13 @@ async function listEventsHandler(req, res) {
     });
 
     // Paginate
-    const payload = paginate(expanded, limit, offset, category ? {
+    const payload = await paginate(expanded, limit, offset, category ? {
       category: { name: category.name, slug: category.slug },
       community: { city },
     } : null, publicEventProjection);
-    if (eventListCacheKey) cachePayload(eventListCache, eventListCacheKey, payload, EVENT_LIST_CACHE_MS, EVENT_LIST_CACHE_MAX_ENTRIES);
+    if (eventListCacheKey && cacheGeneration === eventListCacheGeneration) {
+      cachePayload(eventListCache, eventListCacheKey, payload, EVENT_LIST_CACHE_MS, EVENT_LIST_CACHE_MAX_ENTRIES);
+    }
     return res.json(payload);
   } catch (err) {
     console.error("[/events] error:", err && err.stack ? err.stack : err);
@@ -1902,7 +1929,7 @@ router.get("/parent-options", async (req, res) => {
        LIMIT 25`,
       [childId, city.value || "Enumclaw", query.value, query.value]
     );
-    return res.json({ data: rows.map(eventRelationshipSummary) });
+    return res.json({ data: (await withPublicOrganizers(rows)).map(eventRelationshipSummary) });
   } catch (error) {
     console.error("[/events/parent-options]", error);
     return res.status(500).json({ error: "Server error" });
@@ -2076,7 +2103,7 @@ router.get("/slug/:slug", async (req, res) => {
     }
 
     res.json({
-      data: { ...enrichEventDetailForSeo(req, detailData), ...await publicEventRelationships(row.id) },
+      data: { ...enrichEventDetailForSeo(req, detailData), ...await publicEventRelationships(row) },
     });
   } catch (err) {
     console.error(err);
@@ -2636,7 +2663,7 @@ router.get("/:idOrSlug", async (req, res) => {
     }
 
     res.json({
-      data: { ...enrichEventDetailForSeo(req, detailData), ...await publicEventRelationships(row.id) },
+      data: { ...enrichEventDetailForSeo(req, detailData), ...await publicEventRelationships(row) },
     });
   } catch (err) {
     console.error(err);

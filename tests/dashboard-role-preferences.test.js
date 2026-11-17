@@ -197,6 +197,86 @@ test("dashboard aggregation and personalization remain scoped to the authenticat
     assert.match(groupedHtml, /data-event-day-label="[0-9.]+"/);
   }
 
+  const dayAgo = offset => new Date(Date.now() - offset * 86400000).toISOString().replace(/\.\d{3}Z$/, "+00:00");
+  const dateList = [dayAgo(12), dayAgo(2)];
+  const recurringRule = JSON.stringify({
+    type: "custom", items: dateList.map(start => ({
+      date: start.slice(0, 10), start, end: new Date(Date.parse(start) + 3600000).toISOString(),
+    })),
+  });
+  const insertEvent = (city, slug, primary, archived = 0) => execSql(dbPath,
+    `INSERT INTO events(city,slug,title,organizer,categories,startDateTime,endDateTime,hasRecurrence,recurrenceRule,archived)
+     VALUES(?,?,?,?,?,?,?,?,?,?)`, [city, slug, slug, primary, '["Music"]', dateList[0], dateList[0], 1, recurringRule, archived]);
+  await insertEvent("Enumclaw", "collaboration", "Zed Group");
+  await insertEvent("Enumclaw", "archived-collaboration", "Archived Group", 1);
+  await insertEvent("Buckley", "outside-collaboration", "Outside Group");
+  for (const [slug, dates] of [["collaboration", dateList], ["archived-collaboration", [dayAgo(1)]],
+    ["outside-collaboration", [dayAgo(1)]], ["other-event", [dayAgo(1)]]]) {
+    for (const date of dates) await execSql(dbPath,
+      "INSERT INTO event_views(eventId,viewedAt,ipHash) SELECT id,?,? FROM events WHERE slug=?", [date, slug, slug]);
+  }
+
+  const summaryFor = async cookie => (await fetch(baseUrl + "/admin/dashboard-summary?range=30d", { headers: { cookie } })).json();
+  const reportFor = async (period, name) => {
+    const query = new URLSearchParams({ range: period, city: "Enumclaw", ...(name ? { organizer: name } : {}) });
+    const response = await fetch(`${baseUrl}/admin/events-organizers?${query}`, { headers: { cookie: developerCookie } });
+    assert.equal(response.status, 200);
+    return response.text();
+  };
+  const chartTotals = html => {
+    const chart = JSON.parse(html.match(/id="organizerChartData" data-chart="([^"]+)"/)[1].replaceAll("&quot;", '"'));
+    return [chart.events, chart.views].map(({ values }) => values.reduce((sum, value) => sum + value, 0));
+  };
+  const leaderboard = html => html.match(/aria-labelledby="organizerRankingTitle"[^>]*>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/)?.[1];
+  const organizerRow = (html, label) => leaderboard(html).split("</tr>").find(row => row.includes(`>${label}</a>`))
+    ?.match(/<td>\d+<\/td>/g).map(cell => Number(cell.replace(/<[^>]*>/g, ""))).slice(1);
+  const baselineCommunity = await summaryFor(developerCookie);
+  const baselineChart = chartTotals(await reportFor("30d"));
+  assert.equal(baselineCommunity.kpis.eventViews, 4);
+  assert.equal(baselineChart[1], 4);
+
+  for (const [slug, name, key, position] of [
+    ["collaboration", "Another-Organizer", "another-organizer", 0],
+    ["collaboration", "my-organizer", "my-organizer", 1],
+    ["collaboration", "New Partner", "new partner", 2],
+    ["collaboration", "ZED GROUP", "zed group", 3],
+    ["archived-collaboration", "Archive Partner", "archive partner", 0],
+    ["outside-collaboration", "Outside Partner", "outside partner", 0],
+  ]) await execSql(dbPath,
+    "INSERT INTO event_additional_organizers SELECT id,?,?,? FROM events WHERE slug=?", [name, key, position, slug]);
+
+  const currentCommunity = await summaryFor(developerCookie);
+  assert.deepEqual(currentCommunity.communities, baselineCommunity.communities);
+  assert.deepEqual(currentCommunity.series, baselineCommunity.series);
+  assert.equal(currentCommunity.kpis.activeOrganizers, baselineCommunity.kpis.activeOrganizers + 1);
+  const allOrganizers = await reportFor("30d");
+  assert.deepEqual(chartTotals(allOrganizers), baselineChart);
+  assert.deepEqual(organizerRow(allOrganizers, "another-organizer"), [2, 3, 0, 3]);
+  assert.deepEqual(organizerRow(allOrganizers, "Zed Group"), [1, 2, 0, 2]);
+  assert.deepEqual(organizerRow(allOrganizers, "New Partner"), [1, 2, 0, 2]);
+  assert.doesNotMatch(leaderboard(allOrganizers), /Outside Partner|Archive Partner/);
+  const drilldown = await reportFor("30d", " ANOTHER-ORGANIZER ");
+  assert.deepEqual(chartTotals(drilldown), [3, 3]);
+  assert.deepEqual(chartTotals(await reportFor("7d", "New Partner")), [1, 1]);
+  assert.match(drilldown, /Top events for another-organizer/);
+  assert.match(drilldown, /Reports use current organizer names/);
+  const categories = await (await fetch(baseUrl + "/admin/events-analytics?city=Enumclaw&range=30d", {
+    headers: { cookie: developerCookie },
+  })).text();
+  assert.match(categories, /<td>Music<\/td>\s*<td><a[^>]+>another-organizer<\/a><\/td>\s*<td>2<\/td>\s*<td>3<\/td>/);
+
+  assert.deepEqual((await summaryFor(organizerCookie)).kpis, organizerSummary.kpis);
+  assert.equal((await fetch(baseUrl + "/admin/events-organizers?organizer=my-organizer", {
+    headers: { cookie: organizerCookie },
+  })).status, 403);
+  const { id: collaborationId } = await getSql(dbPath, "SELECT id FROM events WHERE slug='collaboration'");
+  assert.equal((await fetch(baseUrl + "/admin/create-events?edit=" + collaborationId, { headers: { cookie: organizerCookie } })).status, 403);
+  await execSql(dbPath, "DELETE FROM event_additional_organizers WHERE eventId=? AND nameKey='new partner'", [collaborationId]);
+  const historical = await reportFor("30d");
+  assert.doesNotMatch(leaderboard(historical), /New Partner/);
+  assert.deepEqual(chartTotals(historical), baselineChart);
+  assert.equal((await getSql(dbPath, "SELECT COUNT(*) AS n FROM event_views")).n, 6);
+
   await execSql(dbPath, "DELETE FROM event_views");
   const emptySummary = await (await fetch(`${baseUrl}/admin/dashboard-summary?range=30d`, {
     headers: { cookie: organizerCookie },

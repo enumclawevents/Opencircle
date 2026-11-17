@@ -474,6 +474,7 @@ async function initDB() {
   if (!(await hasColumn("pending_events", "parentEventId"))) {
     await run("ALTER TABLE pending_events ADD COLUMN parentEventId INTEGER");
   }
+  await addPendingCol("additionalOrganizersJson", "ALTER TABLE pending_events ADD COLUMN additionalOrganizersJson TEXT");
   await addPendingCol("venueId", `ALTER TABLE pending_events ADD COLUMN venueId INTEGER;`);
   await addPendingCol("venueName", `ALTER TABLE pending_events ADD COLUMN venueName TEXT;`);
   await addPendingCol("eventLink", `ALTER TABLE pending_events ADD COLUMN eventLink TEXT;`);
@@ -565,6 +566,42 @@ async function initDB() {
   await addCol("lifecycleUpdatedAt", `ALTER TABLE events ADD COLUMN lifecycleUpdatedAt TEXT;`);
 
   await installParentEventConstraints(run);
+
+  await run(`CREATE TABLE IF NOT EXISTS event_additional_organizers (
+    eventId INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200),
+    nameKey TEXT NOT NULL CHECK (length(nameKey) > 0),
+    position INTEGER NOT NULL CHECK (position >= 0),
+    PRIMARY KEY (eventId, nameKey),
+    UNIQUE (eventId, position)
+  )`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_event_additional_organizers_name
+    ON event_additional_organizers(nameKey, eventId)`);
+
+  // SQLite foreign-key enforcement is connection-local. Keep this relationship
+  // intact on connections and older builds that don't enable it.
+  for (const operation of ["INSERT", "UPDATE OF eventId"]) {
+    const trigger = operation === "INSERT" ? "insert" : "move";
+    await run(`CREATE TRIGGER IF NOT EXISTS event_additional_organizers_check_${trigger}
+      BEFORE ${operation} ON event_additional_organizers
+      WHEN NOT EXISTS (SELECT 1 FROM events WHERE id = NEW.eventId)
+      BEGIN
+        SELECT RAISE(ABORT, 'Additional organizer requires an existing event');
+      END`);
+  }
+  await run(`CREATE TRIGGER IF NOT EXISTS events_remove_additional_organizers
+    AFTER DELETE ON events
+    BEGIN
+      DELETE FROM event_additional_organizers WHERE eventId = OLD.id;
+    END`);
+  await run(`CREATE TRIGGER IF NOT EXISTS events_keep_additional_organizer_event_id
+    BEFORE UPDATE OF id ON events
+    WHEN NEW.id <> OLD.id AND EXISTS (
+      SELECT 1 FROM event_additional_organizers WHERE eventId = OLD.id
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Cannot change an event ID with additional organizers');
+    END`);
 
   await tryExec(`
     CREATE TABLE IF NOT EXISTS event_changes (

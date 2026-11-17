@@ -152,4 +152,62 @@ test("events API applies category, organizer, combinations, and pagination befor
   const plateauPayload = await plateau.json();
   assert.equal(plateauPayload.meta.total, 1);
   assert.ok(plateauPayload.data.every((event) => event.city === "Plateau Regional"));
+
+  assert.deepEqual(foodSlug.data[0].organizers, [{ name: "Adventure Van Expo", role: "primary" }]);
+  await execSql(dbPath, `
+    INSERT INTO events (city, slug, title, organizer, startDateTime, endDateTime, archived)
+    VALUES ('Enumclaw', 'no-primary', 'No primary', NULL, '${recurringStart}', '${recurringEnd}', 0),
+           ('Enumclaw', 'no-organizers', 'No organizers', NULL, '${recurringStart}', '${recurringEnd}', 0),
+           ('Enumclaw', 'archived-partner', 'Archived partner', 'Arts Group', '${recurringStart}', '${recurringEnd}', 1);
+    INSERT INTO event_additional_organizers (eventId,name,nameKey,position)
+    SELECT id,'Friends  & Arts, Inc.','friends & arts, inc.',0 FROM events
+      WHERE slug IN ('music-adventure','arts-recurring','no-primary','archived-partner','plateau-music');
+    INSERT INTO event_additional_organizers (eventId,name,nameKey,position)
+    SELECT id,'Second Partner','second partner',1 FROM events WHERE slug = 'arts-recurring';
+    UPDATE events SET parentEventId = (SELECT id FROM events WHERE slug = 'music-adventure') WHERE slug = 'arts-recurring';
+  `);
+  const partner = { name: "Friends  & Arts, Inc.", role: "additional" };
+  const hosts = [{ name: "Recurrence House", role: "primary" }, partner, { name: "Second Partner", role: "additional" }];
+  const filter = new URLSearchParams({ org: "  FRIENDS &  ARTS, INC. " }).toString();
+  const pageOne = await request(filter + "&limit=1");
+  const pageTwo = await request(filter + "&limit=3&offset=1");
+  const matches = [...pageOne.data, ...pageTwo.data];
+  assert.equal(pageOne.meta.total, 4);
+  assert.equal(pageOne.meta.nextOffset, 1);
+  assert.equal(pageTwo.meta.total, 4);
+  assert.equal(pageTwo.meta.hasMore, false);
+  assert.equal(new Set(matches.map(({ id }) => id)).size, 4);
+  assert.ok(matches.every(row => row.city === "Enumclaw"));
+  assert.ok(matches.some(row => row.slug === "archived-partner")); // status=all includes archived events.
+  const upcoming = await fetch(`${baseUrl}/events?city=Enumclaw&status=upcoming&expand=0&${filter}`);
+  const visible = (await upcoming.json()).data;
+  assert.ok(visible.some(row => row.slug === "arts-recurring"));
+  assert.ok(visible.every(row => row.slug !== "archived-partner"));
+  assert.deepEqual(matches.find(row => row.slug === "no-primary").organizers, [partner]);
+  assert.equal(matches.find(row => row.slug === "no-primary").organizer, null);
+  assert.deepEqual(matches.find(row => row.slug === "arts-recurring").organizers, hosts);
+  assert.equal((await request("organizer=Friends")).meta.total, 0);
+
+  const expanded = await fetch(`${baseUrl}/events?city=Enumclaw&expand=1&category=arts-and-culture&organizer=Second%20Partner&limit=10`);
+  const expandedPayload = await expanded.json();
+  assert.equal(expanded.status, 200);
+  assert.deepEqual(expandedPayload.data.map(({ instanceId, startDateTime }) => ({ instanceId, startDateTime })),
+    recurringPayload.data.map(({ instanceId, startDateTime }) => ({ instanceId, startDateTime })));
+  assert.ok(expandedPayload.data.every(row => JSON.stringify(row.organizers) === JSON.stringify(hosts)));
+  const single = matches.find(row => row.slug === "arts-recurring");
+  for (const route of [String(single.id), "slug/arts-recurring"]) {
+    const detail = (await (await fetch(`${baseUrl}/events/${route}`)).json()).data;
+    assert.equal(detail.organizer, "Recurrence House");
+    assert.deepEqual(detail.lifecycle.organizer, { name: "Recurrence House" });
+    assert.deepEqual(detail.organizers, hosts);
+    assert.deepEqual(detail.parentEvent.organizers, [{ name: "Adventure Van Expo", role: "primary" }, partner]);
+  }
+  const parent = (await (await fetch(`${baseUrl}/events/slug/music-adventure`)).json()).data;
+  assert.deepEqual(parent.linkedEvents[0].organizers, hosts);
+  const orphan = (await (await fetch(`${baseUrl}/events/slug/no-organizers`)).json()).data;
+  assert.equal(orphan.organizer, null);
+  assert.deepEqual(orphan.organizers, []);
+  const past = (await (await fetch(`${baseUrl}/events/past?city=Enumclaw`)).json()).data;
+  assert.ok(past.every(row => !Object.hasOwn(row, "organizers") && !Object.hasOwn(row, "organizer")));
+
 });

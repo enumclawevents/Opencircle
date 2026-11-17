@@ -83,6 +83,8 @@ test("public venue detail is city scoped, preserves legacy access, and delegates
       ('Buckley', 'other-community-event', 'Other community event', '1528 Cole Street', 'OpenCircle', '${startOne}', '${endOne}'),
       ('Enumclaw', 'similar-venue', 'Similar venue', '1528 Cole Street Suite B', 'OpenCircle', '${startOne}', '${endOne}'),
       ('Enumclaw', 'similar-venue-name', 'Similar venue name', 'Roaring Underground Annex', 'OpenCircle', '${startOne}', '${endOne}');
+    INSERT INTO event_additional_organizers (eventId, name, nameKey, position)
+    SELECT id, 'Venue Partner', 'venue partner', 0 FROM events WHERE slug = 'central-one';
     INSERT INTO users (id, email, username, role, city)
     VALUES (1, 'developer@example.test', 'developer', 'developer', 'Enumclaw');
     INSERT INTO auth_sessions (tokenHash, user, role, city, exp, userId, principalType)
@@ -123,6 +125,14 @@ test("public venue detail is city scoped, preserves legacy access, and delegates
   for (const privateField of ["createdByUserId", "viewCount", "uniqueViewCount", "ticketClickCount", "lastViewedAt", "submissionId", "archived", "archived_at"]) {
     assert.equal(privateField in firstPagePayload.data[0], false, privateField);
   }
+  const organizerFilter = await fetch(`${baseUrl}/venues/1/events?city=Enumclaw&org=Venue%20Partner&windowDays=30`);
+  assert.equal(organizerFilter.status, 200);
+  const partnerEvents = await organizerFilter.json();
+  assert.equal(partnerEvents.meta.total, 1);
+  assert.deepEqual(partnerEvents.data[0].organizers, [
+    { name: "Roaring Underground", role: "primary" }, { name: "Venue Partner", role: "additional" },
+  ]);
+  assert.equal(Object.hasOwn(partnerEvents.data[0], "createdByUserId"), false);
   const secondPage = await fetch(`${baseUrl}/venues/roaring-underground/events?city=Enumclaw&limit=2&offset=1&windowDays=30`);
   assert.equal(secondPage.status, 200);
   const secondPagePayload = await secondPage.json();

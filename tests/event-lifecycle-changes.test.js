@@ -137,6 +137,20 @@ test("event revisions, lifecycle transitions, tombstones, and city cursor feeds 
   await sql(dbPath, "INSERT INTO events (city, slug, title, description, location, organizer, startDateTime, endDateTime) VALUES ('Enumclaw', 'other-owned', 'Other Owned', 'Description', 'Hall', 'Another Group', '2027-01-14T18:00:00-08:00', '2027-01-14T20:00:00-08:00')");
   const organizerOwnedId = (await sql(dbPath, "SELECT id FROM events WHERE slug = 'organizer-owned'"))[0].id;
   const otherOwnedId = (await sql(dbPath, "SELECT id FROM events WHERE slug = 'other-owned'"))[0].id;
+  await sql(dbPath, "INSERT INTO event_additional_organizers VALUES (?, 'Owner Group', 'owner group', 0)", [otherOwnedId]);
+  const coOrganizerEdit = await fetch(`${baseUrl}/admin/events`, {
+    method: "POST", redirect: "manual", headers: { cookie: organizerCookie, "content-type": "application/x-www-form-urlencoded" },
+    body: eventForm({ id: String(otherOwnedId) }),
+  });
+  assert.equal(coOrganizerEdit.status, 403);
+  const otherDetail = await fetch(`${baseUrl}/events/${otherOwnedId}`);
+  assert.equal(otherDetail.status, 200);
+  const otherPublicEvent = (await otherDetail.json()).data;
+  assert.equal(otherPublicEvent.organizer, "Another Group");
+  assert.equal(Object.hasOwn(otherPublicEvent, "additionalOrganizers"), false);
+  assert.deepEqual(otherPublicEvent.organizers, [
+    { name: "Another Group", role: "primary" }, { name: "Owner Group", role: "additional" },
+  ]);
   const organizerPostpone = await fetch(`${baseUrl}/admin/events/${organizerOwnedId}/lifecycle`, {
     method: "POST", headers: { cookie: organizerCookie, "content-type": "application/json" }, body: JSON.stringify({ state: "postponed", reason: "New date pending" }),
   });
@@ -188,4 +202,193 @@ test("event revisions, lifecycle transitions, tombstones, and city cursor feeds 
   assert.deepEqual(archivedRow, { archived: 1, lifecycleState: "archived", revision: 2 });
   const archiveChange = (await sql(dbPath, "SELECT changeType, revision FROM event_changes WHERE eventId = ?", [archiveId]))[0];
   assert.deepEqual(archiveChange, { changeType: "archived", revision: 2 });
+});
+
+test("the authenticated editor preserves additional organizers through drafts and publication", async (t) => {
+  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-organizer-editor-"));
+  const dbPath = path.join(testDir, "opencircle.db");
+  const port = 35000 + Math.floor(Math.random() * 1000);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const server = spawn(process.execPath, ["server.js"], {
+    cwd: path.resolve(__dirname, ".."), env: { ...process.env, DB_PATH: dbPath, PORT: String(port) }, stdio: "ignore",
+  });
+  t.after(() => { server.kill(); fs.rmSync(testDir, { recursive: true, force: true }); });
+  await waitForHealth(baseUrl);
+  const password = "organizer editor test password";
+  const passwordHash = await hashPassword(password);
+  for (const [username, role] of [["editor", "developer"], ["Guest Partners", "organizer"]]) {
+    await sql(dbPath, "INSERT INTO users (username, passwordHash, role, city) VALUES (?, ?, ?, 'Enumclaw')", [username, passwordHash, role]);
+  }
+  const cookie = await signIn(baseUrl, "editor", password);
+  const organizerCookie = await signIn(baseUrl, "Guest Partners", password);
+  const post = (fields, names, auth = cookie) => {
+    const body = new FormData();
+    for (const [key, value] of new URLSearchParams(eventForm(fields))) body.append(key, value);
+    if (names !== undefined) {
+      body.append("additionalOrganizersPresent", "1");
+      for (const name of names) body.append("additionalOrganizers", name);
+    }
+    return fetch(`${baseUrl}/admin/events`, { method: "POST", redirect: "manual", headers: { cookie: auth }, body });
+  };
+  const editor = (query, auth = cookie) => fetch(`${baseUrl}/admin/create-events?${query}`, { headers: { cookie: auth } });
+  const namesFor = async (id) => (await sql(dbPath,
+    "SELECT name FROM event_additional_organizers WHERE eventId = ? ORDER BY position", [id])).map(({ name }) => name);
+  const editTokenFor = async (id) => (await sql(dbPath, "SELECT editToken FROM event_unpublished_changes WHERE eventId = ?", [id]))[0]?.editToken;
+  const newEvent = { title: "Additional Organizer Fixture" };
+  const initialNames = ["Guest Partners", "Friends & Arts, Inc."];
+  const draft = await post({ ...newEvent, saveDraft: "1" }, initialNames);
+  assert.equal(draft.status, 303);
+  const draftId = new URL(draft.headers.get("location"), baseUrl).searchParams.get("draft");
+  assert.ok(draftId);
+  assert.match(await (await editor(`draft=${draftId}`)).text(), /Friends &amp; Arts, Inc\./);
+  assert.equal((await editor(`draft=${draftId}`, organizerCookie)).status, 404);
+  assert.equal((await post({ ...newEvent, saveDraft: "1", draftId })).status, 303);
+  assert.equal((await post({ ...newEvent, draftId })).status, 302);
+  const [{ id }] = await sql(dbPath, "SELECT id FROM events WHERE title = ?", [newEvent.title]);
+  assert.deepEqual(await namesFor(id), initialNames);
+  assert.match(await (await editor(`edit=${id}`)).text(), /Friends &amp; Arts, Inc\./);
+
+  const suggestions = `${baseUrl}/admin/event-field-suggestions?type=organizer&city=Enumclaw&q=friends`;
+  assert.deepEqual((await (await fetch(suggestions, { headers: { cookie } })).json()).data,
+    [{ value: "Friends & Arts, Inc.", city: "Enumclaw" }]);
+  assert.equal((await fetch(suggestions, { headers: { cookie: organizerCookie } })).status, 403);
+
+  const edit = { ...newEvent, id: String(id), eventBaseRevision: "1", eventEditToken: "" };
+  assert.equal((await post({ ...edit, saveChangesDraft: "1" }, ["Guest Partners"], organizerCookie)).status, 403);
+  const duplicate = await post({ ...edit, saveChangesDraft: "1" }, [" arts  council "]);
+  assert.equal(duplicate.status, 400);
+  assert.match(await duplicate.text(), /must be unique/);
+  assert.equal(await editTokenFor(id), undefined);
+  assert.equal((await post({ ...edit, saveChangesDraft: "1" }, ["Guest Partners"])).status, 303);
+  assert.deepEqual(await namesFor(id), initialNames);
+  const publicMatch = async () => (await (await fetch(
+    baseUrl + "/events?city=Enumclaw&status=all&windowDays=3650&expand=0&organizer=Friends%20%26%20Arts%2C%20Inc."
+  )).json()).data;
+  const cached = await publicMatch();
+  assert.deepEqual(cached.map(event => event.id), [id]);
+  assert.ok(cached[0].organizers.some(({ name }) => name === "Friends & Arts, Inc."));
+  const eventEditToken = await editTokenFor(id);
+  const revisionDraft = await (await editor(`edit=${id}`)).text();
+  assert.match(revisionDraft, /name="additionalOrganizers" value="Guest Partners"/);
+  assert.doesNotMatch(revisionDraft, /name="additionalOrganizers" value="Friends/);
+
+  assert.equal((await post({ ...edit, eventEditToken: "stale" }, [])).status, 409);
+  assert.equal((await post({ ...edit, eventEditToken })).status, 302);
+  assert.deepEqual(await namesFor(id), ["Guest Partners"]);
+  assert.deepEqual(await publicMatch(), []);
+  assert.equal((await post({ ...edit, eventBaseRevision: "2" }, ["Guest Partners"])).status, 302);
+  assert.equal((await sql(dbPath, "SELECT revision FROM events WHERE id = ?", [id]))[0].revision, 2);
+  assert.equal((await post({ ...edit, eventBaseRevision: "2" }, [])).status, 302);
+  assert.deepEqual(await namesFor(id), []);
+  assert.deepEqual((await sql(dbPath, "SELECT organizer, revision FROM events WHERE id = ?", [id]))[0],
+    { organizer: "Arts Council", revision: 3 });
+});
+
+test("public additional organizers survive both approval paths, failures, and retries", async (t) => {
+  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-organizer-approval-"));
+  const dbPath = path.join(testDir, "opencircle.db");
+  const port = 36000 + Math.floor(Math.random() * 1000);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const server = spawn(process.execPath, ["server.js"], {
+    cwd: path.resolve(__dirname, ".."),
+    env: { PATH: process.env.PATH, NODE_PATH: process.env.NODE_PATH, DB_PATH: dbPath, PORT: String(port) },
+    stdio: "ignore",
+  });
+  t.after(() => { server.kill(); fs.rmSync(testDir, { recursive: true, force: true }); });
+  await waitForHealth(baseUrl);
+  const password = "approval test password";
+  const passwordHash = await hashPassword(password);
+  for (const [name, role] of [["approver", "admin"], ["Guest Partners", "organizer"]]) {
+    await sql(dbPath, "INSERT INTO users(username,passwordHash,role,city) VALUES (?,?,?,'Enumclaw')", [name, passwordHash, role]);
+  }
+  const admin = await signIn(baseUrl, "approver", password);
+  const organizer = await signIn(baseUrl, "Guest Partners", password);
+  let submissionAddress = 0;
+  const submit = (title, fields = {}) => fetch(baseUrl + "/events/submit", {
+    method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": `192.0.2.${++submissionAddress}` },
+    body: JSON.stringify({ ...Object.fromEntries(new URLSearchParams(eventForm({ title }))), ...fields }),
+  });
+  const sendSubmission = async (title, fields) => {
+    const response = await submit(title, fields);
+    assert.equal(response.status, 200, await response.clone().text());
+    return (await response.json()).id;
+  };
+  const approve = (id, cookie = admin) => fetch(`${baseUrl}/admin/approve-events/${id}/approve`, {
+    method: "POST", redirect: "manual", headers: { cookie },
+  });
+  const approveInEditor = (id, title, fields = {}, cookie = admin) => fetch(baseUrl + "/admin/events", {
+    method: "POST", redirect: "manual", headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+    body: eventForm({ pendingId: String(id), title, ...fields }),
+  });
+  const pending = (id) => sql(dbPath, "SELECT organizer, additionalOrganizersJson FROM pending_events WHERE id = ?", [id]);
+  const published = (title) => sql(dbPath, "SELECT id, city, organizer, hasRecurrence FROM events WHERE title = ?", [title]);
+  const names = async (id) => (await sql(dbPath,
+    "SELECT name FROM event_additional_organizers WHERE eventId = ? ORDER BY position", [id])).map(({ name }) => name);
+
+  const legacy = await sendSubmission("Legacy intake");
+  assert.deepEqual(await pending(legacy), [{ organizer: "Arts Council", additionalOrganizersJson: null }]);
+  assert.equal((await approve(legacy)).status, 302);
+  assert.deepEqual(await names((await published("Legacy intake"))[0].id), []);
+
+  for (const additionalOrganizers of [null, "Other", [42], [" "], ["x".repeat(201)], Array(11).fill("Other"), ["Arts  COUNCIL"], ["Same", "same"]]) {
+    const response = await submit("Invalid intake", { additionalOrganizers });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).ok, false);
+  }
+  assert.equal((await sql(dbPath, "SELECT id FROM pending_events WHERE title = 'Invalid intake'")).length, 0);
+
+  const partners = ["Guest Partners", "Friends  & Arts, Inc."];
+  const direct = await sendSubmission("Direct intake", { additionalOrganizers: partners, hasRecurrence: "1", recurrenceType: "weekly", weeklyByDay: ["SU"] });
+  assert.deepEqual(JSON.parse((await pending(direct))[0].additionalOrganizersJson), partners);
+  assert.deepEqual(await published("Direct intake"), []);
+  assert.equal((await approve(direct, organizer)).status, 403);
+  assert.equal((await approveInEditor(direct, "Direct intake", {}, organizer)).status, 403);
+  assert.equal((await fetch(`${baseUrl}/admin/create-events?pending=${direct}`, { headers: { cookie: organizer } })).status, 403);
+  const reviewed = await fetch(`${baseUrl}/admin/create-events?pending=${direct}`, { headers: { cookie: admin } });
+  assert.match(await reviewed.text(), /Friends  &amp; Arts, Inc\./);
+
+  await sql(dbPath, `CREATE TRIGGER fail_pending_organizer BEFORE INSERT ON event_additional_organizers
+    WHEN NEW.nameKey = 'guest partners'
+    BEGIN SELECT RAISE(ABORT, 'fixture association failure'); END`);
+  assert.equal((await approve(direct)).status, 500);
+  assert.equal((await approveInEditor(direct, "Direct intake")).status, 500);
+  assert.deepEqual(await published("Direct intake"), []);
+  assert.deepEqual(JSON.parse((await pending(direct))[0].additionalOrganizersJson), partners);
+  assert.deepEqual(await sql(dbPath, "SELECT * FROM event_changes WHERE revision = 1 AND eventId NOT IN (SELECT id FROM events)"), []);
+  await sql(dbPath, "DROP TRIGGER fail_pending_organizer");
+
+  const directResults = await Promise.all([approve(direct), approve(direct)]);
+  assert.ok(directResults.every(response => response.status === 302));
+  const directRows = await published("Direct intake");
+  assert.equal(directRows.length, 1);
+  assert.equal(directRows[0].hasRecurrence, 1);
+  assert.deepEqual(await names(directRows[0].id), partners);
+  assert.deepEqual(await pending(direct), []);
+  assert.equal((await approveInEditor(direct, "Direct intake")).status, 404);
+
+  const editor = await sendSubmission("Editor intake", { additionalOrganizers: partners });
+  assert.equal((await approveInEditor(editor, "Editor intake", { organizer: "guest partners" })).status, 400);
+  assert.equal((await pending(editor)).length, 1);
+  assert.equal((await approveInEditor(editor, "Editor intake")).status, 302);
+  assert.deepEqual(await names((await published("Editor intake"))[0].id), partners);
+
+  const plateau = await sendSubmission("Plateau intake", { city: "Plateau Regional", additionalOrganizers: partners });
+  const plateauReview = await approve(plateau);
+  assert.equal(plateauReview.status, 302);
+  assert.match(plateauReview.headers.get("location"), /workspace=Plateau%20Regional/);
+  assert.deepEqual(await published("Plateau intake"), []);
+  const plateauPage = await fetch(new URL(plateauReview.headers.get("location"), baseUrl), { headers: { cookie: admin } });
+  assert.match(await plateauPage.text(), /Friends  &amp; Arts, Inc\./);
+  const plateauEdit = { additionalOrganizersPresent: "1", additionalOrganizers: partners[1] };
+  const plateauResults = await Promise.all([
+    approveInEditor(plateau, "Plateau intake", plateauEdit),
+    approveInEditor(plateau, "Plateau intake", plateauEdit),
+  ]);
+  assert.deepEqual(plateauResults.map(response => response.status).sort(), [302, 404]);
+  const plateauRows = await published("Plateau intake");
+  assert.equal(plateauRows.length, 1);
+  assert.equal(plateauRows[0].city, "Buckley");
+  assert.equal(plateauRows[0].organizer, "Arts Council");
+  assert.deepEqual(await names(plateauRows[0].id), [partners[1]]);
+  assert.deepEqual(await pending(plateau), []);
 });

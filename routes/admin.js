@@ -54,13 +54,35 @@ const { bulkImportUpload, formatEventImage, persistFormattedEventImage, persistI
 const { UPDATE_STATUSES, categoriesForCity, ensureUniqueUpdateSlug, ensureUpdatesSchema, communityTimezone, normalizeTags, parseScheduleLocal, sanitizeUpdateHtml } = require("../lib/updates");
 const { generateOccurrences } = require("./events");
 const {
+  AdditionalOrganizerValidationError,
+  MAX_ADDITIONAL_ORGANIZERS,
+  MAX_ORGANIZER_NAME_LENGTH,
   canTransitionLifecycle,
   createEventWithChange,
   deleteEventWithChange,
   effectiveLifecycleState,
   normalizeLifecycleState,
+  organizerNameKey,
+  readAdditionalOrganizers,
+  readAdditionalOrganizersByEvent,
   updateEventWithChange,
+  validateAdditionalOrganizers,
 } = require("../lib/event-lifecycle");
+
+function renderAdditionalOrganizerRow(name, index, suggest) {
+  const id = `eventAdditionalOrganizer-${index}`;
+  return `
+    <div data-additional-organizer-row>
+      <label for="${id}">Additional organizer (optional)</label>
+      <div class="event-additional-organizer-field">
+        <div>
+          <input class="ctrl" id="${id}" name="additionalOrganizers" value="${esc(name)}"
+            maxlength="${MAX_ORGANIZER_NAME_LENGTH}" ${suggest ? 'data-event-suggest="organizer"' : ""} />
+        </div>
+        <button class="btn" type="button" data-remove-organizer aria-label="Remove additional organizer ${index}">Remove</button>
+      </div>
+    </div>`;
+}
 
 function normalizeCategories(input) {
   let arr = [];
@@ -4032,6 +4054,29 @@ function getDashboardNewsletterFailureScope(cities) {
   };
 }
 
+const ORGANIZER_ATTRIBUTION_HELP = "Reports use current organizer names. Shared events count in each organizer’s report, so organizer totals can exceed the community total.";
+
+async function loadOrganizerAttribution(events) {
+  const additionalByEvent = await readAdditionalOrganizersByEvent(events.map(({ id }) => id));
+  const labels = new Map();
+  const keysByEvent = new Map();
+  // Prefer a primary display name when the same name also appears as a collaborator.
+  for (const event of [...events].sort((a, b) => a.id - b.id)) {
+    const name = String(event.organizer ?? "").trim();
+    const key = organizerNameKey(name);
+    if (key && !labels.has(key)) labels.set(key, name);
+    keysByEvent.set(event.id, new Set(key ? [key] : []));
+  }
+  for (const [id, organizers] of additionalByEvent) {
+    const keys = keysByEvent.get(id);
+    for (const { name, nameKey } of organizers) {
+      if (!labels.has(nameKey)) labels.set(nameKey, name);
+      keys.add(nameKey);
+    }
+  }
+  return { labels, keysByEvent };
+}
+
 async function buildDashboardSummaryAnalytics(user, req, period) {
   const role = normalizeRoleValue(user?.role);
   const requestedDashboardScope = String(req?.query?.dashboardScope || "all").trim();
@@ -4242,7 +4287,9 @@ async function buildDashboardSummaryAnalytics(user, req, period) {
     previousViews: acc.previousViews === null || summary.previousViews === null ? null : acc.previousViews + summary.previousViews,
   }), { publishedEvents: 0, eventsAdded: 0, previousEventsAdded: 0, views: engagementAvailable ? 0 : null, previousViews: engagementAvailable ? 0 : null });
 
-  const activeOrganizers = new Set(scopedEvents.map((event) => normalizeOrganizerIdentity(event.organizer)).filter(Boolean)).size;
+  const activeOrganizers = role === "organizer"
+    ? new Set(scopedEvents.map((event) => normalizeOrganizerIdentity(event.organizer)).filter(Boolean)).size
+    : (await loadOrganizerAttribution(scopedEvents)).labels.size;
   const series = [];
   for (let cursor = period.start.startOf("day"); cursor < period.end; cursor = cursor.plus({ days: 1 })) {
     const date = cursor.toISODate();
@@ -5091,7 +5138,7 @@ const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "").trim())
   ? String(req.query.to).trim()
   : "";
 const analyticsMetricHelp = {
-  organizers: "Organizer names with a scheduled date or tracked view in this period.",
+  organizers: "Current primary and additional organizers with a scheduled date or tracked view in this period.",
   totalEvents: "Scheduled dates that start in the reporting period, including recurring dates.",
   uniqueEvents: "Event listings with at least one scheduled date in the reporting period.",
   upcoming: "Events or event dates that have not ended yet.",
@@ -5923,6 +5970,10 @@ try {
     const organizerFormValue = isOrganizerUser
       ? (organizerPrimaryName || String(editEvent?.organizer || ""))
       : String(editEvent?.organizer || "");
+    const additionalOrganizerNames = view === "create"
+      ? editEvent?.additionalOrganizers ?? (fromPending ? JSON.parse(pendingEvent.additionalOrganizersJson ?? "[]")
+        : liveEditorEvent ? await readAdditionalOrganizers(liveEditorEvent.id) : [])
+      : [];
     const currentEventLifecycleState = editEvent && !fromPending && !eventDraft
       ? effectiveLifecycleState(liveEditorEvent || editEvent)
       : "scheduled";
@@ -7159,12 +7210,20 @@ return `
     const topPeriodEventsHtml = periodViewsAvailable
       ? renderTopEventsByViewRows(rankedEvents.slice(0, 5), "No views in this reporting period.")
       : topEventsFallback;
+    const attribution = isEventsAnalyticsView || view === "events-organizers"
+      ? await loadOrganizerAttribution(dashboardEventRows) : null;
+    const organizerKeysFor = (event) => {
+      const keys = attribution?.keysByEvent.get(event.id);
+      return keys?.size ? [...keys] : [""];
+    };
+    const organizerLabelFor = (key) => attribution?.labels.get(key) || "(unknown)";
     const organizerPeriodViews = new Map();
     for (const event of rankedEvents) {
-      const organizer = String(event.organizer || "").trim() || "(unknown)";
-      organizerPeriodViews.set(organizer, (organizerPeriodViews.get(organizer) || 0) + event.periodViews);
+      for (const key of organizerKeysFor(event)) {
+        organizerPeriodViews.set(key, (organizerPeriodViews.get(key) || 0) + event.periodViews);
+      }
     }
-    const orgRows = [...organizerPeriodViews].map(([organizer, totalViews]) => ({ organizer, totalViews }))
+    const orgRows = [...organizerPeriodViews].map(([key, totalViews]) => ({ organizer: organizerLabelFor(key), totalViews }))
       .sort((a, b) => b.totalViews - a.totalViews || a.organizer.localeCompare(b.organizer)).slice(0, 5);
 
     const topOrganizersHtml = orgRows
@@ -7188,7 +7247,7 @@ return `
         : [];
       const uniqueCategories = [...new Set(categories.map((category) => String(category || "").trim()).filter(Boolean))];
       const views = activity.tracked;
-      const organizer = String(event?.organizer || "").trim() || "(unknown)";
+      const organizerKeys = organizerKeysFor(event);
       for (const category of uniqueCategories) {
         if (!categoryAnalytics.has(category)) {
           categoryAnalytics.set(category, { category, events: 0, views: 0, organizers: new Map(), eventRows: new Map() });
@@ -7196,10 +7255,12 @@ return `
         const categoryRow = categoryAnalytics.get(category);
         categoryRow.events += 1;
         categoryRow.views += views;
-        const organizerRow = categoryRow.organizers.get(organizer) || { organizer, events: 0, views: 0 };
-        organizerRow.events += 1;
-        organizerRow.views += views;
-        categoryRow.organizers.set(organizer, organizerRow);
+        for (const key of organizerKeys) {
+          const organizerRow = categoryRow.organizers.get(key) || { organizer: organizerLabelFor(key), events: 0, views: 0 };
+          organizerRow.events += 1;
+          organizerRow.views += views;
+          categoryRow.organizers.set(key, organizerRow);
+        }
         const eventId = Number(event?.id || 0);
         const eventRow = categoryRow.eventRows.get(eventId) || {
           id: eventId,
@@ -7234,7 +7295,7 @@ return `
       ? categoryAnalyticsRows.slice(0, 10).map((row) => {
           const leader = row.leader;
           const organizerHref = leader && leader.organizer !== "(unknown)"
-            ? `/admin/events-organizers?organizer=${encodeURIComponent(leader.organizer)}${selectedCity ? `&city=${encodeURIComponent(selectedCity)}` : ""}`
+            ? buildScopedAdminHref("/admin/events-organizers", { ...analyticsPeriodParams, organizer: leader.organizer })
             : "";
           const organizerLabel = leader
             ? (organizerHref ? `<a href="${esc(organizerHref)}" title="${esc(leader.organizer)}">${esc(leader.organizer)}</a>` : esc(leader.organizer))
@@ -7450,7 +7511,7 @@ return `
     }
     let selectedEventAnalytics = null;
     let analyticsSideTitle = "Top organizers";
-    let analyticsSideSub = "Highest measured event views in the selected period";
+    let analyticsSideSub = "Highest tracked views in the selected period. " + ORGANIZER_ATTRIBUTION_HELP;
     let analyticsSideBodyHtml = `<div class="mini mini-list">${topOrganizersHtml}</div>`;
     if (isEventsAnalyticsView && requestedEventId) {
       const selectedEventCreatedAtSql = cols.has("createdAt") ? "createdAt" : "NULL AS createdAt";
@@ -10106,10 +10167,12 @@ return `
 
     if (showOrganizers) {
       const organizerMap = new Map();
-      const organizerName = (event) => String(event.organizer || "").trim() || "(unknown)";
-      organizerAnalyticsOptions = [...new Set(dashboardEventRows.map(organizerName))].sort((a, b) => a.localeCompare(b));
-      const requestedOrganizer = String(req.query.organizer || "").trim();
-      selectedOrganizer = organizerAnalyticsOptions.includes(requestedOrganizer) ? requestedOrganizer : "";
+      const organizerKeys = new Set(dashboardEventRows.flatMap(organizerKeysFor));
+      organizerAnalyticsOptions = [...organizerKeys].map(organizerLabelFor).sort((a, b) => a.localeCompare(b));
+      const requestedOrganizer = organizerNameKey(req.query.organizer);
+      const requestedKey = requestedOrganizer === "(unknown)" && !organizerKeys.has(requestedOrganizer) ? "" : requestedOrganizer;
+      const selectedKey = requestedOrganizer && organizerKeys.has(requestedKey) ? requestedKey : null;
+      selectedOrganizer = selectedKey === null ? "" : organizerLabelFor(selectedKey);
       const makeSummary = () => ({
         uniqueEvents: 0, totalOccurrences: 0, upcomingOccurrences: 0, views: 0, featured: 0,
         allViews: 0, directViews: 0, referralViews: 0, internalViews: 0,
@@ -10118,13 +10181,11 @@ return `
       const dates = new Map(analyticsDays.map((day) => [day, { events: 0, views: 0 }]));
       const upcomingByOrganizer = new Map();
       for (const event of dashboardEventRows) {
-        const name = organizerName(event);
+        const keys = organizerKeysFor(event);
         const upcoming = upcomingByEvent.get(event.id) || 0;
-        upcomingByOrganizer.set(name, (upcomingByOrganizer.get(name) || 0) + upcoming);
+        for (const key of keys) upcomingByOrganizer.set(key, (upcomingByOrganizer.get(key) || 0) + upcoming);
         const activity = eventPeriodActivity.get(event.id);
         if (!activity || (!activity.dates.length && !activity.tracked)) continue;
-        if (!organizerMap.has(name)) organizerMap.set(name, { organizer: name, ...makeSummary() });
-        const entry = organizerMap.get(name);
         const scheduled = Number(activity.dates.length > 0);
         const totals = {
           uniqueEvents: scheduled, totalOccurrences: activity.dates.length,
@@ -10132,11 +10193,14 @@ return `
           allViews: activity.tracked, directViews: activity.direct,
           referralViews: activity.referral, internalViews: activity.internal,
         };
-        for (const [key, value] of Object.entries(totals)) {
-          entry[key] += value;
-          if (!selectedOrganizer || name === selectedOrganizer) organizerPageSummary[key] += value;
+        const metrics = Object.entries(totals);
+        for (const key of keys) {
+          if (!organizerMap.has(key)) organizerMap.set(key, { organizer: organizerLabelFor(key), ...makeSummary() });
+          const entry = organizerMap.get(key);
+          for (const [metric, value] of metrics) entry[metric] += value;
         }
-        if (selectedOrganizer && name !== selectedOrganizer) continue;
+        if (selectedKey !== null && !keys.includes(selectedKey)) continue;
+        for (const [metric, value] of metrics) organizerPageSummary[metric] += value;
         for (const date of activity.dates) {
           const day = dates.get(DateTime.fromMillis(Date.parse(date), { zone: DEFAULT_TZ }).toISODate());
           if (day) day.events += 1;
@@ -10146,9 +10210,9 @@ return `
           if (day) day.views += views;
         }
       }
-      organizerPageSummary.upcomingOccurrences = selectedOrganizer ? (upcomingByOrganizer.get(selectedOrganizer) || 0) : upcoming;
-      for (const entry of organizerMap.values()) {
-        entry.upcomingOccurrences = upcomingByOrganizer.get(entry.organizer) || 0;
+      organizerPageSummary.upcomingOccurrences = selectedKey === null ? upcoming : (upcomingByOrganizer.get(selectedKey) || 0);
+      for (const [key, entry] of organizerMap) {
+        entry.upcomingOccurrences = upcomingByOrganizer.get(key) || 0;
       }
       organizerSummary = organizerPageSummary;
       organizerLeaderboard = [...organizerMap.values()].sort((a, b) =>
@@ -10172,13 +10236,13 @@ return `
         views: { labels: organizerChartLabels, values: organizerChartViewValues },
       });
       organizerTopEventsHtml = renderTopEventsByViewRows(
-        rankedEvents.filter((event) => !selectedOrganizer || organizerName(event) === selectedOrganizer).slice(0, 5),
+        rankedEvents.filter((event) => selectedKey === null || organizerKeysFor(event).includes(selectedKey)).slice(0, 5),
         periodViewsAvailable ? "No event views in this reporting period." : trackingUnavailable
       );
       if (selectedOrganizer) {
         organizerChartTitle = `${selectedOrganizer} performance`;
         organizerInsightsHeading = selectedOrganizer;
-        organizerInsightsSub = "Activity during the selected reporting period";
+        organizerInsightsSub = "Activity during the selected reporting period. " + ORGANIZER_ATTRIBUTION_HELP;
         organizerTopEventsTitle = `Top events for ${selectedOrganizer}`;
         organizerSelectionHtml = `
           <div class="mini" style="margin-bottom:12px;">
@@ -12918,6 +12982,16 @@ return `
         background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-inner); box-shadow:var(--shadow);
       }
       .event-parent-results{ list-style:none; margin:0; padding:0; }
+      .event-additional-organizers{ margin-top:12px; }
+      .event-additional-organizer-field{
+        display:grid;
+        grid-template-columns:minmax(0,1fr) auto;
+        align-items:start;
+        gap:8px;
+      }
+      .event-additional-organizer-field .ctrl,
+      .event-additional-organizer-field .btn{ margin:0; }
+      .event-additional-organizers [data-add-organizer]{ margin-top:8px; }
       .event-field-suggestion-list{
         list-style:none; margin:4px 0 0; padding:4px;
         border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel);
@@ -14775,7 +14849,7 @@ return `
             <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My upcoming events" : "Upcoming events", UPCOMING_EVENTS_HELP)}</span><strong class="v" id="dashboardKpiUpcoming">—</strong></span><span class="dashboard-kpi-detail">From today</span></a>
             <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/events-analytics")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My unique view count" : "Event views", isOrganizerUser ? "Counts distinct visitor identifiers across your included communities in this period." : "Tracked event-page views in the selected reporting period. This is not attendance or ticket sales.")}</span><strong class="v" id="dashboardKpiViews">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiViewsChange">Loading measured engagement…</span></a>
             <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref("/admin/existing-events")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel("Events added", "Events created during the selected reporting period. This is separate from whether an event has been published.")}</span><strong class="v" id="dashboardKpiAdded">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiAddedChange">Loading…</span></a>
-            <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref(isOrganizerUser ? "/admin/events-analytics" : "/admin/events-organizers")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My event views" : "Active organizers", isOrganizerUser ? "Tracked event-page views across your events in the selected reporting period. This is not attendance." : "Organizers with published events in your authorized communities.")}</span><strong class="v" id="dashboardKpiOrganizers">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiOrganizersDetail">Loading…</span></a>
+            <a class="dashboard-kpi-card metric" href="${buildScopedAdminHref(isOrganizerUser ? "/admin/events-analytics" : "/admin/events-organizers")}"><span class="dashboard-kpi-content"><span class="dashboard-kpi-label k">${analyticsMetricLabel(isOrganizerUser ? "My event views" : "Active organizers", isOrganizerUser ? "Tracked event-page views across your events in the selected reporting period. This is not attendance." : "Current primary and additional organizers of published events in your authorized communities.")}</span><strong class="v" id="dashboardKpiOrganizers">—</strong></span><span class="dashboard-kpi-detail" id="dashboardKpiOrganizersDetail">Loading…</span></a>
           </div>
 
           <div class="dashboard-command-columns" data-support-card-count="${visibleDashboardCardCount}">
@@ -15145,7 +15219,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2 id="organizerRankingTitle">Top 10 organizers</h2>
-                <p class="sub">Ranked by tracked event views in the selected period.</p>
+                <p class="sub">Ranked by tracked event views in the selected period. ${esc(ORGANIZER_ATTRIBUTION_HELP)}</p>
               </div>
             </div>
             <div class="mini analytics-ranking-scroll" role="region" aria-labelledby="organizerRankingTitle" tabindex="0">
@@ -15199,7 +15273,7 @@ return `
             <div class="sectionTitle">
               <div>
                 <h2 id="categoryLeadersTitle">Category leaders</h2>
-                <p class="sub" id="categoryLeaderSubtitle">Organizer with the most views in each category during this period.</p>
+                <p class="sub" id="categoryLeaderSubtitle">Organizer with the most views in each category during this period. Shared events credit each current organizer.</p>
               </div>
               <div class="seg" data-category-leader-toggle aria-label="Category leader type">
                 <button type="button" class="on" data-category-leader-mode="organizer" aria-pressed="true">Organizer</button>
@@ -17023,6 +17097,17 @@ return `
                     </select>
                   </div>
                 </div>
+                <div class="event-additional-organizers" role="group" aria-label="Additional organizers (optional)"
+                  data-additional-organizers data-limit="${MAX_ADDITIONAL_ORGANIZERS}">
+                  <input type="hidden" name="additionalOrganizersPresent" value="1" />
+                  <div data-additional-organizer-rows>
+                    ${additionalOrganizerNames.map((name, index) => renderAdditionalOrganizerRow(name, index + 1, hasDeveloperAccess && !!currentUser?.id)).join("")}
+                  </div>
+                  <template>${renderAdditionalOrganizerRow("", 0, hasDeveloperAccess && !!currentUser?.id)}</template>
+                  <button type="button" class="btn" data-add-organizer aria-describedby="additionalOrganizerLimit">Add Another Organizer</button>
+                  <div class="note" id="additionalOrganizerLimit" role="status" hidden>You can add up to ${MAX_ADDITIONAL_ORGANIZERS} additional organizers.</div>
+                  <div class="note admin-notice--error" id="additionalOrganizerError" data-organizer-error role="alert" hidden></div>
+                </div>
                 <script>
                   (function(){
                     const city = document.getElementById("cityHidden");
@@ -17186,7 +17271,7 @@ return `
               </div>
               </div>
               <script defer src="/assets/event-parent-picker.js?v=7"></script>
-              <script defer src="/assets/event-field-suggestions.js"></script>
+              <script defer src="/assets/event-field-suggestions.js?v=2"></script>
             </form>
           </div>
           ` : ``}
@@ -21703,7 +21788,7 @@ return `
       });
       if (subtitle) subtitle.textContent = mode === 'event'
         ? 'Event with the most views in each category during this period.'
-        : 'Organizer with the most views in each category during this period.';
+        : 'Organizer with the most views in each category during this period. Shared events credit each current organizer.';
     });
   })();
 
@@ -22010,27 +22095,35 @@ router.get("/event-field-suggestions", async (req, res) => {
   if (!cities.includes(city)) return res.sendStatus(403);
   const query = q.trim().replace(/\s+/g, " ").toLowerCase();
   if (query.length < 2) return res.json({ data: [] });
-  const field = type === "location" ? "e.location" : "e.organizer";
+  const source = type === "location"
+    ? "SELECT location AS value, city, 0 AS sourceOrder, NULL AS storedKey FROM authorizedEvents"
+    : `SELECT organizer AS value, city, 0 AS sourceOrder, NULL AS storedKey FROM authorizedEvents
+       UNION ALL
+       SELECT o.name AS value, e.city, 1 AS sourceOrder, o.nameKey AS storedKey
+         FROM authorizedEvents e JOIN event_additional_organizers o ON o.eventId = e.id`;
   const owner = organizerLocation ? buildOrganizerOwnerClause("e.organizer", getOrganizerAccessValues(user, req)) : null;
   // Insert a separator after each space, then remove separators between
   // adjacent spaces. Match and deduplicate with the same normalized key.
   const spaces = [9, 10, 11, 12, 13, 31].reduce(
-    (value, code) => `replace(${value}, char(${code}), ' ')`, field
+    (expression, code) => `replace(${expression}, char(${code}), ' ')`, "value"
   );
   const data = await all(
-    `WITH candidates AS (
-       SELECT ${field} AS value, e.city,
-              lower(trim(replace(replace(replace(${spaces}, ' ', ' ' || char(31)), char(31) || ' ', ''), char(31), ''))) AS matchKey
-       FROM events e
-       WHERE e.city IN (${cities.map(() => "?").join(", ")})
-         AND ${availableEventSql("e")}
-         ${owner ? `AND ${owner.sql}` : ""}
+    `WITH authorizedEvents AS (
+       SELECT e.id, e.city, e.organizer, e.location
+         FROM events e
+        WHERE e.city IN (${cities.map(() => "?").join(", ")})
+          AND ${availableEventSql("e")}
+          ${owner ? `AND ${owner.sql}` : ""}
+     ), sources AS (${source}), candidates AS (
+       SELECT value, city, sourceOrder,
+              COALESCE(storedKey, lower(trim(replace(replace(replace(${spaces}, ' ', ' ' || char(31)), char(31) || ' ', ''), char(31), '')))) AS matchKey
+       FROM sources
      ), ranked AS (
-       SELECT value, city, matchKey, city = ? AS localMatch, instr(matchKey, ?) AS position,
+       SELECT value, city, matchKey, sourceOrder, city = ? AS localMatch, instr(matchKey, ?) AS position,
               matchKey = ? AS exactMatch
        FROM candidates
      ), distinctMatches AS (
-       SELECT *, row_number() OVER (PARTITION BY matchKey ORDER BY localMatch DESC, value COLLATE NOCASE, value, city) AS choice
+       SELECT *, row_number() OVER (PARTITION BY matchKey ORDER BY localMatch DESC, sourceOrder, value COLLATE NOCASE, value, city) AS choice
        FROM ranked WHERE position > 0
      )
      SELECT value, city FROM distinctMatches WHERE choice = 1
@@ -23540,6 +23633,17 @@ function eventDraftFields(body) {
   }));
 }
 
+function readSubmittedAdditionalOrganizers(body, primaryOrganizer, savedPayloadJson) {
+  let value = body.additionalOrganizers;
+  if (typeof value === "string") value = [value];
+  if (value === undefined) {
+    value = body.additionalOrganizersPresent === "1" ? []
+      : safeParseJson(savedPayloadJson, {})?.additionalOrganizers;
+  }
+  return value === undefined ? undefined
+    : validateAdditionalOrganizers(value, primaryOrganizer).map(({ name }) => name);
+}
+
 function eventDraftFormValues(draft) {
   const payload = safeParseJson(draft.payloadJson, {});
   const list = key => [].concat(payload[key] || []);
@@ -23605,6 +23709,9 @@ async function saveNewEventDraft(req, res, user) {
   if (draftId && !existingDraft) return res.status(404).send("Draft not found.");
   if (existingDraft?.publishedEventId) return res.status(409).send("This draft was already published.");
   const payload = eventDraftFields(req.body);
+  const primaryOrganizer = user.role === "organizer" ? getOrganizerPrimaryName(user, req) : payload.organizer;
+  const additionalOrganizers = readSubmittedAdditionalOrganizers(req.body, primaryOrganizer, existingDraft?.payloadJson);
+  if (additionalOrganizers !== undefined) payload.additionalOrganizers = additionalOrganizers;
   if (payload.imageUrl && !normalizeHttpUrl(payload.imageUrl)) delete payload.imageUrl;
   const payloadJson = JSON.stringify(payload);
   if (Buffer.byteLength(payloadJson) > 2 * 1024 * 1024) return res.status(413).send("This draft is too large.");
@@ -23652,8 +23759,9 @@ router.get("/events/:id/unpublished-image", async (req, res) => {
 
 const UNPUBLISHED_CONFLICT = "The public event or its draft changed. Reopen the editor before trying again.";
 
-async function saveEventUnpublishedChanges(req, res, live, publication, city) {
+async function saveEventUnpublishedChanges(req, res, live, publication, city, additionalOrganizers) {
   const payload = eventDraftFields(req.body);
+  if (additionalOrganizers !== undefined) payload.additionalOrganizers = additionalOrganizers;
   for (const key of ["startDateTimeISO", "endDateTimeISO"]) {
     if (typeof req.body[key] === "string") payload[key] = req.body[key];
   }
@@ -23819,9 +23927,13 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
         return res.status(409).send(UNPUBLISHED_CONFLICT);
       }
       publication = { editToken, baseRevision, liveCity: liveEvent.city, liveOrganizer: liveEvent.organizer };
-      if (savingChanges) return await saveEventUnpublishedChanges(req, res, liveEvent, publication, city);
       if (req.body.imageUrl === undefined) imageUrl = liveEvent.imageUrl;
     }
+
+    const additionalOrganizers = readSubmittedAdditionalOrganizers(
+      req.body, organizer, unpublished?.payloadJson ?? publishingDraft?.payloadJson
+    );
+    if (savingChanges) return await saveEventUnpublishedChanges(req, res, liveEvent, publication, city, additionalOrganizers);
 
     // If a file was uploaded, prefer it over the URL field.
     if (req.file && !publishingDraft && !publication) {
@@ -24288,6 +24400,7 @@ router.post("/events", upload.single("imageFile"), async (req, res) => {
 const updated = await updateEventWithChange({
   eventId: Number(id),
   fields,
+  additionalOrganizers,
   actorUserId: sessionUser?.id || null,
   changeType: requestedLifecycleAction ? "lifecycle" : "updated",
   publication,
@@ -24327,6 +24440,7 @@ return res.redirect(`/admin/create-events?${sp.toString()}`);
     } else {
 const created = await createEventWithChange({
   fields,
+  additionalOrganizers,
   actorUserId: sessionUser?.id || null,
   changeType: "created",
   pendingId: pendingSubmission ? pendingSubmissionId : null,
@@ -24334,13 +24448,7 @@ const created = await createEventWithChange({
 });
 if (publishingDraft && !created.event) return res.status(409).send("The draft changed. Reopen it and try again.");
 
-// If this event came from a pending submission, remove it from the queue
-if (pendingId) {
-  const pid = parseInt(pendingId, 10);
-  if (!Number.isNaN(pid)) {
-    await run("DELETE FROM pending_events WHERE id = ?", [pid]);
-  }
-}
+if (pendingSubmission && !created.event) return res.status(404).send("Submission not found.");
 
 const pg = req.query.pg ? String(req.query.pg) : "1";
 const limit = req.query.limit ? String(req.query.limit) : "20";
@@ -24367,6 +24475,7 @@ return res.redirect(`/admin/create-events?${sp.toString()}`);
 
     }
   } catch (err) {
+    if (err instanceof AdditionalOrganizerValidationError) return res.status(400).send(err.message);
     const parentError = parentEventError(err);
     if (parentError) {
       return req.is("application/json") || req.get("accept")?.includes("application/json")
@@ -24779,11 +24888,11 @@ router.post("/approve-events/:id/approve", async (req, res) => {
     }
 
     const newId = await insertEventFromPending(pending, sessionUser?.id || null);
-    await run("DELETE FROM pending_events WHERE id = ?", [id]);
 
     if (newId) return res.redirect(`/admin/create-events?edit=${newId}`);
     return res.redirect("/admin/approve-events");
   } catch (err) {
+    if (err instanceof AdditionalOrganizerValidationError) return res.status(400).send(err.message);
     console.error(err);
     return res.status(500).send("Server error.");
   }
@@ -24796,7 +24905,7 @@ router.post("/approve-events/:id/deny", async (req, res) => {
     if (!hasDeveloperAccessRole(role)) return res.status(403).send("Forbidden");
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).send("Invalid ID.");
-    await run("DELETE FROM pending_events WHERE id = ?", [id]);
+    await transaction(tx => tx.run("DELETE FROM pending_events WHERE id = ?", [id]));
     return res.redirect("/admin/approve-events");
   } catch (err) {
     console.error(err);
