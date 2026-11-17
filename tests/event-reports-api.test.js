@@ -229,7 +229,7 @@ test("event reports are validated, persisted, and rate limited without changing 
     const editor = await admin(`/admin/create-events?edit=1&reviewReport=${row.id}&reportType=${type}`);
     const editorMarkup = await editor.text();
     assert.equal(editor.status, 200);
-    assert.ok(editorMarkup.includes(`Reported issue: ${label}`));
+    assert.ok(editorMarkup.includes(`id="event-report-review-heading">${label}</h3>`));
     const expectedSections = {
       cancelled: ["lifecycle", "schedule"],
       date_time_changed: ["schedule"],
@@ -250,8 +250,8 @@ test("event reports are validated, persisted, and rate limited without changing 
   assert.equal(review.status, 200);
   assert.equal(review.headers.get("cache-control"), "private, no-store");
   const markup = await review.text();
-  assert.match(markup, /Reported issue: Event canceled/);
-  assert.match(markup, /event-report-review-message">One</);
+  assert.match(markup, /id="event-report-review-heading">Event canceled</);
+  assert.match(markup, /id="event-report-review-message">One</);
   assert.match(markup, /event-form-schedule" data-report-review-area/);
   assert.match(markup, /id="eventLifecycleSection" data-report-review-area/);
   assert.match(markup, /reportType=cancelled[^"]*">Back to Event Reports/);
@@ -259,7 +259,7 @@ test("event reports are validated, persisted, and rate limited without changing 
 
   const general = await admin(`/admin/create-events?edit=1&reviewReport=${created.report.id}`);
   const generalMarkup = await general.text();
-  assert.match(generalMarkup, /Reported issue: Event details changed/);
+  assert.match(generalMarkup, /id="event-report-review-heading">Event details changed</);
   assert.doesNotMatch(generalMarkup, / data-report-review-area>/);
   assert.doesNotMatch(generalMarkup, /reporter@example.com/);
 
@@ -280,7 +280,7 @@ test("event reports are validated, persisted, and rate limited without changing 
   assert.equal(save.status, 302, await save.clone().text());
   assert.match(save.headers.get("location"), new RegExp(`reviewReport=${cancellationRow.id}`));
   assert.equal((await getSql(dbPath, "SELECT status FROM event_reports WHERE id = ?", [cancellationRow.id])).status, "open");
-  assert.match(await (await admin(save.headers.get("location"))).text(), /Reported issue: Event canceled/);
+  assert.match(await (await admin(save.headers.get("location"))).text(), /id="event-report-review-heading">Event canceled</);
 
   const password = "disposable organizer password";
   const passwordHash = await hashPassword(password);
@@ -306,7 +306,7 @@ test("event reports are validated, persisted, and rate limited without changing 
     });
     if (username === "Fixture Organizer") {
       assert.equal(memberReview.status, 200);
-      assert.match(await memberReview.text(), /Reported issue: Event canceled/);
+      assert.match(await memberReview.text(), /id="event-report-review-heading">Event canceled</);
     } else {
       assert.equal(memberReview.status, 302);
       assert.match(memberReview.headers.get("location"), /reportNotice=review_unavailable/);
@@ -333,7 +333,7 @@ test("event reports are validated, persisted, and rate limited without changing 
     { status: "dismissed", resolutionNote: "Duplicate report." });
   assert.equal((await getSql(dbPath, "SELECT status FROM event_reports WHERE reportType = 'other'")).status, "open");
   await execSql(dbPath, "UPDATE events SET archived = 1, lifecycleState = 'archived' WHERE id = 1");
-  assert.match(await (await admin(reviewUrl)).text(), /Report #.*Resolved/);
+  assert.match(await (await admin(reviewUrl)).text(), /event-report-review-status">Resolved</);
   await execSql(dbPath, "DELETE FROM events WHERE id = 1");
   assert.match((await admin(reviewUrl)).headers.get("location"), /reportNotice=review_unavailable/);
 });

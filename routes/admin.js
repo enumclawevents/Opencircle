@@ -12949,9 +12949,28 @@ return `
         padding:24px 0;
         border-top:1px solid var(--line);
       }
-      .event-report-review{ margin:0 0 var(--gap); overflow-wrap:anywhere; }
-      .event-report-review .sectionTitle{ align-items:center; flex-wrap:wrap; gap:8px; }
-      .event-report-review-message{ white-space:pre-wrap; }
+      /* The header and report share one sticky container, so the report
+         always follows the header's actual height at the current width. */
+      .event-report-review-toolbar{
+        position:sticky; top:0; z-index:35; display:grid; gap:6px;
+        padding-block:4px 8px; margin-bottom:10px; background:var(--panel);
+      }
+      .event-report-review-toolbar .header{ position:relative; z-index:1; margin:0; }
+      html:has([data-report-review-toolbar]){ scroll-padding-top:var(--report-review-scroll-padding, 0px); }
+      .event-report-review.mini{ padding:8px 12px; overflow-wrap:anywhere; box-shadow:none; }
+      .event-report-review-row,.event-report-review-meta{ display:flex; align-items:center; flex-wrap:wrap; gap:4px 8px; }
+      .event-report-review-row{ justify-content:space-between; }
+      .event-report-review-meta{ flex:1 1 15rem; min-width:0; }
+      .event-report-review-meta h3{ margin:0; font-size:1rem; }
+      .event-report-review-status.pill{ padding:1px 7px; color:var(--text); background:var(--panel2); border-color:var(--line); }
+      .event-report-review .btn{ min-height:28px; height:auto; padding:3px 8px; white-space:normal; }
+      .event-report-review-message{ margin:4px 0 0; white-space:pre-wrap; font-size:calc(13px + var(--font-up)); }
+      .event-report-review[data-description-ready] .event-report-review-message{ max-block-size:2lh; overflow:hidden; }
+      .event-report-review[data-description-expanded] .event-report-review-message{
+        max-block-size:min(22dvh, 10rem); overflow:auto; overscroll-behavior:contain;
+      }
+      .event-report-review-toggle:not([hidden]){ display:inline-flex; margin-top:4px; }
+      .event-report-review-toggle[hidden]{ display:none; }
       [data-report-review-area]{ box-shadow:inset 3px 0 var(--line); padding-inline-start:12px; }
       .event-form-section:first-child{ border-top:0; padding-top:24px; }
       .event-form-section-heading{ display:flex; align-items:center; gap:8px; margin-bottom:14px; }
@@ -14674,6 +14693,7 @@ return `
 
       <!-- Main content -->
       <main class="main" id="admin-content" tabindex="-1" data-page-loading-content>
+        ${reviewedReport ? '<div class="event-report-review-toolbar" data-report-review-toolbar>' : ""}
         <div class="header" data-page-loading-header>
           <div class="h-left">
             <button type="button" class="mobile-sidebar-toggle" id="mobileSidebarToggle" aria-label="Open sidebar" aria-expanded="false" aria-controls="adminSidebar">
@@ -14754,6 +14774,23 @@ return `
             </div>
           </div>
         </div>
+
+        ${reviewedReport ? `
+          <section class="mini event-report-review" aria-labelledby="event-report-review-heading">
+            <div class="event-report-review-row">
+              <div class="event-report-review-meta">
+                <h3 id="event-report-review-heading">${esc(EVENT_REPORT_REASON_LABELS[reviewedReport.reportType] || "Other")}</h3>
+                <span class="pill event-report-review-status">${esc(reviewedReport.status.replace(/^./, letter => letter.toUpperCase()))}</span>
+                <span class="muted small">Report #${esc(reviewedReport.id)}</span>
+              </div>
+              <a class="btn" href="${esc(eventReportReturnHref)}">Back to Event Reports</a>
+            </div>
+            <p class="event-report-review-message" id="event-report-review-message">${esc(reviewedReport.message || "No report description was provided.")}</p>
+            <button class="btn event-report-review-toggle" type="button" aria-controls="event-report-review-message" aria-expanded="false" hidden>Show more</button>
+          </section>
+        </div>
+        <script defer src="/assets/event-report-review.js"></script>
+        ` : ""}
 
         <script>
         (function(){
@@ -16437,17 +16474,6 @@ return `
               </div>
             </div>
 
-            ${reviewedReport ? `
-              <section class="mini event-report-review" aria-labelledby="event-report-review-heading">
-                <div class="sectionTitle">
-                  <h3 id="event-report-review-heading">Reported issue: ${esc(EVENT_REPORT_REASON_LABELS[reviewedReport.reportType] || "Other")}</h3>
-                  <a class="btn" href="${esc(eventReportReturnHref)}">Back to Event Reports</a>
-                </div>
-                <p class="note">Report #${esc(reviewedReport.id)} · ${esc(reviewedReport.status.replace(/^./, letter => letter.toUpperCase()))}</p>
-                <p class="event-report-review-message">${esc(reviewedReport.message || "No report description was provided.")}</p>
-                <p class="note">Review the report before deciding whether to mark it resolved or dismiss it.</p>
-              </section>
-            ` : ""}
             ${unpublishedChanges ? "<p class=\"note\">Your published event is still live. Saved changes won't appear publicly until you publish them.</p>" : ""}
             ${unpublishedChanges && req.query.changesSaved === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Changes saved as a draft.</div>' : ""}
             ${canDraftChanges && req.query.changesPublished === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Changes published.</div>' : ""}
