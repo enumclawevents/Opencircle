@@ -194,9 +194,11 @@ document.querySelectorAll('[data-parent-save-status]').forEach(status => {
   const generatedFields = new Set(['startDateTimeISO', 'endDateTimeISO', 'recurrenceDatesJson',
     'multiDayScheduleJson', 'recurrenceRuleChanged', 'lifecycleAction', 'lifecycleReason',
     'confirmRecurringLifecycle', 'recurrenceChoice']);
+  const organizerEntry = form.querySelector("[data-organizer-entry]");
   const snapshot = () => JSON.stringify(Array.from(new FormData(form))
     .filter(([name, value]) => !generatedFields.has(name) && (typeof value === 'string' || value.name))
-    .map(([name, value]) => [name, typeof value === 'string' ? value : [value.name, value.size, value.lastModified]]));
+    .map(([name, value]) => [name, typeof value === 'string' ? value : [value.name, value.size, value.lastModified]])
+    .concat(organizerEntry?.value ? [['organizerEntry', organizerEntry.value]] : []));
   let savedForm;
   if (unsaved) {
     savedForm = snapshot();

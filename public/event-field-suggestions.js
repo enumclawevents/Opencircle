@@ -1,6 +1,6 @@
 "use strict";
 
-function initEventFieldSuggestions(input) {
+function initEventFieldSuggestions(input, { accept, exclude } = {}) {
   if (!input.matches("[data-event-suggest]") || input.readOnly || input.hasAttribute("aria-controls")) return;
   const form = input.form;
   const city = form.elements.namedItem("city");
@@ -42,8 +42,13 @@ function initEventFieldSuggestions(input) {
   }
 
   function select(index) {
-    input.value = results[index].value;
+    const { value } = results[index];
     close();
+    if (accept) {
+      accept(value);
+      return;
+    }
+    input.value = value;
     form.dispatchEvent(new Event("event-editor-change"));
   }
 
@@ -61,7 +66,7 @@ function initEventFieldSuggestions(input) {
         if (!response.ok) throw new Error();
         const { data } = await response.json();
         if (controller.signal.aborted) return;
-        results = data;
+        results = exclude ? data.filter(item => !exclude(item.value)) : data;
         for (const [index, item] of results.entries()) {
           const option = document.createElement("li");
           option.id = list.id + "-" + index;
@@ -108,100 +113,126 @@ function initEventFieldSuggestions(input) {
       option.scrollIntoView({ block: "nearest" });
     }
   });
-  return () => {
-    close();
-    city.removeEventListener("change", close);
-  };
 }
 
-const suggestionCleanup = new WeakMap();
-function registerEventFieldSuggestions(input) {
-  const cleanup = initEventFieldSuggestions(input);
-  if (cleanup) suggestionCleanup.set(input, cleanup);
-}
+document.querySelectorAll('[data-event-suggest="location"]').forEach(input => initEventFieldSuggestions(input));
 
-document.querySelectorAll("[data-event-suggest]").forEach(registerEventFieldSuggestions);
-
-document.querySelectorAll("[data-additional-organizers]").forEach(group => {
-  const form = group.closest("form");
+document.querySelectorAll("[data-organizer-picker]").forEach(picker => {
+  const input = picker.querySelector("[data-organizer-entry]");
+  const form = input.form;
   const primary = form.elements.namedItem("organizer");
-  const rows = group.querySelector("[data-additional-organizer-rows]");
-  const template = group.querySelector("template");
-  const add = group.querySelector("[data-add-organizer]");
-  const limitMessage = document.getElementById("additionalOrganizerLimit");
-  const error = group.querySelector("[data-organizer-error]");
-  const limit = Number(group.dataset.limit);
-  let nextId = rows.children.length + 1;
+  const values = picker.querySelector("[data-organizer-values]");
+  const tags = picker.querySelector("[data-organizer-tags]");
+  const error = picker.querySelector("[data-organizer-error]");
+  const locked = picker.hasAttribute("data-primary-locked");
+  const limit = Number(picker.dataset.limit);
+  const key = value => value.trim().replace(/\s+/g, " ").toLowerCase();
+  let additional = [...values.children].map(field => field.value);
 
-  const inputs = () => [...rows.querySelectorAll("input")];
-  const key = (value) => value.trim().replace(/\s+/g, " ").toLowerCase();
-  const clearError = () => {
+  function clearError() {
     error.hidden = true;
     error.textContent = "";
-    inputs().forEach(input => {
-      input.removeAttribute("aria-invalid");
-      input.removeAttribute("aria-describedby");
-    });
-  };
+    input.removeAttribute("aria-invalid");
+    input.setAttribute("aria-describedby", "eventOrganizerHelp");
+  }
 
-  function updateRows() {
-    add.disabled = rows.children.length >= limit;
-    limitMessage.hidden = !add.disabled;
-    [...rows.children].forEach((row, index) => {
-      row.querySelector("[data-remove-organizer]").setAttribute("aria-label", "Remove additional organizer " + (index + 1));
+  function showError(message) {
+    error.hidden = false;
+    error.textContent = message;
+    input.setAttribute("aria-invalid", "true");
+    input.setAttribute("aria-describedby", "eventOrganizerHelp " + error.id);
+    input.focus();
+    return false;
+  }
+
+  function renderTags() {
+    input.required = !primary.value;
+    tags.replaceChildren();
+    [primary.value, ...additional].forEach((name, index) => {
+      if (!name) return;
+      const tag = document.createElement("span");
+      tag.className = "event-organizer-tag";
+      const label = document.createElement("span");
+      label.className = "event-organizer-tag-name";
+      label.textContent = name;
+      tag.append(label);
+      if (index === 0) {
+        const badge = document.createElement("span");
+        badge.className = "event-organizer-primary";
+        badge.textContent = "Primary";
+        tag.append(badge);
+      }
+      if (index > 0 || !locked) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "event-organizer-remove";
+        remove.setAttribute("aria-label", "Remove organizer " + name);
+        remove.textContent = "×";
+        remove.addEventListener("click", () => {
+          if (index === 0) primary.value = additional.shift() || "";
+          else additional.splice(index - 1, 1);
+          sync();
+          input.focus();
+        });
+        tag.append(remove);
+      }
+      tags.append(tag);
     });
   }
 
-  function notifyChange() {
+  function sync() {
+    values.replaceChildren(...additional.map(name => {
+      const field = document.createElement("input");
+      field.type = "hidden";
+      field.name = "additionalOrganizers";
+      field.value = name;
+      return field;
+    }));
     clearError();
-    updateRows();
+    renderTags();
     form.dispatchEvent(new Event("event-editor-change"));
   }
 
-  add.addEventListener("click", () => {
-    if (rows.children.length >= limit) return;
-    const row = template.content.firstElementChild.cloneNode(true);
-    const input = row.querySelector("input");
-    input.id = "eventAdditionalOrganizer-" + nextId++;
-    row.querySelector("label").htmlFor = input.id;
-    rows.append(row);
-    registerEventFieldSuggestions(input);
-    notifyChange();
-    input.focus();
-  });
+  function isSelected(value) {
+    return [primary.value, ...additional].some(name => key(name) === key(value));
+  }
 
-  rows.addEventListener("click", event => {
-    if (!event.target.closest("[data-remove-organizer]")) return;
-    const row = event.target.closest("[data-additional-organizer-row]");
-    const input = row.querySelector("input");
-    const next = row.nextElementSibling || row.previousElementSibling;
-    suggestionCleanup.get(input)?.();
-    row.remove();
-    notifyChange();
-    (next?.querySelector("input") || add).focus();
-  });
-
-  form.addEventListener("input", event => {
-    if (event.target === primary || rows.contains(event.target)) clearError();
-  });
-  form.addEventListener("event-editor-change", clearError);
-  form.addEventListener("submit", event => {
-    clearError();
-    const seen = new Set([key(primary.value)]);
-    for (const input of inputs()) {
-      const name = key(input.value);
-      if (!name || seen.has(name)) {
-        event.preventDefault();
-        error.hidden = false;
-        error.textContent = name ? "Organizer names must be unique within the event."
-          : "Enter a name or remove the empty additional organizer.";
-        input.setAttribute("aria-invalid", "true");
-        input.setAttribute("aria-describedby", error.id);
-        input.focus();
-        return;
-      }
-      seen.add(name);
+  function finalize(value) {
+    const name = value.trim();
+    if (!name || name.length > input.maxLength || name.includes("\0")) {
+      return showError("Enter an organizer name of 1 to " + input.maxLength + " characters.");
     }
+    if (isSelected(name)) return showError("Organizer names must be unique within the event.");
+    if (!locked && !primary.value) primary.value = name;
+    else if (additional.length >= limit) return showError("You can add up to " + limit + " additional organizers.");
+    else additional.push(name);
+    input.value = "";
+    input.dispatchEvent(new Event("input"));
+    sync();
+    return true;
+  }
+
+  input.disabled = false;
+  renderTags();
+  initEventFieldSuggestions(input, {
+    accept: value => { if (finalize(value)) input.focus(); },
+    exclude: isSelected,
+  });
+  input.addEventListener("input", clearError);
+  input.addEventListener("keydown", event => {
+    if (!event.defaultPrevented && !event.isComposing && event.key === "Enter") {
+      event.preventDefault();
+      if (input.value.trim()) finalize(input.value);
+    }
+  });
+  form.addEventListener("submit", event => {
+    if (!event.defaultPrevented && input.value && !finalize(input.value)) event.preventDefault();
   }, true);
-  updateRows();
+
+  // Quick Add still fills the primary field through the existing form importer.
+  primary.addEventListener("change", () => {
+    const duplicate = additional.findIndex(name => key(name) === key(primary.value));
+    if (duplicate >= 0) additional.splice(duplicate, 1);
+    sync();
+  });
 });

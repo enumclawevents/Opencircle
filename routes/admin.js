@@ -69,21 +69,6 @@ const {
   validateAdditionalOrganizers,
 } = require("../lib/event-lifecycle");
 
-function renderAdditionalOrganizerRow(name, index, suggest) {
-  const id = `eventAdditionalOrganizer-${index}`;
-  return `
-    <div data-additional-organizer-row>
-      <label for="${id}">Additional organizer (optional)</label>
-      <div class="event-additional-organizer-field">
-        <div>
-          <input class="ctrl" id="${id}" name="additionalOrganizers" value="${esc(name)}"
-            maxlength="${MAX_ORGANIZER_NAME_LENGTH}" ${suggest ? 'data-event-suggest="organizer"' : ""} />
-        </div>
-        <button class="btn" type="button" data-remove-organizer aria-label="Remove additional organizer ${index}">Remove</button>
-      </div>
-    </div>`;
-}
-
 function normalizeCategories(input) {
   let arr = [];
   if (Array.isArray(input)) arr = input;
@@ -12982,16 +12967,30 @@ return `
         background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-inner); box-shadow:var(--shadow);
       }
       .event-parent-results{ list-style:none; margin:0; padding:0; }
-      .event-additional-organizers{ margin-top:12px; }
-      .event-additional-organizer-field{
-        display:grid;
-        grid-template-columns:minmax(0,1fr) auto;
-        align-items:start;
-        gap:8px;
+      .event-organizer-control.ctrl{
+        display:flex; flex-wrap:wrap; align-items:center; gap:4px;
+        height:auto; min-height:var(--ctrl-h); padding:4px 8px; background:var(--panel);
       }
-      .event-additional-organizer-field .ctrl,
-      .event-additional-organizer-field .btn{ margin:0; }
-      .event-additional-organizers [data-add-organizer]{ margin-top:8px; }
+      .event-organizer-control:focus-within{ outline:2px solid var(--brand); outline-offset:1px; }
+      .event-organizer-tags{ display:contents; }
+      .event-organizer-tag{
+        display:inline-flex; align-items:center; gap:6px; max-width:100%; min-width:0;
+        padding:0 6px; min-height:28px; border:1px solid var(--line);
+        border-radius:var(--radius-inner); background:var(--panel2);
+      }
+      .event-organizer-tag-name{ min-width:0; overflow-wrap:anywhere; }
+      .event-organizer-primary{ color:var(--muted); font-size:.85em; }
+      .event-organizer-remove{
+        flex:none; min-width:28px; min-height:28px; padding:0;
+        border:0; border-radius:var(--radius-inner); background:transparent;
+        color:var(--text); font:inherit; cursor:pointer;
+      }
+      .event-organizer-remove:hover{ background:var(--panel); }
+      .event-organizer-control input.event-organizer-entry{
+        flex:1 1 8em; width:auto; min-width:0; height:auto; min-height:28px;
+        margin:0; padding:4px; border:0; border-radius:0; box-shadow:none; background:transparent;
+      }
+      @media (pointer:coarse){ .event-organizer-remove{ min-width:36px; min-height:36px; } }
       .event-field-suggestion-list{
         list-style:none; margin:4px 0 0; padding:4px;
         border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel);
@@ -17084,8 +17083,23 @@ return `
                   </div>
                   <div>
                     <label for="eventOrganizer" style="margin-top:0;">Organizer</label>
-                    <input class="ctrl" id="eventOrganizer" name="organizer" value="${esc(organizerFormValue)}" ${isOrganizerUser ? "readonly" : 'data-event-suggest="organizer"'} required />
-                    ${isOrganizerUser ? `<div class="note">Your organizer identity is applied automatically.</div>` : ``}
+                    <div data-organizer-picker data-limit="${MAX_ADDITIONAL_ORGANIZERS}" ${isOrganizerUser ? "data-primary-locked" : ""}>
+                      <input type="hidden" name="organizer" value="${esc(organizerFormValue)}" ${isOrganizerUser ? "readonly" : ""} />
+                      <input type="hidden" name="additionalOrganizersPresent" value="1" />
+                      <div data-organizer-values>
+                        ${additionalOrganizerNames.map(name => `<input type="hidden" name="additionalOrganizers" value="${esc(name)}" />`).join("")}
+                      </div>
+                      <div class="ctrl event-organizer-control">
+                        <span class="event-organizer-tags" data-organizer-tags></span>
+                        <input class="event-organizer-entry" id="eventOrganizer" maxlength="${MAX_ORGANIZER_NAME_LENGTH}"
+                          aria-describedby="eventOrganizerHelp" data-organizer-entry
+                          ${hasDeveloperAccess && currentUser?.id ? 'data-event-suggest="organizer"' : ""} disabled />
+                      </div>
+                      <div class="note" id="eventOrganizerHelp">${isOrganizerUser
+                        ? "Your primary organizer is set by your account. Enter other organizer names if needed."
+                        : "Search existing organizers or enter a new name. Add more than one if needed."}</div>
+                      <div class="note admin-notice--error" id="eventOrganizerError" data-organizer-error role="alert" hidden></div>
+                    </div>
                   </div>
                   <div>
                     <label for="eventVenueId" style="margin-top:0;">Add a Venue (optional)</label>
@@ -17096,17 +17110,6 @@ return `
                       ${eventVenueChoices.map(venue => `<option value="${venue.id}" data-city="${esc(venue.city)}"${venue.city !== formCity ? " hidden disabled" : ""}${selectedVenueChoice?.id === venue.id ? " selected" : ""}>${esc(venue.name)}${venue.address ? " — " + esc(venue.address) : ""}</option>`).join("")}
                     </select>
                   </div>
-                </div>
-                <div class="event-additional-organizers" role="group" aria-label="Additional organizers (optional)"
-                  data-additional-organizers data-limit="${MAX_ADDITIONAL_ORGANIZERS}">
-                  <input type="hidden" name="additionalOrganizersPresent" value="1" />
-                  <div data-additional-organizer-rows>
-                    ${additionalOrganizerNames.map((name, index) => renderAdditionalOrganizerRow(name, index + 1, hasDeveloperAccess && !!currentUser?.id)).join("")}
-                  </div>
-                  <template>${renderAdditionalOrganizerRow("", 0, hasDeveloperAccess && !!currentUser?.id)}</template>
-                  <button type="button" class="btn" data-add-organizer aria-describedby="additionalOrganizerLimit">Add Another Organizer</button>
-                  <div class="note" id="additionalOrganizerLimit" role="status" hidden>You can add up to ${MAX_ADDITIONAL_ORGANIZERS} additional organizers.</div>
-                  <div class="note admin-notice--error" id="additionalOrganizerError" data-organizer-error role="alert" hidden></div>
                 </div>
                 <script>
                   (function(){
@@ -17270,8 +17273,8 @@ return `
                 </div>
               </div>
               </div>
-              <script defer src="/assets/event-parent-picker.js?v=7"></script>
-              <script defer src="/assets/event-field-suggestions.js?v=2"></script>
+              <script defer src="/assets/event-parent-picker.js?v=8"></script>
+              <script defer src="/assets/event-field-suggestions.js?v=3"></script>
             </form>
           </div>
           ` : ``}
