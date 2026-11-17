@@ -70,6 +70,33 @@ const {
   validateAdditionalOrganizers,
 } = require("../lib/event-lifecycle");
 
+const EVENT_REPORT_STATUS_FILTERS = ["all", "open", "resolved", "dismissed"];
+const EVENT_REPORT_TYPE_LABELS = {
+  changed_details: "Changed details",
+  cancelled: "Cancelled",
+  other: "Other",
+};
+const EVENT_REPORT_TYPE_FILTERS = ["all", ...Object.keys(EVENT_REPORT_TYPE_LABELS)];
+
+function eventReportFilters(input) {
+  const status = typeof input?.reportStatus === "string" ? input.reportStatus.trim() : "";
+  const type = typeof input?.reportType === "string" ? input.reportType.trim() : "";
+  return {
+    reportStatus: EVENT_REPORT_STATUS_FILTERS.includes(status) ? status : "open",
+    reportType: EVENT_REPORT_TYPE_FILTERS.includes(type) ? type : "all",
+  };
+}
+
+function preserveEventReportReview(params, body) {
+  const reportId = parseEventId(body?.reviewReport);
+  if (!reportId) return;
+  params.set("reviewReport", String(reportId));
+  if (typeof body.reviewWorkspace === "string" && body.reviewWorkspace.length <= 100) {
+    params.set("workspace", body.reviewWorkspace);
+  }
+  for (const [key, value] of Object.entries(eventReportFilters(body))) params.set(key, value);
+}
+
 function normalizeCategories(input) {
   let arr = [];
   if (Array.isArray(input)) arr = input;
@@ -5901,6 +5928,27 @@ try {
     if (pendingId && !canApproveEvents) return res.status(403).send("Forbidden");
     const isNewEventForm = !editId && !pendingId;
     if (editId) editEvent = await get("SELECT * FROM events WHERE id = ?", [editId]);
+    let reviewedReport = null;
+    const reviewFilters = eventReportFilters(req.query);
+    const eventReportReturnHref = buildScopedAdminHref("/admin/event-reports", reviewFilters);
+    if (view === "create" && req.query.reviewReport !== undefined) {
+      res.set("Cache-Control", "private, no-store");
+      const reportId = parseEventId(req.query.reviewReport);
+      if (canManageEventReports && canManageEvents && reportId && !pendingId && !eventDraft &&
+          editEvent && parseEventId(req.query.edit) === editEvent.id &&
+          userAllowedCities.includes(editEvent.city) &&
+          (!isOrganizerUser || organizerOwnsEvent(editEvent, organizerAccessValues))) {
+        reviewedReport = await get(
+          `SELECT r.id, r.reportType, r.message, r.status
+             FROM event_reports r JOIN events e ON e.id = r.eventId
+            WHERE r.id = ? AND e.id = ? AND e.city = ?${organizerOwnerClause ? ` AND ${organizerOwnerClause.sql}` : ""}`,
+          [reportId, editEvent.id, editEvent.city, ...(organizerOwnerClause?.params || [])]
+        );
+      }
+      if (!reviewedReport) {
+        return res.redirect(buildScopedAdminHref("/admin/event-reports", { ...reviewFilters, reportNotice: "review_unavailable" }));
+      }
+    }
     if (isOrganizerUser && editId && editEvent && !organizerOwnsEvent(editEvent, organizerAccessValues)) {
       return res.status(403).send("Forbidden");
     }
@@ -6118,7 +6166,7 @@ try {
     const lifecycleControlsMarkup = !canManageCurrentEventLifecycle
       ? ""
       : `
-        <section class="event-form-section event-form-lifecycle" id="eventLifecycleSection">
+        <section class="event-form-section event-form-lifecycle" id="eventLifecycleSection"${reviewedReport?.reportType === "cancelled" ? " data-report-review-area" : ""}>
           <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg><div class="event-form-section-heading-copy"><h3>Event status</h3><p>Update what attendees should know without changing the event’s identity.</p></div></div>
           <div class="event-lifecycle-panel" data-current-state="${esc(currentEventLifecycleState)}">
             <div class="event-lifecycle-summary"><span class="event-lifecycle-state state-${esc(currentEventLifecycleState)}">${esc(lifecycleLabel[currentEventLifecycleState] || "Scheduled")}</span><p>${esc(lifecycleDescription[currentEventLifecycleState] || lifecycleDescription.scheduled)}</p></div>
@@ -8399,14 +8447,7 @@ return `
       }
     };
 
-    const eventReportStatusOptions = ["all", "open", "resolved", "dismissed"];
-    const eventReportTypeOptions = ["all", "changed_details", "cancelled", "other"];
-    const requestedEventReportStatus = eventReportStatusOptions.includes(String(req.query.reportStatus || "open").trim())
-      ? String(req.query.reportStatus || "open").trim()
-      : "open";
-    const requestedEventReportType = eventReportTypeOptions.includes(String(req.query.reportType || "all").trim())
-      ? String(req.query.reportType || "all").trim()
-      : "all";
+    const { reportStatus: requestedEventReportStatus, reportType: requestedEventReportType } = reviewFilters;
     let eventReportRows = [];
     let openEventReportCount = 0;
     if (canManageEventReports) {
@@ -8519,6 +8560,10 @@ return `
       ? `<div class="mini admin-notice admin-notice--warning" role="alert">Report saved. We couldn’t email the person who reported it.</div>`
       : eventReportsNotice === "invalid"
       ? `<div class="mini admin-notice admin-notice--error" role="alert">Choose a valid status and keep the resolution note to 3000 characters or fewer.</div>`
+      : eventReportsNotice === "review_unavailable"
+      ? `<div class="mini admin-notice admin-notice--error" role="alert">This report or its event is unavailable to review.</div>`
+      : eventReportsNotice === "already_completed"
+      ? `<div class="mini admin-notice" role="status">This report has already been completed.</div>`
       : eventReportsNotice === "not_found"
       ? `<div class="mini admin-notice admin-notice--error" role="alert">That event report is unavailable in this area.</div>`
       : "";
@@ -8526,13 +8571,11 @@ return `
       ? eventReportRows.map((report) => {
           const isCancellation = report.reportType === "cancelled";
           const isOpen = report.status === "open";
-          const typeLabel = report.reportType === "changed_details"
-            ? "Changed details"
-            : report.reportType === "cancelled"
-            ? "Cancelled"
-            : "Other";
+          const typeLabel = EVENT_REPORT_TYPE_LABELS[report.reportType] || "Other";
           const statusLabel = String(report.status || "open").replace(/^./, (letter) => letter.toUpperCase());
-          const editorHref = `/admin/create-events?edit=${encodeURIComponent(String(report.eventId))}&city=${encodeURIComponent(String(report.eventCity || selectedCity))}`;
+          const editorHref = buildScopedAdminHref("/admin/create-events", {
+            edit: report.eventId, city: report.eventCity || selectedCity, reviewReport: report.id, ...reviewFilters,
+          });
           const resolvedBy = report.resolvedByDisplayName || report.resolvedByUsername || report.resolvedByEmail || "An administrator";
           const reportedChanges = parseEventReportChanges(report.changesJson);
           const reportedChangesHtml = reportedChanges.length ? `
@@ -8559,7 +8602,7 @@ return `
                   ${!isOpen ? `<div class="muted" style="margin-top:10px;">${esc(statusLabel)} ${esc(fmtPendingDate(report.resolvedAt))} by ${esc(resolvedBy)}${report.resolutionNote ? ` · ${esc(report.resolutionNote)}` : ""}</div>` : ""}
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;">
-                  <a class="btn" href="${esc(editorHref)}">Edit event</a>
+                  <a class="btn${isOpen ? " btn-primary" : ""}" href="${esc(editorHref)}">Review Event</a>
                 </div>
               </div>
               ${isOpen ? `
@@ -8572,7 +8615,7 @@ return `
                   <textarea class="ctrl" id="event-report-note-${esc(String(report.id))}" name="resolutionNote" rows="2" maxlength="3000" placeholder="What was reviewed or changed?"></textarea>
                   ${report.reporterEmail ? `<label style="display:flex; align-items:center; gap:8px; width:max-content; max-width:100%; cursor:pointer;"><input type="checkbox" name="notifyReporter" value="1" /> Email ${esc(report.reporterEmail)} about this update</label>` : `<div class="muted">No reporter email was provided.</div>`}
                   <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                    <button class="btn btn-primary" type="submit" name="status" value="resolved">Resolve</button>
+                    <button class="btn" type="submit" name="status" value="resolved" onclick="return confirm('Mark this event report resolved?');">Mark Resolved</button>
                     <button class="btn btn-danger" type="submit" name="status" value="dismissed" onclick="return confirm('Dismiss this event report?');">Dismiss</button>
                   </div>
                 </form>` : ""}
@@ -12910,6 +12953,10 @@ return `
         padding:24px 0;
         border-top:1px solid var(--line);
       }
+      .event-report-review{ margin:0 0 var(--gap); overflow-wrap:anywhere; }
+      .event-report-review .sectionTitle{ align-items:center; flex-wrap:wrap; gap:8px; }
+      .event-report-review-message{ white-space:pre-wrap; }
+      [data-report-review-area]{ box-shadow:inset 3px 0 var(--line); padding-inline-start:12px; }
       .event-form-section:first-child{ border-top:0; padding-top:24px; }
       .event-form-section-heading{ display:flex; align-items:center; gap:8px; margin-bottom:14px; }
       .event-form-section-heading-icon{ width:18px; height:18px; color:var(--accent); flex:0 0 auto; stroke-width:1.8; }
@@ -15339,14 +15386,14 @@ return `
             <div class="filterField">
               <label for="eventReportStatus">Status</label>
               <select class="ctrl" id="eventReportStatus" name="reportStatus">
-                ${eventReportStatusOptions.map((status) => `<option value="${esc(status)}" ${status === requestedEventReportStatus ? "selected" : ""}>${esc(status === "all" ? "All statuses" : status.replace(/^./, (letter) => letter.toUpperCase()))}</option>`).join("")}
+                ${EVENT_REPORT_STATUS_FILTERS.map((status) => `<option value="${esc(status)}" ${status === requestedEventReportStatus ? "selected" : ""}>${esc(status === "all" ? "All statuses" : status.replace(/^./, (letter) => letter.toUpperCase()))}</option>`).join("")}
               </select>
             </div>
             <div class="filterField">
               <label for="eventReportType">Report type</label>
               <select class="ctrl" id="eventReportType" name="reportType">
-                ${eventReportTypeOptions.map((type) => {
-                  const label = type === "all" ? "All types" : type === "changed_details" ? "Changed details" : type === "cancelled" ? "Cancelled" : "Other";
+                ${EVENT_REPORT_TYPE_FILTERS.map((type) => {
+                  const label = type === "all" ? "All types" : EVENT_REPORT_TYPE_LABELS[type];
                   return `<option value="${esc(type)}" ${type === requestedEventReportType ? "selected" : ""}>${esc(label)}</option>`;
                 }).join("")}
               </select>
@@ -16394,6 +16441,17 @@ return `
               </div>
             </div>
 
+            ${reviewedReport ? `
+              <section class="mini event-report-review" aria-labelledby="event-report-review-heading">
+                <div class="sectionTitle">
+                  <h3 id="event-report-review-heading">Reported issue: ${esc(EVENT_REPORT_TYPE_LABELS[reviewedReport.reportType] || "Other")}</h3>
+                  <a class="btn" href="${esc(eventReportReturnHref)}">Back to Event Reports</a>
+                </div>
+                <p class="note">Report #${esc(reviewedReport.id)} · ${esc(reviewedReport.status.replace(/^./, letter => letter.toUpperCase()))}</p>
+                <p class="event-report-review-message">${esc(reviewedReport.message || "No report description was provided.")}</p>
+                <p class="note">Review the report before deciding whether to mark it resolved or dismiss it.</p>
+              </section>
+            ` : ""}
             ${unpublishedChanges ? "<p class=\"note\">Your published event is still live. Saved changes won't appear publicly until you publish them.</p>" : ""}
             ${unpublishedChanges && req.query.changesSaved === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Changes saved as a draft.</div>' : ""}
             ${canDraftChanges && req.query.changesPublished === "1" ? '<div class="mini admin-notice admin-notice--success" role="status">Changes published.</div>' : ""}
@@ -16402,6 +16460,10 @@ return `
             <div class="mini admin-notice admin-notice--success" role="status" data-event-created>Event published.</div>
             ` : ""}
             <form method="POST" action="/admin/events" enctype="multipart/form-data">
+              ${reviewedReport ? `<input type="hidden" name="reviewReport" value="${esc(reviewedReport.id)}" />
+                <input type="hidden" name="reviewWorkspace" value="${esc(selectedAdminWorkspace)}" />
+                <input type="hidden" name="reportStatus" value="${esc(reviewFilters.reportStatus)}" />
+                <input type="hidden" name="reportType" value="${esc(reviewFilters.reportType)}" />` : ""}
               ${canDraftChanges ? `<input type="hidden" name="eventBaseRevision" value="${esc(unpublishedChanges?.baseRevision || liveEditorEvent.revision || 1)}" />
                 <input type="hidden" name="eventEditToken" value="${esc(unpublishedChanges?.editToken || "")}" />` : ""}
               ${eventDraft ? `<input type="hidden" name="draftId" value="${esc(eventDraft.id)}" />` : ""}
@@ -16665,7 +16727,7 @@ return `
               <div class="note">Share a final helpful note for attendees.</div>
               </section>
 
-              <section class="event-form-section event-form-schedule">
+              <section class="event-form-section event-form-schedule"${reviewedReport?.reportType === "cancelled" ? " data-report-review-area" : ""}>
                 <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 2v4M16 2v4M3 10h18"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg><div class="event-form-section-heading-copy"><h3>Date &amp; time</h3><p>Set the first occurrence, then choose whether the event repeats.</p></div></div>
               <div class="rec-grid" style="margin-top:10px;">
                 <div>
@@ -17268,7 +17330,7 @@ return `
                   <div class="mini admin-notice admin-notice--error" data-draft-delete-error role="alert" hidden></div>
                 ` : ""}
                 <div class="actions">
-                  ${editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
+                  ${reviewedReport ? `<a class="btn btn-link" href="${esc(eventReportReturnHref)}">Cancel</a>` : editEvent ? `<a class="btn btn-link" href="/admin/existing-events?pg=${pg}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}${statusMode ? `&status=${encodeURIComponent(statusMode)}` : ""}${recurringOnly ? `&recurring=1` : ""}${fromDate ? `&from=${encodeURIComponent(fromDate)}` : ""}${toDate ? `&to=${encodeURIComponent(toDate)}` : ""}">Cancel</a>` : ""}
                   <button class="btn" type="button" data-parent-save-anyway hidden>Save despite duplicate warning</button>
                   <button type="submit" class="btn btn-primary" data-event-publish>${isNewEventForm ? "Publish Event" : canDraftChanges ? "Publish Changes" : editEvent ? "Update Event" : "Save Event"}</button>
                   ${canDraftChanges ? '<button type="submit" class="btn" name="saveChangesDraft" value="1" formnovalidate>Save Changes as Draft</button>' : ""}
@@ -23800,7 +23862,9 @@ async function saveEventUnpublishedChanges(req, res, live, publication, city, ad
     return true;
   });
   if (!saved) return res.status(409).send(UNPUBLISHED_CONFLICT);
-  return res.redirect(303, "/admin/create-events?" + new URLSearchParams({ edit: live.id, city: live.city, changesSaved: "1" }));
+  const params = new URLSearchParams({ edit: live.id, city: live.city, changesSaved: "1" });
+  preserveEventReportReview(params, req.body);
+  return res.redirect(303, "/admin/create-events?" + params);
 }
 
 router.post("/events", upload.single("imageFile"), async (req, res) => {
@@ -24426,6 +24490,7 @@ const recurring = req.query.recurring ? String(req.query.recurring) : "0";
 
 const sp = new URLSearchParams({ edit: String(id), pg, limit, status });
 if (publication) sp.set("changesPublished", "1");
+preserveEventReportReview(sp, req.body);
 if (ADMIN_SIDEBAR_GROUPS["Plateau Regional"].includes(city)) {
   sp.set("workspace", "Plateau Regional");
 } else {
@@ -24789,8 +24854,8 @@ router.post("/event-reports/:id/status", async (req, res) => {
     const reportType = String(req.body?.reportType || "all").trim().toLowerCase();
     if (city) params.set("city", city);
     if (workspace) params.set("workspace", workspace);
-    if (["all", "open", "resolved", "dismissed"].includes(reportStatus)) params.set("reportStatus", reportStatus);
-    if (["all", "changed_details", "cancelled", "other"].includes(reportType)) params.set("reportType", reportType);
+    if (EVENT_REPORT_STATUS_FILTERS.includes(reportStatus)) params.set("reportStatus", reportStatus);
+    if (EVENT_REPORT_TYPE_FILTERS.includes(reportType)) params.set("reportType", reportType);
     if (notice) params.set("reportNotice", notice);
     return res.redirect(`/admin/event-reports?${params.toString()}`);
   };
@@ -24832,10 +24897,11 @@ router.post("/event-reports/:id/status", async (req, res) => {
         [reportId]
       );
     } else {
-      await run(
-        "UPDATE event_reports SET status = ?, resolvedAt = datetime('now'), resolvedBy = ?, resolutionNote = ? WHERE id = ?",
+      const completed = await run(
+        "UPDATE event_reports SET status = ?, resolvedAt = datetime('now'), resolvedBy = ?, resolutionNote = ? WHERE id = ? AND status = 'open'",
         [status, sessionUser?.id || null, resolutionNote || null, reportId]
       );
+      if (!completed.changes) return redirectToQueue("already_completed");
     }
 
     if (notifyReporter && status !== "open" && report.reporterEmail) {
