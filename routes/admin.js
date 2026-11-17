@@ -17078,10 +17078,6 @@ return `
                 <div class="event-form-section-heading"><svg class="event-form-section-heading-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg><div class="event-form-section-heading-copy"><h3>Location &amp; organizer</h3><p>Use the same venue and organizer names visitors will recognize.</p></div></div>
                 <div class="rec-grid">
                   <div>
-                    <label for="eventLocation" style="margin-top:0;">Address / location</label>
-                    <input class="ctrl" id="eventLocation" name="location" value="${esc(editEvent?.location || "")}" data-event-suggest="location" required />
-                  </div>
-                  <div>
                     <label for="eventOrganizer" style="margin-top:0;">Organizer</label>
                     <div data-organizer-picker data-limit="${MAX_ADDITIONAL_ORGANIZERS}" ${isOrganizerUser ? "data-primary-locked" : ""}>
                       <input type="hidden" name="organizer" value="${esc(organizerFormValue)}" ${isOrganizerUser ? "readonly" : ""} />
@@ -17100,6 +17096,10 @@ return `
                         : "Search existing organizers or enter a new name. Add more than one if needed."}</div>
                       <div class="note admin-notice--error" id="eventOrganizerError" data-organizer-error role="alert" hidden></div>
                     </div>
+                  </div>
+                  <div>
+                    <label for="eventLocation" style="margin-top:0;">Address / location</label>
+                    <input class="ctrl" id="eventLocation" name="location" value="${esc(editEvent?.location || "")}" data-event-suggest="location" required />
                   </div>
                   <div>
                     <label for="eventVenueId" style="margin-top:0;">Add a Venue (optional)</label>
