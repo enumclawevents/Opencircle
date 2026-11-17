@@ -12,6 +12,41 @@
   --ui-warning-surface: #fffbeb;
 }
 
+:root {
+  --motion-press: 120ms;
+  --motion-feedback: 150ms;
+  --motion-menu: 180ms;
+  --motion-disclosure: 200ms;
+  --motion-dialog: 240ms;
+  --motion-easing: cubic-bezier(.2,.65,.3,1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :where(.main) :is(.btn, .header-icon-btn):not(:where(:disabled, .is-disabled, [aria-disabled="true"], [aria-busy="true"], [aria-busy="true"] *)) {
+    transition-property: background-color, border-color, color;
+    transition-duration: var(--motion-feedback);
+    transition-timing-function: var(--motion-easing);
+  }
+
+  /* Keep the press effect on full-size actions and off disclosure and chart controls. */
+  :where(.main) :is(button, a[href]).btn:not(:where(
+    :disabled, [aria-disabled="true"], .is-disabled, [aria-busy="true"], [aria-busy="true"] *,
+    .btn-link, [aria-haspopup], [aria-expanded], .header-icon-btn, .event-report-review-toggle,
+    .analytics-toolbar *, .chart-wrap *, .report-share *, .metricToggle *, .dashboard-calendar *
+  )) {
+    transition-property: background-color, border-color, color, scale;
+    transition-duration: var(--motion-feedback), var(--motion-feedback), var(--motion-feedback), var(--motion-press);
+  }
+
+  :where(.main) :is(button, a[href]).btn:not(:where(
+    :disabled, [aria-disabled="true"], .is-disabled, [aria-busy="true"], [aria-busy="true"] *,
+    .btn-link, [aria-haspopup], [aria-expanded], .header-icon-btn, .event-report-review-toggle,
+    .analytics-toolbar *, .chart-wrap *, .report-share *, .metricToggle *, .dashboard-calendar *
+  )):active {
+    scale: 0.985;
+  }
+}
+
 body.theme-dark {
   color-scheme: dark;
   --ui-focus: #9cd5ff;
@@ -199,13 +234,32 @@ body.theme-dark .metricInfo { color: var(--muted); background: var(--panel2); }
   body:not(.sidebar-open) .sidebar { visibility: hidden; }
 
   @media (prefers-reduced-motion: no-preference) {
-    body:not(.sidebar-open) .sidebar {
-      transition: transform .2s ease, visibility 0s linear .2s;
+    .sidebar {
+      transition: transform var(--motion-disclosure) var(--motion-easing), visibility 0s;
     }
+    body:not(.sidebar-open) .sidebar { transition-delay: 0s, var(--motion-disclosure); }
   }
 }
 
 @media (max-width: 360px) {
   .activity-item { grid-template-columns: minmax(0, 1fr); }
   .activity-thumb { width: 100%; height: 72px; }
+}
+
+
+@media (prefers-reduced-motion: no-preference) {
+  :is(.nav-title-btn, .nav-disclosure) {
+    transition: background-color var(--motion-feedback) var(--motion-easing),
+                color var(--motion-feedback) var(--motion-easing);
+  }
+  :is(.nav-disclosure > span, .sidebar-collapse-toggle i, .dashboard-card .card-caret,
+      .event-form-advanced > summary svg, .event-form-advanced-group > summary > svg) {
+    transition: transform var(--motion-disclosure) var(--motion-easing);
+  }
+  @media (min-width: 1101px) {
+    .sidebar {
+      transition: width var(--motion-disclosure) var(--motion-easing),
+                  padding var(--motion-disclosure) var(--motion-easing);
+    }
+  }
 }

@@ -93,6 +93,14 @@ function preserveEventReportReview(params, body) {
   for (const [key, value] of Object.entries(eventReportFilters(body))) params.set(key, value);
 }
 
+function renderNavDisclosure(id, label, expanded) {
+  return `<button type="button" class="nav-disclosure" data-nav-toggle
+            aria-label="${esc(label)} submenu" aria-expanded="${expanded}" aria-controls="nav-sub-${id}">
+            <span aria-hidden="true">‹</span>
+          </button>
+          <div class="nav-sub" id="nav-sub-${id}"${expanded ? "" : " hidden"}>`;
+}
+
 function normalizeCategories(input) {
   let arr = [];
   if (Array.isArray(input)) arr = input;
@@ -10684,21 +10692,6 @@ return `
         border-radius:0;
         margin:0;
       }
-      .nav-group.is-open > .nav-title-btn::after{
-        content:none;
-        position:absolute;
-        right:10px;
-        top:50%;
-        transform:translateY(-50%);
-        width:0;
-        height:0;
-        border-top:8px solid transparent;
-        border-bottom:8px solid transparent;
-        border-right:8px solid #ffffff;
-      }
-      .nav-title-btn:focus{
-        outline:none;
-      }
       .nav-sub{
         position:static;
         left:auto;
@@ -10716,20 +10709,8 @@ return `
         border-right:0;
         border-radius:0;
         box-shadow:none;
-        max-height:0;
-        overflow:hidden;
-        opacity:0;
-        transform:none;
-        pointer-events:none;
-        transition:max-height .2s ease, opacity .15s ease, padding .2s ease;
-        z-index:1;
       }
-      .nav-group.is-open .nav-sub{
-        max-height:900px;
-        opacity:1;
-        padding: 0;
-        pointer-events:auto;
-      }
+      .nav-sub[hidden]{ display:none; }
       .subnav-link{
         text-decoration:none;
         color:#7f8a97 !important;
@@ -10905,13 +10886,8 @@ return `
         appearance:none;
         -webkit-appearance:none;
         box-shadow: none;
-        transition: color .14s ease, border-color .14s ease, background-color .14s ease;
-      }
-      .header-icon-btn:focus{
-        outline:none;
       }
       .header-icon-btn:focus-visible{
-        outline:none;
         box-shadow:none;
         border-color:var(--line);
       }
@@ -11812,7 +11788,6 @@ return `
           width:min(280px, 82vw);
           max-width:280px;
           transform:translateX(-100%);
-          transition:transform .2s ease;
           box-shadow:0 20px 50px rgba(15,23,42,.22);
         }
         body.sidebar-open .sidebar{ transform:translateX(0); }
@@ -12044,7 +12019,6 @@ return `
         font-size:14px;
         line-height:1;
         height: var(--ctrl-h);
-        transition: border-color .14s ease, background-color .14s ease, color .14s ease;
       }
       .btn-action-plus{ display:inline-block; margin-right:7px; font-size:1.18em; font-weight:500; line-height:0; }
       .btn:hover{ border-color: rgba(15,23,42,.18); background: #f8fafc; box-shadow:none; }
@@ -12993,7 +12967,7 @@ return `
       .event-form-advanced{ margin-top:0; border:1px solid var(--line); border-radius:var(--radius-mid); background:var(--panel); }
       .event-form-advanced > summary{ display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; padding:14px; color:var(--text); font-size:14px; font-weight:700; list-style:none; }
       .event-form-advanced > summary::-webkit-details-marker{ display:none; }
-      .event-form-advanced > summary svg{ width:18px; height:18px; color:var(--muted); transition:transform .16s ease; }
+      .event-form-advanced > summary svg{ width:18px; height:18px; color:var(--muted); }
       .event-form-advanced[open] > summary svg{ transform:rotate(90deg); }
       .event-form-advanced-body{ padding:0 14px 14px; }
       .event-form-advanced-group{ padding:10px 0; border-top:1px solid var(--line); }
@@ -13467,7 +13441,6 @@ return `
       .dashboard-card .card-toggle .card-caret{
         font-size:14px;
         color: var(--muted);
-        transition: transform .16s ease;
       }
       .dashboard-card:not([open]) .card-toggle .card-caret{
         transform: rotate(-90deg);
@@ -14216,7 +14189,6 @@ return `
         padding:16px 12px 14px;
         background:linear-gradient(180deg,#0f172a 0%,#0b1220 100%);
         box-shadow:inset -1px 0 rgba(255,255,255,.035);
-        transition:width .22s ease, padding .22s ease;
       }
       .sidebar-collapse-toggle{
         /* Keep the control out of the sidebar's scrollable clipping area so it
@@ -14262,7 +14234,7 @@ return `
       .nav-group{ border-radius:6px; overflow:visible; }
       /* Use one radius for every navigation state so hover, open, and active
          highlights never appear joined or squared off. */
-      .nav-title-btn{ height:44px; padding:0 12px; border-radius:6px !important; color:#cbd5e1 !important; font-size:13px; font-weight:600; transition:background .16s ease,color .16s ease; }
+      .nav-title-btn{ height:44px; padding:0 12px; border-radius:6px !important; color:#cbd5e1 !important; font-size:13px; font-weight:600; }
       /* Keep the label column aligned with the city selector and submenu labels. */
       .nav-title-btn .nav-title-icon{ display:block; width:21px; height:21px; margin-right:6px; flex:none; color:#aebbd0; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
       .nav-title-btn:hover{ background:rgba(148,163,184,.12); }
@@ -14271,8 +14243,16 @@ return `
       .nav-title-btn:active{ color:#ffffff !important; }
       .nav-group.is-open > .nav-title-btn{ background:rgba(0,192,139,.16); color:#f8fffd !important; border:1px solid rgba(0,192,139,.16); }
       .nav-group.is-open > .nav-title-btn .nav-title-icon{ color:#36ddb1; }
-      .nav-group > .nav-title-btn::after{ content:"\\f104"; display:block; margin-left:auto; width:auto; height:auto; border:0; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:11px; color:#93a3ba; transform:none; }
-      .nav-group.is-open > .nav-title-btn::after{ content:"\\f107"; width:auto; height:auto; border:0; top:50%; transform:translateY(-50%); color:#d5fff2; }
+      .nav-group > .nav-title-btn{ padding-inline-end:42px; }
+      .nav-disclosure{
+        position:absolute; inset-block-start:0; inset-inline-end:0;
+        width:42px; height:44px; display:grid; place-items:center;
+        padding:0; border:0; border-radius:6px; background:transparent;
+        color:#93a3ba; font:700 18px/1 system-ui; cursor:pointer;
+      }
+      .nav-disclosure:hover{ background:rgba(148,163,184,.12); color:#fff; }
+      .nav-disclosure[aria-expanded="true"]{ color:#d5fff2; }
+      .nav-disclosure[aria-expanded="true"] > span{ transform:rotate(-90deg); }
       .nav-sub{ margin:5px 0 0 26px; width:calc(100% - 26px); padding-left:10px !important; border:0; border-left:1px solid rgba(148,163,184,.22); background:transparent; }
       .subnav-link{ min-height:34px; padding:7px 10px; border-radius:6px; color:#aebbd0 !important; font-size:12px !important; font-weight:400; }
       .subnav-link:link,
@@ -14300,7 +14280,7 @@ return `
       body.sidebar-collapsed .nav-group{ overflow:visible; }
       body.sidebar-collapsed .nav-title-btn{ width:56px; height:48px; justify-content:center; padding:0; border-radius:6px !important; }
       body.sidebar-collapsed .nav-title-btn .nav-title-icon{ width:21px; height:21px; margin:0; }
-      body.sidebar-collapsed .nav-title-btn::after{ display:none; }
+      body.sidebar-collapsed .nav-disclosure{ display:none; }
       body.sidebar-collapsed .sb-divider{ margin:8px 4px; }
       body.sidebar-collapsed .sb-bottom{ display:flex; justify-content:center; padding:0; }
       body.sidebar-collapsed .sidebar-logout{ width:48px; height:48px; padding:0 !important; }
@@ -14557,16 +14537,11 @@ return `
         transition-duration:var(--toggle-duration);
         transition-timing-function:var(--toggle-easing);
       }
-      input[type="checkbox"]::before,
-      .sidebar-collapse-toggle i,
-      .dashboard-card .card-toggle .card-caret,
-      .event-form-advanced > summary svg,
-      .event-form-advanced-group > summary > svg{
+      input[type="checkbox"]::before{
         transition:transform var(--toggle-duration) var(--toggle-easing);
       }
       @media (prefers-reduced-motion:reduce){
         :root{ --toggle-duration:0ms; }
-        .sidebar,.nav-sub{ transition:none; }
       }
       ${showDashboard ? `
         /* Calendar scope is a link, so its selection crosses a page load. */
@@ -14621,7 +14596,7 @@ return `
           ${(hasDeveloperAccess || isOrganizerUser) ? `
           <div class="nav-group nav-collapsible ${showDashboard || showUpdatesLog ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${buildScopedAdminHref("/admin")}" aria-current="${showDashboard ? "page" : "false"}"><i class="nav-title-icon" data-lucide="layout-dashboard" aria-hidden="true"></i><span>Dashboard</span></a>
-            <div class="nav-sub" data-nav-sub>
+            ${renderNavDisclosure("dashboard", "Dashboard", showDashboard || showUpdatesLog)}
               <a class="subnav-link ${showDashboard ? "active" : ""}" href="${buildScopedAdminHref("/admin")}">Overview</a>
               <a class="subnav-link ${showUpdatesLog ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates-log")}">Release Notes</a>
             </div>
@@ -14631,7 +14606,7 @@ return `
 
           ${canManageEvents ? `<div class="nav-group nav-collapsible ${eventsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/existing-events")}" aria-current="${eventsMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="calendar" aria-hidden="true"></i><span>Events</span></a>
-            <div class="nav-sub" data-nav-sub>
+            ${renderNavDisclosure("events", "Events", eventsMenuOpen)}
               <a class="subnav-link ${showExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/existing-events")}">${isOrganizerUser ? "My Events" : "All Events"}</a>
               <a class="subnav-link ${showCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/create-events")}">Create Events</a>
               ${canApproveEvents ? `
@@ -14651,7 +14626,7 @@ return `
 
           ${canManageNewsletter ? `<div class="nav-group nav-collapsible ${newsletterMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${buildNewsletterHref("/admin/newsletter")}" aria-current="${newsletterMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="mail" aria-hidden="true"></i><span>Newsletter</span></a>
-            <div class="nav-sub" data-nav-sub>
+            ${renderNavDisclosure("newsletter", "Newsletter", newsletterMenuOpen)}
               <a class="subnav-link ${showNewsletter ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter")}">Settings</a>
               <a class="subnav-link ${showNewsletterPreview ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter/preview")}">Preview</a>
               <a class="subnav-link ${showNewsletterAudience ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter/audience")}">Audience</a>
@@ -14661,7 +14636,7 @@ return `
 
           ${canManageVenues ? `<div class="nav-group nav-collapsible ${venuesMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/venues")}" aria-current="${venuesMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="building-2" aria-hidden="true"></i><span>Venues</span></a>
-            <div class="nav-sub" data-nav-sub>
+            ${renderNavDisclosure("venues", "Venues", venuesMenuOpen)}
               <a class="subnav-link ${showVenueExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/venues")}">All Venues</a>
               <a class="subnav-link ${showVenueCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/venues/create")}">Create Venues</a>
             </div>
@@ -14670,7 +14645,7 @@ return `
 
           ${canManageJobs ? `<div class="nav-group nav-collapsible ${jobsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/jobs")}" aria-current="${jobsMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="briefcase-business" aria-hidden="true"></i><span>Jobs</span></a>
-            <div class="nav-sub" data-nav-sub>
+            ${renderNavDisclosure("jobs", "Jobs", jobsMenuOpen)}
               <a class="subnav-link ${showJobsExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/jobs")}">All Jobs</a>
               <a class="subnav-link ${showJobsCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/jobs/create")}">Create Jobs</a>
               <a class="subnav-link ${showJobsApplicants ? "active" : ""}" href="${buildScopedAdminHref("/admin/jobs/applicants")}">Applicants</a>
@@ -14680,7 +14655,7 @@ return `
 
           ${canManageAds ? `<div class="nav-group nav-collapsible ${adsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/ads")}" aria-current="${adsMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="image" aria-hidden="true"></i><span>Ads</span></a>
-            <div class="nav-sub" data-nav-sub>
+            ${renderNavDisclosure("ads", "Ads", adsMenuOpen)}
               <a class="subnav-link ${showAdsExisting ? "active" : ""}" href="${buildScopedAdminHref("/admin/ads")}">All Ads</a>
               <a class="subnav-link ${showAdsCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/ads/create")}">Create Ads</a>
             </div>
@@ -14689,13 +14664,13 @@ return `
 
           ${canManageUpdates ? `<div class="sb-divider"></div><div class="nav-group nav-collapsible ${showUpdates || showUpdatesCreate || showUpdatesAnalytics ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/updates")}" aria-current="${showUpdates || showUpdatesCreate || showUpdatesAnalytics ? "page" : "false"}"><i class="nav-title-icon" data-lucide="newspaper" aria-hidden="true"></i><span>Updates</span></a>
-            <div class="nav-sub"><a class="subnav-link ${showUpdates ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates")}">All Updates</a><a class="subnav-link ${showUpdatesCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates/create")}">Create Update</a><a class="subnav-link ${showUpdatesAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates/analytics")}">Analytics</a></div>
+            ${renderNavDisclosure("updates", "Updates", showUpdates || showUpdatesCreate || showUpdatesAnalytics)}<a class="subnav-link ${showUpdates ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates")}">All Updates</a><a class="subnav-link ${showUpdatesCreate ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates/create")}">Create Update</a><a class="subnav-link ${showUpdatesAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/updates/analytics")}">Analytics</a></div>
           </div>` : ``}
 
           ${(canSeeAnyAnalytics ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${analyticsMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${buildScopedAdminHref("/admin/events-analytics")}" aria-current="${analyticsMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="chart-no-axes-combined" aria-hidden="true"></i><span>Analytics</span></a>
-            <div class="nav-sub" data-nav-sub>
+            ${renderNavDisclosure("analytics", "Analytics", analyticsMenuOpen)}
               ${canSeeEventsAnalytics ? `<a class="subnav-link ${showAnalytics ? "active" : ""}" href="${buildScopedAdminHref("/admin/events-analytics")}">Events</a>` : ``}
               ${canSeeOrganizerAnalytics ? `<a class="subnav-link ${showOrganizers ? "active" : ""}" href="${buildScopedAdminHref("/admin/events-organizers")}">${isOrganizerUser ? "Organizer" : "Organizers"}</a>` : ``}
               ${canSeeNewsletterAnalytics ? `<a class="subnav-link ${showNewsletterAnalytics ? "active" : ""}" href="${buildNewsletterHref("/admin/newsletter/analytics")}">Newsletter</a>` : ``}
@@ -14708,7 +14683,7 @@ return `
           ${(hasDeveloperAccess || isOrganizerUser) ? `<div class="sb-divider"></div>
           <div class="nav-group nav-collapsible ${adminMenuOpen ? "is-open" : ""}" data-nav-group>
             <a class="nav-title-btn" href="${hasDeveloperAccess ? buildScopedAdminHref("/admin/users") : buildScopedAdminHref("/admin/preferences")}" aria-current="${adminMenuOpen ? "page" : "false"}"><i class="nav-title-icon" data-lucide="user-round" aria-hidden="true"></i><span>Admin</span></a>
-            <div class="nav-sub" data-nav-sub>
+            ${renderNavDisclosure("admin", "Admin", adminMenuOpen)}
               <a class="subnav-link ${showPreferences ? "active" : ""}" href="${buildScopedAdminHref("/admin/preferences")}">Preferences</a>
               ${hasAdminAccess ? `<a class="subnav-link ${showUsers ? "active" : ""}" href="${buildScopedAdminHref("/admin/users")}">Users</a>` : ``}
               ${hasAdminAccess ? `<a class="subnav-link ${showInvites ? "active" : ""}" href="${buildScopedAdminHref("/admin/invites")}">Invites</a>` : ``}
@@ -19058,10 +19033,17 @@ return `
         var sidebar = document.getElementById("adminSidebar");
         if (!body || !toggle || !backdrop || !sidebar) return;
 
+        var mobile = window.matchMedia("(max-width: 1100px)");
+        var content = document.getElementById("admin-content");
+
         function sync(open){
           body.classList.toggle("sidebar-open", !!open);
           toggle.setAttribute("aria-expanded", open ? "true" : "false");
+          sidebar.inert = mobile.matches && !open;
+          if (content) content.inert = open;
         }
+
+        sync(false);
 
         function closeSidebar(){
           sync(false);
@@ -19082,8 +19064,10 @@ return `
           var link = e.target.closest("a");
           if (link) sync(false);
         });
-        window.addEventListener("resize", function(){
-          if (window.innerWidth > 1100) sync(false);
+        mobile.addEventListener("change", function(){
+          var restoreFocus = mobile.matches && sidebar.contains(document.activeElement);
+          sync(false);
+          if (restoreFocus) toggle.focus();
         });
         document.addEventListener("keydown", function(e){
           if (e.key === "Escape" && !e.defaultPrevented && body.classList.contains("sidebar-open")) closeSidebar();
@@ -19091,51 +19075,22 @@ return `
       })();
 
       (function(){
-        var groups = document.querySelectorAll("[data-nav-group]");
-        if (!groups || !groups.length) return;
-        groups.forEach(function(group){
-          var titleLink = group.querySelector(".nav-title-btn");
-          if (!titleLink) return;
-          titleLink.addEventListener("click", function(event){
-            // In icon-only mode the whole control is a navigation link; there
-            // is no visible disclosure target to operate.
-            if (document.body.classList.contains("sidebar-collapsed")) return;
-            // The right edge acts as a disclosure control; the remainder remains a normal navigation link.
-            if (event.offsetX < titleLink.clientWidth - 42) return;
-            event.preventDefault();
-            var wasOpen = group.classList.contains("is-open");
-            // This navigation is an accordion: expanding a section always
-            // collapses every other section before revealing the requested one.
-            groups.forEach(function(other){
-              other.classList.remove("is-open");
-            });
-            if (!wasOpen) group.classList.add("is-open");
-          });
-        });
-        groups.forEach(function(group){
-          var toggle = group.querySelector("[data-nav-toggle]");
-          if (!toggle) return;
+        var toggles = Array.from(document.querySelectorAll("[data-nav-toggle]"));
+        function setExpanded(toggle, expanded){
+          var menu = document.getElementById(toggle.getAttribute("aria-controls"));
+          if (!expanded && menu.contains(document.activeElement)) toggle.focus();
+          toggle.closest("[data-nav-group]").classList.toggle("is-open", expanded);
+          toggle.setAttribute("aria-expanded", String(expanded));
+          menu.hidden = !expanded;
+        }
+
+        toggles.forEach(function(toggle){
           toggle.addEventListener("click", function(){
-            var open = toggle.getAttribute("aria-expanded") === "true";
-            groups.forEach(function(other){
-              var t = other.querySelector("[data-nav-toggle]");
-              if (!t) return;
-              other.classList.remove("is-open");
-              t.setAttribute("aria-expanded", "false");
+            var expanded = toggle.getAttribute("aria-expanded") !== "true";
+            if (expanded) toggles.forEach(function(other){
+              if (other !== toggle) setExpanded(other, false);
             });
-            if (!open) {
-              group.classList.add("is-open");
-              toggle.setAttribute("aria-expanded", "true");
-            }
-          });
-        });
-        document.addEventListener("click", function(e){
-          if (e.target.closest(".sidebar")) return;
-          groups.forEach(function(group){
-            var t = group.querySelector("[data-nav-toggle]");
-            if (!t) return;
-            group.classList.remove("is-open");
-            t.setAttribute("aria-expanded", "false");
+            setExpanded(toggle, expanded);
           });
         });
       })();
@@ -19158,7 +19113,7 @@ return `
             if (label) link.title = collapsed ? label : "";
           });
         }
-        try { apply(localStorage.getItem(storageKey) === "1"); } catch (_) { apply(false); }
+        try { apply(window.innerWidth > 1100 && localStorage.getItem(storageKey) === "1"); } catch (_) { apply(false); }
         toggle.addEventListener("click", function(){
           if (window.innerWidth <= 1100) return;
           var next = !body.classList.contains("sidebar-collapsed");
@@ -19166,7 +19121,7 @@ return `
           try { localStorage.setItem(storageKey, next ? "1" : "0"); } catch (_) {}
         });
         window.addEventListener("resize", function(){
-          if (window.innerWidth <= 1100) body.classList.remove("sidebar-collapsed");
+          if (window.innerWidth <= 1100 && body.classList.contains("sidebar-collapsed")) apply(false);
         });
       })();
 
