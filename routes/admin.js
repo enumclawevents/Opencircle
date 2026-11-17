@@ -63,6 +63,7 @@ const {
   effectiveLifecycleState,
   normalizeLifecycleState,
   organizerNameKey,
+  organizerSuggestionKeySql,
   readAdditionalOrganizers,
   readAdditionalOrganizersByEvent,
   updateEventWithChange,
@@ -8476,6 +8477,7 @@ return `
           const notesLine = p.approvalNotes
             ? `<div class="muted">Notes: ${esc(p.approvalNotes)}</div>`
             : "";
+          const additional = safeParseJson(p.additionalOrganizersJson, []);
           const startLabel = fmtPendingDate(p.startDateTime);
           const endLabel = p.endDateTime ? fmtPendingDate(p.endDateTime) : "";
           return `
@@ -8487,6 +8489,7 @@ return `
                   ${p.venueName ? `<div class="muted">Venue: ${esc(p.venueName)}</div>` : ""}
                   <div class="muted">${esc(p.location || "")}</div>
                   ${p.organizer ? `<div class="muted">Organizer: ${esc(p.organizer)}</div>` : ""}
+                  ${Array.isArray(additional) ? additional.map(name => `<div class="muted">Additional organizer: ${esc(name)}</div>`).join("") : ""}
                   ${emailLine}
                   ${imageLine}
                   ${notesLine}
@@ -22105,11 +22108,6 @@ router.get("/event-field-suggestions", async (req, res) => {
        SELECT o.name AS value, e.city, 1 AS sourceOrder, o.nameKey AS storedKey
          FROM authorizedEvents e JOIN event_additional_organizers o ON o.eventId = e.id`;
   const owner = organizerLocation ? buildOrganizerOwnerClause("e.organizer", getOrganizerAccessValues(user, req)) : null;
-  // Insert a separator after each space, then remove separators between
-  // adjacent spaces. Match and deduplicate with the same normalized key.
-  const spaces = [9, 10, 11, 12, 13, 31].reduce(
-    (expression, code) => `replace(${expression}, char(${code}), ' ')`, "value"
-  );
   const data = await all(
     `WITH authorizedEvents AS (
        SELECT e.id, e.city, e.organizer, e.location
@@ -22119,7 +22117,7 @@ router.get("/event-field-suggestions", async (req, res) => {
           ${owner ? `AND ${owner.sql}` : ""}
      ), sources AS (${source}), candidates AS (
        SELECT value, city, sourceOrder,
-              COALESCE(storedKey, lower(trim(replace(replace(replace(${spaces}, ' ', ' ' || char(31)), char(31) || ' ', ''), char(31), '')))) AS matchKey
+              COALESCE(storedKey, ${organizerSuggestionKeySql("value")}) AS matchKey
        FROM sources
      ), ranked AS (
        SELECT value, city, matchKey, sourceOrder, city = ? AS localMatch, instr(matchKey, ?) AS position,

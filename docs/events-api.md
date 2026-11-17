@@ -41,7 +41,7 @@ shape plus an error message:
 | --- | --- |
 | `city` | Community constraint. Use on all plugin requests. Case-insensitive exact match. |
 | `category` or `cat` | Category display name or normalized slug. `Food & Drink` may be requested as `food-and-drink`. Unknown values return an empty collection. |
-| `organizer` or `org` | Case-insensitive exact organizer match; URL encode spaces, apostrophes, and ampersands. Unknown values return an empty collection. |
+| `organizer` or `org` | Normalized exact match against primary or additional organizer names; URL encode spaces, apostrophes, and ampersands. Unknown values return an empty collection. |
 | `venue` or `location` | Case-insensitive exact event location match. |
 | `q` | Case-insensitive literal substring search of title and location. It composes with all filters. |
 | `from`, `to` | ISO-8601 instants. Results overlap the inclusive interval: an event that began before `from` but ends during the range is included. |
@@ -100,3 +100,66 @@ cached `{ data, meta: { page, limit, total, pages, hasPrev, hasNext } }`
 response. It supports only city and one-based `page`, and is not a substitute
 for the general `/events` filtering contract. Existing consumers should keep
 using it until a separately planned deprecation and migration.
+
+## Organizer suggestions and public submissions
+
+### Suggestions
+
+Use `GET /events/organizer-suggestions?q=arts&city=Enumclaw`. No account
+or credentials are required. Send the community's event city (for example,
+`Enumclaw` or `Buckley`). The lookup is case-insensitive for city names and
+scoped to that one city. A regional WordPress form should use the actual
+event community for suggestions, even if it sends the submission to the
+Plateau review queue.
+
+Search starts at two characters after trimming and collapsing spaces. The
+query is a literal substring. Exact matches rank first, followed by
+prefix matches. The API returns up to eight deduplicated primary and
+additional organizer names from available public event records in that
+city, including past events. Each name retains its stored spelling.
+Primary names use SQLite's built-in case folding, which is ASCII-only.
+
+```json
+{"data":[{"name":"Arts Council"},{"name":"Friends & Arts, Inc."}]}
+```
+
+A short search, unknown city, or no matches returns `200` with
+`{"data":[]}`. Missing or blank `city`, repeated or malformed parameters,
+or a trimmed parameter longer than 100 characters returns `400` with
+`{"error":"..."}`. The anonymous endpoint permits up to 60 requests per
+minute per client IP per API process. A throttled request returns `429`
+with `Retry-After` in seconds. Debounce lookups, cancel stale requests,
+and keep free-text entry usable when suggestions are unavailable.
+
+### Submission
+
+Send the required primary organizer as the `organizer` string in the
+existing `POST /events/submit` payload. JSON callers can optionally include
+`additionalOrganizers`, an ordered array of up to 10 nonempty strings,
+each at most 200 characters. Omission and an empty array are accepted.
+Additional names are trimmed at the edges. Internal spacing, spelling and
+punctuation are retained. The API rejects invalid arrays and duplicates
+of the primary or other additional names after case and whitespace
+normalization with `400` and `{"ok":false,"error":"..."}`.
+
+Suggestions provide display names only. Submit the selected or manually
+entered names as strings without IDs. Existing event validation, submission
+responses, spam protection, and pending approval continue to apply.
+
+### Published event reads
+
+Event lists and details keep the legacy primary `organizer` string and
+include `organizers`, an ordered array such as:
+
+```json
+[
+  {"name":"Arts Council","role":"primary"},
+  {"name":"Friends & Arts, Inc.","role":"additional"}
+]
+```
+
+Both `organizer` and `org` collection filters match the primary or an
+additional organizer by normalized exact name. An organizer association
+adds attribution without creating another event or granting account
+permissions. Recurrence expansion still follows the collection's `expand`
+parameter.

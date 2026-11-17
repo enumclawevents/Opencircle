@@ -22,7 +22,7 @@ const {
 } = require("../lib/event-input");
 const { clientIp, createRateLimiter } = require("../lib/public-rate-limit");
 const {
-  AdditionalOrganizerValidationError, organizerNameKey, publicLifecycle, readAdditionalOrganizersByEvent, updateEventWithChange, validateAdditionalOrganizers,
+  AdditionalOrganizerValidationError, organizerNameKey, organizerSuggestionKeySql, publicLifecycle, readAdditionalOrganizersByEvent, updateEventWithChange, validateAdditionalOrganizers,
 } = require("../lib/event-lifecycle");
 const {
   buildEventStructuredData,
@@ -50,6 +50,7 @@ const eventReportPerEventRateLimiter = createRateLimiter({
   max: EVENT_REPORT_MAX_PER_IP_EVENT,
 });
 const eventSubmissionRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 8 });
+const organizerSuggestionRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 60, maxKeys: 4096 });
 const eventViewRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 240 });
 const eventTicketClickRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 30 });
 const eventEngagementRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60 });
@@ -1932,6 +1933,46 @@ router.get("/parent-options", async (req, res) => {
     return res.json({ data: (await withPublicOrganizers(rows)).map(eventRelationshipSummary) });
   } catch (error) {
     console.error("[/events/parent-options]", error);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.get("/organizer-suggestions", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (!organizerSuggestionRateLimiter.consume(clientIp(req))) {
+    res.set("Retry-After", String(organizerSuggestionRateLimiter.retryAfterSeconds));
+    return res.status(429).json({ error: "Too many organizer searches. Please try again later." });
+  }
+  const query = readOptionalQueryString(req.query, ["q"], { maxLength: 100 });
+  const city = readOptionalQueryString(req.query, ["city"], { maxLength: 100 });
+  const error = query.error || city.error || (!city.value && "City is required.");
+  if (error) return res.status(400).json({ error });
+  const match = organizerNameKey(query.value);
+  if (match.length < 2) return res.json({ data: [] });
+
+  try {
+    const rows = await all(
+      `WITH visible AS (
+         SELECT e.id, e.organizer FROM events e
+          WHERE e.city = ? COLLATE NOCASE AND ${availableEventSql("e")}
+       ), names AS (
+         SELECT organizer AS name, ${organizerSuggestionKeySql("organizer")} AS nameKey, 0 AS sourceOrder FROM visible
+         UNION ALL
+         SELECT o.name, o.nameKey, 1 FROM visible e JOIN event_additional_organizers o ON o.eventId = e.id
+       ), matches AS (
+         SELECT name, nameKey, sourceOrder, instr(nameKey, ?) AS position FROM names
+       ), ranked AS (
+         SELECT name, nameKey, position,
+                row_number() OVER (PARTITION BY nameKey ORDER BY sourceOrder, name) AS choice
+         FROM matches WHERE position > 0
+       )
+       SELECT name FROM ranked WHERE choice = 1
+       ORDER BY (nameKey = ?) DESC, (position = 1) DESC, nameKey
+       LIMIT 8`, [city.value, match, match]
+    );
+    return res.json({ data: rows });
+  } catch (error) {
+    console.error("[/events/organizer-suggestions]", error);
     return res.status(500).json({ error: "Server error" });
   }
 });

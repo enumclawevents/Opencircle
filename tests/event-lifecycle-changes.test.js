@@ -337,10 +337,31 @@ test("public additional organizers survive both approval paths, failures, and re
   }
   assert.equal((await sql(dbPath, "SELECT id FROM pending_events WHERE title = 'Invalid intake'")).length, 0);
 
+  const suggest = (q, city = "Enumclaw", ip = "198.51.100.1") => fetch(
+    `${baseUrl}/events/organizer-suggestions?${new URLSearchParams({ q, city })}`,
+    { headers: { "x-forwarded-for": ip } }
+  );
+  const suggestions = async (q, city) => {
+    const response = await suggest(q, city);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    return (await response.json()).data;
+  };
+  assert.deepEqual(await suggestions("tS  CoUn", "enumclaw"), [{ name: "Arts Council" }]);
+  assert.deepEqual(await suggestions("arts", "Buckley"), []);
+  assert.deepEqual(await suggestions("a"), []);
+  assert.deepEqual(await suggestions("%_"), []);
+  for (const query of ["q=arts", "q=arts&q=other&city=Enumclaw", "q=arts&city=Enumclaw&city=Buckley", `q=${"x".repeat(101)}&city=Enumclaw`]) {
+    assert.equal((await fetch(`${baseUrl}/events/organizer-suggestions?${query}`)).status, 400);
+  }
+
   const partners = ["Guest Partners", "Friends  & Arts, Inc."];
   const direct = await sendSubmission("Direct intake", { additionalOrganizers: partners, hasRecurrence: "1", recurrenceType: "weekly", weeklyByDay: ["SU"] });
   assert.deepEqual(JSON.parse((await pending(direct))[0].additionalOrganizersJson), partners);
   assert.deepEqual(await published("Direct intake"), []);
+  assert.deepEqual(await suggestions("friends"), []);
+  const queue = await fetch(baseUrl + "/admin/approve-events", { headers: { cookie: admin } });
+  assert.match(await queue.text(), /Additional organizer: Friends  &amp; Arts, Inc\./);
   assert.equal((await approve(direct, organizer)).status, 403);
   assert.equal((await approveInEditor(direct, "Direct intake", {}, organizer)).status, 403);
   assert.equal((await fetch(`${baseUrl}/admin/create-events?pending=${direct}`, { headers: { cookie: organizer } })).status, 403);
@@ -391,4 +412,56 @@ test("public additional organizers survive both approval paths, failures, and re
   assert.equal(plateauRows[0].organizer, "Arts Council");
   assert.deepEqual(await names(plateauRows[0].id), [partners[1]]);
   assert.deepEqual(await pending(plateau), []);
+  assert.deepEqual(await suggestions("FRIENDS & arts"), [{ name: partners[1] }]);
+  assert.deepEqual(await suggestions("friends", "Buckley"), [{ name: partners[1] }]);
+  assert.deepEqual(await suggestions("guest partners", "Buckley"), []);
+  const directDetail = await (await fetch(`${baseUrl}/events/${directRows[0].id}`)).json();
+  assert.equal(directDetail.data.organizer, "Arts Council");
+  assert.deepEqual(directDetail.data.organizers, [
+    { name: "Arts Council", role: "primary" },
+    ...partners.map(name => ({ name, role: "additional" })),
+  ]);
+  for (const filter of ["organizer", "org"]) {
+    const params = new URLSearchParams({ city: "Enumclaw", status: "all", expand: "0", [filter]: partners[1] });
+    const filtered = await (await fetch(`${baseUrl}/events?${params}`)).json();
+    assert.deepEqual(filtered.data.map(row => row.id).sort(), [
+      directRows[0].id, (await published("Editor intake"))[0].id,
+    ].sort());
+  }
+
+  const denied = await sendSubmission("Rejected intake", { organizer: "New Free-Text Name", additionalOrganizers: ["Pending Only Partner"] });
+  assert.deepEqual(await suggestions("pending only"), []);
+  assert.equal((await fetch(`${baseUrl}/admin/approve-events/${denied}/deny`, {
+    method: "POST", redirect: "manual", headers: { cookie: admin },
+  })).status, 302);
+  assert.deepEqual(await pending(denied), []);
+  assert.deepEqual(await published("Rejected intake"), []);
+  assert.deepEqual(await suggestions("free-text"), []);
+
+  const createPrivate = fields => fetch(baseUrl + "/admin/events", {
+    method: "POST", redirect: "manual", headers: { cookie: admin, "content-type": "application/x-www-form-urlencoded" },
+    body: eventForm(fields),
+  });
+  assert.equal((await createPrivate({ title: "Private draft", organizer: "Draft Only Organizer", saveDraft: "1" })).status, 303);
+  assert.equal((await createPrivate({
+    id: String(directRows[0].id), eventBaseRevision: "1", eventEditToken: "",
+    title: "Direct intake", organizer: "Revision Only Organizer", saveChangesDraft: "1",
+  })).status, 303);
+  for (const query of ["Draft Only", "Revision Only"]) assert.deepEqual(await suggestions(query), []);
+  assert.deepEqual(await suggestions("friends"), [{ name: partners[1] }]);
+
+  for (const [name, archived, state] of [
+    ["Outside Archive Flag", 1, "scheduled"], ["Outside Archive State", 0, "archived"],
+    ...Array.from({ length: 12 }, (_, index) => [`Bounded Organizer ${index}`, 0, "scheduled"]),
+  ]) {
+    await sql(dbPath, "INSERT INTO events (city, title, startDateTime, organizer, archived, lifecycleState) VALUES ('Enumclaw', 'Suggestion Fixture', '2027-01-10T18:00', ?, ?, ?)", [name, archived, state]);
+  }
+  assert.deepEqual(await suggestions("outside archive"), []);
+  assert.equal((await suggestions("bounded organizer")).length, 8);
+
+  const requests = await Promise.all(Array.from({ length: 61 }, () => suggest("a", "Enumclaw", "198.51.100.2")));
+  assert.equal(requests.filter(response => response.status === 200).length, 60);
+  const limited = requests.find(response => response.status === 429);
+  assert.equal(limited?.headers.get("retry-after"), "60");
+
 });
