@@ -12950,16 +12950,24 @@ return `
         border-top:1px solid var(--line);
       }
       .event-report-review-toolbar{
-        position:sticky; top:0; z-index:35; margin-bottom:10px;
+        position:sticky; top:var(--admin-content-padding); z-index:35; margin-bottom:10px;
       }
-      html:has([data-report-review-toolbar]){ scroll-padding-top:var(--report-review-scroll-padding, 0px); }
-      .event-report-review.mini{ padding:8px 12px; overflow-wrap:anywhere; box-shadow:none; }
-      .event-report-review-row,.event-report-review-meta{ display:flex; align-items:center; flex-wrap:wrap; gap:4px 8px; }
-      .event-report-review-row{ justify-content:space-between; }
-      .event-report-review-meta{ flex:1 1 15rem; min-width:0; }
+      html:has([data-report-review-toolbar]){ scroll-padding-top:calc(var(--admin-content-padding) + var(--report-review-scroll-padding, 0px)); }
+      .event-report-review.mini{
+        display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px;
+        padding:8px 12px 8px 16px;
+        overflow-wrap:anywhere; box-shadow:inset 4px 0 var(--brand);
+      }
+      .event-report-review-copy{ flex:1 1 15rem; min-width:0; }
+      .event-report-review-meta{ display:flex; align-items:center; flex-wrap:wrap; gap:4px 8px; }
+      .event-report-review-return{ text-align:center; }
+      @media (max-width:600px){
+        .event-report-review-copy{ flex-basis:100%; }
+        .event-report-review-return{ margin-inline:auto; }
+      }
       .event-report-review-meta h3{ margin:0; font-size:1rem; }
       .event-report-review-status.pill{ padding:1px 7px; color:var(--text); background:var(--panel2); border-color:var(--line); }
-      .event-report-review .btn{ min-height:28px; height:auto; padding:3px 8px; white-space:normal; }
+      .event-report-review .event-report-review-toggle{ min-height:28px; height:auto; padding:3px 8px; }
       .event-report-review-message{ margin:4px 0 0; white-space:pre-wrap; font-size:calc(13px + var(--font-up)); }
       .event-report-review[data-description-ready] .event-report-review-message{ max-block-size:2lh; overflow:hidden; }
       .event-report-review[data-description-expanded] .event-report-review-message{
@@ -14773,16 +14781,16 @@ return `
         ${reviewedReport ? `
         <div class="event-report-review-toolbar" data-report-review-toolbar>
           <section class="mini event-report-review" aria-labelledby="event-report-review-heading">
-            <div class="event-report-review-row">
+            <div class="event-report-review-copy">
               <div class="event-report-review-meta">
                 <h3 id="event-report-review-heading">${esc(EVENT_REPORT_REASON_LABELS[reviewedReport.reportType] || "Other")}</h3>
                 <span class="pill event-report-review-status">${esc(reviewedReport.status.replace(/^./, letter => letter.toUpperCase()))}</span>
                 <span class="muted small">Report #${esc(reviewedReport.id)}</span>
               </div>
-              <a class="btn" href="${esc(eventReportReturnHref)}">Back to Event Reports</a>
+              <p class="event-report-review-message" id="event-report-review-message">${esc(reviewedReport.message || "No report description was provided.")}</p>
+              <button class="btn event-report-review-toggle" type="button" aria-controls="event-report-review-message" aria-expanded="false" hidden>Show more</button>
             </div>
-            <p class="event-report-review-message" id="event-report-review-message">${esc(reviewedReport.message || "No report description was provided.")}</p>
-            <button class="btn event-report-review-toggle" type="button" aria-controls="event-report-review-message" aria-expanded="false" hidden>Show more</button>
+            <a class="btn event-report-review-return" href="${esc(eventReportReturnHref)}">Back to Event Reports</a>
           </section>
         </div>
         <script defer src="/assets/event-report-review.js"></script>
