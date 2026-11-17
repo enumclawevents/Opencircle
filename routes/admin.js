@@ -12949,13 +12949,9 @@ return `
         padding:24px 0;
         border-top:1px solid var(--line);
       }
-      /* The header and report share one sticky container, so the report
-         always follows the header's actual height at the current width. */
       .event-report-review-toolbar{
-        position:sticky; top:0; z-index:35; display:grid; gap:6px;
-        padding-block:4px 8px; margin-bottom:10px; background:var(--panel);
+        position:sticky; top:0; z-index:35; margin-bottom:10px;
       }
-      .event-report-review-toolbar .header{ position:relative; z-index:1; margin:0; }
       html:has([data-report-review-toolbar]){ scroll-padding-top:var(--report-review-scroll-padding, 0px); }
       .event-report-review.mini{ padding:8px 12px; overflow-wrap:anywhere; box-shadow:none; }
       .event-report-review-row,.event-report-review-meta{ display:flex; align-items:center; flex-wrap:wrap; gap:4px 8px; }
@@ -14693,7 +14689,6 @@ return `
 
       <!-- Main content -->
       <main class="main" id="admin-content" tabindex="-1" data-page-loading-content>
-        ${reviewedReport ? '<div class="event-report-review-toolbar" data-report-review-toolbar>' : ""}
         <div class="header" data-page-loading-header>
           <div class="h-left">
             <button type="button" class="mobile-sidebar-toggle" id="mobileSidebarToggle" aria-label="Open sidebar" aria-expanded="false" aria-controls="adminSidebar">
@@ -14776,6 +14771,7 @@ return `
         </div>
 
         ${reviewedReport ? `
+        <div class="event-report-review-toolbar" data-report-review-toolbar>
           <section class="mini event-report-review" aria-labelledby="event-report-review-heading">
             <div class="event-report-review-row">
               <div class="event-report-review-meta">
