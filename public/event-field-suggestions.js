@@ -22,18 +22,25 @@ function initEventFieldSuggestions(input, { accept, exclude } = {}) {
   let request;
   let active = -1;
   let results = [];
+  let hasOpened = false;
 
-  function close() {
+  function clearResults() {
     clearTimeout(timer);
     request?.abort();
     active = -1;
     results = [];
     list.replaceChildren();
     list.hidden = true;
+    list.removeAttribute("data-suggestion-enter");
     status.textContent = "";
     status.hidden = true;
     input.setAttribute("aria-expanded", "false");
     input.removeAttribute("aria-activedescendant");
+  }
+
+  function close() {
+    hasOpened = false;
+    clearResults();
   }
 
   function announce(message) {
@@ -53,7 +60,7 @@ function initEventFieldSuggestions(input, { accept, exclude } = {}) {
   }
 
   function search() {
-    close();
+    clearResults();
     const q = input.value.trim();
     if (q.length < 2 || q.length > 100 || !city.value || document.activeElement !== input) return;
     timer = setTimeout(async () => {
@@ -76,6 +83,10 @@ function initEventFieldSuggestions(input, { accept, exclude } = {}) {
           option.addEventListener("pointerdown", event => event.preventDefault());
           option.addEventListener("click", () => select(index));
           list.append(option);
+        }
+        if (results.length && !hasOpened) {
+          list.setAttribute("data-suggestion-enter", "");
+          hasOpened = true;
         }
         list.hidden = !results.length;
         input.setAttribute("aria-expanded", String(!!results.length));

@@ -19,6 +19,7 @@ document.querySelectorAll("[data-event-draft-list]").forEach(list => {
     const restoreFocus = form.contains(document.activeElement);
     button.disabled = true;
     success.hidden = error.hidden = true;
+    success.removeAttribute("data-success-enter");
     try {
       const response = await fetch(form.action, {
         method: "POST",
@@ -35,6 +36,7 @@ document.querySelectorAll("[data-event-draft-list]").forEach(list => {
       empty.hidden = remaining > 0;
       success.hidden = false;
       success.textContent = "Draft deleted.";
+      success.setAttribute("data-success-enter", "");
       if (restoreFocus) (next?.querySelector("a") || list.querySelector("summary")).focus();
     } catch (failure) {
       error.hidden = false;

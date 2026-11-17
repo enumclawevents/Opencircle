@@ -263,3 +263,51 @@ body.theme-dark .metricInfo { color: var(--muted); background: var(--panel2); }
     }
   }
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  .event-field-suggestion-list[data-suggestion-enter]:not([hidden]),
+  .event-parent-dropdown:not([hidden]),
+  .header-account-menu.is-open .header-account-dropdown,
+  .sb-city-dd.is-open .sb-city-menu,
+  .report-share[open] .report-share-options {
+    animation: dashboard-menu-enter var(--motion-menu) var(--motion-easing);
+  }
+
+  body.sidebar-collapsed :is(.nav-title-btn, .sidebar-logout):is(:hover, :focus-visible)::before {
+    animation: dashboard-flyout-enter var(--motion-menu) var(--motion-easing);
+  }
+
+  .users-modal[open] .users-modal-panel {
+    animation: dashboard-dialog-enter var(--motion-dialog) var(--motion-easing);
+  }
+
+  .users-modal[open]::backdrop {
+    animation: dashboard-backdrop-enter var(--motion-dialog) var(--motion-easing);
+  }
+
+  @keyframes dashboard-menu-enter {
+    from { opacity: .55; translate: 0 -4px; }
+  }
+
+  @keyframes dashboard-flyout-enter {
+    from { opacity: .55; translate: -4px 0; }
+  }
+
+  @keyframes dashboard-dialog-enter {
+    from { opacity: .55; translate: 0 6px; }
+  }
+
+  @keyframes dashboard-backdrop-enter {
+    from { opacity: 0; }
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .admin-notice--success[role="status"][data-success-enter]:not([hidden]) {
+    animation: dashboard-success-enter var(--motion-disclosure) var(--motion-easing);
+  }
+
+  @keyframes dashboard-success-enter {
+    from { opacity: .75; }
+  }
+}

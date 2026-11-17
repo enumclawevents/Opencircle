@@ -7835,7 +7835,7 @@ return `
           : prefNotice === "status_saved"
           ? `<div class="mini admin-notice admin-notice--success" role="status">Status updated.</div>`
           : prefNotice === "password_saved"
-          ? `<div class="mini admin-notice admin-notice--success" role="status">Password updated.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status" data-success-immediate>Password updated.</div>`
           : prefNotice === "password_mismatch"
           ? `<div class="mini admin-notice admin-notice--error" role="alert">New passwords do not match.</div>`
           : prefNotice === "password_short"
@@ -8672,9 +8672,9 @@ return `
       const notice = String(req.query.notice || "");
       const noticeHtml =
         notice === "sent"
-          ? `<div class="mini admin-notice admin-notice--success" role="status">Invite email sent.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status" data-success-immediate>Invite email sent.</div>`
           : notice === "saved"
-          ? `<div class="mini admin-notice admin-notice--success" role="status">User permissions updated.</div>`
+          ? `<div class="mini admin-notice admin-notice--success" role="status" data-success-immediate>User permissions updated.</div>`
           : notice === "no_email"
           ? `<div class="mini admin-notice admin-notice--error" role="alert">User has no email on file.</div>`
           : notice === "email_taken"
@@ -10974,7 +10974,6 @@ return `
       .header-account-trigger:active,
       .header-account-trigger:focus,
       .header-account-trigger:focus-visible{
-        outline:none !important;
         box-shadow:none !important;
       }
       .header-account-dropdown{
@@ -14311,8 +14310,7 @@ return `
         line-height:1.2;
         opacity:0;
         pointer-events:none;
-        transform:translate(-4px,-50%);
-        transition:opacity .14s ease, transform .14s ease, visibility .14s ease;
+        transform:translateY(-50%);
         visibility:hidden;
       }
       body.sidebar-collapsed .nav-title-btn:hover::before,
@@ -14320,7 +14318,6 @@ return `
       body.sidebar-collapsed .sidebar-logout:hover::before,
       body.sidebar-collapsed .sidebar-logout:focus-visible::before{
         opacity:1;
-        transform:translate(0,-50%);
         visibility:visible;
       }
       body.sidebar-collapsed .sidebar-collapse-toggle{ left:61px; }
@@ -14557,6 +14554,7 @@ return `
       ` : ""}
 </style>
     <link rel="stylesheet" href="/assets/admin-ui.css" />
+    <script defer src="/assets/admin-success-feedback.js"></script>
   </head>
   <body>
     <a class="admin-skip-link" href="#admin-content">Skip to content</a>
@@ -17370,7 +17368,7 @@ return `
               </div>
               </div>
               <script defer src="/assets/event-parent-picker.js?v=8"></script>
-              <script defer src="/assets/event-field-suggestions.js?v=3"></script>
+              <script defer src="/assets/event-field-suggestions.js?v=4"></script>
             </form>
           </div>
           ` : ``}
@@ -17480,7 +17478,7 @@ return `
                     </ul>
                     <p class="muted" data-draft-empty hidden>No saved drafts.</p>
                   </details>
-                  <script defer src="/assets/event-drafts.js"></script>
+                  <script defer src="/assets/event-drafts.js?v=2"></script>
                 ` : ""}
 	            <div class="eventsFilters">
                 <form class="listSearchRow eventSearchForm" method="GET" action="/admin/existing-events">
@@ -20007,7 +20005,10 @@ return `
           if (!dd.contains(e.target)) closeMenu();
         });
         document.addEventListener("keydown", function(e){
-          if (e.key === "Escape") closeMenu();
+          if (e.key === "Escape" && dd.classList.contains("is-open")) {
+            if (menu.contains(document.activeElement)) btn.focus();
+            closeMenu();
+          }
         });
       })();
 
