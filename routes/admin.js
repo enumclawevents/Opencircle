@@ -12416,6 +12416,7 @@ return `
       }
       .stat{ display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--muted); margin: 6px 0; }
       .event-card:not(.venue-card) .event-stats .stat{ margin: 0; }
+      .event-card .event-stats .stat .metricInfo{ margin-inline-start:6px; }
       .stat strong{ color: var(--text); font-size: 16px; }
 
       /* Venue list can be taller than event cards; avoid clipping/overflow */
