@@ -12392,8 +12392,8 @@ return `
         justify-content:space-between;
       }
       .event-card:not(.venue-card) .event-stats{
-        width: 230px;
-        flex: 0 0 230px;
+        width: 250px;
+        flex: 0 0 250px;
         height: auto;
         min-height: var(--event-side-h);
         display:grid;
@@ -12415,8 +12415,13 @@ return `
         line-height: 1;
       }
       .stat{ display:flex; justify-content:space-between; align-items:center; font-size: 13px; color: var(--muted); margin: 6px 0; }
-      .event-card:not(.venue-card) .event-stats .stat{ margin: 0; }
-      .event-card .event-stats .stat .metricInfo{ margin-inline-start:6px; }
+      .event-card:not(.venue-card) .event-stats .stat{ margin:0; gap:4px; }
+      .event-card:not(.venue-card) .event-stats .stat > span{
+        display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+      }
+      .event-card:not(.venue-card) .event-stats .stat > strong{
+        min-width:0; overflow-wrap:anywhere; text-align:end;
+      }
       .stat strong{ color: var(--text); font-size: 16px; }
 
       /* Venue list can be taller than event cards; avoid clipping/overflow */
