@@ -2,6 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
+const { createOccurrenceEngagementHandler } = require("../lib/occurrence-engagement");
 const { all, get, run, transaction } = require("../db");
 const crypto = require("crypto");
 const { safeParseJson } = require("../lib/json");
@@ -2904,7 +2905,14 @@ router.get("/:idOrSlug/tickets", async (req, res) => {
 //   { goingDelta: 1 } or { goingDelta: -1 }
 //   { interestedDelta: 1 } or { interestedDelta: -1 }
 //   OR absolute set: { going: 12, interested: 5 }
+const occurrenceEngagementHandler = createOccurrenceEngagementHandler({
+  transaction, generateOccurrences, normalizeRowTimes, availableEventSql,
+});
+
 router.post("/:idOrSlug/engagement", async (req, res) => {
+  if (req.body && ["mode", "occurrenceId", "visitorToken", "selection"].some(key => Object.hasOwn(req.body, key))) {
+    return occurrenceEngagementHandler(req, res);
+  }
   try {
     const engagementIp = clientIp(req);
     const rateKey = `engagement:${req.params.idOrSlug}:${engagementIp}`;
