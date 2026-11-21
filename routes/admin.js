@@ -54,6 +54,7 @@ const {
 const { bulkImportUpload, formatEventImage, persistFormattedEventImage, persistImportedImage, persistUploadedAdImage, persistUploadedImage, upload } = require("../lib/uploads");
 const { UPDATE_STATUSES, categoriesForCity, ensureUniqueUpdateSlug, ensureUpdatesSchema, communityTimezone, normalizeTags, parseScheduleLocal, sanitizeUpdateHtml } = require("../lib/updates");
 const { generateOccurrences } = require("./events");
+const { canonicalOccurrence } = require("../lib/occurrence-engagement");
 const {
   AdditionalOrganizerValidationError,
   MAX_ADDITIONAL_ORGANIZERS,
@@ -7557,7 +7558,7 @@ return `
       const selectedEventGoingSql = cols.has("goingCount") ? "goingCount" : "0 AS goingCount";
       const selectedEventInterestedSql = cols.has("interestedCount") ? "interestedCount" : "0 AS interestedCount";
       const selectedEventRow = await get(
-        `SELECT id, title, location, organizer, ${selectedEventCreatedAtSql}, ${selectedEventSubmittedAtSql},
+        `SELECT id, title, location, organizer, startDateTime, endDateTime, hasRecurrence, recurrenceRule, recurrenceDates, recurrenceStartDate, recurrenceUntilDate, ${selectedEventCreatedAtSql}, ${selectedEventSubmittedAtSql},
                 ${selectedEventGoingSql}, ${selectedEventInterestedSql}
            FROM events ${dashAnd} id = ?`,
         [...dashParams, requestedEventId]
@@ -7591,20 +7592,69 @@ return `
           interestedCount: Number(eventRow.interestedCount || 0),
         };
 
+        const recurringInsights = hasRecurringData(eventRow);
+        let occurrenceOptions = [];
+        let occurrenceOptionsFailed = false;
+        let occurrenceWindowHelp = "Scheduled dates and previously recorded responses. Times are Pacific.";
+        if (recurringInsights) {
+          try {
+            // An open-ended series cannot be enumerated in full. Include the reporting
+            // period, a year either side of today, and every recorded historical date.
+            // Finite schedules include their complete generated date range.
+            const now = DateTime.now().setZone(DEFAULT_TZ);
+            let from = Math.min(eventsPeriod.start.toMillis(), now.minus({ years: 1 }).toMillis());
+            let to = Math.max(eventsPeriod.end.toMillis(), now.plus({ years: 1 }).toMillis());
+            const rule = parseStoredRule(eventRow.recurrenceRule);
+            const until = DateTime.fromISO(String(eventRow.recurrenceUntilDate || ""), { zone: DEFAULT_TZ });
+            if (rule?.type === "custom") {
+              // The public generator iterates this finite stored list directly.
+              from = 0;
+              to = 8.64e15;
+            } else if (until.isValid) {
+              from = Math.min(from, Date.parse(normalizeRowTimes(eventRow).startDateTime));
+              to = Math.max(to, until.endOf("day").toMillis());
+            } else {
+              occurrenceWindowHelp = "Dates within a year of today, the reporting period, and previously recorded responses. Times are Pacific.";
+            }
+            const dates = new Map(generateOccurrences(normalizeRowTimes(eventRow), from, to)
+              .map(o => [new Date(o.startDateTime).toISOString(), true]));
+            const recorded = await all("SELECT DISTINCT occurrenceStart FROM occurrence_engagement WHERE eventId = ?", [eventRow.id]);
+            for (const row of recorded) {
+              const occurrence = canonicalOccurrence(`e${eventRow.id}_${row.occurrenceStart}`, eventRow.id);
+              if (!occurrence || dates.has(occurrence.start)) continue;
+              const scheduled = generateOccurrences(normalizeRowTimes(eventRow), occurrence.ms, occurrence.ms + 1)
+                .some(o => Date.parse(o.startDateTime) === occurrence.ms);
+              dates.set(occurrence.start, scheduled);
+            }
+            occurrenceOptions = [...dates].sort(([a], [b]) => a.localeCompare(b)).map(([start, scheduled]) => ({
+              id: `e${eventRow.id}_${start}`, start, scheduled,
+              label: DateTime.fromISO(start).setZone(DEFAULT_TZ).toFormat("MMM d, yyyy · h:mm a ZZZZ") + (scheduled ? "" : " — no longer scheduled"),
+            }));
+          } catch (_) { occurrenceOptionsFailed = true; }
+        }
+        const defaultOccurrence = occurrenceOptions.find(o => Date.parse(o.start) >= Date.now()) || occurrenceOptions.at(-1);
         analyticsSideTitle = selectedEventAnalytics.title;
         analyticsSideSub = "Individual event insights";
         analyticsSideBodyHtml = `
           <div class="mini event-insights-mini">
             <div style="margin-bottom:12px;">
-              <a class="btn" href="${esc(buildScopedAdminHref("/admin/events-analytics", analyticsPeriodParams))}">Back to all events analytics</a>
+              <a class="event-insights-back" href="${esc(buildScopedAdminHref("/admin/events-analytics", analyticsPeriodParams))}">Back to all events analytics</a>
             </div>
             ${selectedEventAnalytics.location ? `<div class="muted" style="margin-bottom:6px;">${esc(selectedEventAnalytics.location)}</div>` : ``}
             ${selectedEventAnalytics.organizer ? `<div class="muted" style="margin-bottom:12px;">Organizer: ${esc(selectedEventAnalytics.organizer)}</div>` : ``}
             <div class="kv"><div class="k">Scheduled dates in this period</div><div class="v">${fmt(selectedEventAnalytics.occurrences)}</div></div>
-            <div class="event-insights-engagement">
-              <div class="kv"><div class="k">${analyticsMetricLabel("Going", "Current Going total across all event dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.goingCount)}</div></div>
-              <div class="kv"><div class="k">${analyticsMetricLabel("Interested", "Current Interested total across all event dates, regardless of the reporting period.")}</div><div class="v">${fmt(selectedEventAnalytics.interestedCount)}</div></div>
+            ${recurringInsights ? `
+              <label for="eventInsightsOccurrence">Occurrence date</label>
+              <select class="ctrl" id="eventInsightsOccurrence" data-event-id="${eventRow.id}" ${!occurrenceOptions.length ? "disabled" : ""}>
+                ${occurrenceOptions.length ? occurrenceOptions.map(o => `<option value="${esc(o.id)}" ${o.id === defaultOccurrence?.id ? "selected" : ""}>${esc(o.label)}</option>`).join("") : `<option>${occurrenceOptionsFailed ? "Dates unavailable" : "No scheduled dates"}</option>`}
+              </select>
+              <p class="sub">${esc(occurrenceWindowHelp)}</p>
+            ` : ""}
+            <div class="event-insights-engagement" ${recurringInsights ? 'id="eventInsightsEngagement" aria-busy="false"' : ""}>
+              <div class="metric"><div class="k">${analyticsMetricLabel("Going", recurringInsights ? "Current Going responses for the selected occurrence only." : "Current Going total across all event dates, regardless of the reporting period.")}</div><div class="v" ${recurringInsights ? 'data-engagement="goingCount"' : ""}>${recurringInsights ? "—" : fmt(selectedEventAnalytics.goingCount)}</div></div>
+              <div class="metric"><div class="k">${analyticsMetricLabel("Interested", recurringInsights ? "Current Interested responses for the selected occurrence only." : "Current Interested total across all event dates, regardless of the reporting period.")}</div><div class="v" ${recurringInsights ? 'data-engagement="interestedCount"' : ""}>${recurringInsights ? "—" : fmt(selectedEventAnalytics.interestedCount)}</div></div>
             </div>
+            ${recurringInsights ? `<p class="sub" id="eventInsightsEngagementStatus" role="status" aria-live="polite">${occurrenceOptionsFailed ? "Could not load occurrence dates. Refresh to try again." : !occurrenceOptions.length ? "No occurrence responses to display." : "Loading responses…"}</p><script defer src="/assets/event-insights-engagement.js"></script>` : ""}
           </div>
         `;
       }
@@ -12076,33 +12126,19 @@ return `
         white-space:normal;
         overflow:visible;
       }
+      .event-insights-back{ font-size:13px; }
+      .event-insights-mini label{ display:block; margin:12px 0 6px; }
+      .event-insights-mini .ctrl{ width:100%; min-width:0; }
       .event-insights-engagement{
-        display:flex;
-        flex-direction:column;
-        gap:6px;
-        margin-top:4px;
-        padding:8px 10px;
-        border:1px solid var(--line);
-        border-radius:var(--radius-mid);
-        background:var(--panel);
+        display:grid;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:10px;
+        margin-top:12px;
       }
-      .event-insights-engagement .kv{ margin:0; }
+      .event-insights-engagement .metric{ min-width:0; display:block; padding:12px; }
       .event-insights-engagement .metricInfo{ margin-inline-start:6px; }
-      .event-insights-engagement .v{
-        color:var(--text);
-        font-weight:650;
-        font-variant-numeric:tabular-nums;
-        text-align:end;
-      }
-      @media (width > 1100px){
-        .event-insights-card{
-          display:flex;
-          flex-direction:column;
-        }
-        .event-insights-mini,
-        .event-insights-engagement{ flex:1 1 auto; }
-        .event-insights-engagement{ justify-content:space-around; }
-      }
+      .event-insights-engagement .k{ display:flex; align-items:center; flex-wrap:wrap; }
+      .event-insights-engagement .v{ font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:6px; }
       /* spacing tweaks only for specific widgets */
       .mini-organizers{
         flex:1;
@@ -21959,6 +21995,7 @@ function isOrganizerAllowedAdminPath(pathname) {
     "/events",
     "/events/quick-add",
     "/event-field-suggestions",
+    "/event-occurrence-engagement",
   ].includes(path)) return true;
   if (/^\/event-drafts\/\d+\/(image|delete)$/.test(path)) return true;
   if (/^\/events\/\d+\/(delete|archive|unarchive|lifecycle|unpublished-image)$/.test(path)) return true;
@@ -22039,6 +22076,34 @@ router.post("/dashboard/newsletter-failures/clear", async (req, res) => {
   } catch (error) {
     console.error("[/admin/dashboard/newsletter-failures/clear] error:", error);
     return res.status(500).json({ error: "Could not clear the newsletter alert" });
+  }
+});
+// Dashboard-only aggregates: never expose visitor identities or selection rows.
+router.get("/event-occurrence-engagement", async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+  try {
+    const user = await resolveSessionUser(req);
+    if (!user || !(hasDeveloperAccessRole(user.role) || getUserSectionPermissions(user).events)) return res.sendStatus(403);
+    const id = parseEventId(req.query.event);
+    const occurrence = id && canonicalOccurrence(req.query.occurrenceId, id);
+    if (!occurrence) return res.status(400).json({ error: "Invalid occurrence." });
+    const cities = getUserAllowedCities(user);
+    const owner = normalizeRoleValue(user.role) === "organizer"
+      ? buildOrganizerOwnerClause("organizer", getOrganizerAccessValues(user, req)) : null;
+    const event = await get(`SELECT * FROM events WHERE id = ? AND city IN (${cities.map(() => "?").join(",") || "NULL"}) ${owner ? `AND ${owner.sql}` : ""}`,
+      [id, ...cities, ...(owner?.params || [])]);
+    if (!event) return res.status(404).json({ error: "Event not found." });
+    if (!hasRecurringData(event)) return res.status(400).json({ error: "Select a recurring event." });
+    const scheduled = generateOccurrences(normalizeRowTimes(event), occurrence.ms, occurrence.ms + 1)
+      .some(o => Date.parse(o.startDateTime) === occurrence.ms);
+    const counts = await get(`SELECT COUNT(*) AS responses,
+      COALESCE(SUM(selection = 'going'), 0) AS goingCount,
+      COALESCE(SUM(selection = 'interested'), 0) AS interestedCount
+      FROM occurrence_engagement WHERE eventId = ? AND occurrenceStart = ?`, [id, occurrence.start]);
+    if (!scheduled && !counts.responses) return res.status(404).json({ error: "Occurrence no longer scheduled." });
+    return res.json({ occurrenceId: occurrence.id, scheduled, goingCount: counts.goingCount, interestedCount: counts.interestedCount });
+  } catch (_) {
+    return res.status(500).json({ error: "Could not load occurrence responses." });
   }
 });
 router.get("/events-analytics", async (req, res) => renderAdmin(req, res, "events-analytics"));
