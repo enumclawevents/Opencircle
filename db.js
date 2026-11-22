@@ -6,6 +6,8 @@ const sqlite3 = require("sqlite3");
 const { normalizeStoredRole } = require("./lib/roles");
 const { ensureSessionIdentitySchema } = require("./lib/auth-sessions");
 const { EVENT_REPORT_TYPES } = require("./lib/event-report-reasons");
+const { ensureWebsiteAuthorizationSchema } = require("./lib/website-authorization");
+const { ensureWebsiteCredentialSchema } = require("./lib/website-credentials");
 const { ensureOccurrenceEngagementSchema } = require("./lib/occurrence-engagement");
 const { installParentEventConstraints } = require("./lib/event-parent");
 
@@ -183,6 +185,8 @@ async function ensureEventReportsSchema() {
 // --------------------
 async function initDB() {
   await ensureOccurrenceEngagementSchema(run);
+  await ensureWebsiteCredentialSchema(run);
+  await ensureWebsiteAuthorizationSchema(run);
   await run(`CREATE TABLE IF NOT EXISTS event_drafts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ownerUserId INTEGER NOT NULL,

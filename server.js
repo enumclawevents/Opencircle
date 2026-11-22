@@ -183,6 +183,9 @@ const authIp = createAuthIpResolver({
 const bootstrapIdentifier = normalizeIdentifier(ADMIN_USER);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const sessionStore = createSessionStore({ get, filename: DB_PATH, bootstrapUser: ADMIN_USER, ttlMs: SESSION_TTL_MS });
+const { createConnectionRouter } = require("./routes/website-connections");
+const { transaction: connectionTransaction } = require("./db");
+const websiteConnections = createConnectionRouter({ transaction: connectionTransaction, accountPolicy: adminRouter.websiteConnectionPolicy, sessionStore });
 let lastSessionPruneAt = 0;
 const INVITE_TTL_HOURS = 7 * 24;
 const RESET_TTL_HOURS = 1;
@@ -501,7 +504,8 @@ app.post("/login", async (req, res) => {
       maxAge: SESSION_TTL_MS,
       path: "/",
     });
-    return res.redirect("/admin");
+    const continuation = await websiteConnections.service.resume(parseCookies(req.headers.cookie || "").oc_connect_resume);
+    return res.redirect(continuation || "/admin");
   }
   return res.status(401).send("Invalid credentials");
 });
@@ -1151,6 +1155,7 @@ app.post("/newsletter/subscribe", async (req, res) => {
 // Routes
 // The standalone community preview shares the existing API process and data.
 app.use("/preview/enumclaw", communitySiteRouter);
+app.use("/connections", websiteConnections.router);
 app.use(requireLogin);
 app.get("/newsletter/open/:token.gif", async (req, res) => {
   const token = String(req.params.token || "").trim();
@@ -1251,7 +1256,7 @@ app.use("/admin", adminRouter);
 
 // Global error handler (so 500s are logged)
 app.use((err, req, res, next) => {
-  if (/^\/(?:login|signup|forgot|reset|invite|logout|admin\/(?:preferences\/password|invites(?:\/[^/]+\/delete)?|users\/[^/]+\/(?:reset|resend-invite)))\/?$/i.test(req.path)
+  if (req.path.startsWith("/connections") || /^\/(?:login|signup|forgot|reset|invite|logout|admin\/(?:preferences\/password|invites(?:\/[^/]+\/delete)?|users\/[^/]+\/(?:reset|resend-invite)))\/?$/i.test(req.path)
       || (typeof err === "object" && err !== null && "body" in err)) {
     const status = Number.isInteger(err?.status) ? err.status : 500;
     console.error("[EXPRESS] Request failed", { method: req.method, status });

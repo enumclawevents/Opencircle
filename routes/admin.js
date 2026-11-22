@@ -25324,4 +25324,5 @@ router.post("/events/:id/unarchive", async (req, res) => {
 router.processScheduledNewsletters = processScheduledNewsletters;
 router.processScheduledEmailReports = processScheduledEmailReports;
 
+router.websiteConnectionPolicy = { getUserAllowedCities, supportedCities: ADMIN_AREAS };
 module.exports = router;
