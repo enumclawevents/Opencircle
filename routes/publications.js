@@ -9,7 +9,7 @@ router.get("/", (_req, res) => {
     return res.json(payload);
   } catch {
     res.set("Cache-Control", "no-store");
-    return res.status(503).json({ data: [], error: "Publication directory unavailable" });
+    return res.status(503).json({ data: [], areas: [], error: "Publication directory unavailable" });
   }
 });
 module.exports = router;

@@ -16,6 +16,12 @@ async function server(t,configured=true) {
 }
 test("approved bundled directory is public and contains only the approved metadata",async t=>{
  const f=await server(t,false);for(const url of ["/publications","/publications/"]){const res=await f.get(url);assert.equal(res.status,200);assert.deepEqual(res.data.data.map(p=>p.id),["enumclaw-events","plateau-events"]);assert.equal(res.data.meta.total,2);assert.ok(!/eventRoute|approvedHosts|canonicalCityPublications|credential|installationId/.test(JSON.stringify(res.data)));}
+ const directory=(await f.get("/publications")).data;
+ assert.deepEqual(directory.areas.map(a=>[a.city,a.publicationId,a.calendarUrl]),[
+  ["Enumclaw","enumclaw-events",null],["Buckley","plateau-events",null],
+  ["Carbonado","plateau-events",null],["South Prairie","plateau-events",null],["Wilkeson","plateau-events",null]
+ ]);
+ assert.ok(directory.areas.every(a=>/^city-[a-f0-9]{24}$/.test(a.id)));
  const future=new Date(Date.now()+86400000).toISOString(),end=new Date(Date.now()+90000000).toISOString();
  for(const [i,city]of ["Enumclaw","Buckley","Carbonado","South Prairie","Wilkeson","Seattle"].entries()) {
   await f.sql("INSERT INTO events(id,city,slug,title,startDateTime,endDateTime) VALUES (?,?,?,?,?,?)",[i+1,city,"approved-event-"+(i+1),"Fixture",future,end]);

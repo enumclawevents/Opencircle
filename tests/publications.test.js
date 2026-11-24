@@ -63,3 +63,72 @@ test("approved bundled catalog routes all five cities with slug-first and ID fal
   assert.equal(filtered.eventSource({city:"Buckley",id:42}).sourceEventUrl,null);
  }
 });
+
+test("geographic areas preserve publication projection and stable city identities",()=>{
+ const c=config(),catalog=buildPublicationCatalog(c),directory=catalog.directory();
+ assert.equal(directory.areas.length,5);
+ assert.deepEqual(directory.areas.map(a=>a.city),["Enumclaw","Buckley","Carbonado","South Prairie","Wilkeson"]);
+ assert.equal(new Set(directory.areas.map(a=>a.id)).size,5);
+ for(const a of directory.areas){
+  assert.match(a.id,/^city-[a-f0-9]{24}$/);
+  assert.deepEqual(Object.keys(a),["id","name","city","publicationId","calendarUrl"]);
+  assert.equal(a.name,a.city);assert.equal(a.calendarUrl,null);
+  assert.equal(a.publicationId,a.city==="Enumclaw"?"enumclaw-events":"plateau-events");
+ }
+ const buckley=directory.areas[1];
+ c.canonicalCityPublications[1].name="Discover Buckley";
+ c.canonicalCityPublications.reverse();
+ const changed=buildPublicationCatalog(c).directory();
+ assert.equal(changed.areas.find(a=>a.city==="Buckley").id,buckley.id);
+ assert.equal(changed.areas.find(a=>a.city==="Buckley").name,"Discover Buckley");
+ assert.deepEqual(changed.data,directory.data);
+ directory.areas[0].city="private mutation";
+ assert.equal(catalog.directory().areas[0].city,"Enumclaw");
+ const missing=config();missing.canonicalCityPublications=[];
+ assert.deepEqual(buildPublicationCatalog(missing).directory().areas,[]);
+ const reassigned=config();reassigned.publications[0].cities.push("Buckley");
+ reassigned.canonicalCityPublications[1].publicationId="enumclaw-events";
+ const reassignedDirectory=buildPublicationCatalog(reassigned).directory();
+ assert.notEqual(reassignedDirectory.meta.revision,catalog.directory().meta.revision);
+ const reassignedArea=reassignedDirectory.areas[1];
+ assert.equal(reassignedArea.id,buckley.id);assert.equal(reassignedArea.publicationId,"enumclaw-events");
+});
+test("area discovery excludes inactive and opted-out publications and disabled areas",()=>{
+ for(const flag of ["enabled","nearbyCommunities"]){
+  const c=config();c.publications[1][flag]=false;
+  assert.deepEqual(buildPublicationCatalog(c).directory().areas.map(a=>a.city),["Enumclaw"]);
+ }
+ const c=config();c.canonicalCityPublications[1].enabled=false;
+ const catalog=buildPublicationCatalog(c);
+ assert.equal(catalog.directory().areas.length,4);
+ assert.equal(catalog.directory().data.length,2);
+ assert.equal(catalog.eventSource({city:"Buckley",id:42}).sourcePublicationId,"plateau-events");
+ c.canonicalCityPublications[1].enabled="false";assert.throws(()=>buildPublicationCatalog(c));
+});
+test("explicit city calendars validate origin, calendar paths and a literal city query",()=>{
+ for(const [index,url]of [[1,"https://plateau.example.test/events/buckley/"],[1,"https://plateau.example.test/events/?city=Buckley"],[3,"https://plateau.example.test/events/?city=South%20Prairie"]]){
+  const c=config();c.canonicalCityPublications[index].calendarUrl=url;
+  assert.equal(buildPublicationCatalog(c).directory().areas[index].calendarUrl,url);
+ }
+ const invalid=["http://plateau.example.test/events/","https://evil.test/events/","https://enumclaw.example.test/events/",
+  "https://user:secret@plateau.example.test/events/","https://plateau.example.test:444/events/",
+  "https://plateau.example.test/events/#fragment","https://plateau.example.test/events/../api/",
+  "https://plateau.example.test/events/%2e%2e/api/","https://plateau.example.test/events/%252e%252e/",
+  "https://plateau.example.test/api/events","https://plateau.example.test/wp-json/","https://plateau.example.test/events/api/",
+  "https://plateau.example.test/events/?redirect=https%3A%2F%2Fevil.test",
+  "https://plateau.example.test/events/?city=Buckley&city=Buckley","https://plateau.example.test/events/?city=Enumclaw",
+  "https://plateau.example.test/events/?city=Buckley&rest_route=/events", "https://plateau.example.test/events/?city=Buckley%0a"];
+ for(const url of invalid){const c=config();c.canonicalCityPublications[1].calendarUrl=url;assert.throws(()=>buildPublicationCatalog(c),url);}
+});
+test("directory revision covers geographic and participation configuration changes",()=>{
+ const original=buildPublicationCatalog(config()).directory().meta.revision;
+ for(const change of [c=>{c.canonicalCityPublications[1].name="Buckley area";},c=>{c.canonicalCityPublications[1].calendarUrl="https://plateau.example.test/events/buckley/";},c=>{c.canonicalCityPublications[1].enabled=false;},c=>{c.publications[1].nearbyCommunities=false;},c=>{c.canonicalCityPublications.pop();}]){
+  const c=config();change(c);assert.notEqual(buildPublicationCatalog(c).directory().meta.revision,original);
+ }
+ assert.equal(buildPublicationCatalog(config()).directory().meta.revision,original);
+});
+
+test("empty approved catalogs retain the safe empty-directory contract",()=>{
+ const directory=buildPublicationCatalog({schemaVersion:1,approvedHosts:[],publications:[],canonicalCityPublications:[]}).directory();
+ assert.deepEqual(directory.data,[]);assert.deepEqual(directory.areas,[]);assert.equal(directory.meta.total,0);
+});

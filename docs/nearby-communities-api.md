@@ -65,7 +65,7 @@ there is no first-match or inferred ownership fallback.
 Validation rejects duplicate publication IDs, host entries, case-equivalent city
 coverage and duplicate city assignments, missing publications, out-of-coverage
 assignments, unknown fields, invalid flags, unapproved hosts, HTTP, credentials in
-URLs, non-default ports, queries/fragments, and unsafe dynamic/traversal routes.
+URLs, non-default ports, publication-level queries/fragments, and unsafe dynamic/traversal routes.
 Website URLs are HTTPS origins with a root path. Calendar and event routes must
 stay on that exact approved origin. Event routing supports only a fixed safe path
 prefix plus the existing encoded slug-or-ID convention and an explicit trailing
@@ -117,6 +117,94 @@ Headers include `Cache-Control: public, max-age=60` and an opaque ETag. Normal
 conditional requests can return 304. An empty approved catalog returns 200 with
 `data: []` and `meta.total: 0`. Invalid catalog configuration returns 503 with
 `{"data":[],"error":"Publication directory unavailable"}` and no-store.
+
+## Geographic areas (additive directory extension)
+
+`GET /publications` also returns `areas`. Existing `data` publication records and
+`meta.schemaVersion: 1` / `meta.total` (publication count) are unchanged. No
+credentials are required. This extension does not imply production activation.
+
+Sanitized example (the ID is illustrative; always use the returned opaque ID):
+
+```json
+{
+  "data": [{
+    "id": "plateau-events",
+    "name": "PlateauEvents",
+    "websiteUrl": "https://plateauevents.org/",
+    "calendarUrl": "https://plateauevents.org/events/",
+    "cities": ["Buckley", "Carbonado", "South Prairie", "Wilkeson"]
+  }],
+  "areas": [{
+    "id": "city-0123456789abcdef01234567",
+    "name": "Buckley",
+    "city": "Buckley",
+    "publicationId": "plateau-events",
+    "calendarUrl": null
+  }],
+  "meta": {"schemaVersion": 1, "total": 1, "revision": "<opaque revision>"}
+}
+```
+
+Each area comes from one explicit `canonicalCityPublications` mapping. Only
+mappings to enabled, opted-in publications appear. Coverage without a canonical
+mapping produces no area. Missing, duplicate/case-equivalent, or out-of-coverage
+canonical assignments remain configuration errors. Four Plateau cities remain
+four discovery areas pointing to one publication, not four publications.
+
+Area IDs are `city-` plus the first 24 lowercase hex characters of SHA-256 of the
+trimmed, lowercase mapping city. Treat them as opaque stable selection keys; they
+do not change with display name, publication assignment, or calendar URL. A city
+rename changes its key. `city` preserves the exact configured event-filter value;
+`name` defaults to that city. No venue city, account ID, or ownership permission
+is inferred. Canonical publication assignments designate routing destinations,
+not event authorship, moderation ownership, or editing rights.
+
+Mappings optionally accept `name` (nonempty display text, at most 120 characters),
+`enabled` (boolean, defaults true), and `calendarUrl` (defaults null). For example:
+
+```json
+{
+  "city": "Buckley",
+  "publicationId": "plateau-events",
+  "name": "Buckley",
+  "enabled": true,
+  "calendarUrl": "https://plateauevents.org/events/buckley/"
+}
+```
+
+That URL is an example only, not approval or a claim that this route exists.
+The bundled approved catalog has no city-specific URLs; all five return null.
+Area `enabled: false` hides only geographic discovery; it does not remove the
+existing canonical event source assignment or publication-level directory entry.
+
+City calendar destinations must use HTTPS on the publication's approved origin,
+with no credentials or fragment. Paths must be the publication calendar path or
+its descendants, using ordinary alphanumeric/hyphen/underscore path segments.
+Traversal, encoded separators/double encoding, whitespace/control characters,
+and API/wp-json/graphql path segments are rejected. The only supported query is
+one optional `city` parameter whose decoded value exactly matches the mapping
+city. Duplicate, redirect, unknown, or mismatched parameters are rejected. Query
+values must be URL-encoded. No city URL or query is generated automatically;
+additional query conventions require a separately reviewed validator extension.
+Existing publication-level URLs retain their existing validation.
+
+WordPress should select tabs by area ID and fetch events using the area's exact
+`city` value, encoded with URLSearchParams or an equivalent query builder. Send
+one city per request. Use `sourcePublicationId` and `sourceEventUrl` on each event
+for authoritative event links; do not reconstruct links from the tab name. Resolve
+`publicationId` against `data` for publication metadata and general calendar links.
+When the area calendar is null, use honest wording such as “View all events at
+PlateauEvents,” not “View all Buckley events.” Handle absent `areas` on older API
+builds gracefully; publication-only consumers can ignore the additive collection.
+
+The revision covers configuration plus the derived geographic projection, so
+mapping, display name, calendar URL, eligibility and participation changes alter
+the ETag. Including the projection also invalidates pre-extension ETags. Existing
+60-second directory caching and 30-second event caching remain unchanged. Refresh
+area/publication selections and destinations on revision changes and remove
+unavailable selections rather than guessing replacements. Catalog edits still
+require a process restart. No database or public event response changes are needed.
 
 ## Authoritative event destinations
 
