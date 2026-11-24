@@ -44,3 +44,22 @@ test("source URLs preserve slug encoding, reject route traversal, and never use 
  assert.equal(catalog.eventSource({city:"Enumclaw",id:42}).sourceEventUrl,"https://enumclaw.example.test/events/42");
  const c=config();c.canonicalCityPublications=[];assert.equal(buildPublicationCatalog(c).eventSource({city:"Enumclaw",slug:"known"}).sourceEventUrl,null);
 });
+
+test("approved bundled catalog routes all five cities with slug-first and ID fallback URLs",()=>{
+ const bundled=require("../data/publications.json"),catalog=buildPublicationCatalog(bundled);
+ assert.deepEqual(bundled.approvedHosts,["enumclawevents.org","plateauevents.org"]);
+ assert.deepEqual(catalog.directory().data.map(p=>p.id),["enumclaw-events","plateau-events"]);
+ for(const city of ["Enumclaw","Buckley","Carbonado","South Prairie","Wilkeson"]){
+  const id=city==="Enumclaw"?"enumclaw-events":"plateau-events";
+  const host=city==="Enumclaw"?"enumclawevents.org":"plateauevents.org";
+  assert.deepEqual(catalog.eventSource({city,id:42,slug:"stored-slug"}),{sourcePublicationId:id,sourceEventUrl:"https://"+host+"/events/stored-slug"});
+  assert.equal(catalog.eventSource({city,id:42}).sourceEventUrl,"https://"+host+"/events/42");
+ }
+ assert.deepEqual(catalog.eventSource({city:"Seattle",id:42}),{sourcePublicationId:null,sourceEventUrl:null});
+ for(const field of ["enabled","nearbyCommunities"]){
+  const disabled=JSON.parse(JSON.stringify(bundled));disabled.publications[1][field]=false;
+  const filtered=buildPublicationCatalog(disabled);
+  assert.deepEqual(filtered.directory().data.map(p=>p.id),["enumclaw-events"]);
+  assert.equal(filtered.eventSource({city:"Buckley",id:42}).sourceEventUrl,null);
+ }
+});

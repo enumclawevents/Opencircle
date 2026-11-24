@@ -13,24 +13,18 @@ its relevant facts through targeted source inspection: geographic cities are not
 publication identities, global SEO URLs are not per-publication routing, and the
 upcoming feed can include cancelled records unless explicitly filtered.
 
-`data/publications.json` intentionally starts empty. No production publication
-participation, ownership or destination is inferred from a domain mentioned in a
-prompt, a website connection, an HMAC credential, a request Host header or a city
-name. Platform administrators must approve each site's participation, canonical
-HTTPS host, calendar, event route and city mapping before activating entries via
-the normal reviewed configuration/release process. No new dashboard or database
-migration is involved.
+The reviewed catalog now explicitly approves these Nearby Communities participants:
 
-Proposed decisions still requiring confirmation:
+| Publication ID | Name | Website and calendar | Canonical cities |
+| --- | --- | --- | --- |
+| `enumclaw-events` | EnumclawEvents | `https://enumclawevents.org/`, `/events/` | Enumclaw |
+| `plateau-events` | PlateauEvents | `https://plateauevents.org/`, `/events/` | Buckley, Carbonado, South Prairie, Wilkeson |
 
-- Whether EnumclawEvents is the canonical routing publication for Enumclaw.
-- Whether PlateauEvents is canonical for Buckley, Carbonado, South Prairie and
-  Wilkeson (one publication covering four cities, not four invented websites).
-- Exact approved website origins, calendar URLs and existing event-detail paths.
-- Explicit Nearby Communities participation and approved display names/IDs.
-
-Until then, GET /publications returns an empty directory and event source fields
-are null. This is a valid safe state, not an API error.
+Both entries are enabled and opted in. Their event routes use `/events/`, the
+existing `slug-or-id` identifier, and no trailing slash. Participation and routing
+are explicit approvals, never inferred from website connections, credentials,
+request headers or city names. Unmapped cities retain null source fields.
+Disabled or opted-out entries remain excluded. No database migration is involved.
 
 ## Catalog configuration
 
@@ -239,9 +233,15 @@ refresh rather than retaining indefinitely stale participation. Do not treat an
 unavailable directory as proof of consent or invent links on an event/network
 error. Show a concise unavailable/empty state and retry within a bounded policy.
 
-Before deployment: approve catalog contents and live routing; run focused tests;
-confirm the intended Git/Render baseline and preserve the ordinary database backup
-procedure. No database migration, dependency, version bump, credentials, Render
-settings, WordPress code or shortcode is included here. An empty catalog can be
-released safely as API foundation, but it will not activate Nearby Communities.
-Production revision, participation and installed website routes remain unverified.
+Before deployment: run focused tests; confirm the intended Git/Render baseline
+and preserve the ordinary database backup procedure. The catalog is loaded once
+per process: activating reviewed JSON changes requires deployment and a process
+restart through the existing workflow. No database migration, dependency, version
+bump, credentials or Render configuration changes are required.
+
+Representative slug and numeric-ID routes on both approved websites were checked
+successfully during local configuration review. This does not establish Render's
+running revision or verify every existing event destination. After activation,
+allow the short directory cache to expire, then select publications under
+OpenCircle → Settings → Nearby Communities in WordPress and save. WordPress files
+are unchanged.

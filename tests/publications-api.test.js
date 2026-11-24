@@ -14,8 +14,16 @@ async function server(t,configured=true) {
  const get=async query=>{const res=await fetch(base+query);return {status:res.status,headers:res.headers,data:await res.json()};};
  return {base,sql,get};
 }
-test("public directory is credential-free, filtered, cacheable and empty until production approval",async t=>{
- const f=await server(t,false);for(const url of ["/publications","/publications/"]){const res=await f.get(url);assert.equal(res.status,200);assert.deepEqual(res.data.data,[]);assert.equal(res.data.meta.total,0);}
+test("approved bundled directory is public and contains only the approved metadata",async t=>{
+ const f=await server(t,false);for(const url of ["/publications","/publications/"]){const res=await f.get(url);assert.equal(res.status,200);assert.deepEqual(res.data.data.map(p=>p.id),["enumclaw-events","plateau-events"]);assert.equal(res.data.meta.total,2);assert.ok(!/eventRoute|approvedHosts|canonicalCityPublications|credential|installationId/.test(JSON.stringify(res.data)));}
+ const future=new Date(Date.now()+86400000).toISOString(),end=new Date(Date.now()+90000000).toISOString();
+ for(const [i,city]of ["Enumclaw","Buckley","Carbonado","South Prairie","Wilkeson","Seattle"].entries()) {
+  await f.sql("INSERT INTO events(id,city,slug,title,startDateTime,endDateTime) VALUES (?,?,?,?,?,?)",[i+1,city,"approved-event-"+(i+1),"Fixture",future,end]);
+  const list=await f.get("/events?city="+encodeURIComponent(city));const event=list.data.data[0];
+  const publication=city==="Enumclaw"?"enumclaw-events":city==="Seattle"?null:"plateau-events";
+  assert.equal(event.sourcePublicationId,publication);
+  assert.equal(event.sourceEventUrl,publication?"https://"+(publication==="enumclaw-events"?"enumclawevents.org":"plateauevents.org")+"/events/"+event.slug:null);
+ }
  assert.equal((await fetch(f.base+"/admin/dashboard-summary",{headers:{Accept:"application/json"}})).status,401);
 });
 test("approved fixture publications and event destinations preserve existing feeds, pagination and SEO",async t=>{

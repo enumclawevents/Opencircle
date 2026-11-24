@@ -1,6 +1,66 @@
 {
   "schemaVersion": 1,
-  "approvedHosts": [],
-  "publications": [],
-  "canonicalCityPublications": []
+  "approvedHosts": [
+    "enumclawevents.org",
+    "plateauevents.org"
+  ],
+  "publications": [
+    {
+      "id": "enumclaw-events",
+      "name": "EnumclawEvents",
+      "websiteUrl": "https://enumclawevents.org/",
+      "calendarUrl": "https://enumclawevents.org/events/",
+      "cities": [
+        "Enumclaw"
+      ],
+      "eventRoute": {
+        "pathPrefix": "/events/",
+        "identifier": "slug-or-id",
+        "trailingSlash": false
+      },
+      "enabled": true,
+      "nearbyCommunities": true
+    },
+    {
+      "id": "plateau-events",
+      "name": "PlateauEvents",
+      "websiteUrl": "https://plateauevents.org/",
+      "calendarUrl": "https://plateauevents.org/events/",
+      "cities": [
+        "Buckley",
+        "Carbonado",
+        "South Prairie",
+        "Wilkeson"
+      ],
+      "eventRoute": {
+        "pathPrefix": "/events/",
+        "identifier": "slug-or-id",
+        "trailingSlash": false
+      },
+      "enabled": true,
+      "nearbyCommunities": true
+    }
+  ],
+  "canonicalCityPublications": [
+    {
+      "city": "Enumclaw",
+      "publicationId": "enumclaw-events"
+    },
+    {
+      "city": "Buckley",
+      "publicationId": "plateau-events"
+    },
+    {
+      "city": "Carbonado",
+      "publicationId": "plateau-events"
+    },
+    {
+      "city": "South Prairie",
+      "publicationId": "plateau-events"
+    },
+    {
+      "city": "Wilkeson",
+      "publicationId": "plateau-events"
+    }
+  ]
 }
