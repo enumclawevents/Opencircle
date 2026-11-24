@@ -2,6 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
+const { eventSource } = require("../lib/publications");
 const { createOccurrenceEngagementHandler } = require("../lib/occurrence-engagement");
 const { all, get, run, transaction } = require("../db");
 const crypto = require("crypto");
@@ -1349,6 +1350,7 @@ function eventRelationshipSummary(row) {
     id, slug, city, title, startDateTime, endDateTime,
     location, venueName, organizer, organizers: row.organizers,
     permalinkPath: getEventDetailPath(row),
+    ...eventSource(row),
   };
 }
 
@@ -1407,6 +1409,7 @@ function enrichEventDetailForSeo(req, detailData) {
 
   return {
     ...detailData,
+    ...eventSource(detailData),
     ticketTrackedUrl: getEventTicketTrackedUrl(req, detailData),
     ...seo,
     structuredData: buildEventStructuredData({
@@ -1542,7 +1545,10 @@ async function paginate(items, limit, offset, context = null, projectItem = null
   const slice = await withPublicOrganizers(items.slice(start, end));
   const hasMore = end < total;
   return {
-    data: typeof projectItem === "function" ? slice.map(projectItem) : slice,
+    data: slice.map(item => {
+      const enriched = { ...item, ...eventSource(item) };
+      return typeof projectItem === "function" ? projectItem(enriched) : enriched;
+    }),
     meta: {
       total,
       limit,
@@ -1578,13 +1584,15 @@ async function listEventsHandler(req, res) {
       return res.status(400).json({ data: [], meta: { total: 0, limit: 0, offset: 0, hasMore: false, nextOffset: null }, error: cityParam.error });
     }
     const city = cityParam.value || "Enumclaw";
+    const excludeCancelledParam = readEnumQueryValue(req.query, "excludeCancelled", { defaultValue: "0", allowed: ["0", "1"] });
     const expandParam = readEnumQueryValue(req.query, "expand", { defaultValue: "1", allowed: ["0", "1"] });
     const statusParam = readEnumQueryValue(req.query, "status", { defaultValue: "upcoming", allowed: ["upcoming", "past", "archived", "all"] });
-    if (expandParam.error || statusParam.error) {
-      const invalid = expandParam.error || statusParam.error;
+    if (expandParam.error || statusParam.error || excludeCancelledParam.error) {
+      const invalid = expandParam.error || statusParam.error || excludeCancelledParam.error;
       return res.status(400).json({ data: [], meta: { total: 0, limit: 0, offset: 0, hasMore: false, nextOffset: null }, error: invalid });
     }
     const expand = expandParam.value !== "0";
+    const excludeCancelled = excludeCancelledParam.value === "1";
     const status = statusParam.value;
     const userRole = String(req.user?.role || "").trim().toLowerCase();
     if (status === "archived" && !["admin", "developer"].includes(userRole)) {
@@ -1696,7 +1704,7 @@ async function listEventsHandler(req, res) {
     const eventListCacheKey = status === "archived" ? "" : JSON.stringify([
       city.toLowerCase(), expand, status, sort, q.toLowerCase(), category ? category.slug : "",
       organizer, venue.toLowerCase(), venueLocationIdentifiers, featuredOnly, limit, offset, Boolean(publicEventProjection),
-      fromISO, toISO, windowDays,
+      fromISO, toISO, windowDays, excludeCancelled,
     ]);
     if (eventListCacheKey) {
       const cachedPayload = readCachedPayload(eventListCache, eventListCacheKey, nowUtc);
@@ -1705,6 +1713,7 @@ async function listEventsHandler(req, res) {
 
     const rowWhere = ["city = ? COLLATE NOCASE"];
     const rowParams = [city];
+    if (excludeCancelled) rowWhere.push("LOWER(TRIM(COALESCE(lifecycleState, 'scheduled'))) <> 'cancelled'");
     if (category) {
       rowWhere.push(`EXISTS (
         SELECT 1
@@ -2041,6 +2050,7 @@ router.get("/past", async (req, res) => {
       location: String(r.location || ""),
       imageUrl: r.imageUrl || null,
       isOccurrence: Boolean(r.isOccurrence),
+      ...eventSource(r),
     }));
 
     const payload = {

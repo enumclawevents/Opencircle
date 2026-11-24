@@ -189,7 +189,7 @@ const websiteConnections = createConnectionRouter({ transaction: connectionTrans
 let lastSessionPruneAt = 0;
 const INVITE_TTL_HOURS = 7 * 24;
 const RESET_TTL_HOURS = 1;
-const PUBLIC_PATHS = new Set(["/login", "/signup", "/invite", "/forgot", "/terms-of-service", "/privacy-policy", "/health"]);
+const PUBLIC_PATHS = new Set(["/login", "/signup", "/invite", "/forgot", "/terms-of-service", "/privacy-policy", "/health", "/publications", "/publications/"]);
 const PUBLIC_PREFIXES = [
   "/events/submit",
   "/events/feature",
@@ -1247,6 +1247,7 @@ app.get("/newsletter/click/:token", async (req, res) => {
   res.set("Expires", "0");
   return res.redirect(302, targetUrl);
 });
+app.use("/publications", require("./routes/publications"));
 app.use("/events", eventsRouter);
 app.use("/updates", updatesRouter);
 app.use("/venues", venuesRouter);
