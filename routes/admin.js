@@ -6048,8 +6048,7 @@ try {
             date: String(it?.date || it?.start || "").slice(0, 10),
             start: String(it?.start || "").trim(),
             end: String(it?.end || "").trim(),
-          }))
-          .filter((it) => it.start && it.end);
+          }));
       }
 
       const baseStart = String(editEvent?.startDateTime || "").trim();
@@ -6066,11 +6065,17 @@ try {
           const date = String(d || "").trim();
           if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
 
-          if (baseStart.length >= 16 && baseEnd.length >= 16) {
-            return { start: date + baseStart.slice(10), end: date + baseEnd.slice(10), date, item: null, originalIndex: -1 };
+          const startTemplate = DateTime.fromISO(baseStart, { zone: DEFAULT_TZ, setZone: true }).setZone(DEFAULT_TZ);
+          const endTemplate = DateTime.fromISO(baseEnd, { zone: DEFAULT_TZ, setZone: true }).setZone(DEFAULT_TZ);
+          const selectedDay = DateTime.fromISO(date, { zone: DEFAULT_TZ });
+          if (startTemplate.isValid && endTemplate.isValid && selectedDay.isValid && endTemplate > startTemplate) {
+            const days = endTemplate.startOf("day").diff(startTemplate.startOf("day"), "days").days;
+            const start = selectedDay.set({ hour: startTemplate.hour, minute: startTemplate.minute, second: startTemplate.second });
+            const end = selectedDay.plus({ days }).set({ hour: endTemplate.hour, minute: endTemplate.minute, second: endTemplate.second });
+            return { start: start.toISO(), end: end.toISO(), date, item: null, originalIndex: -1 };
           }
 
-          return { start: date + "T00:00:00+00:00", end: date + "T00:00:00+00:00", date, item: null, originalIndex: -1 };
+          return { start: "", end: "", date, item: null, originalIndex: -1 };
         })
         .filter(Boolean);
     })();
@@ -13250,6 +13255,8 @@ return `
         background: var(--panel);
         font-size: 13px;
       }
+      #customDatesWrap .chip{ flex-wrap:wrap; max-width:100%; min-width:0; box-sizing:border-box; }
+      #customDatesWrap .chip input{ max-width:100%; min-width:0; box-sizing:border-box; }
       .chip button{ border:0; background: transparent; cursor:pointer; font-weight:650; color: #b91c1c; }
 
 
@@ -16642,7 +16649,7 @@ return `
                             '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="' + (end ? end.slice(11,16) : "") + '" />' +
                             '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
                           var removeBtn = chip.querySelector('[data-remove-date]');
-                          if (removeBtn) removeBtn.onclick = function(){ chip.remove(); };
+                          if (removeBtn && !wrap.dataset.customDateManaged) removeBtn.onclick = function(){ chip.remove(); };
                           wrap.appendChild(chip);
                         });
                       }
@@ -16955,13 +16962,19 @@ return `
                           const startIso = String(row?.start || "").trim();
                           const endIso   = String(row?.end || "").trim();
 
-                          const dateVal  = String(row?.date || (startIso ? startIso.slice(0, 10) : "")).slice(0, 10);
-                          const startVal = startIso ? startIso.slice(11, 16) : "";
-                          const endDateVal = endIso ? endIso.slice(0, 10) : dateVal;
-                          const endVal   = endIso ? endIso.slice(11, 16) : "";
+                          const localValue = value => {
+                            if (!value) return "";
+                            const parsed = DateTime.fromISO(value, { zone: DEFAULT_TZ, setZone: true });
+                            return parsed.isValid ? parsed.setZone(DEFAULT_TZ).toFormat("yyyy-MM-dd'T'HH:mm") : "";
+                          };
+                          const startLocal = localValue(startIso), endLocal = localValue(endIso);
+                          const dateVal = startLocal ? startLocal.slice(0,10) : String(row?.date || "").slice(0,10);
+                          const startVal = startLocal.slice(11,16);
+                          const endDateVal = endLocal.slice(0,10);
+                          const endVal = endLocal.slice(11,16);
 
                           return `
-                            <span class="chip" data-original-index="${Number.isInteger(row?.originalIndex) ? row.originalIndex : index}">
+                            <span class="chip" data-original-index="${Number.isInteger(row?.originalIndex) ? row.originalIndex : index}" data-original-start-local="${esc(startLocal)}" data-original-end-local="${esc(endLocal)}">
                               <input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customDate" value="${esc(dateVal)}" />
                               <input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customStart" value="${esc(startVal)}" />
                               <input class="ctrl" style="width:160px; padding:8px 10px;" type="date" name="customEndDate" aria-label="Occurrence end date" value="${esc(endDateVal)}" />
@@ -16985,7 +16998,7 @@ return `
                 </div>
                 <div id="recurrencePreview" class="mini" style="margin-top:14px; display:none;">
                   <div style="font-weight:650;">Upcoming occurrences</div>
-                  <div class="note" data-preview-summary style="margin-top:4px;"></div>
+                  <div id="recurrencePreviewFeedback" class="note" data-preview-summary role="status" aria-live="polite" style="margin-top:4px;"></div>
                   <ul data-preview-list style="margin:8px 0 0; padding-left:20px;"></ul>
                 </div>
                 </div>
@@ -17023,6 +17036,7 @@ return `
                     var choice = document.querySelector('input[name="recurrenceChoice"][value="' + (enabled ? "yes" : "no") + '"]');
                     if (choice) choice.checked = true;
                     if (!enabled) {
+                      schedulePreview();
                       show(recurrenceIntro, false);
                       show(repeatControls, false);
                       show(intervalRow, false);
@@ -17048,7 +17062,7 @@ return `
                       show(nthweekdayBox, false);
                     }
                     if (supportedPattern) schedulePreview();
-                    else show(preview, false);
+                    else { schedulePreview(); show(preview, false); }
                   };
                   window.ocSetRecurrenceChoice = function(enabled){
                     if (!hasRecEl) return;
@@ -17060,21 +17074,56 @@ return `
                     var els = document.querySelectorAll('input[name="' + name + '"]:checked');
                     return Array.prototype.map.call(els, function(el){ return el.value; });
                   }
-                  function customItems(){
-                    if (!wrap) return [];
-                    return Array.prototype.map.call(wrap.querySelectorAll(".chip"), function(chip){
-                      var date = (chip.querySelector('input[name="customDate"]') || {}).value || "";
-                      var start = (chip.querySelector('input[name="customStart"]') || {}).value || "";
-                      var endDate = (chip.querySelector('input[name="customEndDate"]') || {}).value || date;
-                      var end = (chip.querySelector('input[name="customEnd"]') || {}).value || "";
-                      return { date: date, start: date && start ? date + "T" + start : "", end: endDate && end ? endDate + "T" + end : "" };
+                  function customState(){
+                    var items = [], errors = [];
+                    if (!wrap) return { items: items, errors: errors };
+                    Array.prototype.forEach.call(wrap.querySelectorAll(".chip"), function(chip, index){
+                      var names = ["customDate", "customStart", "customEndDate", "customEnd"];
+                      var labels = ["Start date", "Start time", "End date", "End time"];
+                      var fields = names.map(function(name){ return chip.querySelector('input[name="' + name + '"]'); });
+                      var values = fields.map(function(field){ return field ? field.value : ""; });
+                      var invalid = false;
+                      fields.forEach(function(field, i){
+                        if (!field) return;
+                        field.setAttribute("aria-label", labels[i] + " for date " + (index + 1));
+                        field.setAttribute("aria-describedby", "recurrencePreviewFeedback");
+                        var message = values[i] ? "" : "Enter " + labels[i].toLowerCase() + " for date " + (index + 1) + ".";
+                        field.setCustomValidity(message);
+                        if (message) { invalid = true; errors.push(message); field.setAttribute("aria-invalid", "true"); }
+                        else field.removeAttribute("aria-invalid");
+                      });
+                      if (invalid) return;
+                      var start = values[0] + "T" + values[1], end = values[2] + "T" + values[3];
+                      var originals = [];
+                      try { originals = JSON.parse((document.getElementById("originalCustomItemsJson") || {}).value || "[]"); } catch (_) {}
+                      var original = chip.hasAttribute("data-original-index") ? originals[Number(chip.getAttribute("data-original-index"))] : null;
+                      var unchanged = original && chip.getAttribute("data-original-start-local") === start && chip.getAttribute("data-original-end-local") === end;
+                      var validRange = unchanged ? Date.parse(original.end) > Date.parse(original.start) : end > start;
+                      if (!validRange) {
+                        var message = "Date " + (index + 1) + ": End must be after start. Check the end date for an overnight event.";
+                        fields[3].setCustomValidity(message); fields[3].setAttribute("aria-invalid", "true"); errors.push(message); return;
+                      }
+                      if (unchanged) {
+                        items.push({ date: original.date || values[0], start: original.start, end: original.end });
+                      } else items.push({ date: values[0], start: start, end: end });
                     });
+                    return { items: items, errors: errors };
                   }
+                  window.ocValidateCustomDates = function(){
+                    if (!hasRecEl || !hasRecEl.checked || !typeEl || typeEl.value !== "custom") return true;
+                    return customState().errors.length === 0 && customState().items.length > 0;
+                  };
                   function schedulePreview(){
                     if (previewTimer) window.clearTimeout(previewTimer);
+                    ++previewRequestId;
+                    if (previewController) previewController.abort();
+                    var activeCustom = hasRecEl && hasRecEl.checked && typeEl && typeEl.value === "custom";
+                    if (wrap && !activeCustom) wrap.querySelectorAll("input").forEach(function(field){ field.setCustomValidity(""); field.removeAttribute("aria-invalid"); });
                     if (!hasRecEl || !hasRecEl.checked || !typeEl || typeEl.value === "none") return;
+                    if (activeCustom) customState();
                     previewTimer = window.setTimeout(loadPreview, 180);
                   }
+                  window.ocRefreshRecurrencePreview = schedulePreview;
                   function recurrenceSummary(payload){
                     if (payload.type === "custom") return "Shows the specific dates entered below; no additional dates are generated.";
                     var unit = payload.type === "monthly" ? "month" : "week";
@@ -17088,7 +17137,21 @@ return `
                   function loadPreview(){
                     var start = (document.getElementById("startDateTime") || {}).value || "";
                     var end = (document.getElementById("endDateTime") || {}).value || "";
-                    if (!start || !end || !preview) return;
+                    if (!preview) return;
+                    var custom = typeEl.value === "custom";
+                    var state = custom ? customState() : { items: [], errors: [] };
+                    if (custom && state.items.length) { start = state.items[0].start; end = state.items[0].end; }
+                    show(preview, true);
+                    var incomplete = custom && state.errors.length ? state.errors.join(" ") : "";
+                    if (previewSummary) {
+                      previewSummary.classList.toggle("admin-notice", !!incomplete);
+                      previewSummary.classList.toggle("admin-notice--error", !!incomplete);
+                    }
+                    if (!start || !end || (custom && !state.items.length)) {
+                      if (previewSummary) previewSummary.textContent = incomplete || "Complete the schedule to preview occurrences.";
+                      if (previewList) previewList.innerHTML = "";
+                      return;
+                    }
                     var payload = {
                       startDateTime: start,
                       endDateTime: end,
@@ -17100,12 +17163,13 @@ return `
                       setPos: (document.querySelector('select[name="setPos"]') || {}).value || "1",
                       monthlyByDay: selectedValues("monthlyByDay"),
                       recurrenceUntilDate: (document.getElementById("recurrenceUntilDate") || {}).value || "",
-                      customItems: customItems(),
+                      customItems: custom ? state.items : [],
                     };
                     if (previewController) previewController.abort();
                     previewController = typeof AbortController !== "undefined" ? new AbortController() : null;
                     var requestId = ++previewRequestId;
                     if (previewSummary) previewSummary.textContent = "Updating preview…";
+                    if (previewList) previewList.innerHTML = "";
                     fetch("/admin/events/preview-recurrence", {
                       method: "POST", credentials: "same-origin",
                       headers: { "content-type": "application/json", accept: "application/json" },
@@ -17121,7 +17185,7 @@ return `
                           return;
                         }
                         var occurrences = Array.isArray(result.json.occurrences) ? result.json.occurrences : [];
-                        if (previewSummary) previewSummary.textContent = occurrences.length ? recurrenceSummary(payload) : "No upcoming occurrences match these settings.";
+                        if (previewSummary) previewSummary.textContent = (incomplete ? incomplete + " " : "") + (occurrences.length ? recurrenceSummary(payload) : "No upcoming occurrences match these settings.");
                         if (previewList) previewList.innerHTML = occurrences.map(function(item){
                           var startTime = String(item.startDateTime || "").slice(11,16);
                           var endTime = String(item.endDateTime || "").slice(11,16);
@@ -17133,28 +17197,38 @@ return `
                         if (previewSummary) previewSummary.textContent = "Preview is temporarily unavailable. Your schedule has not been changed.";
                       });
                   }
-                  function attachRemove(){
-                    if (!wrap) return;
-                    var btns = wrap.querySelectorAll("button[data-remove-date]");
-                    for (var i = 0; i < btns.length; i++) {
-                      btns[i].onclick = function(){
-                        var chip = this.closest ? this.closest(".chip") : null;
-                        if (chip) chip.remove();
-                        schedulePreview();
-                      };
-                    }
+                  if (wrap) {
+                    wrap.dataset.customDateManaged = "true";
+                    wrap.addEventListener("click", function(event){
+                      var button = event.target.closest("button[data-remove-date]");
+                      if (!button || !wrap.contains(button)) return;
+                      var chip = button.closest(".chip"); if (chip) chip.remove();
+                      schedulePreview();
+                    });
+                    new MutationObserver(schedulePreview).observe(wrap, { childList: true });
                   }
-                  attachRemove();
                   // This form is also initialized by the page-level recurrence
                   // helper below. Keep the add action idempotent so one click
                   // always creates exactly one custom occurrence row.
                   if (addBtn && wrap && !addBtn.dataset.customDateAddBound) {
                     addBtn.dataset.customDateAddBound = "true";
                     addBtn.addEventListener("click", function(){
+                      var previous = Array.prototype.slice.call(wrap.querySelectorAll(".chip")).reverse().find(function(row){
+                        return ["customDate", "customStart", "customEndDate", "customEnd"].every(function(name){ return (row.querySelector('[name="' + name + '"]') || {}).value; });
+                      });
                       var chip = document.createElement("span");
                       chip.className = "chip";
                       var startLocal = (document.getElementById("startDateTime") || {}).value || "";
                       var endLocal = (document.getElementById("endDateTime") || {}).value || "";
+                      if (previous) {
+                        var previousValue = function(name){ return (previous.querySelector('[name="' + name + '"]') || {}).value || ""; };
+                        if (previousValue("customDate") && previousValue("customStart") && previousValue("customEndDate") && previousValue("customEnd")) {
+                          startLocal = previousValue("customDate") + "T" + previousValue("customStart");
+                          endLocal = previousValue("customEndDate") + "T" + previousValue("customEnd");
+                        }
+                      }
+                      var dayOffset = (Date.parse(endLocal.slice(0,10) + "T00:00:00Z") - Date.parse(startLocal.slice(0,10) + "T00:00:00Z")) / 86400000;
+                      chip.dataset.endDayOffset = Number.isInteger(dayOffset) && dayOffset >= 0 ? String(dayOffset) : "0";
                       var startTime = startLocal && startLocal.length >= 16 ? startLocal.slice(11,16) : "";
                       var endTime = endLocal && endLocal.length >= 16 ? endLocal.slice(11,16) : startTime;
                       chip.innerHTML =
@@ -17164,21 +17238,23 @@ return `
                         '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="" />' +
                         '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
                       wrap.appendChild(chip);
+                      var first = wrap.querySelectorAll(".chip").length === 1;
+                      var sd = chip.querySelector('input[name="customDate"]');
                       var st = chip.querySelector('input[name="customStart"]');
                       var ed = chip.querySelector('input[name="customEndDate"]');
                       var en = chip.querySelector('input[name="customEnd"]');
                       if (st && startTime) st.value = startTime;
                       var startDate = startLocal && startLocal.length >= 10 ? startLocal.slice(0,10) : "";
-                      if (ed && startDate) ed.value = startDate;
+                      if (first && sd && startDate) sd.value = startDate;
+                      if (first && ed && startDate) ed.value = endLocal.slice(0,10) || startDate;
                       if (en && endTime) en.value = endTime;
-                      attachRemove();
                       schedulePreview();
                     });
                   }
                   if (pruneBtn && wrap) {
+                    pruneBtn.dataset.customDatePruneBound = "true";
                     pruneBtn.addEventListener("click", function(){
-                      var today = new Date();
-                      var todayStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+                      var todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: ${JSON.stringify(DEFAULT_TZ)}, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
                       var chips = wrap.querySelectorAll(".chip");
                       for (var i = 0; i < chips.length; i++) {
                         var chip = chips[i];
@@ -17192,9 +17268,20 @@ return `
                     if (el) el.addEventListener("change", schedulePreview);
                   });
                   if (hasRecEl) hasRecEl.addEventListener("change", window.ocSyncRecurrenceUI);
-                  document.addEventListener("change", function(event){
-                    if (event.target && (/^(weeklyByDay|monthlyByDay|byMonthday|setPos|recurrenceInterval|customDate|customStart|customEnd)$/).test(event.target.name || "")) schedulePreview();
-                  });
+                  function scheduleFieldPreview(event){
+                    if (!event.target) return;
+                    if (event.target.name === "customDate" && event.type === "change") {
+                      var chip = event.target.closest(".chip"), ed = chip && chip.querySelector('[name="customEndDate"]');
+                      if (ed && !ed.value && event.target.value) {
+                        var day = new Date(event.target.value + "T00:00:00Z");
+                        day.setUTCDate(day.getUTCDate() + Number(chip.dataset.endDayOffset || 0));
+                        ed.value = day.toISOString().slice(0,10);
+                      }
+                    }
+                    if ((/^(weeklyByDay|monthlyByDay|byMonthday|setPos|recurrenceInterval|customDate|customStart|customEndDate|customEnd|startDateTime|endDateTime|recurrenceUntilDate)$/).test(event.target.name || "")) schedulePreview();
+                  }
+                  document.addEventListener("change", scheduleFieldPreview);
+                  document.addEventListener("input", scheduleFieldPreview);
                   var originalTypeEl = document.getElementById("originalRecurrenceType");
                   var recurrenceRuleChangedEl = document.getElementById("recurrenceRuleChanged");
                   var lastConfirmedType = typeEl ? String(typeEl.value || "") : "";
@@ -19508,12 +19595,14 @@ return `
 
           if (recHidden) {
             if (hasRec && recType === "custom") {
+              var savingDraft = ["saveDraft", "saveChangesDraft"].includes(ev.submitter?.name);
+              if (!savingDraft && window.ocValidateCustomDates && !window.ocValidateCustomDates()) {
+                ev.preventDefault(); form.reportValidity(); return;
+              }
               var wrap = document.getElementById("customDatesWrap");
               var chips = wrap ? wrap.querySelectorAll(".chip") : [];
               var originalItems = [];
               try { originalItems = JSON.parse(String(((document.getElementById("originalCustomItemsJson") || {}).value) || "[]")); } catch (_) { originalItems = []; }
-              var fallbackStart = (startLocal && startLocal.length >= 16) ? startLocal.slice(11,16) : "00:00";
-              var fallbackEnd = (endLocal && endLocal.length >= 16) ? endLocal.slice(11,16) : fallbackStart;
 
               var items = [];
               for (var i=0;i<chips.length;i++){
@@ -19523,12 +19612,12 @@ return `
                 var st = (chip.querySelector('input[name="customStart"]') || {}).value || "";
                 var endDate = (chip.querySelector('input[name="customEndDate"]') || {}).value || date;
                 var en = (chip.querySelector('input[name="customEnd"]') || {}).value || "";
-                var originalIndex = Number(chip.getAttribute("data-original-index"));
+                var originalIndex = chip.hasAttribute("data-original-index") ? Number(chip.getAttribute("data-original-index")) : -1;
                 var original = Number.isInteger(originalIndex) && originalIndex >= 0 ? originalItems[originalIndex] : null;
-                var startLocalValue = date + "T" + (st || fallbackStart);
-                var endLocalValue = endDate + "T" + (en || fallbackEnd);
-                var originalStartLocal = String(original && original.start || "").slice(0,16);
-                var originalEndLocal = String(original && original.end || "").slice(0,16);
+                var startLocalValue = date + "T" + st;
+                var endLocalValue = endDate + "T" + en;
+                var originalStartLocal = chip.getAttribute("data-original-start-local") || String(original && original.start || "").slice(0,16);
+                var originalEndLocal = chip.getAttribute("data-original-end-local") || String(original && original.end || "").slice(0,16);
                 if (original && originalStartLocal === startLocalValue && originalEndLocal === endLocalValue) {
                   items.push(original);
                 } else {
@@ -19689,7 +19778,7 @@ return `
               '<input class="ctrl" style="width:120px; padding:8px 10px;" type="time" name="customEnd" value="' + (end ? end.slice(11,16) : "") + '" />' +
               '<button type="button" data-remove-date="1" aria-label="Remove">×</button>';
             var removeBtn = chip.querySelector('[data-remove-date]');
-            if (removeBtn) {
+            if (removeBtn && !wrap.dataset.customDateManaged) {
               removeBtn.onclick = function(){
                 chip.remove();
               };
@@ -20421,6 +20510,7 @@ return `
 
       // Recurrence UI show/hide + custom chips
       (function(){
+        if (document.getElementById("customDatesWrap")?.dataset.customDateManaged) return;
         var hasRecEl = document.getElementById("hasRecurrence");
         var typeEl = document.getElementById("recurrenceType");
         var intervalRow = document.getElementById("intervalRow");
@@ -20483,7 +20573,7 @@ return `
             };
           }
         }
-        attachRemove();
+        if (!wrap || !wrap.dataset.customDateManaged) attachRemove();
 
         // Some admin views include the form-level recurrence initializer above.
         // Bind only when it has not already claimed this shared control.
@@ -20520,7 +20610,7 @@ return `
 
         // Remove past custom dates (date-only compare)
         var pruneBtn = document.getElementById("prunePastDates");
-        if (pruneBtn && wrap){
+        if (pruneBtn && wrap && !pruneBtn.dataset.customDatePruneBound){
           pruneBtn.addEventListener("click", function(){
             var today = new Date();
             var yyyy = today.getFullYear();
@@ -23697,8 +23787,16 @@ router.post("/events/preview-recurrence", express.json({ limit: "128kb" }), asyn
     }
 
     const body = req.body || {};
-    const startDateTime = toLocalISOWithOffset(body.startDateTime);
-    const endDateTime = toLocalISOWithOffset(body.endDateTime);
+    // The existing generator expects an explicit offset rather than a Z suffix.
+    // Convert instants only for this preview, preserving stored items and identities.
+    const previewISO = value => {
+      const iso = toLocalISOWithOffset(value);
+      if (String(body.type || "").trim().toLowerCase() !== "custom") return iso;
+      const parsed = iso ? DateTime.fromISO(iso, { setZone: true }) : null;
+      return parsed?.isValid ? parsed.setZone(DEFAULT_TZ).toISO({ suppressMilliseconds: true, includeOffset: true }) : null;
+    };
+    let startDateTime = previewISO(body.startDateTime);
+    let endDateTime = previewISO(body.endDateTime);
     if (!startDateTime || !endDateTime || Date.parse(endDateTime) <= Date.parse(startDateTime)) {
       return res.status(400).json({ error: "Enter a valid first occurrence start and end time." });
     }
@@ -23727,10 +23825,14 @@ router.post("/events/preview-recurrence", express.json({ limit: "128kb" }), asyn
       const items = (Array.isArray(body.customItems) ? body.customItems : [])
         .map((item) => ({
           date: String(item?.date || "").trim(),
-          start: toLocalISOWithOffset(item?.start),
-          end: toLocalISOWithOffset(item?.end),
+          start: previewISO(item?.start),
+          end: previewISO(item?.end),
         }))
         .filter((item) => item.start && item.end && Date.parse(item.end) > Date.parse(item.start));
+      if (items.length) {
+        const first = items.reduce((earliest, item) => Date.parse(item.start) < Date.parse(earliest.start) ? item : earliest);
+        startDateTime = first.start; endDateTime = first.end;
+      }
       rule = { type, items };
     }
     if (!rule) return res.status(400).json({ error: "Choose a supported repeat pattern." });
