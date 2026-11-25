@@ -11638,6 +11638,10 @@ return `
         flex:1 1 auto;
         min-width:0;
       }
+      .newsletter-audience-row-details{
+        min-width:0;
+        flex:0 1 360px;
+      }
       .newsletter-audience-row-meta{
         margin-top:4px;
         font-size:12px;
@@ -11861,6 +11865,17 @@ return `
         .newsletter-audience-row-main{
           flex-direction:column;
         }
+        body.theme-dark .newsletter-audience-row{ background:var(--panel2); }
+        body.theme-dark .newsletter-audience-row-quickstat{ background:var(--panel); }
+        /* Desktop width bases become unwanted heights after main stacks. */
+        .newsletter-audience-row-details,
+        .newsletter-audience-row-quickstats{
+          flex:0 1 auto;
+        }
+        .newsletter-audience-row-quickstat .k,
+        .newsletter-audience-row-quickstat .v{
+          overflow-wrap:anywhere;
+        }
         .newsletter-audience-row-quickstats{
           grid-template-columns: repeat(3, minmax(0, 1fr));
           width:100%;
@@ -11876,6 +11891,14 @@ return `
         }
         .newsletter-audience-row-top{
           flex-direction:column;
+        }
+        .newsletter-audience-row-main{
+          width:100%;
+        }
+        .newsletter-audience-row-top > .value{
+          flex-wrap:wrap;
+          max-width:100%;
+          min-width:0;
         }
         .newsletter-audience-row-quickstats{
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -16263,7 +16286,7 @@ return `
                     ].join(" "))}">
                       <div class="newsletter-audience-row-top">
                         <div class="newsletter-audience-row-main">
-                          <div style="min-width:0; flex:0 1 360px;">
+                          <div class="newsletter-audience-row-details">
                             <div class="label" style="overflow-wrap:anywhere; font-size:16px; font-weight:800; color:var(--text);">${esc(row.email || "")}</div>
                             <div class="newsletter-audience-row-meta">
                               Added ${esc(DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).isValid ? DateTime.fromISO(String(row.createdAt || ""), { zone: DEFAULT_TZ }).toFormat("LLL d, yyyy") : "recently")}
